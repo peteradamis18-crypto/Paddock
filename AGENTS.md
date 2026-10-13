@@ -33,6 +33,9 @@ no gimmicks. User-facing text is plain English.
   priority, ≤ 2 cores, downloads throttled. Everything live waits until `state` shows `sim=False`.
 
 ## How to work (cheap, focused, verifiable)
+- For new work, read `docs/QUALITY-GATES.md` and the relevant role playbook in `docs/skills/`.
+  A card's `done` status is not a release gate: record contract, engineering, visual and real-rig evidence separately.
+  A builder may leave live evidence pending; only the lead can call a feature shipped after that check.
 - One card = one session. Stay inside the card's **Files** list; if you must touch another file, keep it to the
   smallest edit, re-read it right before editing (other agents may have changed it) and list it in your report.
 - C# 5 only (Windows' own csc): no `$"..."`, `?.`, `nameof`, expression-bodied members, `out var`. No NuGet, no
