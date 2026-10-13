@@ -1,0 +1,101 @@
+/* Session Review (card C-40). Look = docs\mockups\session-review.html / .png, tokens = docs\DESIGN-analysis.md section 8.
+   A fixed 1920x1080 stage, scaled to the window; every box has its own place, so nothing can stack on anything else. */
+.sr { --bg: #0b0b0c; --panel: #121214; --line: #26262a; --ink: #ece8df; --mute: #8b877d; --dim: #5d5a54;
+  --gold: #f2c230; --ref: #cfd8e3; --gain: #3ccf7e; --loss: #e5534b; --purple: #b46cff; --green: #3ccf7e; --yellow: #e8c547;
+  position: fixed; inset: 0; z-index: 950; overflow: hidden; background: var(--bg); color: var(--ink); cursor: default;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.sr *, .sr *::before, .sr *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* inside the dashboard the old debrief box rules (debrief.css) are switched off */
+#debrief.sr { display: block; padding: 0; gap: 0; cursor: default; background: #0b0b0c; }
+#debrief.sr:not(.on) { pointer-events: none; }      /* while its data loads it is invisible and must not catch clicks meant for the dashboard */
+.sr-stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+.sr-stage > *, #srBody > * { position: absolute; }
+.sr-page { margin: 0; background: #0b0b0c; }
+
+.sr .lab { font-size: 14px; letter-spacing: .22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+.sr .sr-gold { color: var(--gold); } .sr .ref { color: var(--ref); } .sr .gain { color: var(--gain); } .sr .loss { color: var(--loss); }
+.sr .purple { color: var(--purple); } .sr .mute { color: var(--mute); }
+.sr svg text { font-family: Bahnschrift, "Segoe UI", sans-serif; }
+
+/* identity band */
+.sr .hdr { left: 48px; right: 48px; top: 36px; height: 96px; display: flex; align-items: center; gap: 28px; }
+.sr .plate { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 92px; height: 72px; border: 1px solid var(--gold);
+  background: #000; color: var(--gold); font-weight: 700; font-style: italic; font-size: 58px; letter-spacing: -.02em; line-height: 1; }
+.sr .plate.l3 { font-size: 44px; }
+.sr .sr-who b { display: block; font-size: 40px; letter-spacing: .06em; font-weight: 600; white-space: nowrap; }
+.sr .sr-who span { display: block; font-size: 15px; letter-spacing: .26em; color: var(--mute); white-space: nowrap; }
+.sr .mid { flex: 1; min-width: 0; padding-left: 40px; border-left: 1px solid var(--line); }
+.sr .mid b { display: block; font-size: 26px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr .mid span { display: block; font-size: 15px; letter-spacing: .2em; color: var(--mute); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr .sess { text-align: right; flex: none; }
+.sr .sess b { display: block; font-size: 22px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+.sr .sess .ex { display: block; margin-top: 4px; font-size: 15px; letter-spacing: .14em; color: var(--mute); text-transform: uppercase; white-space: nowrap; }
+.sr .sess .pill { display: inline-block; margin-top: 8px; padding: 4px 10px; border: 1px solid currentColor; font-size: 14px; letter-spacing: .18em; color: var(--purple); white-space: nowrap; }
+.sr .sess .pill.sr-best { color: var(--mute); }
+.sr .hint { right: 48px; top: 9px; font-size: 14px; letter-spacing: .22em; color: var(--dim); text-transform: uppercase; white-space: nowrap; }
+.sr .sr-rule { left: 48px; right: 48px; top: 146px; border-top: 1px solid var(--line); }
+
+/* timing table */
+.sr .sr-tbl { left: 48px; top: 172px; width: 960px; }
+.sr .sr-row { display: grid; grid-template-columns: var(--cols); align-items: center; height: var(--rh, 50px); border-bottom: 1px solid #1a1a1d; }
+.sr .sr-row.h { height: 34px; border-bottom: 1px solid var(--line); }
+.sr .sr-row.h div { font-size: 14px; letter-spacing: .22em; color: var(--mute); white-space: nowrap; }
+.sr .sr-row div { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.sr .sr-row .lt { font-size: var(--ltf, 26px); font-weight: 500; }
+.sr .sr-row.sr-best { background: linear-gradient(90deg, rgba(242, 194, 48, .10), rgba(242, 194, 48, 0) 70%); }
+.sr .sr-row.grey div { color: var(--dim); }
+.sr .sr-row.opt { height: 50px; border-top: 1px solid var(--line); border-bottom: none; }
+.sr .sr-row.opt .lt { color: var(--purple); font-style: italic; }
+.sr .sr-row.opt .ol { font-size: 14px; letter-spacing: .22em; color: var(--mute); text-transform: uppercase; }
+.sr .ms { display: flex; gap: 2px; padding-right: 10px; }
+.sr .ms i { flex: 1; max-width: 12px; height: var(--mh, 22px); display: block; }
+.sr .ms i.p { background: var(--purple); } .sr .ms i.n { background: var(--green); } .sr .ms i.y { background: #7a6b2c; } .sr .ms i.g { background: #2a2a2e; }
+.sr .sp { color: var(--purple); } .sr .sn { color: var(--green); } .sr .sy { color: var(--ink); } .sr .sg { color: var(--dim); }
+.sr .sr-flag { font-size: 14px !important; letter-spacing: .18em; color: var(--dim); }
+.sr .tnote { left: 48px; top: 828px; font-size: 14px; letter-spacing: .18em; color: var(--dim); text-transform: uppercase; white-space: nowrap; }
+
+/* map */
+/* the label has its own 18 px line and the "no map" message starts under it: their boxes used to overlap by a few px (quickwins-test) */
+.sr .maplab { left: 1048px; top: 160px; width: 824px; height: 18px; line-height: 18px; overflow: hidden; letter-spacing: .16em; }
+.sr .mapbox { left: 1048px; top: 172px; width: 824px; height: 470px; }
+.sr .mapmsg { left: 1048px; top: 180px; width: 824px; height: 462px; display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--mute); }
+.sr .credit { left: 1048px; top: 643px; width: 824px; text-align: right; font-size: 14px; line-height: 14px; letter-spacing: .08em; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* numbers */
+.sr .nums { left: 1048px; top: 660px; width: 824px; display: grid; grid-template-columns: repeat(var(--nc, 4), 1fr); border-top: 1px solid var(--line); }
+.sr .nums > div { padding: 16px 16px 0 0; min-width: 0; }
+.sr .nums b { display: block; font-size: 34px; font-weight: 500; margin-top: 6px; white-space: nowrap; }
+.sr .nums b .u { font-size: 22px; font-weight: 400; color: var(--mute); }
+.sr .nums .sr-sub { display: block; font-size: 16px; color: var(--mute); margin-top: 4px; line-height: 20px; }
+.sr .chart { left: 1048px; top: 800px; width: 824px; height: 140px; }
+
+/* data notes */
+.sr .notes { left: 48px; top: 846px; width: 960px; }
+.sr .notes .nl { margin-bottom: 6px; }
+.sr .notes .n { display: grid; grid-template-columns: 110px 120px 1fr; align-items: baseline; height: 38px; font-size: 22px; }
+.sr .notes .n b { font-weight: 600; white-space: nowrap; }
+.sr .notes .n span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr .notes .n.sr-empty span { grid-column: 1 / span 3; color: var(--mute); }
+
+/* bottom: the laps-saved bar (debrief.js armReview / paintReview) and ANALYSIS */
+.sr .foot { left: 48px; right: 48px; bottom: 28px; height: 64px; display: flex; gap: 16px; justify-content: flex-end; }
+.sr #dbReviewSlot { flex: 1; min-width: 0; }
+.sr #dbReviewSlot:empty { display: none; }
+.sr #dbReview { display: flex; align-items: center; gap: 22px; height: 64px; padding: 0 22px; cursor: default; background: transparent; border: 1px solid #3a3320; }
+.sr #dbReview p { flex: 1; min-width: 0; margin: 0; display: flex; align-items: baseline; gap: 22px; overflow: hidden; white-space: nowrap; }
+.sr #dbReview .db-rev-line { display: block; font-size: 22px; font-weight: 400; line-height: 1.25; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sr #dbReview .db-rev-sub { display: block; flex: none; margin: 0; font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+.sr #dbReview button, .sr .foot .btn { flex: none; font-family: inherit; font-size: 16px; letter-spacing: .2em; text-transform: uppercase; cursor: pointer;
+  height: 48px; min-width: 0; min-height: 0; padding: 0 26px; background: transparent; color: var(--gold); border: 1px solid var(--gold); }
+.sr #dbReview button[hidden] { display: none; }
+.sr #dbReview button.def { background: var(--gold); color: #000; }
+.sr .foot .btn { height: 64px; padding: 0 34px; }          /* RACE (when there is a race log) then ANALYSIS, packed to the right edge */
+.sr .foot .btn[hidden] { display: none; }
+
+/* the workbench opened from ANALYSIS (an iframe over everything, like the Vault) */
+#wbHost { position: fixed; inset: 0; z-index: 960; background: #060606; opacity: 0; transition: opacity .4s ease; }
+#wbHost.on { opacity: 1; }
+#wbHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #0b0b0c; }
+#wbHost .back { position: absolute; left: 50%; top: 0; transform: translateX(-50%); z-index: 2; height: 22px; padding: 0 22px; display: flex; align-items: center;
+  font: 14px/22px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #f2c230; background: #0b0b0c;
+  border: 1px solid #3a3320; border-top: 0; cursor: pointer; white-space: nowrap; }

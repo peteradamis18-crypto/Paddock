@@ -1,0 +1,4 @@
+You are the independent reviewer for card DK-3 of PADDOCK (read AGENTS.md and CLAUDE.md first). Do NOT edit anything.
+The card: docs\cards\v4\DK-3.md. The builder's report: docs\tasks\log\DK-3.md. Judge the current code against the card (no git history).
+Check with file:line evidence: every requirement met/partly/missing; real bugs (threads, locks, files deleted, wrong state, C# 5); whether tests would FAIL on broken code; anything that could hurt Peter (acting while he drives, frame rate, iRacing files).
+Answer: verdict line (ACCEPT / ACCEPT WITH FIXES / REJECT), then findings by severity with file:line and a concrete fix. Max 40 lines.

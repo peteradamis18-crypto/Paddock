@@ -1,0 +1,1 @@
+Set-Location 'C:\Users\peter\iRacingDeck'; while (-not (Test-Path docs\tasks\log\cx\INT-2c.done)) { Start-Sleep 30 }; & .\tools\cx-run.ps1 -Prompt docs\cards\INT-2a2.md -Id INT-2a2 -Sandbox workspace-write

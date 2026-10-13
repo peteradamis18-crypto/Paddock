@@ -1,0 +1,10 @@
+{
+  "name": "Paddock",
+  "short_name": "Paddock",
+  "scope": "/phone/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#060606",
+  "theme_color": "#060606",
+  "icons": [{ "src": "icon.png", "sizes": "180x180", "type": "image/png" }]
+}

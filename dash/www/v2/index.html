@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iRacing Dash v2</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="intro.css">
+<link rel="stylesheet" href="debrief.css">
+<link rel="stylesheet" href="debrief-v4.css">
+<link rel="stylesheet" href="sessionreview.css">
+<link rel="stylesheet" href="guest.css">
+<link rel="stylesheet" href="rig.css">
+<link rel="stylesheet" href="data.css">
+<link rel="stylesheet" href="mydrive.css">
+<link rel="stylesheet" href="home.css">
+<link rel="stylesheet" href="tv.css">
+</head>
+<body>
+<header id="strip">
+  <div class="flag" id="flag"><span id="flagTxt">–</span></div>
+  <div class="cell"><label id="sessType">Session</label><b id="sessRemain">–</b><small id="sessSub">&nbsp;</small></div>
+  <div class="cell"><label>Position</label><b><span id="hPos">–</span><em id="hPosOf"></em></b><small id="hCls">&nbsp;</small></div>
+  <div class="cell"><label>Lap</label><b><span id="hLap">–</span><em id="hLapOf"></em></b><small id="hLapSub">&nbsp;</small></div>
+  <div class="cell" id="incBox"><label>Incidents</label><b><span id="hInc">–</span><em id="hIncLim"></em></b><small id="hIncSub">&nbsp;</small></div>
+  <div class="cell" id="fuelBox"><label>Fuel laps</label><b id="hFuel">–</b><small id="hFuelSub">&nbsp;</small></div>
+  <div class="cell" id="wxBox"><label>Track</label><b id="hWet">–</b><small id="hWx">&nbsp;</small></div>
+  <div class="meta">
+    <div class="mrow"><span class="trk" id="trackName">Waiting for iRacing</span><span class="clock" id="clock">–</span><i class="conn" id="conn" title="connection"></i></div>
+    <div class="mrow sub"><span id="trackSub"></span></div>
+    <div class="health" id="health" aria-label="Rig health"></div>
+  </div>
+</header>
+
+<main>
+  <section class="panel" id="pStand">
+    <h2>Standings <span class="sub" id="standSub"></span>
+      <span class="sof" id="sofBox" hidden></span>
+      <button class="chip" id="standMode" title="Class filter">All classes</button></h2>
+    <div class="tbl" id="standings"></div>
+  </section>
+
+  <div class="col">
+    <section class="panel" id="pRel">
+      <h2>Relative <span class="sub" id="relSub"></span></h2>
+      <div class="relwrap">
+        <div class="clr l" id="clrL" aria-hidden="true"><i></i><i></i></div>
+        <div class="rel" id="relative"></div>
+        <div class="clr r" id="clrR" aria-hidden="true"><i></i><i></i></div>
+      </div>
+    </section>
+    <section class="panel" id="pTime">
+      <div class="lapnow">
+        <div class="deltabox"><label id="deltaLbl">Delta to best</label><b id="tDelta">–</b></div>
+        <div class="cur"><label>Current lap</label><b id="tCur">–</b></div>
+      </div>
+      <div class="deltabar"><i id="deltaBar"></i></div>
+      <div class="laprefs">
+        <div><label>Last</label><b id="tLast">–</b></div>
+        <div><label>Best</label><b id="tBest">–</b></div>
+        <div><label>Optimal</label><b id="tOpt">–</b></div>
+        <div><label>Class best</label><b id="tSess">–</b></div>
+      </div>
+      <div class="sectors" id="sectors"></div>
+      <div class="fuel">
+        <div class="fuelbar"><i id="fuelFill"></i><span id="fuelLvl">–</span></div>
+        <div><label>Per lap</label><b id="fPer">–</b></div>
+        <div><label>Race laps left</label><b id="fLeft">–</b></div>
+        <div><label id="fAddLbl">Add to finish</label><b id="fAdd">–</b></div>
+      </div>
+      <div class="laps" id="lapList"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="pMap">
+      <h2>Track <span class="sub" id="mapStatus"></span></h2>
+      <div class="cv" id="mapBox"><canvas id="map"></canvas>
+        <div class="wind" id="wind"><svg viewBox="-20 -20 40 40" aria-hidden="true"><circle r="17" class="wring"/><path id="windArrow" d="M0 -14 L7 4 L0 0 L-7 4 Z"/></svg><span><label>Wind</label><b id="windTxt">–</b></span></div>
+      </div>
+    </section>
+    <section class="panel" id="pCar">
+      <h2>Car <span class="badge" id="limiter">PIT LIMITER</span><span class="sub" id="engWarn"></span></h2>
+      <div class="drive">
+        <div class="gear" id="gear">–</div>
+        <div class="speed"><b id="speed">–</b><span id="speedUnit">km/h</span></div>
+        <div class="rpm"><div class="rpmbar" id="rpmbar"></div><div class="rpmtxt"><b id="rpm">–</b> rpm</div></div>
+      </div>
+      <div class="inputs">
+        <div class="pedals">
+          <div class="pedal"><div class="fill clu" id="barClu"></div><span>C</span></div>
+          <div class="pedal"><div class="fill brk" id="barBrk"></div><span>B</span></div>
+          <div class="pedal"><div class="fill thr" id="barThr"></div><span>T</span></div>
+        </div>
+        <div class="cv trace" id="traceBox"><canvas id="trace"></canvas></div>
+        <div class="wheel"><svg viewBox="-50 -50 100 100" id="wheel"><circle r="40" class="rim"/><line y1="-40" y2="-28" class="mark"/><line x1="-38" x2="-12" class="spoke"/><line x1="12" x2="38" class="spoke"/><line y1="12" y2="38" class="spoke"/></svg><span id="steerDeg">0°</span></div>
+      </div>
+      <div class="carrow">
+        <div class="tires" id="tires"></div>
+        <div class="kv" id="carKv"></div>
+      </div>
+    </section>
+  </div>
+  <section id="pTv" hidden>
+    <canvas id="tvHero"></canvas>
+    <canvas id="tvDock"></canvas>
+    <div class="tv-live" id="tvLive"><i></i><em>LIVE</em><b id="tvCam">HELICOPTER</b></div>
+    <div class="tv-lower" id="tvLower" aria-label="Driver inputs">
+      <b id="tvDriver">PETER</b><span id="tvGear">GEAR –</span><span id="tvSpeed">– km/h</span>
+      <label>THROTTLE<i><b id="tvThrottle"></b></i></label><label>BRAKE<i><b id="tvBrake"></b></i></label>
+      <span id="tvLast">LAST –</span><span id="tvRec" hidden>REC</span>
+    </div>
+    <section class="tv-tower" id="tvTower" aria-label="Timing tower">
+      <div class="tv-tower-head"><span>POS</span><span>NO.</span><span>DRIVER</span><span>GAP</span><span>INT</span><span>LAST</span><span>PIT</span></div>
+      <div id="tvTowerRows"></div>
+    </section>
+  </section>
+</main>
+
+<div id="toast" role="status" hidden></div>
+
+<!-- shown whenever no session is live: covers the whole screen, so no empty race boxes -->
+<div id="overlay" class="show">
+  <!-- HOME (home.js, DS-1): one picture, his name and car, one button, one row of facts. Hidden with the rest of #overlay the moment a session is live. -->
+  <div class="hero" id="homeHero" aria-hidden="true"><img id="heroImg" alt=""></div>
+  <div class="idle-top"><span class="idle-name">Paddock</span><span class="idle-link" id="idleSessions" tabindex="0" role="button">Sessions</span><span id="idleDate"></span><span id="idleClock">–</span></div>
+  <section id="homeDriver"></section>
+  <button class="home-next" id="homeNext" type="button" hidden></button>
+  <div class="home-facts">
+    <div class="home-pbs" id="homePbs"></div>
+    <div class="home-career" id="homeCareer"></div>
+    <div class="home-week" id="homeWeek"></div>
+    <div class="home-last" id="homeLast"></div>
+  </div>
+  <div class="home-phone" id="homePhone" hidden></div>
+  <div class="idle-official" id="idleOfficial"></div>
+  <div class="idle-foot">
+    <span class="idle-rig" id="idleRig"></span>
+    <span class="idle-status"><i></i><b id="ovTitle">Waiting for iRacing</b><em id="ovText"></em></span>
+    <span class="foot-phone" id="homePhoneNote" hidden></span>
+    <span class="hero-credit" id="heroCredit"></span>
+  </div>
+  <div id="homeHost" hidden></div>
+</div>
+
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script src="demo.js"></script>
+<script src="ui.js"></script>
+<script src="idle.js"></script>
+<script src="carpics.js"></script><!-- CP-1: iRacing's own car pictures (HOME shows his own) -->
+<script src="cars.js"></script><!-- P4: car silhouettes in the real livery colours (HOME shows his own) -->
+<script src="home.js"></script>
+<script src="official.js"></script>
+<script src="sessionreview.js"></script>
+<script src="debrief.js"></script>
+<script src="debrief-v4.js"></script>
+<script src="guest.js"></script>
+<script src="rig.js"></script>
+<script src="nav.js"></script>
+<script src="brief.js"></script>
+<script src="race.js"></script>
+<script src="flaglow.js"></script>
+<script src="perflive.js"></script>
+<script src="vaultlive.js"></script>
+<script src="mydrive.js"></script>
+<script src="intro.js"></script>
+<script src="tv.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- DS-1 design mock: the REAL new home.js and home.css (home-new.js, home-new.css) over real data captured from irdash (home-data.js).
+     Open with ?carbase=http://localhost:8199 so iRacing's own car picture loads from the running irdash. ?state=nopb|phone|long|starting -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paddock HOME mock</title>
+<link rel="stylesheet" href="../../dash/www/v2/style.css">
+<link rel="stylesheet" href="../../dash/www/v2/rig.css">
+<link rel="stylesheet" href="../../dash/www/v2/data.css">
+<link rel="stylesheet" href="home-new.css">
+<style>#overlay .hero { transition: none; } #overlay.show, #overlay.show #homeDriver, #overlay.show .home-next, #overlay.show .home-facts { animation: none; }</style><!-- pictures: no fade-in, so the screenshot shows the end state -->
+</head>
+<body>
+<div id="overlay" class="show">
+  <div class="hero" id="homeHero" aria-hidden="true"><img id="heroImg" alt=""></div>
+  <div class="idle-top"><span class="idle-name">Paddock</span><span class="idle-link" id="idleSessions" tabindex="0" role="button">Sessions</span><span class="idle-link" id="idleVault">Vault</span><span class="idle-link" id="idlePerf">Performance</span><span id="idleDate"></span><span id="idleClock">–</span></div>
+  <section id="homeDriver"></section>
+  <button class="home-next" id="homeNext" type="button" hidden></button>
+  <div class="home-facts">
+    <div class="home-pbs" id="homePbs"></div>
+    <div class="home-career" id="homeCareer"></div>
+    <div class="home-last" id="homeLast"></div>
+  </div>
+  <div class="home-phone" id="homePhone" hidden></div>
+  <div class="idle-official" id="idleOfficial"></div>
+  <div class="idle-foot">
+    <span class="idle-rig" id="idleRig"><span class="rg-dot ok"></span><b>Rig check</b> All good<small>x</small></span>
+    <span class="idle-status"><i></i><b id="ovTitle">Waiting for iRacing</b><em id="ovText"></em></span>
+    <span class="foot-phone" id="homePhoneNote" hidden></span>
+    <span class="hero-credit" id="heroCredit"></span>
+  </div>
+  <div id="homeHost" hidden></div>
+</div>
+<script src="home-data.js"></script>
+<script src="home-mock.js"></script>
+<script src="../../dash/www/v2/carpics.js"></script>
+<script src="../../dash/www/v2/idle.js"></script>
+<script src="home-new.js"></script>
+</body>
+</html>

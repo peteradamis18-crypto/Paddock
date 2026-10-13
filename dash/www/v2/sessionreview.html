@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Session Review</title>
+<link rel="stylesheet" href="sessionreview.css">
+</head>
+<body class="sr-page">
+<!-- Session Review (card C-40). ?id=<telemetry file name | vault id | last>[&lap=n] reads the session from irdash (/analysis/session);
+     tests and demos without irdash: ?data=<url of a /analysis/session reply>&map=<url of a /analysis/channels reply>. Extras for a race: &race=1&pos0=9&pos=5&inc=2 -->
+<div id="sr"></div>
+<script src="sessionreview.js"></script>
+<script>SessionReview.page();</script>
+</body></html>

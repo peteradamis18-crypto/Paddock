@@ -1,0 +1,87 @@
+/* D-03 debrief screen (docs\cards\v4\D-03.md, wireframe docs\SPEC-v4.md 3a).
+   A fixed 1920x1080 stage scaled to the window; every band has its own place, so nothing can stack. */
+.db4 { --bg: #0b0b0c; --panel: #121214; --line: #26262a; --ink: #ece8df; --mute: #8b877d; --dim: #5d5a54;
+  --gold: #f2c230; --ref: #cfd8e3; --gain: #3ccf7e; --loss: #e5534b;
+  position: fixed; inset: 0; z-index: 950; overflow: hidden; background: var(--bg); color: var(--ink); cursor: default;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity .5s ease; }
+.db4.on { opacity: 1; }
+.db4:not(.on) { pointer-events: none; }
+.db4 *, .db4 *::before, .db4 *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.db4-stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+.db4-stage > * { position: absolute; left: 0; width: 1920px; }
+
+.db4 .lab { font-size: 14px; letter-spacing: .22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+.db4 .gold { color: var(--gold); } .db4 .ref { color: var(--ref); } .db4 .gain { color: var(--gain); } .db4 .loss { color: var(--loss); }
+.db4 .mute { color: var(--mute); } .db4 .dim { color: var(--dim); }
+.db4 svg text { font-family: Bahnschrift, "Segoe UI", sans-serif; }
+
+/* ---- header band 0-110 ---- */
+.db4-head { top: 0; height: 110px; padding: 22px 96px 0; border-bottom: 1px solid var(--line); }
+.db4-id { display: flex; align-items: baseline; gap: 14px; }
+.db4-num { font-size: 34px; font-weight: 700; font-style: italic; color: var(--gold); line-height: 1; }
+.db4-id b { font-size: 30px; font-weight: 600; letter-spacing: .06em; }
+.db4-id span { font-size: 15px; letter-spacing: .24em; color: var(--mute); }
+.db4-sess { position: absolute; right: 96px; top: 24px; text-align: right; font-size: 22px; letter-spacing: .12em; text-transform: uppercase; }
+.db4-cond { margin-top: 12px; font-size: 16px; letter-spacing: .1em; color: var(--mute); }
+
+/* ---- three columns 110-410 ---- */
+.db4-cols { top: 110px; height: 300px; display: flex; gap: 48px; padding: 24px 96px 0; }
+.db4-col { flex: 1; min-width: 0; border-left: 1px solid var(--line); padding-left: 24px; }
+.db4-col:first-child { border-left: 0; padding-left: 0; }
+.db4-col h3 { margin-bottom: 16px; }
+.db4-result .r-big { font-size: 40px; font-weight: 600; line-height: 1.05; }
+.db4-result .r-sub { font-size: 22px; color: var(--mute); }
+.db4-result .r-row { margin-top: 18px; font-size: 24px; }
+.db4-result .r-row b { font-weight: 600; }
+.db4-chart { width: 100%; height: 220px; display: block; }
+.db4-pace .p-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; }
+.db4-pace .p-row .k { font-size: 15px; letter-spacing: .16em; color: var(--mute); text-transform: uppercase; }
+.db4-pace .p-row .v { font-size: 26px; font-weight: 500; }
+.db4-pace .p-row.best .v { color: var(--gold); }
+
+/* ---- where the time went 410-850 ---- */
+.db4-corners { top: 410px; height: 440px; padding: 20px 96px 0; }
+.db4-corners h3 { margin-bottom: 18px; }
+.db4-cards { display: flex; gap: 48px; }
+.db4-card { flex: 1; min-width: 0; border-top: 1px solid var(--line); padding-top: 14px; }
+.db4-card .c-head { display: flex; justify-content: space-between; align-items: baseline; }
+.db4-card .c-name { font-size: 28px; font-weight: 600; }
+.db4-card .c-loss { font-size: 26px; color: var(--loss); }
+.db4-vids { display: flex; gap: 12px; margin-top: 14px; height: 210px; }
+.db4-vid { flex: 1; min-width: 0; position: relative; background: #000; border: 1px solid var(--line); overflow: hidden; }
+.db4-vid video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.db4-vid .vtag { position: absolute; left: 10px; top: 8px; font-size: 14px; letter-spacing: .18em; text-transform: uppercase; color: var(--ref); }
+.db4-vid .vnone { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; letter-spacing: .2em; color: var(--dim); text-transform: uppercase; }
+.db4-card .c-facts { margin-top: 12px; font-size: 20px; color: var(--ink); }
+.db4-card .c-facts span { display: block; }
+
+/* ---- incidents 850-940 (only when the data has a row) ---- */
+.db4-inc { top: 850px; height: 90px; padding: 12px 96px 0; border-top: 1px solid var(--line); }
+.db4-inc h3 { margin-bottom: 8px; }
+.db4-inc .i-rows { display: flex; gap: 56px; }
+.db4-inc .i-row { display: flex; align-items: baseline; gap: 14px; font-size: 22px; color: var(--ink); }
+
+/* ---- action band 940-1080: SAVE / SHARE / OPEN IN COSWORTH / DEEP DIVE (D-04) ---- */
+.db4-acts { top: 940px; height: 140px; padding: 30px 96px 0; border-top: 1px solid var(--line); }
+.db4-btns { display: flex; gap: 24px; }
+.db4-act { flex: 1; min-height: 78px; background: var(--panel); color: var(--gold); border: 1px solid rgba(242, 194, 48, .55);
+  font-family: inherit; font-size: 26px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+.db4-act:hover, .db4-act:focus-visible { background: rgba(242, 194, 48, .12); outline: none; }
+.db4-act[hidden] { display: none; }
+.db4-iplay { background: none; color: var(--ref); border: 1px solid var(--line); padding: 4px 14px; font-family: inherit;
+  font-size: 18px; letter-spacing: .1em; cursor: pointer; text-transform: uppercase; }
+.db4-iplay:hover, .db4-iplay:focus-visible { color: var(--gold); border-color: var(--gold); outline: none; }
+
+/* the incident clip player (one press on a clip) */
+.db4-player { position: fixed; inset: 0; z-index: 960; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .86); opacity: 0; transition: opacity .25s ease; }
+.db4-player.on { opacity: 1; }
+.db4-player video { width: min(90vw, 1600px); max-height: 90vh; background: #000; }
+
+/* DEEP DIVE: the workbench over the screen (an iframe, like the Vault) */
+.db4-wbhost { position: fixed; inset: 0; z-index: 960; background: #0b0b0c; opacity: 0; transition: opacity .35s ease; }
+.db4-wbhost.on { opacity: 1; }
+.db4-wbhost iframe { position: absolute; inset: 46px 0 0 0; width: 100%; height: calc(100% - 46px); border: 0; }
+.db4-wbback { height: 46px; line-height: 46px; padding: 0 96px; color: var(--gold); font-size: 20px; letter-spacing: .1em;
+  text-transform: uppercase; cursor: pointer; border-bottom: 1px solid var(--line); }

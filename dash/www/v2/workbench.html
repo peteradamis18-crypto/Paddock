@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Paddock Analysis</title>
+<link rel="stylesheet" href="workbench.css">
+<link rel="stylesheet" href="workbench-pro.css">
+</head>
+<body>
+<!-- Paddock Analysis Workbench (docs\DESIGN-workbench.md, card W1). Open with ?id=<vault id>&lap=<n>[&ref=pb|session|<id>:<lap>][&page=driver|grip|braking|tyres|suspension|splits|video]
+     (id = a Vault lap id or a telemetry file name; the VIDEO page and the small video exist only when the lap has a clip from Paddock's recorder)
+     or, for tests without irdash, ?data=<url of a /analysis/channels reply>. Everything is drawn by workbench.js; the video is workbench-video.js (card W5); the race field is workbench-race.js (card W6: the RACE tab exists only when
+     /analysis/race has the session; &race=<field id> names the log, &page=race opens it; the CAREER tab (workbench-career.js, card W6c) exists only when
+     /analysis/career finds 2 or more sessions of this car and track, &page=career opens it). -->
+<div class="top">
+  <div class="brand">PADDOCK ANALYSIS</div>
+  <div class="tabs" id="tabs"></div>
+  <div class="addch" id="addch" style="display:none">+ CHANNEL</div>
+  <div class="addch" id="pipbtn" style="display:none" title="V">SMALL VIDEO</div>
+  <div class="addch" id="sharebtn" style="display:none">MAKE SHARE VIDEO</div>
+  <div class="mode" id="mode"></div>
+  <div class="vs" id="vs"></div>
+</div>
+<div id="conditions"></div>
+<div id="nav"></div>
+<div id="page"></div>
+<script src="workbench-channels.js"></script>
+<script src="workbench.js"></script>
+<script src="workbench-video.js"></script>
+<script src="workbench-share.js"></script><!-- P2: MAKE SHARE VIDEO (VIDEO page) and SEE IN iRACING (event rows, passes) -->
+
+<script src="carpics.js"></script><!-- CP-1: iRacing's own car pictures (RACE tower and header, CAREER race rows) -->
+<script src="cars.js"></script><!-- P4: Paddock's own car silhouettes painted in the real livery colours (RACE tower, CAREER races) -->
+<script src="workbench-race.js"></script>
+<script src="workbench-career.js"></script>
+<script src="workbench-pro.js"></script><!-- PRO tab (card P3): X/Y scatter, histogram, maths channels, CSV / Excel export; &page=pro opens it -->
+
+</body></html>

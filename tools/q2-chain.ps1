@@ -1,0 +1,1 @@
+Set-Location 'C:\Users\peter\iRacingDeck'; while (-not (Select-String docs\tasks\log\build-queue.log -Pattern 'queue finished' -SimpleMatch | Where-Object { $_.Line -ge '2026-10-12T09' })) { Start-Sleep 30 }; & .\tools\build-queue.ps1 -Ids P0-07b

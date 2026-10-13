@@ -1,0 +1,1 @@
+Set-Location 'C:\Users\peter\iRacingDeck'; & .\tools\cx-run.ps1 -Prompt docs\cards\S1c-recorder-fixes.md -Id S1c -Sandbox workspace-write; & .\tools\cx-run.ps1 -Prompt docs\cards\v4\DK-3b.md -Id DK-3b -Sandbox workspace-write

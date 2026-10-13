@@ -1,0 +1,20 @@
+/* Paddock shared tokens (black/gold broadcast family). Pages still keep their own :root for their own values;
+   this file is the single place the Vault and Performance identity bands take their colours from (P0-06, DS-01). */
+:root {
+  --bg: #060606;
+  --panel: #0b0b0a;
+  --hairline: rgba(244, 241, 234, .12);
+  --text: #f4f1ea;
+  --muted: #8d8a82;
+  --dim: #5d5a54;
+  --gold: #f2c230;
+  --ref: #cfd8e3;
+  --gain: #2fe07a;
+  --loss: #ff5a4d;
+  --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  /* Which top-screen page this is: Vault and Performance must not look alike (P0-06). */
+  --id-vault-bg: #201908;
+  --id-vault-edge: #f2c230;
+  --id-perf-bg: #0d1420;
+  --id-perf-edge: #cfd8e3;
+}

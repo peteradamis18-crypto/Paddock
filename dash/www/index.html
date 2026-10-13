@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iRacing Dash</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="hdr">
+  <div class="flag" id="flag">–</div>
+  <div class="hgroup">
+    <div class="hs"><label id="sessType">Session</label><b id="sessRemain">–</b></div>
+    <div class="track"><b id="trackName">Waiting for iRacing</b><span id="trackSub"></span></div>
+  </div>
+  <div class="hgroup right">
+    <div class="hs"><label>Position</label><b id="hPos">–</b></div>
+    <div class="hs" id="hClsBox"><label>Class</label><b id="hCls">–</b></div>
+    <div class="hs"><label>Lap</label><b id="hLap">–</b></div>
+    <div class="hs"><label>Incidents</label><b id="hInc">–</b></div>
+    <div class="hs"><label>Air / Track</label><b id="hTemp">–</b></div>
+    <div class="hs"><label id="clockLbl">Local</label><b id="clock">–</b></div>
+    <div class="health" id="health" aria-label="Rig health"></div>
+    <div class="conn" id="conn" title="connection"></div>
+  </div>
+</header>
+
+<main>
+  <div class="col">
+    <section class="panel grow" id="pStand">
+      <h2>Standings <span class="sub" id="standSub"></span>
+        <button class="chip" id="standMode" title="Show all cars or only your class">All classes</button></h2>
+      <div class="tbl" id="standings"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="pMap">
+      <h2>Track map <span class="sub" id="mapStatus"></span></h2>
+      <div class="cv"><canvas id="map"></canvas></div>
+    </section>
+    <section class="panel" id="pTele">
+      <h2>Telemetry <span class="badge" id="limiter">PIT LIMITER</span><span class="sub" id="engWarn"></span></h2>
+      <div class="tele">
+        <div class="drive">
+          <div class="gear" id="gear">N</div>
+          <div class="speed"><b id="speed">0</b><span id="speedUnit">km/h</span></div>
+          <div class="rpm">
+            <div class="rpmbar" id="rpmbar"></div>
+            <div class="rpmtxt"><b id="rpm">0</b> rpm</div>
+          </div>
+        </div>
+        <div class="inputs">
+          <div class="pedals">
+            <div class="pedal"><div class="fill clu" id="barClu"></div><span>C</span></div>
+            <div class="pedal"><div class="fill brk" id="barBrk"></div><span>B</span></div>
+            <div class="pedal"><div class="fill thr" id="barThr"></div><span>T</span></div>
+          </div>
+          <div class="cv trace"><canvas id="trace"></canvas></div>
+          <div class="wheel"><svg viewBox="-50 -50 100 100" id="wheel"><circle r="40" class="rim"/><line y1="-40" y2="-28" class="mark"/><line x1="-38" x2="-12" class="spoke"/><line x1="12" x2="38" class="spoke"/><line y1="12" y2="38" class="spoke"/></svg><span id="steerDeg">0°</span></div>
+        </div>
+        <div class="carrow">
+          <div class="tires" id="tires"></div>
+          <div class="kv" id="carKv"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="pRel">
+      <h2>Relative <span class="sub" id="relSub"></span></h2>
+      <div class="rel" id="relative"></div>
+    </section>
+    <section class="panel" id="pTime">
+      <h2>Timing &amp; fuel</h2>
+      <div class="timing">
+        <div class="lapnow">
+          <div><label>Current lap</label><b id="tCur">–</b></div>
+          <div class="deltabox"><label id="deltaLbl">Delta to best</label><b id="tDelta">–</b><div class="deltabar"><i id="deltaBar"></i></div></div>
+        </div>
+        <div class="laprefs">
+          <div><label>Last</label><b id="tLast">–</b></div>
+          <div><label>Best</label><b id="tBest">–</b></div>
+          <div><label>Optimal</label><b id="tOpt">–</b></div>
+          <div><label>Class best</label><b id="tSess">–</b></div>
+        </div>
+        <div class="sectors" id="sectors"></div>
+        <div class="laps" id="lapList"></div>
+        <div class="fuel">
+          <div class="fuelbar"><i id="fuelFill"></i><span id="fuelLvl">–</span></div>
+          <div class="fuelgrid">
+            <div><label>Per lap</label><b id="fPer">–</b></div>
+            <div><label>Laps of fuel</label><b id="fLaps">–</b></div>
+            <div><label>Race laps left</label><b id="fLeft">–</b></div>
+            <div><label id="fAddLbl">Add to finish</label><b id="fAdd">–</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="toast" role="status" hidden></div>
+
+<div id="overlay" class="show">
+  <div class="ov">
+    <div class="ovflag"></div>
+    <h1 id="ovTitle">Waiting for iRacing</h1>
+    <p id="ovText">Start a session and the dashboard comes alive on its own.</p>
+    <p class="ovsmall"><a href="?demo=1">Preview with a demo race</a></p>
+  </div>
+</div>
+
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script src="demo.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

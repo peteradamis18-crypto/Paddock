@@ -1,0 +1,5 @@
+You are the independent reviewer for card DK-7b of PADDOCK (read AGENTS.md and CLAUDE.md first). Do NOT edit anything.
+Card: docs\cards\v4\DK-7b.md (DK-7b continues docs\cards\v4\DK-7.md; design docs\tasks\log\cx\council2-codex.last.md). Report: docs\tasks\log\DK-7b.md. Judge the code.
+Focus on SAFETY above all: could any path click outside the verified modal/dialog, press New Race/Continue/Race/Register, act while Peter drives (IsOnTrack, speed), restart or quit by a single bounced press, or read/write iRacing files? Then correctness vs the card, C# 5, and whether the tests would FAIL on broken code.
+Answer: verdict (ACCEPT / ACCEPT WITH FIXES / REJECT), findings by severity with file:line and a concrete fix. Max 40 lines.
+This is a RE-REVIEW after fixes: also read docs\tasks\log\cx\RV-DK-7b.last.md (the first review) and docs\tasks\log\DK-7b-fix.md; say for each earlier finding: fixed / not fixed (file:line).

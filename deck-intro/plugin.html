@@ -1,0 +1,1559 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Paddock</title></head>
+<body>
+<script>
+'use strict';
+// Paddock add-on (folder and UUID keep the old name "rigintro"): the startup flag sequence across all 32 keys, and the live
+// screens drawn on the deck: FRIENDS mode, OVERLAYS, MY DRIVE (race setup), REPLAY, ANALYSIS, SOUND (each a bundled one-page profile whose 32 tiles this page paints).
+// irdash decides when the intro plays (http://localhost:8199/showcase?who=deck): once per Windows start, again whenever
+// the SHOWCASE key / "Play intro" bumps seq, never while driving. Switches to the bundled RigIntro profile,
+// animates its 32 tiles, then switches back to the profile that was showing before.
+//
+// SPEED (2026-10-09): this page is a hidden background page. The browser slows its setTimeout/setInterval to about
+// once a second there, and to once a minute after five minutes hidden. So NOTHING here uses setTimeout or setInterval:
+// every wait goes through sleep()/later(), which run on a worker's timer (not slowed). Screens are drawn at once from
+// the last state they know (the FRIENDS / OVERLAYS / MY DRIVE keys fetch it before the profile switches), a picture is
+// only drawn and PNG-encoded once per distinct look (cache), and only keys whose picture changed are sent.
+// Timing lines ("perf ...") go to the plugin log: %APPDATA%\Elgato\StreamDeck\logs\com.peter.rigintro0.log.
+const COLS = 8, ROWS = 4, PX = 96, W = COLS * PX, H = ROWS * PX, FPS = 12;
+const GOLD = '#f2c230', INK = '#f4f1ea', GREEN = '#1fbf5f';
+const UUID = 'com.peter.rigintro';
+const API = 'http://localhost:8199';
+const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
+let ws = null, pluginUUID = '', deviceId = '', seq = null, playing = false;
+const tiles = {};               // intro profile: "col,row" -> context
+const docKeys = new Set();      // the RIG DOCTOR key(s), if you put one on a profile
+const stateKeys = { smart: new Set(), quit: new Set(), restart: new Set(), skip: new Set() };
+let deckState = null;
+
+// MAIN's state keys use these action ids when the lead includes their images in an add-on batch.
+function paintStateKey(ctx, kind) {
+  const s = deckState || {}, armed = s.armed || {}, seconds = Number(armed[kind] || 0);
+  let big = kind === 'smart' ? (s.label || 'WAIT') : (kind === 'quit' ? 'QUIT' : kind === 'restart' ? 'RESTART' : 'SKIP');
+  let small = kind === 'smart' ? (s.reason || '') : '';
+  if (kind !== 'smart' && seconds > 0) { big = 'ARMED ' + Math.min(3, Math.max(1, Math.ceil(seconds))); small = ''; }
+  const c = document.createElement('canvas'); c.width = c.height = PX;
+  const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, PX, PX);
+  g.strokeStyle = GOLD; g.lineWidth = 2; g.strokeRect(4, 4, PX - 8, PX - 8);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = GOLD;
+  let size = big.length > 8 ? 17 : big.length > 6 ? 20 : 25;
+  g.font = '600 ' + size + 'px ' + FONT; g.fillText(big.toUpperCase(), PX / 2, small ? 39 : 48, PX - 12);
+  if (small) { g.fillStyle = INK; g.font = '400 12px ' + FONT; g.fillText(String(small).toUpperCase(), PX / 2, 66, PX - 12); }
+  send({ event: 'setImage', context: ctx, payload: { image: c.toDataURL('image/png'), target: 0 } });
+}
+function drawStateKeys() { for (const kind of Object.keys(stateKeys)) for (const ctx of stateKeys[kind]) paintStateKey(ctx, kind); }
+async function pollDeckState() {
+  try { deckState = await (await fetch(API + '/deck/state', { cache: 'no-store' })).json(); }
+  catch (e) { deckState = { label: 'WAIT', reason: '', armed: {} }; }
+  drawStateKeys();
+}
+
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function log(m) { send({ event: 'logMessage', payload: { message: 'rigintro: ' + m } }); }   // lands in the plugin log
+
+// ---------------- timers: the worker's, never the page's ----------------
+const timerWorker = (() => { try { return new Worker(URL.createObjectURL(new Blob(['onmessage = e => setTimeout(() => postMessage(e.data.id), e.data.ms);'], { type: 'text/javascript' }))); } catch (e) { return null; } })();
+const waiting = new Map(); let timerId = 1;
+if (timerWorker) timerWorker.onmessage = e => { const f = waiting.get(e.data); if (f) { waiting.delete(e.data); f(); } };
+const sleep = ms => new Promise(r => { if (!timerWorker) { setTimeout(r, ms); return; } const id = timerId++; waiting.set(id, r); timerWorker.postMessage({ id, ms }); });
+const later = (ms, f) => { sleep(ms).then(f); };
+const tick = () => sleep(1000 / FPS);
+
+// ---------------- timing of a screen opening (key press -> pictures on the keys) ----------------
+const Perf = {
+  cur: null,
+  begin(name) { const c = this.cur = { name, t0: performance.now(), marks: {}, cached: 0, drawn: 0 }; later(4000, () => { if (this.cur === c) this.finish(); }); },
+  mark(name, k) { const c = this.cur; if (c && c.name === name && !(k in c.marks)) c.marks[k] = Math.round(performance.now() - c.t0); },
+  count(name, fromCache) { const c = this.cur; if (c && c.name === name) { if (fromCache) c.cached++; else c.drawn++; } },
+  finish() {
+    const c = this.cur; if (!c) return; this.cur = null;
+    const m = c.marks, t = k => (k in m ? m[k] + ' ms' : 'not reached');
+    log('perf ' + c.name + ' open: press -> profile switch sent ' + t('switchSent') + ', first key appeared ' + t('firstTile') + ', first picture sent ' + t('firstPicture') + ', all 32 pictures sent ' + t('allPictures') + ' (' + c.cached + ' pictures from the cache, ' + c.drawn + ' drawn on demand)');
+  },
+};
+
+// ---------------- a live screen: 32 keys painted from a list of regions ----------------
+// A region is { c, r, w, h, text, sub, act, arg, style, wrap }: the rectangle of keys it covers, what it says and does.
+// Every key has a "look" string (its region's text/style plus its place); the PNG for a look is made once and kept.
+class Screen {
+  constructor(name, colors) {
+    this.name = name; this.colors = colors;
+    this.keys = new Set();            // the screen's own opener key(s) on your profile
+    this.tiles = {};                  // "col,row" -> context, for the keys that are on the deck right now
+    this.shown = {};                  // "col,row" -> the look that is on that key now
+    this.regions = []; this.looks = {};
+    this.pics = new Map();            // look -> PNG data URL
+    this.canvas = null; this.tileCv = null; this.dirty = true;
+    this.pressedKey = null; this.fastUntil = 0; this.looping = false; this.interval = 700; this.sent = 0;
+    this.keyShown = '';
+    this.onceAt = {};                 // key -> when it was last pressed, for keys marked once (toggles)
+  }
+  get live() { return Object.keys(this.tiles).length > 0; }
+  hasState() { return false; }        // is there anything to draw yet
+  build() { return []; }              // the regions for the current state
+  gsig() { return ''; }               // anything that changes every key at once (a full-screen flash)
+  paintOver(x) { }                    // drawn over the keys
+  async poll() { }                    // fetch the state and relayout()
+  async act(r) { }                    // what a press on region r does
+  keyIcon(force) { }                  // the opener key's picture
+
+  setKeyImage(url) { for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } }); }
+  iconCanvas() { const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d'); g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144); g.strokeStyle = GOLD; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124); g.textAlign = 'center'; return [c, g]; }
+
+  // a key of this screen's profile appeared / went away
+  appear(pos, ctx) {
+    this.tiles[pos] = ctx; delete this.shown[pos];
+    Perf.mark(this.name, 'firstTile');
+    if (this.hasState()) { if (this.looks[pos]) this.sendTile(pos); else this.relayout(); }
+    if (!this.looping) this.run();
+  }
+  disappear(pos) { delete this.tiles[pos]; delete this.shown[pos]; }
+
+  // work out what every key should look like; send the keys that are on the deck and differ from what they show
+  relayout() {
+    if (!this.hasState()) return;
+    this.regions = this.build();
+    const at = {}, g = this.gsig();
+    for (const r of this.regions) for (let dy = 0; dy < r.h; dy++) for (let dx = 0; dx < r.w; dx++) at[(r.c + dx) + ',' + (r.r + dy)] = r;
+    this.looks = {};
+    for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) {
+      const pos = col + ',' + row, r = at[pos];
+      // extra / size / strip: a screen's own drawing (REPLAY's timeline), a bigger label, a class colour on the key's edge
+      this.looks[pos] = (r ? [r.c, r.r, r.w, r.h, r.text, r.sub, r.style, r.wrap || '', r.single ? 'N' : '', this.pressedKey === r.c + ',' + r.r && !r.noflash ? 'P' : '', r.extra || '', r.size || '', r.strip || ''].join('|') : 'blank') + '|' + g + '@' + pos;
+    }
+    this.dirty = true;
+    for (const pos in this.tiles) this.sendTile(pos);
+  }
+
+  // make the pictures for the current look of all 32 keys now (while the deck is still loading the page)
+  warm() {
+    this.relayout();
+    for (const pos in this.looks) if (!this.pics.has(this.looks[pos])) this.pics.set(this.looks[pos], this.encode(pos));
+  }
+
+  sendTile(pos) {
+    const ctx = this.tiles[pos], look = this.looks[pos];
+    if (!ctx || !look || this.shown[pos] === look) return;
+    let url = this.pics.get(look);
+    Perf.count(this.name, !!url);
+    if (!url) {
+      url = this.encode(pos); this.pics.set(look, url);
+      if (this.pics.size > 400) { const keep = new Map(); for (const k of Object.values(this.looks)) if (this.pics.has(k)) keep.set(k, this.pics.get(k)); this.pics = keep; }
+    }
+    send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } });
+    this.shown[pos] = look; this.sent++;
+    Perf.mark(this.name, 'firstPicture');
+    if (Object.keys(this.shown).length === COLS * ROWS) { Perf.mark(this.name, 'allPictures'); if (Perf.cur && Perf.cur.name === this.name) Perf.finish(); }
+  }
+
+  encode(pos) {
+    if (this.dirty) { this.drawCanvas(); this.dirty = false; }
+    const [col, row] = pos.split(',').map(Number);
+    const tg = this.tileCv.getContext('2d');
+    tg.drawImage(this.canvas, col * PX, row * PX, PX, PX, 0, 0, PX, PX);
+    return this.tileCv.toDataURL('image/png');
+  }
+
+  drawCanvas() {
+    if (!this.canvas) { this.canvas = document.createElement('canvas'); this.canvas.width = W; this.canvas.height = H; this.tileCv = document.createElement('canvas'); this.tileCv.width = this.tileCv.height = PX; }
+    const x = this.canvas.getContext('2d');
+    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    for (const r of this.regions) {
+      const px = r.c * PX + 3, py = r.r * PX + 3, pw = r.w * PX - 6, ph = r.h * PX - 6;
+      let [bg, fg] = this.colors[r.style] || this.colors[''];
+      if (this.pressedKey === r.c + ',' + r.r && !r.noflash) { bg = '#ffffff'; fg = '#000'; }
+      x.fillStyle = bg; x.fillRect(px, py, pw, ph);
+      if (r.style === 'label') { x.fillStyle = GOLD; x.fillRect(px, py + ph - 4, pw, 2); }
+      if (r.strip) { x.fillStyle = r.strip; x.fillRect(px, py, 6, ph); }
+      if (r.paint) { r.paint(x, px, py, pw, ph, bg, fg); continue; }                   // the screen draws this one itself
+      x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
+      const big = r.w * r.h > 1, cx = px + pw / 2, cy = py + ph / 2, main = String(r.text == null ? '' : r.text).toUpperCase(), sub = r.sub ? String(r.sub) : '';
+      if (r.wrap) {
+        // text over up to r.wrap lines (long car and track names), the small line under it
+        let size = r.size || (big ? 22 : 17), lines;
+        for (;;) { x.font = '600 ' + size + 'px ' + FONT; lines = r.single ? [main] : this.lines(x, main, pw - 12); if ((lines.length <= r.wrap && lines.every(l => x.measureText(l).width <= pw - 8)) || size <= 9) break; size--; }
+        let subSize = big ? 15 : 12, subLines = [];
+        if (sub) for (;;) { x.font = '400 ' + subSize + 'px ' + FONT; subLines = r.single ? [sub] : this.lines(x, sub, pw - 8); if ((subLines.length <= 2 && subLines.every(l => x.measureText(l).width <= pw - 6)) || subSize <= 9) break; subSize--; }
+        const lh = size * 1.12, sh = subSize * 1.15, total = lines.length * lh + (sub ? 4 + subLines.length * sh : 0);
+        let y = cy - total / 2 + lh / 2;
+        x.font = '600 ' + size + 'px ' + FONT;
+        for (const l of lines) { x.fillText(l, cx, y, pw - 8); y += lh; }
+        if (sub) { x.globalAlpha = .85; x.font = '400 ' + subSize + 'px ' + FONT; y += 4 - lh / 2 + sh / 2; for (const l of subLines) { x.fillText(l, cx, y, pw - 6); y += sh; } x.globalAlpha = 1; }
+      } else {
+        const fit = (text, size, weight, maxW) => { let s = size; do { x.font = weight + ' ' + s + 'px ' + FONT; s--; } while (x.measureText(text).width > maxW && s > 9); };
+        fit(main, r.size || (big ? 30 : 19), '600', pw - 10);
+        x.fillText(main, cx, sub ? cy - (big ? 14 : 10) : cy);
+        if (sub) { x.globalAlpha = .85; fit(sub, big ? 15 : 12, '400', pw - 8); x.fillText(sub, cx, cy + (big ? 20 : 14)); x.globalAlpha = 1; }
+      }
+    }
+    this.paintOver(x);
+  }
+
+  lines(x, text, maxW) {
+    const words = text.split(' '), out = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (cur && x.measureText(t).width > maxW) { out.push(cur); cur = w; } else cur = t; }
+    if (cur) out.push(cur);
+    return out.length ? out : [''];
+  }
+
+  // keep the state fresh while the screen is on the deck. A press makes it look faster for a few seconds.
+  async run() {
+    this.looping = true;
+    const t0 = performance.now(), sent0 = this.sent; let polls = 0;
+    while (this.live) {
+      const t = performance.now();
+      try { await this.poll(); polls++; } catch (e) { }
+      await sleep(Math.max(40, (performance.now() < this.fastUntil ? 220 : this.interval) - (performance.now() - t)));
+    }
+    this.looping = false;
+    const secs = (performance.now() - t0) / 1000;
+    log('perf ' + this.name + ' screen closed: ' + polls + ' refreshes in ' + secs.toFixed(1) + ' s (one every ' + (polls ? (secs / polls).toFixed(2) : '-') + ' s), ' + (this.sent - sent0) + ' key pictures sent');
+  }
+
+  regionAt(col, row) { return this.regions.find(x => col >= x.c && col < x.c + x.w && row >= x.r && row < x.r + x.h); }
+
+  async press(col, row) {
+    const r = this.regionAt(col, row);
+    if (!r || !r.act) return;
+    // one press can reach the add-on two or three times within a fraction of a second: a toggle (mute, play, tile ...) must not flip back
+    if (r.once) { const k = r.c + ',' + r.r, now = performance.now(); if (this.onceAt[k] && now - this.onceAt[k] < 700) return; this.onceAt[k] = now; }
+    this.pressedKey = r.c + ',' + r.r; this.relayout();                       // shows the press at once
+    later(300, () => { this.pressedKey = null; this.relayout(); });
+    this.fastUntil = performance.now() + 3000;
+    await this.act(r, col, row);                                              // col / row: which key of a wide region was pressed
+  }
+
+  async refreshSoon(ms) { await sleep(ms); try { await this.poll(); } catch (e) { } }   // after a press: look again when irdeck has had time to act
+  async get(path) { return await (await fetch(API + path, { cache: 'no-store' })).json(); }
+  async cmd(c, a, base) {
+    try { await fetch(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), { cache: 'no-store' }); }
+    catch (e) { log(this.name + ': irdash not reachable'); }
+  }
+  switchTo(profile) { send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
+}
+
+// ---------------- Friends mode screen ----------------
+// One live screen on the deck, drawn here: your choices light up gold. Out of the car: WHO / CAR / TRACK rows,
+// wheel strength and a big START. In the car (a session is running) it switches by itself to a few large keys:
+// RESET CAR, NEXT DRIVER, GET OUT. EXIT puts everything back and returns to your own keys.
+// Every press goes to irdash (/api/guest/do), which runs the matching irdeck command.
+const FCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'],
+                  gold: ['#8a6d17', '#fff'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'],
+                  stepOn: ['#3a2f08', GOLD], stepOn2: ['#1e1904', GOLD], goBright: ['#4be38a', '#03140a'], '': ['#1b1b1b', INK] };   // on/off toggles stay dark so gold means 'chosen'
+const Friends = new class extends Screen {
+  constructor() {
+    super('friends', FCOLORS);
+    this.g = null;
+    this.step = 'who';    // the step that glows: who -> car -> track -> start
+    this.kb = null;       // the name being typed on the deck keyboard, or null
+    this.local = {};      // what a press changed, shown until irdash confirms: key -> { v, until }
+    this.flash = null; this.flashUntil = 0; this.lastEv = undefined;
+  }
+  hasState() { return !!this.g; }
+  get blink() { return Math.floor(Date.now() / 700) % 2 === 0; }
+  cur(k, serverValue) { const h = this.local[k]; return h && Date.now() < h.until ? h.v : serverValue; }
+  hold(k, v) { this.local[k] = { v, until: Date.now() + 3000 }; }
+  gsig() { return this.flash && Date.now() < this.flashUntil ? 'F' + this.flash.kind + this.blink : ''; }
+
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('FRIENDS', 72, 66);
+    g.fillStyle = INK; g.font = '400 20px ' + FONT; g.fillText('MODE', 72, 96);
+    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  // the opener key on your profile: keeps the last state at hand, so the screen can be drawn the moment it opens
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    this.g = await this.get('/guest');
+    this.warm();
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('friends');
+    this.step = 'who'; this.kb = null;
+    this.switchTo('RigFriends'); Perf.mark('friends', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (!(opts && opts.test)) this.cmd('on', '', '/api/guest/do');   // not waited for: the page does not need it
+    if (this.g) this.warm();                                         // pictures from the last known state while the deck loads the page
+  }
+  exit(opts) {
+    if (!(opts && opts.test)) this.cmd('off', '', '/api/guest/do');
+    this.switchTo('');
+  }
+
+  async poll() {
+    this.g = await this.get('/guest');
+    // a new record or personal best: the whole deck flashes gold for a few seconds
+    const ev = this.g.event;
+    if (ev && ev.id !== this.lastEv && this.lastEv !== undefined && (ev.kind === 'record' || ev.kind === 'pb')) { this.flashUntil = Date.now() + 3500; this.flash = ev; }
+    if (ev || this.lastEv === undefined) this.lastEv = ev ? ev.id : null;
+    this.relayout();
+  }
+
+  draft() { fetch(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb)), { cache: 'no-store' }).catch(() => { }); }
+
+  async act(r) {
+    // the name keyboard is handled right here, so typing is instant
+    if (r.act === 'letter') { if (this.kb.length < 14) this.kb += r.arg; this.draft(); this.relayout(); return; }
+    if (r.act === 'space') { if (this.kb.length && !this.kb.endsWith(' ')) this.kb += ' '; this.draft(); this.relayout(); return; }
+    if (r.act === 'bksp') { this.kb = this.kb.slice(0, -1); this.draft(); this.relayout(); return; }
+    if (r.act === 'newdriver') { this.kb = ''; this.draft(); this.relayout(); return; }
+    if (r.act === 'cancel') { this.kb = null; this.draft(); this.relayout(); return; }
+    if (r.act === 'done') {
+      const name = this.kb.trim(); this.kb = null; this.draft(); this.relayout();
+      if (!name) return;
+      this.step = 'car';
+      await this.cmd('adddriver', name.replace(/ /g, '_'), '/api/guest/do');
+      await this.refreshSoon(250);
+      return;
+    }
+    if (r.act === 'exit') { this.exit(); return; }
+    // the choice shows at once; irdash confirms a moment later
+    if (r.act === 'driver') { this.step = 'car'; this.hold('driver', String(r.arg).replace(/_/g, ' ').toLowerCase()); }
+    if (r.act === 'car') { this.step = 'track'; this.hold('car', r.arg); }
+    if (r.act === 'track') { this.step = 'start'; this.hold('track', r.arg); }
+    if (r.act === 'wheel') this.hold('wheel', r.arg);
+    if (r.act === 'line') this.hold('line', !this.cur('line', this.g.line));
+    if (r.act === 'coach') this.hold('coach', !this.cur('coach', this.g.coach));
+    if (r.act === 'board') this.hold('board', !this.cur('board', this.g.board));
+    this.relayout();
+    await this.cmd(r.act, r.arg, '/api/guest/do');
+    await this.refreshSoon(250);
+  }
+
+  build() {
+    const g = this.g, R = [], sel = (on) => on ? 'sel' : '';
+    const add = (c, r, w, h, text, sub, act, arg, style) => R.push({ c, r, w, h, text, sub, act, arg, style: style || '' });
+    const wheel = this.cur('wheel', g.wheel), line = this.cur('line', g.line), coach = this.cur('coach', g.coach), board = this.cur('board', g.board);
+    const carKey = this.cur('car', g.car.key), trackKey = this.cur('track', g.track.key), driverId = this.cur('driver', String(g.driverId).toLowerCase());
+    const carName = ((g.carList || []).find(x => x.key === carKey) || g.car).name, trackName = ((g.trackList || []).find(x => x.key === trackKey) || g.track).name;
+    const driver = driverId === 'guest' ? 'Guest' : ((g.drivers || []).find(n => n.toLowerCase() === driverId) || g.driver);
+    if (this.kb != null) {
+      // A-Z keyboard for a new driver's name; the top screen shows the name large as it is typed
+      const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      for (let i = 0; i < 24; i++) add(i % 8, Math.floor(i / 8), 1, 1, L[i], '', 'letter', L[i]);
+      add(0, 3, 1, 1, 'Y', '', 'letter', 'Y'); add(1, 3, 1, 1, 'Z', '', 'letter', 'Z');
+      add(2, 3, 1, 1, 'SPACE', '', 'space'); add(3, 3, 1, 1, '⌫', 'delete', 'bksp');
+      add(4, 3, 2, 1, this.kb.length ? this.kb : 'TYPE A NAME', g.voiceDraft ? 'spotter knows this name' : '', null, null, 'banner');
+      add(6, 3, 1, 1, 'CANCEL', '', 'cancel', null, 'grey');
+      add(7, 3, 1, 1, 'DONE', '', 'done', null, this.kb.trim().length ? 'go' : 'grey');
+      return R;
+    }
+    if (g.session) {
+      // in a session: few, large keys
+      add(0, 0, 7, 1, driver, (carName || '') + '  ·  ' + (trackName || ''), null, null, 'banner');
+      add(7, 0, 1, 1, 'EXIT', 'FRIENDS', 'exit', null, 'stop');
+      add(0, 1, 2, 2, 'RESET CAR', '', 'reset', null, 'amber');
+      add(2, 1, 2, 2, 'NEXT DRIVER', '', 'next', null, 'gold');
+      add(4, 1, 2, 2, 'GET OUT', 'car must be stopped', 'getout', null, 'grey');
+      add(6, 1, 1, 1, 'LIGHT', 'WHEEL', 'wheel', 'light', sel(wheel === 'light'));
+      add(7, 1, 1, 1, 'MEDIUM', 'WHEEL', 'wheel', 'medium', sel(wheel === 'medium'));
+      add(6, 2, 1, 1, 'FULL', 'WHEEL', 'wheel', 'full', sel(wheel === 'full'));
+      add(7, 2, 1, 1, 'LINE', line ? 'ON' : 'OFF', 'line', null, line ? 'on' : 'off');
+      add(0, 3, 1, 1, 'SEAT', 'LOWER', 'seatdown');
+      add(1, 3, 1, 1, 'SEAT', 'HIGHER', 'seatup');
+      add(2, 3, 1, 1, 'TIMES', board ? 'ON' : 'OFF', 'board', null, board ? 'on' : 'off');
+      add(3, 3, 1, 1, 'COACH', coach ? 'ON' : 'OFF', 'coach', null, coach ? 'on' : 'off');
+      add(4, 3, 1, 1, 'VOL', '−', 'voldown');
+      add(5, 3, 1, 1, 'VOL', '+', 'volup');
+      add(6, 3, 2, 1, 'DRIVE', g.driving ? 'in the car' : '', g.driving ? null : 'start', null, g.driving ? 'grey' : 'go');
+    } else {
+      // choosing: numbered steps; the step to do next glows, then START
+      const step = (n, label, id) => add(0, n - 1, 1, 1, n + '  ' + label, '', null, null, this.step === id ? (this.blink ? 'stepOn' : 'stepOn2') : 'label');
+      step(1, 'WHO', 'who');
+      const names = (g.drivers || []).slice(0, 4);
+      names.forEach((n, i) => add(1 + i, 0, 1, 1, n, '', 'driver', n.replace(/ /g, '_'), sel(driverId === n.toLowerCase())));
+      add(1 + names.length, 0, 1, 1, 'GUEST', '', 'driver', 'guest', sel(driverId === 'guest'));
+      add(2 + names.length, 0, 1, 1, '+ NEW', '', 'newdriver', null, 'grey');
+      add(7, 0, 1, 1, 'EXIT', 'FRIENDS', 'exit', null, 'stop');
+      step(2, 'CAR', 'car');
+      (g.carList || []).slice(0, 7).forEach((x, i) => add(1 + i, 1, 1, 1, x.name, /abs|tc/i.test(x.aids) ? 'aids on' : 'no aids', 'car', x.key, sel(carKey === x.key)));
+      step(3, 'TRACK', 'track');
+      (g.trackList || []).slice(0, 4).forEach((x, i) => add(1 + i, 2, 1, 1, x.name, '', 'track', x.key, sel(trackKey === x.key)));
+      add(5, 2, 1, 1, 'LIGHT', 'WHEEL', 'wheel', 'light', sel(wheel === 'light'));
+      add(6, 2, 1, 1, 'MEDIUM', 'WHEEL', 'wheel', 'medium', sel(wheel === 'medium'));
+      add(7, 2, 1, 1, 'FULL', 'WHEEL', 'wheel', 'full', sel(wheel === 'full'));
+      add(0, 3, 7, 1, '4  START', driver + '  ·  ' + (carName || '') + ' at ' + (trackName || ''), 'start', null, this.step === 'start' && this.blink ? 'goBright' : 'go');
+      add(7, 3, 1, 1, 'LINE', line ? 'ON' : 'OFF', 'line', null, line ? 'on' : 'off');
+    }
+    return R;
+  }
+
+  paintOver(x) {
+    if (!(this.flash && Date.now() < this.flashUntil)) return;
+    const f = this.flash, rec = f.kind === 'record';
+    x.fillStyle = this.blink ? (rec ? GOLD : GREEN) : '#000'; x.fillRect(0, 0, W, H);
+    x.fillStyle = this.blink ? '#111' : (rec ? GOLD : GREEN); x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '700 64px ' + FONT; x.fillText(rec ? 'NEW RECORD' : 'PERSONAL BEST', W / 2, 120);
+    x.font = '600 48px ' + FONT; x.fillText(String(f.name).toUpperCase() + '   ' + fmtTime(f.time), W / 2, 250);
+  }
+};
+
+// ---------------- Rig Doctor key ----------------
+// A key you can put on any page (action "Rig Doctor"): its dot shows the last check (green, amber, red);
+// pressing it checks the rig again and shows the list on the top screen. The OVERLAYS screen has the same button.
+const RigDoctor = {
+  d: null, shown: '',
+  icon(force) {
+    if (!docKeys.size) return;
+    const d = this.d, st = !d || !d.ranAt ? 'none' : d.bad > 0 ? 'bad' : d.warn > 0 ? 'warn' : 'ok';
+    const label = !d || !d.ranAt ? 'CHECK' : d.bad + d.warn === 0 ? 'ALL GOOD' : (d.bad + d.warn) + ' TO SEE';
+    if (!force && st + label === this.shown) return;
+    this.shown = st + label;
+    const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d');
+    g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144);
+    g.strokeStyle = GOLD; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124);
+    g.fillStyle = { ok: '#2fe07a', warn: '#ffb21e', bad: '#ff4d4d', none: '#55524c' }[st]; g.beginPath(); g.arc(72, 38, 11, 0, 7); g.fill();
+    g.fillStyle = GOLD; g.textAlign = 'center'; g.font = '600 26px ' + FONT; g.fillText('RIG', 72, 82);
+    g.fillText('DOCTOR', 72, 108);
+    const url = c.toDataURL('image/png');
+    for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } });
+  },
+  async tick() {
+    if (!docKeys.size) return;
+    try { this.d = await (await fetch(API + '/doctor', { cache: 'no-store' })).json(); } catch (e) { return; }
+    this.icon(false);
+  },
+  async press() { try { await fetch(API + '/api/do?c=doctor', { cache: 'no-store' }); } catch (e) { log('doctor: irdash not reachable'); } },
+};
+
+// ---------------- Overlays screen ----------------
+// One live screen for the race-screen overlays (irdashies) and the delta bar. Gold = on / chosen.
+//   rows 1-2: one key per overlay      row 3: presets, SAVE AS, status      row 4: drag mode, ALL OFF, delta bar, doctor, EXIT
+// irdash /overlays says what is on; every press goes to irdash /api/do (a whitelist), which runs irdeck. Several quick
+// taps cost one restart of the overlays app (irdash waits 1.5 s after the last one). The screen shows a press at
+// once, before irdash has confirmed it.
+const OCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
+                  banner: ['#0b0b0b', GOLD], on: ['#1b1b1b', GOLD], off: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+const Overlays = new class extends Screen {
+  constructor() {
+    super('overlays', OCOLORS);
+    this.o = null;
+    this.held = {};      // id -> { on, until }: what a press changed, shown until irdash confirms
+    this.flashes = {};   // 'act' -> until: "SAVED" on the SAVE key for a moment
+    this.interval = 600;
+  }
+  hasState() { return !!this.o; }
+
+  // the OVERLAYS key on your own profile: how many overlays are on
+  keyIcon(force) {
+    if (!this.keys.size) return;
+    const n = this.o ? this.o.onCount : -1, label = n < 0 ? '' : n + ' ON';
+    if (!force && label === this.keyShown) return;
+    this.keyShown = label;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 25px ' + FONT; g.fillText('OVERLAYS', 72, 70);
+    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText(label || 'SCREEN', 72, 102);
+    this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    this.o = await this.get('/overlays');
+    this.keyIcon(false);
+    this.warm();
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('overlays');
+    this.switchTo('RigOverlays'); Perf.mark('overlays', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.o) this.warm();
+  }
+  exit() { this.switchTo(''); }   // back to your own keys
+
+  async poll() {
+    this.o = await this.get('/overlays');
+    this.keyIcon(false);
+    this.relayout();
+  }
+  async refresh() { await this.poll(); }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    const now = Date.now();
+    if (r.act === 'ovtoggle') { const w = this.o.widgets.find(x => x.id === r.arg); if (w) this.held[r.arg] = { on: !this.on(w), until: now + 4000 }; }
+    if (r.act === 'ovsave') this.flashes['ovsave'] = now + 1800;
+    this.relayout();
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(250);
+  }
+
+  on(w) { const h = this.held[w.id]; return h && Date.now() < h.until ? h.on : w.on; }
+
+  build() {
+    const o = this.o, R = [], add = (c, r, w, h, text, sub, act, arg, style) => R.push({ c, r, w, h, text, sub, act, arg, style: style || '' });
+    const now = Date.now();
+    // rows 1-2: the overlays
+    o.widgets.forEach((w, i) => {
+      const on = this.on(w);
+      add(i % 8, Math.floor(i / 8), 1, 1, w.name, w.known ? (on ? 'ON' : 'OFF') : 'not in app', w.known ? 'ovtoggle' : null, w.id, w.known ? (on ? 'sel' : '') : 'off');
+    });
+    // row 3: presets (gold = the overlays on now are exactly this preset), SAVE AS, status
+    o.presets.forEach((p, i) => add(i, 2, 1, 1, p.name, p.match ? 'ON NOW' : (o.saveTo === p.id ? 'BASE' : ''), p.exists ? 'ovpreset' : null, p.id, p.match ? 'sel' : (o.saveTo === p.id ? 'on' : '')));
+    const saved = this.flashes['ovsave'] && now < this.flashes['ovsave'];
+    add(5, 2, 1, 1, saved ? 'SAVED' : 'SAVE AS', saved ? '' : o.saveTo.toUpperCase(), 'ovsave', o.saveTo, saved ? 'go' : 'amber');
+    let st, ss, style = 'banner';
+    if (!o.running) { st = 'OVERLAYS OFF'; ss = ''; style = 'stop'; }
+    else if (o.waiting) { st = 'WAITING'; ss = 'for the car to stop'; style = 'amber'; }
+    else if (o.pending || o.busy) { st = 'UPDATING'; ss = ''; style = 'amber'; }
+    else if (o.editing) { st = 'DRAG THEM'; ss = 'then EDIT LAYOUT'; style = 'go'; }
+    else { st = o.onCount + ' ON'; ss = o.msg && o.msgAge != null && o.msgAge < 8 ? o.msg : 'up to date'; }   // a note shows for a few seconds
+    add(6, 2, 2, 1, st, ss, 'ovapply', null, style);
+    // row 4
+    add(0, 3, 1, 1, 'EDIT', o.editing ? 'LOCK IT' : 'LAYOUT', o.driving ? null : 'ovedit', null, o.editing ? 'go' : (o.driving ? 'off' : 'grey'));
+    add(1, 3, 1, 1, 'ALL OFF', 'overlays', 'ovalloff', null, 'amber');
+    add(2, 3, 1, 1, 'DELTA BAR', o.delta.on ? 'ON' : 'OFF', 'deltaon', null, o.delta.on ? 'sel' : '');
+    add(3, 3, 1, 1, 'VS ' + o.delta.ref.toUpperCase(), '', 'deltaref', null, '');
+    add(4, 3, 1, 1, 'MOVE ↑', 'delta bar', 'deltaup', null, '');
+    add(5, 3, 1, 1, 'MOVE ↓', 'delta bar', 'deltadown', null, '');
+    add(6, 3, 1, 1, 'RIG', 'DOCTOR', 'doctor', null, 'grey');
+    add(7, 3, 1, 1, 'EXIT', 'OVERLAYS', 'exit', null, 'stop');
+    return R;
+  }
+};
+
+// ---------------- My Drive screen ----------------
+// RACE SETUP keeps the chosen car, track and layout on separate keys. Lists are the first path; search stays at the end of CARS/TRACKS.
+// START is the only key that runs the sim. In a session this screen switches to the existing driving keys.
+const MCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
+                  banner: ['#0b0b0b', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+const MyDrive = new class extends Screen {
+  constructor() {
+    super('mydrive', MCOLORS);
+    this.m = null;
+    this.kb = null; this.kbKind = ''; this.kbPage = 'abc';     // the search text being typed on the deck keyboard
+    this.local = {};                                           // what a press changed, shown until irdash confirms: key -> { v, until }
+    this.finding = null;                                       // { kind, t }: a search was just asked for
+    this.hiddenAt = null;                                      // the search result list (its time stamp) that BACK put away
+    this.stSeq = null; this.pinged = 0;
+    this.view = 'home'; this.page = 0;                         // RACE SETUP home or paged picker
+    this.pickPage = 'recent'; this.pickClass = 'GT3'; this.lists = null; this.pickTrack = null;
+  }
+  hasState() { return !!this.m && this.m.ready; }
+  cur(k, serverValue) { const h = this.local[k]; return h && Date.now() < h.until ? h.v : serverValue; }
+  hold(k, v) { this.local[k] = { v, until: Date.now() + 3000 }; }
+  repaint() { this.shown = {}; this.relayout(); }
+
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('MY', 72, 66);
+    g.fillText('DRIVE', 72, 100);
+    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request
+  async keyTick() {
+    const m = await this.get('/mydrive');
+    if (!this.live) {
+      this.m = m;
+      if (m.aiStatus === 'NO CHOICE' && !m.choice.has && !this.autoPrompted) { this.autoPrompted = true; this.open({ auto: true }); }
+      if (!m.aiStatus) this.autoPrompted = false;
+    }
+    const st = m.speedtest;
+    if (st) {
+      if (this.stSeq === null) this.stSeq = st.seq;
+      else if (st.seq !== this.stSeq) { this.stSeq = st.seq; speedTest(st.which); }
+    }
+    if (this.keys.size && !this.live) { this.keyIcon(false); this.warm(); }
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('mydrive');
+    this.kb = null; this.local = {}; this.finding = null; this.shown = {};
+    this.view = opts && opts.auto ? 'pick' : 'home'; this.pickPage = 'recent'; this.page = 0;
+    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { this.lists = { recent: [], cars: [], tracks: [] }; }
+    const classes = this.classKeys(); if (classes.length && !classes.includes(this.pickClass)) this.pickClass = classes[0];
+    this.hiddenAt = this.m && this.m.results ? this.m.results.at : null;    // a search from last time stays away
+    this.switchTo('RigMyDrive'); Perf.mark('mydrive', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (!(opts && opts.test)) { this.pinged = performance.now(); this.cmd('mdopen'); this.cmd('mdclear'); }
+    if (this.m && this.m.ready) this.warm();
+  }
+  exit(opts) {
+    if (!(opts && opts.test)) { this.cmd('mdclose'); this.cmd('mddraft'); }
+    this.kb = null; this.view = 'home'; this.page = 0;
+    this.switchTo('');
+  }
+
+  async poll() {
+    this.m = await this.get('/mydrive');
+    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { }
+    if (this.m.aiStatus === 'NO CHOICE' && this.view !== 'pick' && !this.m.choice.has) { this.view = 'pick'; this.pickPage = 'recent'; this.page = 0; this.relayout(); }
+    if (performance.now() - this.pinged > 60000) { this.pinged = performance.now(); this.cmd('mdopen'); }    // keeps the top screen's card up
+    this.relayout();
+  }
+
+  draft() { this.cmd('mddraft', this.kb == null ? '' : this.kbKind + ':' + this.kb); }
+
+  async act(r) {
+    const m = this.m;
+    // local keys: the search keyboard and moving between views
+    if (r.act === 'letter') { if (this.kb.length < 24) this.kb += r.arg; this.draft(); this.relayout(); return; }
+    if (r.act === 'space') { if (this.kb.length && !this.kb.endsWith(' ')) this.kb += ' '; this.draft(); this.relayout(); return; }
+    if (r.act === 'bksp') { this.kb = this.kb.slice(0, -1); this.draft(); this.relayout(); return; }
+    if (r.act === 'page') { this.kbPage = this.kbPage === 'abc' ? '123' : 'abc'; this.relayout(); return; }
+    if (r.act === 'cancel') { this.kb = null; this.draft(); this.relayout(); return; }
+    if (r.act === 'done') {
+      const text = this.kb.trim(); if (!text) return;
+      const kind = this.kbKind; this.kb = null; this.finding = { kind, t: Date.now() };
+      this.relayout();
+      await this.cmd(kind === 'car' ? 'mdfindcar' : 'mdfindtrack', text);
+      await this.refreshSoon(300);
+      return;
+    }
+    if (r.act === 'search') { this.kb = ''; this.kbKind = r.arg; this.kbPage = 'abc'; this.hiddenAt = m.results ? m.results.at : null; this.relayout(); return; }
+    if (r.act === 'retype') { this.kb = ''; this.kbKind = m.results ? m.results.kind : 'car'; if (this.kbKind === 'layout') this.kbKind = 'track'; this.kbPage = 'abc'; this.relayout(); return; }
+    if (r.act === 'back') { this.hiddenAt = m.results ? m.results.at : null; this.relayout(); await this.cmd('mdclear'); return; }
+    if (r.act === 'exit') { this.exit(); return; }
+    if (r.act === 'leave') { this.exit(); return; }
+    if (r.act === 'picktab') { this.view = 'pick'; this.pickPage = r.arg; this.page = 0; this.repaint(); return; }
+    if (r.act === 'pickclass') { this.pickClass = r.arg; this.page = 0; this.repaint(); return; }
+    if (r.act === 'pickpageprev' || r.act === 'pickpagenext') { this.page = Math.max(0, this.page + (r.act === 'pickpagenext' ? 1 : -1)); this.repaint(); return; }
+    if (r.act === 'pickcar') { this.selectedCar = true; await this.cmd('mdpick', r.arg); this.pickPage = 'tracks'; this.page = 0; this.repaint(); await this.refreshSoon(250); return; }
+    if (r.act === 'picktrack') {
+      const tr = (this.lists && this.lists.tracks || []).find(x => x.id === r.arg);
+      if (tr && tr.layouts && tr.layouts.length > 1) { await this.cmd('mdpick', r.arg); this.pickTrack = tr; this.pickPage = 'layouts'; this.page = 0; this.repaint(); return; }
+      await this.cmd('mdpick', r.arg); this.exit(); return;
+    }
+    if (r.act === 'picklayout') { await this.cmd('mdpick', r.arg); this.pickTrack = null; this.exit(); return; }
+    // RACE SETUP: moving between the home keys and the lists of drives (nothing is sent to irdash)
+    if (r.act === 'home') { this.view = 'home'; this.page = 0; this.relayout(); return; }
+    if (r.act === 'favs') { this.view = 'pick'; this.pickPage = 'favs'; this.page = 0; this.repaint(); return; }
+    if (r.act === 'usual' || r.act === 'samecar' || r.act === 'sametrack') { this.view = r.act; this.page = 0; this.relayout(); return; }
+    if (r.act === 'pageprev' || r.act === 'pagenext') { this.page = Math.max(0, this.page + (r.act === 'pagenext' ? 1 : -1)); this.relayout(); return; }
+    if (r.act === 'surprise') {
+      // a drive you have done before that is not the one chosen now; press again for another
+      const others = (m.all || m.recent || []).filter(x => !this.isChosen(x));
+      if (!others.length) return;
+      const it = others[Math.floor(Math.random() * others.length)];
+      this.hold('choice', { car: it.car, carShort: it.carShort, track: it.track, trackShort: it.trackShort, layout: it.layout });
+      this.relayout();
+      await this.cmd('mdpick', it.id);
+      await this.refreshSoon(300);
+      return;
+    }
+    // the choice shows at once; irdash confirms a moment later
+    if (r.act === 'mdpick') {
+      const picker = this.view === 'pick';
+      this.view = 'home'; this.page = 0;                                      // a pick from a list goes back to the home keys, where START is
+      const hit = m.results && m.results.items && m.results.items.find(x => x.id === r.arg);
+      const base = this.cur('choice', null) || { car: m.choice.car, carShort: m.choice.carShort, track: m.choice.track, trackShort: m.choice.trackShort, layout: m.choice.layout };
+      if (hit) {
+        // a search result: only that part of the choice changes
+        this.hiddenAt = m.results.at;
+        const k = m.results.kind;
+        this.hold('choice', k === 'car' ? { ...base, car: hit.name, carShort: hit.short } : k === 'track' ? { ...base, track: hit.name, trackShort: hit.short, layout: '' } : { ...base, layout: hit.name });
+      } else {
+        const item = [...(m.recent || []), ...(m.all || []), ...(m.favs || []), ...(m.gain ? [m.gain] : [])].find(x => x.id === r.arg);
+        if (item) this.hold('choice', { car: item.car, carShort: item.carShort, track: item.track, trackShort: item.trackShort, layout: item.layout });
+      }
+      if (picker && hit && m.results.kind === 'car') { await this.cmd('mdpick', r.arg); this.view = 'pick'; this.pickPage = 'tracks'; this.page = 0; await this.refreshSoon(300); return; }
+      if (picker) { await this.cmd('mdpick', r.arg); this.exit(); return; }
+    }
+    if (r.act === 'mddamage') this.hold('damage', this.cur('damage', m.choice.damage) === 'off' ? 'on' : 'off');
+    if (r.act === 'mdstar') { const f = this.cur('fav', m.session && m.current ? m.current.fav : m.choice.fav); this.hold('fav', !f); }
+    this.relayout();
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(300);
+  }
+
+  visibleResults() {
+    const m = this.m;
+    return m.results && m.results.at !== this.hiddenAt ? m.results : null;
+  }
+  isChosen(x) {
+    const c = this.cur('choice', null);
+    return c ? (c.car === x.car && c.track === x.track && (x.layout === undefined || x.layout === c.layout)) : x.chosen;
+  }
+
+  build() {
+    const m = this.m, R = [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, single) => R.push({ c, r, w, h, text: String(text == null ? '' : text).toUpperCase(), sub: String(sub == null ? '' : sub).toUpperCase(), act, arg, style: style || '', wrap: wrap || 0, single: !!single });
+    if (this.kb != null) return this.buildKeyboard(R, add);
+    if (m.session) return this.buildSession(R, add);
+    const res = this.visibleResults();
+    if (m.busy === 'start') {
+      // the sim is being set up: nothing to choose now (a pick would change the choice START already used)
+      add(0, 0, 8, 3, 'STARTING', m.msg || '', null, null, 'amber', 2);
+      add(0, 3, 6, 1, 'Please wait', '', null, null, 'dim');
+      add(6, 3, 1, 1, 'CANCEL', '', 'mdcancel', null, 'stop');
+      add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+      return R;
+    }
+    if (m.busy === 'find' || (this.finding && Date.now() - this.finding.t < 4000 && !res)) {
+      add(0, 0, 8, 3, 'SEARCHING', '', null, null, 'amber', 2);
+      add(0, 3, 6, 1, 'Please wait', '', null, null, 'dim');
+      add(6, 3, 1, 1, 'CANCEL', '', 'mdcancel', null, 'stop');
+      add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+      return R;
+    }
+    if (res) return this.buildResults(R, add, res);
+    if (this.view === 'pick') return this.buildPicker(R, add);
+    if (this.view !== 'home') return this.buildList(R, add);
+    return this.buildChoose(R, add);
+  }
+
+  buildPicker(R, add) {
+    const lists = this.lists || { recent: [], cars: [], tracks: [] };
+    const pageSize = 21;
+    add(0, 0, 1, 1, 'BACK', '', 'exit', null, 'grey');
+    if (this.pickPage !== 'layouts') {
+      add(1,0,1,1,'RECENT','','picktab','recent',this.pickPage==='recent'?'sel':'');
+      add(2,0,1,1,'CARS','','picktab','cars',this.pickPage==='cars'?'sel':'');
+      add(3,0,1,1,'TRACKS','','picktab','tracks',this.pickPage==='tracks'?'sel':'');
+      if (this.pickPage === 'favs') add(4,0,1,1,'FAVOURITES','','picktab','favs','sel');
+    } else add(1,0,1,1,'LAYOUT','',null,null,'banner');
+    const search = this.pickPage === 'cars' || this.pickPage === 'tracks';
+    let items = this.pickPage === 'recent' ? lists.recent : this.pickPage === 'favs' ? ((this.m && this.m.favs) || []) : this.pickPage === 'cars' ? (lists.cars || []).filter(x => !this.pickClass || x.class === this.pickClass) : this.pickPage === 'tracks' ? lists.tracks : (this.pickTrack ? this.pickTrack.layouts.map(x => ({name:this.shortLayout(x),id:'l'+this.hash(this.pickTrack.name+'|'+x)})) : []);
+    let per = search ? 18 : pageSize, pages = Math.max(1, Math.ceil(items.length/per));
+    if (pages > 1 && !search) { per = 19; pages = Math.max(1, Math.ceil(items.length/per)); }
+    this.page = Math.min(this.page,pages-1);
+    if (this.pickPage === 'cars') {
+      const classes = this.classKeys();
+      classes.forEach((cl,i) => add(i+4,0,1,1,cl,'','pickclass',cl,this.pickClass===cl?'sel':''));
+    }
+    const slots=[]; for(let y=1;y<4;y++) for(let x=0;x<7;x++) if (!(pages>1 && y===3 && x>=5) && !(search && y===3 && x===4)) slots.push([x,y]);
+    items.slice(this.page*per,this.page*per+per).forEach((it,i)=>{
+      const s=slots[i], car=this.carLines(it.name||it.car||it.short||''), main=this.pickPage==='recent'||this.pickPage==='favs' ? (it.carShort||this.carLines(it.car||'')[0]||it.car) : (this.pickPage==='cars' ? car[0] : (it.short||it.name||it.car));
+      const sub=this.pickPage==='recent'||this.pickPage==='favs' ? (it.trackShort||it.track) : (this.pickPage==='cars' ? car[1] : '');
+      const act=this.pickPage==='recent'||this.pickPage==='favs'?'mdpick':this.pickPage==='cars'?'pickcar':this.pickPage==='tracks'?'picktrack':'picklayout';
+      add(s[0],s[1],1,1,this.shortLine(main,12),this.shortLine(sub || '',14),act,it.id,'',2,true);
+    });
+    if (pages>1) { add(5,3,1,1,'PREV','',this.page?'pickpageprev':null,null,this.page?'grey':'dim'); add(6,3,1,1,'NEXT','',this.page<pages-1?'pickpagenext':null,null,this.page<pages-1?'grey':'dim'); }
+    if (search) add(4,3,1,1,'SEARCH','', 'search',this.pickPage==='cars'?'car':'track','grey');
+    add(7,3,1,1,'EXIT','', 'exit',null,'stop');
+    return R;
+  }
+  shortLine(s,n) { s=String(s||'').toUpperCase(); return s.length>n ? s.slice(0,n).trim() : s; }
+  classKeys() {
+    const rows=(this.lists&&this.lists.cars)||[], found=[];
+    rows.forEach(x=>{ const c=String(x.class||'OTHER').toUpperCase(); if(!found.includes(c)) found.push(c); });
+    const order=['GT3','GTP/LMDH','GT4','OTHER'];
+    return order.filter(c=>found.includes(c));
+  }
+  carLines(s) {
+    const n=String(s||'').toUpperCase();
+    const fixed={'CHEVROLET CORVETTE Z06 GT3.R':['CORVETTE','Z06 GT3'],'FERRARI 296 GT3':['FERRARI','296 GT3']};
+    if (fixed[n]) return fixed[n];
+    const clean=n.replace(/\s*\([^)]*\)/g,'').replace(/^(CHEVROLET|FERRARI|TOYOTA|PORSCHE|FORD|AUDI|BMW|MCLAREN|MERCEDES-AMG|LAMBORGHINI)\s+/,'');
+    return [this.shortLine(clean,12),this.shortLine(clean.slice(12).trim(),14)];
+  }
+  shortLayout(s) { const t={'2K FULL':'2K FULL','FULL COURSE':'FULL COURSE','GRAND PRIX':'GRAND PRIX','SHORT COURSE':'SHORT COURSE'}; return t[String(s||'').toUpperCase()] || this.shortLine(s,12); }
+  hash(s) { let h=2166136261; for(const c of String(s).toLowerCase()) { h^=c.charCodeAt(0); h=Math.imul(h,16777619); } return ('00000000'+(h>>>0).toString(16)).slice(-8); }
+
+  // RACE SETUP home: last drive and list entry points, separate chosen values, then one START key.
+  buildChoose(R, add) {
+    const m = this.m, ch = m.choice, held = this.cur('choice', null);
+    const car = held ? held.carShort : ch.carShort, track = held ? held.trackShort : ch.trackShort, layout = held ? held.layout : ch.layout, has = held ? true : ch.has;
+    const damage = this.cur('damage', ch.damage);
+    const failed = m.phase === 'failed';
+    const recent = m.recent || [], favs = m.favs || [];
+    const last = recent[0];
+    const ready = has || recent.length > 0;
+    add(0,0,1,1,'BACK','','leave',null,'grey');
+    if (last) add(1,0,1,1,this.shortLine(last.carShort||last.car,12),this.shortLine(last.trackShort||last.track,14),'mdpick',last.id,this.isChosen(last)?'sel':'',2,true); else add(1,0,1,1,'LAST DRIVE','','',null,'dim');
+    add(2,0,1,1,'RECENT','','picktab','recent','');
+    add(3,0,1,1,'CARS','','picktab','cars','');
+    add(4,0,1,1,'TRACKS','','picktab','tracks','');
+    add(5,0,1,1,'FAVOURITES','','favs',null,favs.length?'':'dim');
+    add(0,1,1,1,has?this.shortLine(car,12):'CAR','',null,null,has?'banner':'dim',2,true);
+    add(1,1,1,1,has?this.shortLine(track,12):'TRACK','',null,null,has?'banner':'dim',2,true);
+    add(2,1,1,1,'LAYOUT',layout?this.shortLine(this.shortLayout(layout),14):'',null,null,has?'banner':'dim',2,true);
+    add(3,1,1,1,'DAMAGE',damage==='off'?'OFF':'ON','mddamage',null,damage==='off'?'off':'on');
+    add(7,3,1,1,'EXIT','','exit',null,'stop');
+    // row 4: START (the only key that runs the sim)
+    if (failed) add(6,3,1,1,'RETRY','','mdstart',null,'stop');
+    else add(6,3,1,1,'START','',ready?'mdstart':null,null,ready?'go':'dim');
+    return R;
+  }
+
+  // drives in the same car at other tracks / at the same track in other cars: the ones driven most first
+  sameCarList(all, cc) { return all.filter(x => x.car === cc.car && x.track !== cc.track).sort((a, b) => (b.n || 0) - (a.n || 0)); }
+  sameTrackList(all, cc) { return all.filter(x => x.track === cc.track && x.car !== cc.car).sort((a, b) => (b.n || 0) - (a.n || 0)); }
+
+  // a list of drives (USUAL, FAVOURITES, SAME CAR, SAME TRACK): ten to a page, a tap picks one and goes back to the home keys
+  buildList(R, add) {
+    const m = this.m, held = this.cur('choice', null), cc = held || (m.choice.has ? m.choice : null), all = m.all || m.recent || [];
+    let items = [], title = '', first = (x) => x.carShort, second = (x) => x.trackShort + (x.layout ? ' · ' + x.layout : '');
+    if (this.view === 'usual') { title = 'USUAL'; items = all.slice().sort((a, b) => (b.n || 0) - (a.n || 0)); second = (x) => x.trackShort; }
+    else if (this.view === 'favs') { title = 'FAVOURITES'; items = m.favs || []; }
+    else if (this.view === 'samecar') { title = 'SAME CAR'; items = cc ? this.sameCarList(all, cc) : []; first = (x) => x.trackShort; second = (x) => (x.n || 1) + (x.n === 1 ? ' drive' : ' drives'); }
+    else { title = 'SAME TRACK'; items = cc ? this.sameTrackList(all, cc) : []; second = (x) => (x.n || 1) + (x.n === 1 ? ' drive' : ' drives'); }
+    const per = 10, pages = Math.max(1, Math.ceil(items.length / per));
+    this.page = Math.min(this.page, pages - 1);
+    const page = this.page;
+    add(0, 0, 1, 1, 'BACK', 'TO START', 'home', null, 'grey');
+    add(1, 0, pages > 1 ? 5 : 7, 1, title + (this.view === 'samecar' && cc ? ' · ' + cc.carShort : '') + (this.view === 'sametrack' && cc ? ' · ' + cc.trackShort : ''), items.length ? String(items.length) : '', null, null, 'banner', 2);
+    if (pages > 1) {
+      add(6, 0, 1, 1, '◀ PAGE', page + 1 + ' of ' + pages, page > 0 ? 'pageprev' : null, null, page > 0 ? 'grey' : 'dim', 2);
+      add(7, 0, 1, 1, 'PAGE ▶', page + 1 + ' of ' + pages, page < pages - 1 ? 'pagenext' : null, null, page < pages - 1 ? 'grey' : 'dim', 2);
+    }
+    const slots = [[0, 1], [2, 1], [4, 1], [6, 1], [0, 2], [2, 2], [4, 2], [6, 2], [0, 3], [2, 3]];
+    items.slice(page * per, page * per + per).forEach((x, i) => add(slots[i][0], slots[i][1], 2, 1, first(x), second(x), 'mdpick', x.id, this.isChosen(x) ? 'sel' : '', 2));
+    add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+    return R;
+  }
+
+  buildKeyboard(R, add) {
+    const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if (this.kbPage === 'abc') {
+      for (let i = 0; i < 24; i++) add(i % 8, Math.floor(i / 8), 1, 1, L[i], '', 'letter', L[i]);
+      add(0, 3, 1, 1, 'Y', '', 'letter', 'Y'); add(1, 3, 1, 1, 'Z', '', 'letter', 'Z');
+      add(2, 3, 1, 1, '123', 'digits', 'page', null, 'grey');
+    } else {
+      '12345678'.split('').forEach((d, i) => add(i, 0, 1, 1, d, '', 'letter', d));
+      add(0, 1, 1, 1, '9', '', 'letter', '9'); add(1, 1, 1, 1, '0', '', 'letter', '0'); add(2, 1, 1, 1, '-', '', 'letter', '-');
+      add(2, 3, 1, 1, 'ABC', 'letters', 'page', null, 'grey');
+    }
+    add(3, 3, 1, 1, 'SPACE', '', 'space'); add(4, 3, 1, 1, '⌫', 'delete', 'bksp');
+    add(5, 3, 1, 1, this.kb.length ? this.kb.slice(-6) : 'TYPE', this.kbKind === 'car' ? 'THE CAR' : 'THE TRACK', null, null, 'banner');
+    add(6, 3, 1, 1, 'CANCEL', '', 'cancel', null, 'grey');
+    add(7, 3, 1, 1, 'DONE', '', 'done', null, this.kb.trim().length ? 'go' : 'grey');
+    return R;
+  }
+
+  buildResults(R, add, res) {
+    const title = res.kind === 'car' ? 'CAR' : res.kind === 'track' ? 'TRACK' : 'LAYOUT';
+    add(0, 0, 6, 1, title + (res.kind === 'layout' ? '' : ' · ' + String(res.q).toUpperCase()), res.items.length ? res.items.length + ' found' : '', null, null, 'banner');
+    if (res.kind === 'layout') add(6, 0, 1, 1, '', '', null, null, 'dim'); else add(6, 0, 1, 1, 'TYPE', 'AGAIN', 'retype', null, 'grey');
+    add(7, 0, 1, 1, 'BACK', '', 'back', null, 'grey');
+    if (!res.items.length) {
+      add(0, 1, 8, 2, res.ok ? 'NOTHING FOUND' : 'COULD NOT LOOK', res.msg || '', null, null, 'amber', 2);
+    } else {
+      const slots = [[0, 1], [2, 1], [4, 1], [6, 1], [0, 2], [2, 2], [4, 2], [6, 2]];
+      res.items.slice(0, 7).forEach((it, i) => add(slots[i][0], slots[i][1], 2, 1, it.short || it.name, '', 'mdpick', it.id, '', 3));
+    }
+    add(6, 3, 1, 1, 'START', 'CHOSEN CAR', 'mdstart', null, 'go', 2);
+    add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+    return R;
+  }
+
+  buildSession(R, add) {
+    const m = this.m, c = m.current || { carShort: '', trackShort: '', layout: '', fav: false }, fav = this.cur('fav', c.fav);
+    const joining = m.busy === 'start';
+    add(0, 0, 7, 1, joining ? 'STARTING' : c.carShort, joining ? (m.msg || '') : c.trackShort + (c.layout ? ' · ' + c.layout : ''), null, null, 'banner', 2);
+    add(7, 0, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+    add(0, 1, 2, 2, fav ? '★ SAVED' : '★ SAVE', '', c.carShort ? 'mdstar' : null, null, fav ? 'sel' : 'amber', 2);
+    add(2, 1, 2, 2, 'DRIVE', m.driving ? 'in the car' : (joining ? 'getting in' : ''), m.driving || joining ? null : 'mdstart', null, m.driving ? 'grey' : 'go');
+    add(4, 1, 2, 2, 'GET OUT', 'car must be stopped', 'mdgetout', null, 'grey');
+    add(6, 1, 2, 2, m.last ? m.last.secs + ' s' : '–', 'START → IN THE CAR', null, null, 'banner', 1);
+    add(0, 3, 2, 1, 'RESET CAR', '', 'mdtow', null, 'amber');
+    add(2, 3, 1, 1, 'VOL', '−', 'voldown');
+    add(3, 3, 1, 1, 'VOL', '+', 'volup');
+    return R;
+  }
+};
+
+// ---------------- Replay screen ----------------
+// iRacing's replay without its menus. Plain big buttons that say what they do NOW; gold = on / chosen / where you are.
+//   row 1: BACK, the timeline (tap a fifth to jump there), SESSION, LIVE
+//   row 2: START, LAP, REWIND, PLAY / PAUSE, FAST, LAP, SLOW MO, BACK 10 S  (REWIND / FAST become one-frame steps while paused)
+//   row 3: INCIDENT, INCIDENT, then which car: MY CAR, AHEAD, BEHIND, LEADER, PICK CAR (a list), MY LAST INCIDENT
+//   row 4: CAMERA (left half back, right half on), TV, COCKPIT, CHASE, AUTO TV, HIDE UI, PHOTO
+// Out of a session: MY REPLAYS (the saved ones; iRacing opens those itself). While you are driving everything is dimmed.
+// irdash /replay says what is going on; every press goes to irdash /api/do, which sends iRacing's own SDK messages
+// (no clicks, no keys, nothing steals focus). Unicode is written as \u escapes so the file survives any editor.
+const RCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
+                  banner: ['#0b0b0b', GOLD], strip: ['#0b0b0b', INK], watch: ['#3a2f08', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD],
+                  off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+const RP = { x: '×', minus: '−', left: '◀', right: '▶', dot: '·', arrow: '→', half: '½', quarter: '¼', eighth: '⅛' };
+const rpClock = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(x).padStart(2, '0'); };
+const rpSlow = raw => ({ 1: RP.half, 3: RP.quarter, 7: RP.eighth }[raw] || ('1/' + (raw + 1)));       // slow motion: raw N plays at 1 / (N + 1)
+const rpNext = (cur, ladder) => { for (const v of ladder) if (v > cur) return v; return 0; };          // the next step up a ladder; 0 = back to normal speed
+const RP_FAST = [2, 4, 8, 16], RP_REW = [1, 2, 4, 8, 16], RP_SLOW = [1, 3, 7];
+const Replay = new class extends Screen {
+  constructor() {
+    super('replay', RCOLORS);
+    this.r = null;            // the last /replay answer
+    this.pick = null;         // { page } while the PICK CAR list is showing
+    this.interval = 600;
+  }
+  hasState() { return !!this.r && this.r.ready; }
+
+  // the REPLAY key on your own profile
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 26px ' + FONT; g.fillText('REPLAY', 72, 70);
+    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText('SCREEN', 72, 102);
+    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  // while the opener key is on the deck: keep the last state at hand (not drawn: it changes every second, so it is only
+  // drawn - once - when the screen opens)
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    this.r = await this.get('/replay');
+    this.keyIcon(false);
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('replay');
+    this.pick = null;
+    this.switchTo('RigReplay'); Perf.mark('replay', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.hasState()) this.warm();
+  }
+  exit() { this.pick = null; this.switchTo(''); }   // back to your own keys
+
+  async poll() {
+    this.r = await this.get('/replay');
+    this.keyIcon(false);
+    this.relayout();
+  }
+
+  async act(r, col) {
+    // keys that only move around on the deck
+    if (r.act === 'back') { this.exit(); return; }
+    if (r.act === 'pick') { this.pick = { page: 0 }; this.relayout(); return; }
+    if (r.act === 'pickback') { this.pick = null; this.relayout(); return; }
+    if (r.act === 'pickprev' || r.act === 'picknext') { this.pick.page = Math.max(0, this.pick.page + (r.act === 'picknext' ? 1 : -1)); this.relayout(); return; }
+    // keys that are one command for irdash
+    if (r.act === 'cam') { await this.cmd(col === r.c ? 'rpcamprev' : 'rpcamnext'); await this.refreshSoon(200); return; }
+    if (r.act === 'rpjump') { await this.cmd('rpjump', String(col - r.c)); await this.refreshSoon(200); return; }
+    if (r.act === 'rpcar') { this.pick = null; this.relayout(); }
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(200);
+  }
+
+  // ---- what the timeline strip says ----
+  stripSnap(st) {
+    const s = st.session, w = st.watch;
+    const sn = { l: s.name + (s.lap ? ' ' + RP.dot + ' LAP ' + s.lap + (s.laps ? ' / ' + s.laps : '') : ''), r: '', big: '', cap: '', spd: '', live: false, p: s.frac >= 0 ? Math.round(s.frac * 200) : -1 };
+    if (w) sn.r = (w.pos > 0 ? 'P' + w.pos + ' ' + RP.dot + ' ' : '') + '#' + w.num + ' ' + w.name;
+    if (st.live) { sn.big = 'LIVE'; sn.live = true; }
+    else if (s.fromLive >= 0) { sn.big = RP.minus + rpClock(s.fromLive); sn.cap = 'FROM LIVE'; }
+    else { sn.big = rpClock(s.time); sn.cap = 'INTO ' + s.name; }
+    const m = st.mode;
+    sn.spd = m === 'paused' ? 'PAUSED' : m === 'fast' ? RP.x + st.raw : m === 'rewind' ? RP.left + RP.x + Math.abs(st.raw) : m === 'slow' ? rpSlow(st.raw) + ' SLOW' : m === 'slowrew' ? RP.left + ' ' + rpSlow(Math.abs(st.raw)) : m === 'play' ? RP.x + '1' : '';
+    if (st.driving) sn.warn = ['GET OUT OF THE CAR', 'TO WATCH REPLAYS'];
+    return sn;
+  }
+
+  paintStrip(x, px, py, pw, ph, sn) {
+    x.textBaseline = 'middle';
+    if (sn.warn) {
+      x.textAlign = 'center'; x.fillStyle = '#d98b2b'; x.font = '600 22px ' + FONT;
+      x.fillText(sn.warn[0], px + pw / 2, py + ph / 2 - 15); x.fillText(sn.warn[1], px + pw / 2, py + ph / 2 + 15);
+      return;
+    }
+    x.textAlign = 'left'; x.fillStyle = GOLD; x.font = '600 15px ' + FONT; x.fillText(sn.l, px + 12, py + 15);
+    x.textAlign = 'right'; x.fillStyle = INK; x.font = '400 15px ' + FONT; x.fillText(sn.r, px + pw - 12, py + 15);
+    const cx = px + pw / 2;
+    x.font = '600 34px ' + FONT; const bw0 = x.measureText(sn.big).width;
+    x.textAlign = 'center'; x.fillStyle = sn.live ? GREEN : INK; x.fillText(sn.big, cx, py + 44);
+    if (sn.cap) { x.textAlign = 'left'; x.fillStyle = '#8d8a82'; x.font = '400 13px ' + FONT; x.fillText(sn.cap, cx + bw0 / 2 + 8, py + 47); }
+    if (sn.spd) { x.textAlign = 'right'; x.fillStyle = GOLD; x.font = '600 22px ' + FONT; x.fillText(sn.spd, px + pw - 12, py + 44); }
+    // the bar: five pieces, one per key (tap a piece to go there); gold up to where you are, a white marker on the spot
+    const bx = px + 12, bw = pw - 24, by = py + ph - 17, seg = bw / 5;
+    const pieces = (colour, upTo) => {
+      x.save(); x.beginPath(); x.rect(bx - 2, by - 4, upTo - bx + 2, 20); x.clip();
+      x.fillStyle = colour; for (let i = 0; i < 5; i++) x.fillRect(bx + i * seg + 1.5, by, seg - 3, 6);
+      x.restore();
+    };
+    pieces('#2a2a2a', bx + bw + 2);
+    if (sn.p >= 0) {
+      const mx = bx + bw * sn.p / 200;
+      pieces(GOLD, mx);
+      x.fillStyle = INK; x.fillRect(Math.min(mx, bx + bw - 3) - 1, by - 5, 3, 16);
+    } else { x.textAlign = 'center'; x.fillStyle = '#6d6a63'; x.font = '400 12px ' + FONT; x.fillText('LENGTH UNKNOWN', cx, by + 14); }
+  }
+
+  // the two camera keys as one picture: the arrows say which half goes which way
+  paintCamera(x, px, py, pw, ph, name, sub, dim) {
+    x.textBaseline = 'middle'; x.textAlign = 'center';
+    x.fillStyle = dim ? '#55524c' : GOLD; x.font = '600 26px ' + FONT; x.fillText(RP.left, px + 20, py + ph / 2); x.fillText(RP.right, px + pw - 20, py + ph / 2);
+    x.font = '600 11px ' + FONT; x.fillText('CAMERA', px + pw / 2, py + 12);
+    let s = 28; do { x.font = '600 ' + s + 'px ' + FONT; s--; } while (x.measureText(name).width > pw - 84 && s > 12);
+    x.fillStyle = dim ? '#55524c' : INK; x.fillText(name, px + pw / 2, py + ph / 2 + (sub ? -2 : 6));
+    if (sub) { x.globalAlpha = .85; x.font = '400 12px ' + FONT; x.fillText(sub, px + pw / 2, py + ph - 14); x.globalAlpha = 1; }
+  }
+
+  build() {
+    const st = this.r, R = [];
+    const dr = !!st.driving && st.inSession;
+    if (!st.inSession || dr) this.pick = null;
+    // while driving every key is dimmed and does nothing (irdash refuses too); BACK always works
+    const add = (c, row, w, h, text, sub, act, arg, style, wrap, more) => {
+      const dead = dr && act !== 'back' && act !== 'pickback';
+      const o = { c, r: row, w, h, text, sub, act: dead ? null : act, arg, style: dead ? 'dim' : (style || ''), wrap: wrap || 0 };
+      if (more) Object.assign(o, more);
+      R.push(o);
+    };
+    if (!st.inSession) return this.buildReplays(R, add, st);
+    if (this.pick) return this.buildPick(R, add, st);
+    const mode = st.mode, paused = mode === 'paused', cam = st.camera, s = st.session;
+    // row 1: where am I
+    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
+    const sn = this.stripSnap(st);
+    add(1, 0, 5, 1, '', '', sn.p >= 0 ? 'rpjump' : null, null, 'strip', 0, { extra: JSON.stringify(sn), noflash: true, paint: (x, px, py, pw, ph) => this.paintStrip(x, px, py, pw, ph, sn) });
+    if (st.nextSession) add(6, 0, 1, 1, 'SESSION', 'TAP FOR ' + st.nextSession.name, 'rpsession', null, '', 2);
+    else add(6, 0, 1, 1, 'SESSION', 'ONLY ONE', null, null, 'dim', 2);
+    if (st.live) add(7, 0, 1, 1, 'LIVE', 'WATCHING NOW', null, null, 'sel', 2);
+    else add(7, 0, 1, 1, 'LIVE', 'BACK TO NOW', 'rplive', null, 'go', 2);
+    // row 2: moving through the tape
+    add(0, 1, 1, 1, 'START', 'OF ' + s.name, 'rpstart', null, '', 2);
+    add(1, 1, 1, 1, RP.left + ' LAP', '', 'rplapprev', null, '', 2);
+    const rew = mode === 'rewind', fast = mode === 'fast', slow = mode === 'slow';
+    if (paused) add(2, 1, 1, 1, RP.left + ' FRAME', '', 'rprew', null, '', 2);
+    else {
+      const n = rew ? rpNext(-st.raw, RP_REW) : 0;
+      add(2, 1, 1, 1, 'REWIND', 'TAP FOR ' + (rew ? (n ? RP.x + n + ' BACK' : 'NORMAL') : RP.x + '1 BACK'), 'rprew', null, rew ? 'sel' : '', 2);
+    }
+    if (paused) add(3, 1, 1, 1, 'PLAY', 'PAUSED NOW', 'rpplay', null, 'go', 0, { size: 26 });
+    else add(3, 1, 1, 1, 'PAUSE', mode === 'live' ? 'LIVE NOW' : mode === 'play' ? 'PLAYING' : 'MOVING', 'rpplay', null, '', 0, { size: 26 });
+    if (paused) add(4, 1, 1, 1, 'FRAME ' + RP.right, 'ONE STEP ON', 'rpfast', null, '', 2);
+    else {
+      const n = fast ? rpNext(st.raw, RP_FAST) : 0;
+      add(4, 1, 1, 1, 'FAST', 'TAP FOR ' + (fast ? (n ? RP.x + n : 'NORMAL') : RP.x + '2'), 'rpfast', null, fast ? 'sel' : '', 2);
+    }
+    add(5, 1, 1, 1, 'LAP ' + RP.right, '', 'rplapnext', null, '', 2);
+    {
+      const n = slow ? rpNext(st.raw, RP_SLOW) : 0;
+      add(6, 1, 1, 1, 'SLOW MO', 'TAP FOR ' + (slow ? (n ? rpSlow(n) : 'NORMAL') : RP.half), 'rpslow', null, slow ? 'sel' : '', 2);
+    }
+    add(7, 1, 1, 1, 'BACK 10 S', '', 'rpback10', null, '', 2);
+    // row 3: what to watch
+    const me = st.me, w = st.watch, ld = st.leader, watchMe = me && w && me.idx === w.idx;
+    add(0, 2, 1, 1, RP.left + ' INCIDENT', 'PREVIOUS', 'rpincprev', null, '', 2);
+    add(1, 2, 1, 1, 'INCIDENT ' + RP.right, 'NEXT', 'rpincnext', null, '', 2);
+    add(2, 2, 1, 1, 'MY CAR', me ? '#' + me.num : '', me ? 'rpmycar' : null, null, watchMe ? 'sel' : (me ? '' : 'dim'), 2);
+    add(3, 2, 1, 1, 'CAR AHEAD', st.ahead ? 'P' + st.ahead.pos + ' ' + RP.dot + ' #' + st.ahead.num : (w && w.pos === 1 ? 'IT LEADS' : 'NONE'), st.ahead ? 'rpahead' : null, null, st.ahead ? '' : 'dim', 2);
+    add(4, 2, 1, 1, 'CAR BEHIND', st.behind ? 'P' + st.behind.pos + ' ' + RP.dot + ' #' + st.behind.num : 'NONE', st.behind ? 'rpbehind' : null, null, st.behind ? '' : 'dim', 2);
+    add(5, 2, 1, 1, 'LEADER', ld ? '#' + ld.num + ' ' + ld.name : '', ld ? 'rpleader' : null, null, ld && w && ld.idx === w.idx ? 'sel' : (ld ? '' : 'dim'), 2);
+    add(6, 2, 1, 1, 'PICK CAR', '', (st.cars || []).length ? 'pick' : null, null, (st.cars || []).length ? '' : 'dim', 2);
+    add(7, 2, 1, 1, 'MY LAST INCIDENT', '', 'rpmyinc', null, '', 2);
+    // row 4: how it looks
+    const cname = cam.group > 0 && cam.name ? cam.name : 'NO CAMERA', csub = cam.count > 1 ? 'VIEW ' + cam.camera + ' OF ' + cam.count : '';
+    add(0, 3, 2, 1, cname, csub, 'cam', null, '', 0, { extra: 'cam' + (dr ? 'D' : ''), paint: (x, px, py, pw, ph) => this.paintCamera(x, px, py, pw, ph, cname.toUpperCase(), csub, dr) });
+    add(2, 3, 1, 1, 'TV', cam.tv ? 'BROADCAST VIEW' : 'NOT HERE', cam.tv ? 'rpgroup' : null, 'tv', cam.onTv ? 'sel' : (cam.tv ? '' : 'dim'), 2);
+    add(3, 3, 1, 1, 'COCKPIT', cam.cockpit ? 'IN THE CAR' : 'NOT HERE', cam.cockpit ? 'rpgroup' : null, 'cockpit', cam.onCockpit ? 'sel' : (cam.cockpit ? '' : 'dim'), 2);
+    add(4, 3, 1, 1, 'CHASE', cam.chase ? 'BEHIND THE CAR' : 'NOT HERE', cam.chase ? 'rpgroup' : null, 'chase', cam.onChase ? 'sel' : (cam.chase ? '' : 'dim'), 2);
+    add(5, 3, 1, 1, 'AUTO TV', cam.autoTv ? 'ON' : '', 'rpautotv', null, cam.autoTv ? 'sel' : '', 2);
+    add(6, 3, 1, 1, 'HIDE UI', cam.uiHidden ? 'HIDDEN' : '', 'rphideui', null, cam.uiHidden ? 'sel' : '', 2);
+    const ph = st.photo || { state: 'idle' };
+    if (ph.capture === 0) add(7, 3, 1, 1, 'PHOTO', 'TURN ON IN IRACING', null, null, 'dim', 3);   // iRacing: Settings, Interface, Camera & Screen Capture (docs\replay.md)
+    else if (ph.state === 'working') add(7, 3, 1, 1, 'SNAP', 'TAKING IT', null, null, 'amber', 2);
+    else if (ph.state === 'saved') add(7, 3, 1, 1, 'SAVED', 'IN THE GALLERY', null, null, 'go', 2);
+    else if (ph.state === 'small') add(7, 3, 1, 1, 'TAKEN', 'TOO SMALL FOR GALLERY', 'rpphoto', null, 'amber', 2);
+    else if (ph.state === 'failed') add(7, 3, 1, 1, 'NO PHOTO', 'TAP TO RETRY', 'rpphoto', null, 'stop', 2);
+    else add(7, 3, 1, 1, 'PHOTO', 'NO MENUS', 'rpphoto', null, '', 2);
+    return R;
+  }
+
+  // the list of cars by position: Peter in gold, the car being watched in dark gold, a colour edge per class
+  buildPick(R, add, st) {
+    const cars = st.cars || [], per = 24, pages = Math.max(1, Math.ceil(cars.length / per));
+    this.pick.page = Math.min(this.pick.page, pages - 1);
+    const page = this.pick.page;
+    add(0, 0, 1, 1, 'BACK', 'TO CONTROLS', 'pickback', null, 'grey', 2);
+    add(1, 0, 5, 1, 'PICK A CAR', cars.length + ' CARS' + (pages > 1 ? ' ' + RP.dot + ' PAGE ' + (page + 1) + ' OF ' + pages : '') + ' ' + RP.dot + ' TAP ONE', null, null, 'banner');
+    add(6, 0, 1, 1, RP.left + ' PAGE', '', page > 0 ? 'pickprev' : null, null, page > 0 ? 'grey' : 'dim', 2);
+    add(7, 0, 1, 1, 'PAGE ' + RP.right, '', page < pages - 1 ? 'picknext' : null, null, page < pages - 1 ? 'grey' : 'dim', 2);
+    cars.slice(page * per, page * per + per).forEach((d, i) => {
+      add(i % 8, 1 + Math.floor(i / 8), 1, 1, d.pos > 0 ? 'P' + d.pos : '-', '#' + d.num + ' ' + d.name, 'rpcar', String(d.idx), d.me ? 'sel' : (d.watch ? 'watch' : ''), 2, st.multiClass && d.color ? { strip: d.color } : null);
+    });
+    return R;
+  }
+
+  // out of a session: the saved replays. They can only be opened from iRacing's own Replay screen (docs\replay.md), so we say so.
+  buildReplays(R, add, st) {
+    const rp = st.replays || { count: 0, items: [] };
+    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
+    add(1, 0, 7, 1, 'MY REPLAYS', rp.count ? rp.count + ' SAVED' : 'NONE', null, null, 'banner');
+    if (!rp.count) add(0, 1, 8, 2, 'NO SAVED REPLAYS', 'Save one in the sim first', null, null, 'dim', 2);
+    else rp.items.slice(0, 8).forEach((it, i) => add((i % 4) * 2, 1 + Math.floor(i / 4), 2, 1, it.name, it.when + (it.where ? ' ' + RP.dot + ' ' + it.where : ''), null, null, '', 2));
+    add(0, 3, 8, 1, 'TO WATCH ONE', 'Open it from the sim\'s Replay screen', null, null, 'banner', 2);
+    return R;
+  }
+};
+
+// ---------------- Analysis screen ----------------
+// The workbench (the analysis page on the top screen) driven from the deck, with no mouse: BACK, lap / corner / event steps, play, speed, zoom,
+// the reference lap, the pages. Every key is one /api/do?c=wb-<command> (irdash relays it to the page) and irdash tells us what the page shows
+// (/workbench/state), so the toggles show what is REALLY on. With no lap open it says so, and while he is in the car it does nothing.
+//   row 1: BACK, the lap on show, KEEP, COSWORTH     row 2: lap / corner / event steps, PLAY     row 3: zoom, speed, compare, align, tile, map colour     row 4: the pages
+// Unicode is written as \u escapes so the file survives any editor.
+const ACOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD],
+                  label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+const WB_SPEEDS = [0.5, 1, 2, 4];
+// short key labels (a narrow key holds about 7 capitals); the page names on the top screen are longer
+const WB_PAGES = { driver: 'DRIVER', grip: 'GRIP', braking: 'BRAKES', tyres: 'TYRES', suspension: 'SUSP.', splits: 'SPLITS', career: 'CAREER', pro: 'PRO' };
+const wbPageName = id => WB_PAGES[id] || String(id).toUpperCase().replace(/-/g, ' ');
+const WB_ROW = 8;   // the page row holds 8 keys: with more pages it shows 7 and a PAGES key that opens a picker with every page
+const wbLap = t => { t = +t; if (!isFinite(t) || t <= 0) return '–'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); };
+const wbRef = ref => { ref = String(ref || 'pb'); const n = /:(\d+)$/.exec(ref); return ref === 'pb' ? 'PB' : ref === 'session' ? 'SESSION BEST' : ref === 'optimal' ? 'OPTIMAL' : n ? 'LAP ' + n[1] : ref.toUpperCase(); };
+const Analysis = new class extends Screen {
+  constructor() {
+    super('analysis', ACOLORS);
+    this.a = null;                                    // the last /workbench/state
+    this.db = null;                                   // the last /debrief/state (D-05: the debrief on the top screen)
+    this.dbCw = false; this.dbCwAt = 0;               // is Pi Toolbox installed (for the debrief COSWORTH key)
+    this.vt = null; this.vtId = ''; this.vtAt = 0;    // the Vault's view of the lap on show: is it in the Vault, kept, is Pi Toolbox installed
+    this.local = {};                                  // what a press changed, shown until the page confirms: key -> { v, until }
+    this.flashUntil = 0;
+    this.picker = false; this.pickerAt = -1e9;        // the page picker (more than 8 pages): shown, and when it last opened or closed
+    this.interval = 500;
+  }
+  hasState() { return !!this.a; }
+  cur(k, serverValue) { const h = this.local[k]; return h && Date.now() < h.until ? h.v : serverValue; }
+  hold(k, v) { this.local[k] = { v, until: Date.now() + 2500 }; }
+
+  // the ANALYSIS key on your own profile: says which lap is open
+  keyIcon(force) {
+    if (!this.keys.size) return;
+    const open = this.a && this.a.open && !this.a.driving, label = open ? 'LAP ' + this.a.lap : 'SCREEN';
+    if (!force && label === this.keyShown) return;
+    this.keyShown = label;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 24px ' + FONT; g.fillText('ANALYSIS', 72, 68);
+    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText(label, 72, 102);
+    this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  async readState() { try { this.a = await this.get('/workbench/state'); } catch (e) { this.a = { open: false, off: true, driving: false }; } }
+
+  // D-05: what the debrief on the top screen is, so the DEBRIEF row knows what each key can act on. The install flag
+  // of Pi Toolbox is read from the Vault at most every 6 s (only while a debrief is up).
+  async readDebrief() {
+    try { this.db = await this.get('/debrief/state'); } catch (e) { this.db = null; }
+    if (this.db && this.db.open && (!this.dbCwAt || performance.now() - this.dbCwAt > 6000)) {
+      this.dbCwAt = performance.now();
+      try { const v = await this.get('/vault'); this.dbCw = !!(v && v.cosworth && v.cosworth.installed); } catch (e) { }
+    }
+  }
+
+  // while the opener key is on the deck: the last state at hand, so the screen can be drawn the moment it opens
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    await this.readState();
+    this.keyIcon(false);
+    this.warm();
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('analysis');
+    this.local = {}; this.picker = false;
+    this.switchTo('RigAnalysis'); Perf.mark('analysis', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.a) this.warm();
+  }
+  exit() { this.switchTo(''); }   // back to your own keys
+
+  async poll() {
+    await this.readState();
+    await this.readDebrief();
+    const a = this.a;
+    if (a.open && a.id && (a.id !== this.vtId || performance.now() - this.vtAt > 6000)) await this.readVault(a.id);
+    this.keyIcon(false);
+    this.relayout();
+  }
+
+  // is the lap in the Vault (then it can be kept and opened in Pi Toolbox), is it kept, is Pi Toolbox installed
+  async readVault(id) {
+    this.vtId = id; this.vtAt = performance.now();
+    let item = null, vault = null;
+    try { item = await this.get('/vault/item?id=' + encodeURIComponent(id)); } catch (e) { }
+    try { vault = await this.get('/vault'); } catch (e) { }
+    const m = item && item.m;
+    this.vt = { inVault: !!m, pinned: !!(m && m.pinned), keeper: !!(m && m.keeper), cosworth: !!((item && item.cosworth && item.cosworth.installed) || (vault && vault.cosworth && vault.cosworth.installed)) };
+  }
+
+  async act(r) {
+    const a = this.a;
+    // D-05: the DEBRIEF row on the ANALYSIS screen (SAVE / SHARE / COSWORTH / DEEP DIVE). The debrief id is the one the
+    // /debrief/state reply named; irdash refuses anything else and does nothing.
+    if (r.act && r.act.indexOf('db-') === 0) {
+      await this.cmd(r.act, this.db && this.db.id ? this.db.id : '');
+      await this.refreshSoon(400);
+      return;
+    }
+    // a press reaches the add-on two or three times: whatever arrives within 0.8 s of the picker opening or closing is the same press again,
+    // and on the other layout its key would be a different one (a page key in the picker is LAP / CORNER keys outside it)
+    if (r.act !== 'pagesback' && performance.now() - this.pickerAt < 800 && (this.picker ? r.act === 'wb-page' : true)) return;
+    if (r.act === 'back') { this.exit(); return; }
+    if (r.act === 'pages') { this.picker = true; this.pickerAt = performance.now(); this.relayout(); return; }
+    if (r.act === 'pagesback') { if (this.picker) { this.picker = false; this.pickerAt = performance.now(); this.relayout(); } return; }
+    if (r.act === 'keep') {
+      const want = !this.cur('pinned', this.vt ? this.vt.pinned : false);
+      this.hold('pinned', want); this.relayout();
+      await this.cmd('wbkeep', want ? '1' : '0');
+      await sleep(300); await this.readVault(a.id); this.relayout();
+      return;
+    }
+    if (r.act === 'cosworth') { this.flashUntil = Date.now() + 3000; this.relayout(); await this.cmd('wbcosworth'); return; }
+    // the workbench commands: the change shows at once, the page confirms a moment later
+    if (r.act === 'wb-toggle-play') this.hold('playing', !this.cur('playing', a.playing));
+    if (r.act === 'wb-tile') this.hold('tile', !this.cur('tile', a.tile));
+    if (r.act === 'wb-speed') { const i = WB_SPEEDS.indexOf(this.cur('speed', a.speed)); this.hold('speed', WB_SPEEDS[(i + 1) % WB_SPEEDS.length]); }
+    if (r.act === 'wb-page') { this.hold('page', r.arg); if (this.picker) { this.picker = false; this.pickerAt = performance.now(); } }   // a page picked in the picker closes it
+    if (r.act === 'wb-map-colour') this.hold('mc', this.cur('mc', a.mapColour) === 'gap' ? 'speed' : 'gap');
+    this.relayout();
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(250);
+  }
+
+  build() {
+    const a = this.a, R = [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 }; if (more) Object.assign(o, more); R.push(o); };
+    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
+    if (a.off || a.driving || !a.open) {
+      this.picker = false;
+      // nothing to drive: say why in plain words
+      const why = a.off ? ['NOT READY', 'Needs the dashboard update'] : a.driving ? ['GET OUT OF THE CAR', '']
+        : ['NO LAP OPEN', 'Press ANALYSIS in the session review, or open a lap from the Vault'];
+      add(1, 0, 7, 1, 'ANALYSIS', '', null, null, 'banner');
+      add(0, 1, 8, 1, why[0], '', null, null, 'amber', 0, { size: 44 });      // one row each: text across the gap between two rows of keys is hard to read
+      add(0, 2, 8, 1, why[1], '', null, null, 'amber', 2, { size: 22 });
+      // D-05: the DEBRIEF row (the bottom row): one press for each thing the debrief on the top screen offers.
+      // All four are dim until a debrief is showing; then each one is live only when its action is actually available.
+      const db = this.db, dd = (db && db.deepDive) || {}, dbOk = !!(db && db.open && db.id);
+      const canSave = dbOk && !!db.recId, canShare = dbOk && !!db.shareId, canCos = dbOk && this.dbCw && !!dd.id, canDeep = dbOk && !!dd.id && dd.cornerN > 0;
+      add(0, 3, 2, 1, dbOk && db.saved ? 'SAVED' : 'SAVE', '', canSave ? 'db-save' : null, null, canSave ? (db.saved ? 'sel' : '') : 'dim', 2);
+      add(2, 3, 2, 1, 'SHARE', '', canShare ? 'db-share' : null, null, canShare ? '' : 'dim', 2);
+      add(4, 3, 2, 1, 'COSWORTH', '', canCos ? 'db-cosworth' : null, null, canCos ? '' : 'dim', 2);
+      add(6, 3, 2, 1, 'DEEP DIVE', '', canDeep ? 'db-deepdive' : null, null, canDeep ? '' : 'dim', 2);
+      return R;
+    }
+    const gap = a.refTime != null ? a.lapTime - a.refTime : null;
+    add(1, 0, 5, 1, 'LAP ' + a.lap + '   ' + wbLap(a.lapTime), a.refTime != null ? 'vs ' + wbRef(a.ref) + ' ' + wbLap(a.refTime) + '   ' + (gap > 0 ? '+' : gap < 0 ? '−' : '') + Math.abs(gap).toFixed(3) : 'no reference lap', null, null, 'banner');
+    // KEEP the lap / open it in Pi Toolbox (only when it is installed). Both need the lap to be in the Vault.
+    const vt = this.vt, inVault = !!(vt && vt.inVault), pinned = this.cur('pinned', vt ? vt.pinned : false), kept = pinned || !!(vt && vt.keeper);
+    if (!inVault) add(6, 0, 1, 1, 'KEEP', vt ? 'NOT IN VAULT' : '', null, null, 'dim', 2);
+    else add(6, 0, 1, 1, kept ? 'KEPT' : 'KEEP', pinned ? 'TAP TO LET GO' : kept ? 'AUTO-KEPT' : 'THIS LAP', 'keep', null, kept ? 'sel' : '', 2, { once: true });
+    if (vt && vt.cosworth) {
+      if (Date.now() < this.flashUntil) add(7, 0, 1, 1, 'OPENING', 'COSWORTH', null, null, 'go', 2);
+      else add(7, 0, 1, 1, 'COSWORTH', inVault ? '' : 'NOT IN VAULT', inVault ? 'cosworth' : null, null, inVault ? '' : 'dim', 2, { once: true });
+    }
+    // row 2: move through the lap
+    const lapsOk = a.laps > 1, cornersOk = a.corners > 0, eventsOk = a.events > 0, playing = this.cur('playing', a.playing), speed = this.cur('speed', a.speed);
+    add(0, 1, 1, 1, '◀ LAP', lapsOk ? 'PREVIOUS' : 'ONLY ONE', lapsOk ? 'wb-lap-prev' : null, null, lapsOk ? '' : 'dim', 2);
+    add(1, 1, 1, 1, 'LAP ▶', lapsOk ? 'NEXT' : 'ONLY ONE', lapsOk ? 'wb-lap-next' : null, null, lapsOk ? '' : 'dim', 2);
+    add(2, 1, 1, 1, '◀ CORNER', cornersOk ? 'PREVIOUS' : 'NONE FOUND', cornersOk ? 'wb-prev-corner' : null, null, cornersOk ? '' : 'dim', 2);
+    add(3, 1, 1, 1, 'CORNER ▶', cornersOk ? 'NEXT' : 'NONE FOUND', cornersOk ? 'wb-next-corner' : null, null, cornersOk ? '' : 'dim', 2);
+    add(4, 1, 1, 1, '◀ EVENT', eventsOk ? 'PREVIOUS' : 'NONE FOUND', eventsOk ? 'wb-prev-event' : null, null, eventsOk ? '' : 'dim', 2);
+    add(5, 1, 1, 1, 'EVENT ▶', eventsOk ? 'NEXT' : 'NONE FOUND', eventsOk ? 'wb-next-event' : null, null, eventsOk ? '' : 'dim', 2);
+    add(6, 1, 2, 1, playing ? 'PAUSE' : 'PLAY', playing ? 'PLAYING ×' + speed : 'PAUSED', 'wb-toggle-play', null, playing ? '' : 'go', 0, { once: true });
+    // row 3: how it looks
+    const tile = this.cur('tile', a.tile), mc = this.cur('mc', a.mapColour);
+    add(0, 2, 1, 1, 'ZOOM −', 'OUT', 'wb-zoom-out', null, '', 2);
+    add(1, 2, 1, 1, 'ZOOM +', 'IN', 'wb-zoom-in', null, '', 2);
+    add(2, 2, 1, 1, 'WHOLE LAP', a.zoomed ? 'ZOOMED IN' : 'ALL IN VIEW', 'wb-zoom-reset', null, a.zoomed ? 'sel' : '', 2);
+    add(3, 2, 1, 1, 'SPEED', '×' + speed, 'wb-speed', null, speed !== 1 ? 'sel' : '', 2);
+    add(4, 2, 1, 1, 'COMPARE', wbRef(a.ref), 'wb-ref-cycle', null, '', 2);
+    add(5, 2, 1, 1, 'OFFSET AUTO', a.offset ? (a.offset > 0 ? '+' : '−') + Math.abs(a.offset) + ' M' : 'AUTO', 'wb-offset-auto', null, a.offset ? 'sel' : '', 2);
+    add(6, 2, 1, 1, 'TILE', tile ? 'ON' : 'OFF', 'wb-tile', null, tile ? 'on' : 'off', 0, { once: true });
+    add(7, 2, 1, 1, 'MAP COLOUR', String(mc).toUpperCase(), 'wb-map-colour', null, '', 2);
+    // row 4: the pages the workbench has (only when there is a choice). The row is filled: up to 4 pages are 2 keys wide; with 5 to 7
+    // the first pages are 2 wide and the rest 1 so that 8 keys are used (6 pages: DRIVER and GRIP wide, the other four narrow); 8 are all narrow.
+    // PL-1: with more than 8 pages (a clip and a race log make 10) the row shows the first 7 and a PAGES key; PAGES opens a screen with every page.
+    const all = a.pages || [], page = this.cur('page', a.page);
+    if (all.length > WB_ROW && this.picker) return this.buildPicker(all, page);
+    this.picker = false;
+    const more = all.length > WB_ROW, pages = more ? all.slice(0, WB_ROW - 1) : all, wide = more ? 0 : Math.min(pages.length, 8 - pages.length);
+    if (pages.length > 1) { let col = 0; pages.forEach((id, i) => { const w = i < wide ? 2 : 1; add(col, 3, w, 1, wbPageName(id), page === id ? 'SHOWING' : '', 'wb-page', id, page === id ? 'sel' : '', 2); col += w; }); }
+    if (more) {
+      const hiddenShowing = all.indexOf(page) >= WB_ROW - 1;       // the page on show is one of the pages behind the PAGES key: say which
+      add(WB_ROW - 1, 3, 1, 1, 'PAGES', hiddenShowing ? wbPageName(page) : 'ALL ' + all.length, 'pages', null, hiddenShowing ? 'sel' : '', 2);
+    }
+    return R;
+  }
+
+  // every page as a big key (2 keys wide, 4 to a row, rows 2 to 4), BACK returns to the analysis keys
+  buildPicker(all, page) {
+    const R = [], add = (c, r, w, h, text, sub, act, arg, style, wrap) => R.push({ c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 });
+    add(0, 0, 1, 1, 'BACK', 'TO ANALYSIS', 'pagesback', null, 'grey', 2);
+    add(1, 0, 7, 1, 'PAGES', '', null, null, 'banner');
+    const w = all.length <= 12 ? 2 : 1, per = 8 / w;
+    all.slice(0, per * 3).forEach((id, i) => add((i % per) * w, 1 + Math.floor(i / per), w, 1, wbPageName(id), page === id ? 'SHOWING' : '', 'wb-page', id, page === id ? 'sel' : '', 2));
+    return R;
+  }
+};
+
+// ---------------- Sound screen ----------------
+// Game sound without Windows' mixer (C-39). One column per sound: GAME (the sim), SPOTTER (CrewChief), MUSIC (Spotify), SPEAKERS (the speakers'
+// own level), BUTTKICKER (its own level). Top key: the level, + and - below it, MUTE at the bottom (red while muted). RACE / CRUISE / NIGHT set them all
+// at once. Windows' default output device and every other Windows setting are never changed. irdash /sound is what irdeck read from Windows; presses go
+// to /api/do (snd...). A sound that is not playing right now has no level to set: its keys are dim and say so.
+const SNDCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD],
+                    strip: ['#0b0b0b', INK], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+const SND_IDS = ['sim', 'spotter', 'music', 'speakers', 'buttkicker'];
+const SND_PRESETS = [['race', 'RACE', 'spotter up, no music'], ['cruise', 'CRUISE', 'music on, spotter low'], ['night', 'NIGHT', 'everything lower']];
+const sndShort = n => { const m = /\((.*)\)/.exec(n || ''); return (m ? m[1] : (n || '')).toUpperCase(); };
+const Sound = new class extends Screen {
+  constructor() {
+    super('sound', SNDCOLORS);
+    this.s = null;                 // the last /sound
+    this.local = {};               // what a press changed, shown until irdeck has done it: key -> { v, until }
+    this.interval = 700;
+  }
+  hasState() { return !!this.s; }
+  cur(k, serverValue) { const h = this.local[k]; return h && Date.now() < h.until ? h.v : serverValue; }
+  hold(k, v) { this.local[k] = { v, until: Date.now() + 3000 }; }
+
+  // the SOUND key on your own profile
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 28px ' + FONT; g.fillText('SOUND', 72, 68);
+    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText('SCREEN', 72, 102);
+    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  // while the opener key is on the deck: the last known state (a peek: irdash does not ask Windows for it)
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    try { this.s = await this.get('/sound?peek=1'); } catch (e) { this.s = { ready: false, off: true }; }
+    this.keyIcon(false);
+    this.warm();
+  }
+
+  async open(opts) {
+    if (!deviceId) return;
+    Perf.begin('sound');
+    this.local = {};
+    this.switchTo('RigSound'); Perf.mark('sound', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.s) this.warm();
+  }
+  exit() { this.switchTo(''); }   // back to your own keys
+
+  async poll() {
+    try { this.s = await this.get('/sound'); } catch (e) { this.s = { ready: false, off: true }; }
+    this.relayout();
+  }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    const s = this.s, items = s.items || [];
+    if (r.act === 'sndvol') {
+      const p = String(r.arg).split(':'), it = items.find(x => x.id === p[0]);
+      if (it) this.hold(p[0] + '.vol', Math.max(0, Math.min(100, this.cur(p[0] + '.vol', it.vol) + parseInt(p[1], 10))));
+    }
+    if (r.act === 'sndmute') { const it = items.find(x => x.id === r.arg); if (it) this.hold(r.arg + '.mute', !this.cur(r.arg + '.mute', it.mute)); }
+    this.relayout();
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(700);
+  }
+
+  // the top key of a column: name, level as a number and a bar; MUTED in red; "NOT PLAYING" when there is nothing to set
+  paintLevel(x, px, py, pw, ph, it, vol, mute) {
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = GOLD; x.font = '600 14px ' + FONT; x.fillText(it.name, px + pw / 2, py + 13);
+    if (!it.live) {
+      x.fillStyle = '#6d6a63'; x.font = '600 16px ' + FONT;
+      x.fillText('NOT', px + pw / 2, py + 40); x.fillText(it.kind === 'device' ? 'FOUND' : 'PLAYING', px + pw / 2, py + 60);
+      return;
+    }
+    x.fillStyle = mute ? '#6d6a63' : INK; x.font = '600 32px ' + FONT; x.fillText(vol + '%', px + pw / 2, py + 42);
+    if (mute) { x.fillStyle = '#ff6b6b'; x.font = '600 14px ' + FONT; x.fillText('MUTED', px + pw / 2, py + 64); }
+    const bx = px + 8, bw = pw - 16, by = py + ph - 14;
+    x.fillStyle = '#2a2a2a'; x.fillRect(bx, by, bw, 7);
+    x.fillStyle = mute ? '#6d6a63' : GOLD; x.fillRect(bx, by, bw * Math.max(0, Math.min(100, vol)) / 100, 7);
+  }
+
+  build() {
+    const s = this.s, R = [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 }; if (more) Object.assign(o, more); R.push(o); };
+    if (!s.ready) {
+      add(0, 0, 8, 3, 'SOUND NOT READY', s.off ? 'Needs the dashboard update' : 'Reading sound devices', null, null, 'amber', 2, { size: 38 });
+      add(7, 3, 1, 1, 'EXIT', 'SOUND', 'exit', null, 'stop');
+      return R;
+    }
+    const items = {}; (s.items || []).forEach(it => { items[it.id] = it; });
+    SND_IDS.forEach((id, c) => {
+      const it = items[id] || { id, name: id.toUpperCase(), kind: 'app', live: false, vol: 0, mute: false };
+      const live = it.live, vol = this.cur(id + '.vol', it.vol), mute = this.cur(id + '.mute', it.mute);
+      add(c, 0, 1, 1, '', '', null, null, 'strip', 0, { extra: JSON.stringify([it.name, live, vol, mute]), noflash: true, paint: (x, px, py, pw, ph) => this.paintLevel(x, px, py, pw, ph, it, vol, mute) });
+      add(c, 1, 1, 1, '+', it.name, live ? 'sndvol' : null, id + ':+10', live ? '' : 'dim', 0, { size: 44 });
+      add(c, 2, 1, 1, '−', it.name, live ? 'sndvol' : null, id + ':-10', live ? '' : 'dim', 0, { size: 44 });
+      add(c, 3, 1, 1, mute ? 'MUTED' : 'MUTE', '', live ? 'sndmute' : null, id, live ? (mute ? 'stop' : 'grey') : 'dim', 2, { once: true });
+    });
+    add(5, 0, 3, 1, 'SOUND', s.using ? 'PLAYING ON ' + sndShort(s.using) : 'no output device found', null, null, 'banner', 2);
+    SND_PRESETS.forEach((p, i) => add(5 + i, 1, 1, 1, p[1], p[2], 'sndpreset', p[0], s.preset === p[0] ? 'sel' : '', 2));
+    if (s.default && s.default !== s.using) add(5, 2, 3, 1, 'WINDOWS DEFAULT', sndShort(s.default), null, null, 'dim', 2);
+    add(7, 3, 1, 1, 'EXIT', 'SOUND', 'exit', null, 'stop');
+    return R;
+  }
+};
+
+// The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound };
+
+// ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
+// irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.
+async function speedTest(which) {
+  const s = SCREENS[which];
+  if (!s || !deviceId || playing || s.live) return;
+  log('speedtest: opening ' + which + ' (a test; nothing is changed)');
+  await s.open({ test: true });
+  await sleep(6000);
+  s.exit({ test: true });
+}
+
+function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
+  pluginUUID = uuid;
+  try { const i = JSON.parse(info); const xl = (i.devices || []).find(d => d.type === 2) || (i.devices || [])[0]; if (xl) deviceId = xl.id; } catch (e) { }
+  ws = new WebSocket('ws://127.0.0.1:' + port);
+  ws.onopen = () => { send({ event: registerEvent, uuid }); pollLoop(); };
+  ws.onmessage = m => {
+    const e = JSON.parse(m.data);
+    if (e.event === 'deviceDidConnect' && (!deviceId || (e.deviceInfo && e.deviceInfo.type === 2))) deviceId = e.device;
+    const keyScreen = Object.values(SCREENS).find(s => e.action === UUID + '.' + s.name);                 // a screen's opener key on your profile
+    const p = e.payload && e.payload.settings && e.payload.settings.p;
+    const tileScreen = !keyScreen && p && SCREENS[p];                                                     // a key of a screen's profile
+    const action = e.action && e.action.indexOf(UUID + '.') === 0 ? e.action.slice((UUID + '.').length) : '';
+    const stateKey = stateKeys[action] ? action : null;
+    const isDocKey = e.action === UUID + '.doctor';
+    const pos = e.payload && e.payload.coordinates ? e.payload.coordinates.column + ',' + e.payload.coordinates.row : '';
+    if (e.event === 'willAppear') {
+      if (keyScreen) { keyScreen.keys.add(e.context); keyScreen.keyIcon(true); }
+      else if (stateKey) { stateKeys[stateKey].add(e.context); paintStateKey(e.context, stateKey); pollDeckState(); }
+      else if (tileScreen) tileScreen.appear(pos, e.context);
+      else if (isDocKey) { docKeys.add(e.context); RigDoctor.icon(true); }
+      else if (pos) { tiles[pos] = e.context; send({ event: 'setImage', context: e.context, payload: { image: blank(), target: 0 } }); }
+    }
+    if (e.event === 'willDisappear') {
+      if (keyScreen) keyScreen.keys.delete(e.context);
+      else if (stateKey) stateKeys[stateKey].delete(e.context);
+      else if (tileScreen) tileScreen.disappear(pos);
+      else if (isDocKey) docKeys.delete(e.context);
+      else if (pos) delete tiles[pos];
+    }
+    if (e.event === 'keyDown') {
+      if (keyScreen) keyScreen.open();
+      else if (stateKey) { /* image only; the MAIN action remains owned by irdeck */ }
+      else if (tileScreen) tileScreen.press(e.payload.coordinates.column, e.payload.coordinates.row);
+      else if (isDocKey) RigDoctor.press();
+      else { playing = true; back(); }   // any key during (or, by any chance, after) the intro returns to your buttons
+    }
+  };
+}
+
+// Asks irdash every 2 s whether to play the intro (and keeps the screens' last state ready for the moment a key opens one).
+async function pollLoop() {
+  later(0, async function stateLoop() { while (true) { if (Object.values(stateKeys).some(x => x.size)) await pollDeckState(); await sleep(1000); } });
+  for (;;) {
+    try { await poll(); } catch (e) { }
+    try { await Overlays.keyTick(); } catch (e) { }
+    try { await Friends.keyTick(); } catch (e) { }
+    try { await MyDrive.keyTick(); } catch (e) { }
+    try { await Replay.keyTick(); } catch (e) { }
+    try { await Analysis.keyTick(); } catch (e) { }
+    try { await Sound.keyTick(); } catch (e) { }
+    try { await RigDoctor.tick(); } catch (e) { }
+    await sleep(2000);
+  }
+}
+
+async function poll() {
+  if (playing) return;
+  let s;
+  try { s = await (await fetch(API + '/showcase?who=deck', { cache: 'no-store' })).json(); }
+  catch (e) { if (!poll.warned) { poll.warned = true; log('irdash not reachable yet: ' + e); } return; }
+  if (!poll.ok) { poll.ok = true; log('connected to irdash, seq ' + s.seq + (s.play ? ', boot play' : '')); }
+  const replay = seq !== null && s.seq > seq && !s.driving;
+  seq = s.seq;
+  if (s.play || replay) play();
+}
+
+let blankUrl = null;
+function blank() { if (!blankUrl) { const c = document.createElement('canvas'); c.width = c.height = PX; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, PX, PX); blankUrl = c.toDataURL('image/png'); } return blankUrl; }
+
+async function play() {
+  if (playing) return;
+  if (!deviceId) { log('no Stream Deck XL found'); return; }
+  playing = true;
+  const guard = { off: false };
+  later(15000, () => { if (!guard.off) back(); });   // never leave the deck on the intro
+  try {
+    log('playing on ' + deviceId);
+    send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: { profile: 'RigIntro' } });
+    for (let i = 0; i < 30 && Object.keys(tiles).length < COLS * ROWS; i++) await sleep(100);
+    log(Object.keys(tiles).length + ' tiles appeared');
+    if (Object.keys(tiles).length === 0) return;
+    const big = document.createElement('canvas'); big.width = W; big.height = H;
+    const g = big.getContext('2d');
+    const tile = document.createElement('canvas'); tile.width = tile.height = PX;
+    const tg = tile.getContext('2d');
+    // time-based, so a slow frame skips ahead instead of stretching the sequence
+    const start = performance.now(), length = 7.2;
+    for (let t = 0; t < length; t = (performance.now() - start) / 1000) {
+      draw(g, t);
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const ctx = tiles[c + ',' + r]; if (!ctx) continue;
+        tg.drawImage(big, c * PX, r * PX, PX, PX, 0, 0, PX, PX);
+        send({ event: 'setImage', context: ctx, payload: { image: tile.toDataURL('image/png'), target: 0 } });
+      }
+      await tick();
+    }
+    log('sequence done in ' + ((performance.now() - start) / 1000).toFixed(1) + ' s');
+  } catch (e) { }
+  finally { guard.off = true; back(); }
+}
+
+function back() {
+  if (!playing) return;
+  playing = false;
+  send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: {} });   // no name = the previous profile
+  log('back to the buttons');
+}
+
+const ease = x => x < 0 ? 0 : x > 1 ? 1 : 1 - Math.pow(1 - x, 3);
+const fmtTime = t => { t = +t; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' + (s < 10 ? '0' : '') : '') + s.toFixed(3); };
+
+// The sequence, in seconds: gold hairline, driver card (4 / PETER), the green flag waves across, settle, fade.
+function draw(g, t) {
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  // 0.0-1.0 hairline draws left to right through the middle
+  const hw = ease(t / 1.0) * W;
+  // 0.8-3.4 driver card
+  const card = t < 0.8 ? 0 : t < 3.6 ? ease((t - 0.8) / 0.8) : Math.max(0, 1 - (t - 3.6) / 0.5);
+  if (card > 0) {
+    g.save(); g.globalAlpha = card;
+    g.strokeStyle = GOLD; g.lineWidth = 3;
+    g.font = '300 330px ' + FONT; g.textBaseline = 'alphabetic';
+    g.strokeText('4', 22, H - 22);
+    g.fillStyle = GOLD; g.font = '600 26px ' + FONT;
+    g.fillText('D R I V E R', 230, 150);
+    g.fillStyle = INK; g.font = '600 118px ' + FONT;
+    g.fillText('PETER', 222, 270);
+    g.restore();
+  }
+  if (t < 4.0) {
+    g.fillStyle = GOLD; g.globalAlpha = t < 3.6 ? 1 : Math.max(0, 1 - (t - 3.6) / 0.4);
+    g.fillRect(0, 292, hw, 2); g.globalAlpha = 1;   // the rule under the name, as on the top screen
+  }
+  // 3.8-6.4 the green flag: sweeps in from the left and ripples like cloth
+  if (t > 3.8) {
+    const p = ease((t - 3.8) / 0.9), edge = p * (W + 200) - 100;
+    const fade = t > 6.4 ? Math.max(0, 1 - (t - 6.4) / 0.7) : 1;
+    for (let x = 0; x < W; x += 4) {
+      if (x > edge) break;
+      const wave = Math.sin(x / 70 - t * 7) * 0.5 + 0.5;
+      const light = 0.55 + 0.45 * wave;
+      const r = Math.round(31 * light), gr = Math.round(191 * light), b = Math.round(95 * light);
+      g.fillStyle = 'rgba(' + r + ',' + gr + ',' + b + ',' + fade + ')';
+      const sag = Math.sin(x / 90 - t * 7) * 10 * (x / W);
+      g.fillRect(x, sag, 4, H);
+    }
+    if (t > 4.8 && t < 6.6) {
+      g.globalAlpha = Math.min(1, (t - 4.8) / 0.4) * fade;
+      g.fillStyle = '#04150a'; g.font = '700 74px ' + FONT; g.textAlign = 'center';
+      g.fillText('G R E E N', W / 2, H / 2 + 26); g.textAlign = 'left'; g.globalAlpha = 1;
+    }
+  }
+}
+</script>
+</body>
+</html>

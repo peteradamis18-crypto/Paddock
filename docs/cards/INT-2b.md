@@ -1,0 +1,3 @@
+# CARD INT-2b - integration fixes
+Read AGENTS.md, CLAUDE.md, docs\tasks\log\INT-1.md (what the first integration pass found and fixed). Fix at the root (product code if the product is wrong; the test if it assumed stale data or another builder's old contract - give the reason), loop the named suites to 0 FAIL, deploy via dash\build.ps1 (broker) when sim=False. No new features. C# 5. Report to docs\tasks\log\INT-2b.md (before -> after per suite, one line per fix).
+Suites: tests\home-test.ps1 (schedule, action-state, layout/font and fixture checks still fail after INT-1) and tests\data-test.ps1 (fails); HOME must keep NEXT RACE + THIS WEEKEND REAL WORLD (15 real sessions now) + THIS WEEK + LAST OUTING + driver card working together.

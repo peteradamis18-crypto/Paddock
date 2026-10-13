@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Sessions</title>
+<link rel="stylesheet" href="sessions.css">
+<link rel="stylesheet" href="bench.css">
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <span><b id="topTitle">Sessions</b></span>
+    <span class="tools">
+      <button class="btn" id="unitBtn" title="Speed units" type="button">km/h</button>
+      <span class="no">Car <b>No. 4</b></span>
+      <button class="btn" id="perfBtn" type="button">Frame rate &rsaquo;</button>
+      <button class="btn" id="vaultBtn" type="button">Vault &rsaquo;</button>
+      <button class="btn" id="closeBtn" type="button">Close</button>
+    </span>
+  </div>
+
+  <section id="viewList" hidden>
+    <div class="headblock">
+      <h1>Sessions <small id="totals"></small></h1>
+      <div class="sub" id="status"></div>
+      <div class="filters">
+        <div class="fgroup" id="fCar"></div>
+        <div class="fgroup" id="fTrack"></div>
+        <div class="fgroup" id="fMore"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="pane" style="min-width:0">
+        <h2><span>Every session</span></h2>
+        <div class="scroll" id="sessList"></div>
+      </div>
+      <div class="pane" id="rightPane">
+        <div class="scroll" id="rightScroll">
+          <div id="benchBox"></div>
+          <h2 id="pbHead"><span>Personal bests</span></h2>
+          <div id="pbList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="viewAn" hidden>
+    <div class="head">
+      <button class="btn" id="backBtn" type="button">&lsaquo; Sessions</button>
+      <h1 id="anTitle">Lap analysis</h1>
+      <div class="sub" id="anSub"></div>
+    </div>
+    <div class="col" id="anLeft"></div>
+    <div class="col" id="anMid">
+      <div class="legend" id="legend"></div>
+      <div id="plotBox"><canvas id="plot"></canvas><div id="tip" hidden></div></div>
+    </div>
+    <div class="col" id="anRight"></div>
+  </section>
+</div>
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script src="bench.js"></script>
+<script src="sessions.js"></script>
+</body>
+</html>

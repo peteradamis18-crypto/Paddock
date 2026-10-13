@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Performance</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="perf.css">
+</head>
+<body>
+<div id="app">
+  <header class="idbar" id="idbar">
+    <span class="idname">Performance</span>
+    <span class="idnum" id="idNum"></span>
+  </header>
+  <div class="top">
+    <span></span>
+    <span class="tools">
+      <span class="note" id="note"></span>
+      <button class="btn" id="sessBtn" type="button">Sessions &rsaquo;</button>
+      <button class="btn" id="closeBtn" type="button">Close</button>
+    </span>
+  </div>
+
+  <div class="grid">
+    <section class="col" id="colLeft">
+      <div class="card" id="last"></div>
+      <div class="pane" id="paneRun"></div>
+    </section>
+    <section class="col" id="colRight">
+      <div class="pane trend" id="paneTrend">
+        <h2><span>Frame rate by session</span><em id="trendNote"></em></h2>
+        <div class="filters" id="filters"></div>
+        <div id="plotBox"><canvas id="plot"></canvas><div id="tip" hidden></div></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="two">
+        <div class="pane" id="paneHelp"><h2><span>Before and after</span></h2><div class="scroll" id="helpList"></div></div>
+        <div class="pane" id="paneCheck"><h2><span>Checklist</span></h2><div class="scroll" id="checkList"></div></div>
+      </div>
+    </section>
+  </div>
+</div>
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script src="perf.js"></script>
+</body>
+</html>

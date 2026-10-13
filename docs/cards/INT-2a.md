@@ -1,0 +1,3 @@
+# CARD INT-2a - integration fixes
+Read AGENTS.md, CLAUDE.md, docs\tasks\log\INT-1.md (what the first integration pass found and fixed). Fix at the root (product code if the product is wrong; the test if it assumed stale data or another builder's old contract - give the reason), loop the named suites to 0 FAIL, deploy via dash\build.ps1 (broker) when sim=False. No new features. C# 5. Report to docs\tasks\log\INT-2a.md (before -> after per suite, one line per fix).
+Suites: tests\bench-test.ps1 (58/32 - all controlled fixture groups A-D fail: the benchmark data contract changed in H-03; make fixtures and code agree on units, timestamps, percentiles and NEXT).

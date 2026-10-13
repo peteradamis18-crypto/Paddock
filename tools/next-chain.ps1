@@ -1,0 +1,1 @@
+Set-Location 'C:\Users\peter\iRacingDeck'; while (-not (Test-Path docs\tasks\log\cx\INT-2a2.done)) { Start-Sleep 60 }; & .\tools\cx-queue.ps1 -Ids W-04,W-05,W-06,W-07,W-08,W-09,W-10,W-13,W-16,W-17 -Lane analysis

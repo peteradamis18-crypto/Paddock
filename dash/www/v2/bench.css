@@ -1,0 +1,67 @@
+/* The benchmark card: black and gold, hairlines, small caps labels, tabular numbers. Used by the sessions page and the debrief. */
+.bn { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --line: rgba(244, 241, 234, .12); --hair: rgba(244, 241, 234, .07);
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; color: var(--ink); font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line); border-radius: 3px; padding: 16px 20px 14px; background: rgba(244, 241, 234, .015); }
+.bn label { display: block; font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); font-weight: 600; }
+.bn-none { color: var(--mute); font-size: 16px; line-height: 1.45; padding: 6px 0; }
+
+.bn-head { display: flex; justify-content: space-between; align-items: center; min-height: 24px; }
+.bn-nav { display: flex; align-items: center; gap: 6px; color: var(--mute); font-size: 13px; letter-spacing: .1em; }
+.bn-nav i { font-style: normal; min-width: 44px; text-align: center; }
+.bn-nav button { background: none; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); width: 30px; height: 26px; font-size: 18px; line-height: 1; padding: 0; cursor: pointer; }
+.bn-nav button:hover { border-color: var(--gold); color: var(--gold); }
+.bn-sub { font-size: 14px; color: var(--mute); letter-spacing: .04em; }
+
+.bn-combo { margin: 10px 0 0; }
+.bn-combo b { display: block; font-size: 24px; font-weight: 400; letter-spacing: .01em; }
+.bn-combo b small { font-size: 15px; color: var(--mute); font-weight: 400; margin-left: 8px; letter-spacing: .04em; }
+.bn-combo span { display: block; font-size: 15px; color: var(--mute); margin-top: 2px; }
+
+.bn-pb { margin: 12px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.bn-pb b { display: block; font-size: 48px; font-weight: 300; color: var(--gold); line-height: 1.05; margin-top: 2px; letter-spacing: .01em; }
+.bn-pb span { display: block; font-size: 13px; color: var(--mute); letter-spacing: .04em; margin-top: 3px; }
+
+.bn-cols { display: grid; grid-template-columns: minmax(0, 1fr) 80px 80px 62px; gap: 8px; padding: 6px 0 4px; border-top: 1px solid var(--line); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--dim); }
+.bn-cols span + span, .bn-l .bn-t, .bn-l .bn-g, .bn-l .bn-p { text-align: right; }
+.bn-row { padding: 6px 0 7px; border-top: 1px solid var(--hair); }
+.bn-l { display: grid; grid-template-columns: minmax(0, 1fr) 80px 80px 62px; gap: 8px; align-items: baseline; }
+.bn-name { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #d8d4ca; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bn-t { font-size: 20px; color: var(--ink); }
+.bn-g { font-size: 17px; color: #cfcbc0; }
+.bn-g.up { color: var(--gold); }
+.bn-p { font-size: 15px; color: var(--mute); }
+.bn-bar { position: relative; height: 14px; margin: 7px 0 3px; }
+.bn-bar::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: var(--line); }
+.bn-bar i { position: absolute; display: block; }
+.bn-bar .gp { top: 5px; height: 3px; background: rgba(244, 241, 234, .35); }
+.bn-bar .ym { top: 1px; width: 2px; height: 12px; margin-left: -1px; background: var(--ink); }
+.bn-bar .pm { top: 0; width: 2px; height: 14px; margin-left: -1px; background: var(--gold); }
+.bn-s { font-size: 12px; color: var(--dim); letter-spacing: .03em; line-height: 1.35; }
+.bn-s a { color: var(--mute); text-decoration: none; border-bottom: 1px solid var(--line); }
+.bn-s a:hover { color: var(--gold); border-color: var(--gold); }
+
+.bn-next { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: baseline; gap: 10px; margin-top: 4px; padding: 10px 0 2px; border-top: 1px solid var(--line); }
+.bn-next span { font-size: 15px; color: #d8d4ca; }
+.bn-next b { font-size: 20px; font-weight: 400; color: var(--ink); margin-left: 8px; }
+.bn-next em { font-style: normal; font-size: 17px; color: var(--gold); }
+.bn-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 0 0; }
+.bn-field span { font-size: 13px; color: var(--mute); line-height: 1.4; }
+.bn-field label, .bn-next label { font-size: 11px; }
+
+.bn-hist { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.bn-svg { display: block; width: 100%; height: 60px; margin-top: 8px; overflow: visible; }
+.bn-svg .ax { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.bn-svg .ln { fill: none; stroke: var(--gold); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.bn-ax { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: .06em; color: var(--mute); margin-top: 4px; }
+.bn-foot { margin-top: 10px; font-size: 11px; letter-spacing: .06em; color: var(--dim); }
+
+/* debrief: the same card, smaller, next to the big lap time */
+.bn.compact { padding: 10px 20px 6px; background: none; }
+.bn.compact .bn-row { padding: 4px 0 5px; }
+.bn.compact .bn-bar { margin: 4px 0 2px; }
+.bn.compact .bn-t { font-size: 22px; }
+.bn.compact .bn-g { font-size: 19px; }
+.bn.compact .bn-name { font-size: 15px; }
+.bn.compact .bn-s { font-size: 12px; }
+.bn.compact .bn-next { padding-top: 6px; margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) { .bn * { transition: none !important; animation: none !important; } }

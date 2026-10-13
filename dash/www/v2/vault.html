@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Vault</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="vault.css">
+</head>
+<body>
+<div id="app">
+  <header class="idbar" id="idbar">
+    <span class="idname">Vault</span>
+    <span class="idnum" id="idNum"></span>
+  </header>
+  <div class="top">
+    <span></span>
+    <span class="tools">
+      <span class="meter" id="meter" title="Vault size"></span>
+      <button class="btn" id="sessBtn" type="button">Sessions &rsaquo;</button>
+      <button class="btn" id="closeBtn" type="button">Close</button>
+    </span>
+  </div>
+
+  <section id="viewGrid">
+    <div class="headblock">
+      <h1>Vault <small id="totals"></small></h1>
+      <div class="sub" id="status"></div>
+      <div id="setup"></div>
+      <div class="filters">
+        <div class="fgroup" id="fKind"></div>
+        <div class="fgroup" id="fCar"></div>
+        <div class="fgroup" id="fTrack"></div>
+        <div class="fgroup" id="fTag"></div>
+        <div class="fgroup" id="fYear"></div>
+        <div class="fgroup" id="fSort"></div>
+        <div class="fgroup"><input class="search" id="q" type="search" placeholder="Search" aria-label="Search"></div>
+      </div>
+    </div>
+    <div class="scroll"><div id="grid"></div></div>
+  </section>
+
+  <section id="viewDetail" hidden>
+    <div class="head">
+      <button class="btn" id="backBtn" type="button">&lsaquo; Vault</button>
+      <div class="ttl"><h1 id="dTitle"></h1><div class="sub" id="dSub"></div></div>
+      <div class="acts" id="dActs"></div>
+    </div>
+    <div class="col" id="cLeft"></div>
+    <div class="col" id="cMid">
+      <div id="vidWrap" hidden>
+        <div id="vidBox"><video id="vid" controls preload="metadata" playsinline></video></div>
+        <div class="sync" id="sync"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div id="plotBox"><canvas id="plot"></canvas><div id="tip" hidden></div></div>
+    </div>
+    <div class="col" id="cRight">
+      <div id="mapBox"><canvas id="mapc"></canvas></div>
+      <div id="cornerBox"></div>
+    </div>
+  </section>
+</div>
+<div id="toast" hidden></div>
+<script src="corners.js"></script>
+<script src="vault.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#060606">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Paddock">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Paddock</title>
+<link rel="stylesheet" href="app.css?v=ph2">
+</head>
+<body>
+<div id="app">
+  <header id="strip" role="status"></header>
+  <div id="scroll"><main id="main"></main></div>
+  <div id="bar"><div id="toast" hidden role="status"></div></div>
+  <div id="dock" hidden></div>
+  <nav id="tabs" aria-label="Pages">
+    <button type="button" data-nav="home" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></svg><span>Home</span></button>
+    <button type="button" data-nav="drive"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.6l4.1 3.4-4.1 3.4"/></svg><span>Drive</span></button>
+    <button type="button" data-nav="sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9.5 6v12M14.5 8.5v7M19 11v2"/></svg><span>Sound</span></button>
+    <button type="button" data-nav="setup"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h8.5M17.5 8H20M4 16h2.5M11.5 16H20"/><circle cx="15" cy="8" r="2.5"/><circle cx="9" cy="16" r="2.5"/></svg><span>Setup</span></button>
+    <button type="button" data-nav="laps"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4.2l2.6 1.6M9.5 3.5h5"/></svg><span>Laps</span></button>
+  </nav>
+</div>
+<script src="app.js?v=ph2"></script>
+</body>
+</html>

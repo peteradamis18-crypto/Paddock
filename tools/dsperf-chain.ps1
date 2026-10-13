@@ -1,0 +1,1 @@
+Set-Location 'C:\Users\peter\iRacingDeck'; while (-not (Test-Path docs\tasks\log\cx\T-01b.done)) { Start-Sleep 30 }; & .\tools\cx-run.ps1 -Prompt docs\cards\v4\DS-PERF.md -Id DS-PERF -Sandbox workspace-write

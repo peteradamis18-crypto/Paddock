@@ -1,0 +1,54 @@
+/* Paddock Analysis Workbench - the PRO page (workbench-pro.js, docs\PLAN-v3.md P3): X/Y scatter, histogram, maths channels, export */
+.pr-ctl { display: flex; align-items: center; gap: 8px; height: 28px; margin: 4px 0 0; white-space: nowrap; overflow: hidden; }
+.pr-lab { font-size: 13px; letter-spacing: .16em; color: var(--mute); margin-left: 6px; }
+.pr-lab:first-child { margin-left: 0; }
+.pr-btn { font-size: 15px; letter-spacing: .05em; padding: 2px 10px; height: 26px; line-height: 20px; border: 1px solid var(--line); background: #0f0f11; color: var(--ink); cursor: pointer; max-width: 176px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-btn:hover { border-color: #5a4a14; }
+.pr-btn.on { color: var(--gold); border-color: #5a4a14; background: rgba(242,194,48,.07); }
+.pr-btn.sm { padding: 2px 8px; font-size: 14px; letter-spacing: .08em; max-width: 260px; }
+.pr-btn.off { color: var(--dim); }
+.pr-eq { font-size: 18px; margin-top: 8px; line-height: 26px; height: 86px; white-space: nowrap; overflow: hidden; }
+.pr-eq.h { height: 60px; }
+.pr-eq b { font-weight: 500; }
+.pr-eq .tg { font-size: 13px; letter-spacing: .16em; margin-right: 10px; }
+.pr-eq .sm { font-size: 14px; color: var(--mute); }
+.pr-note { font-size: 15px; color: var(--mute); letter-spacing: .04em; margin-top: 6px; line-height: 1.4; white-space: nowrap; overflow: hidden; }
+.pr-note b { color: var(--gold); font-weight: 500; }
+.pr-note.err { color: var(--loss); white-space: normal; }
+.pr-note.ok { color: var(--gain); }
+.pr-note.help { white-space: normal; height: 44px; }
+
+/* the channel picker's X/Y and HIST buttons */
+.picker .pacts { display: flex; gap: 10px; margin-top: 10px; }
+.picker .pbtn { font-size: 15px; letter-spacing: .14em; color: var(--gold); border: 1px solid #5a4a14; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.picker .pbtn:hover { background: rgba(242,194,48,.08); }
+.picker .pbtn i { font-style: normal; color: var(--mute); font-size: 12px; margin-left: 8px; letter-spacing: .06em; }
+
+/* maths channels */
+.pr-mlist { min-height: 30px; max-height: 120px; overflow: hidden; }
+.pr-mrow { display: grid; grid-template-columns: 188px 1fr 64px 28px; align-items: center; height: 30px; font-size: 17px; border-bottom: 1px solid #19191c; white-space: nowrap; cursor: pointer; }
+.pr-mrow .n { color: var(--gold); overflow: hidden; text-overflow: ellipsis; }
+.pr-mrow .f { color: var(--ink); overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+.pr-mrow .f.bad { color: var(--loss); }
+.pr-mrow .u { color: var(--mute); font-size: 14px; text-align: right; padding-right: 8px; }
+.pr-mrow .x { color: var(--dim); text-align: center; font-size: 18px; }
+.pr-mrow .x:hover { color: var(--loss); }
+.pr-mrow:hover { background: rgba(242,194,48,.05); }
+.pr-form { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+.pr-in { font: 18px Bahnschrift, "Segoe UI", sans-serif; color: var(--ink); background: #0b0b0c; border: 1px solid var(--line); padding: 5px 8px; outline: none; -webkit-user-select: text; user-select: text; min-width: 0; }
+.pr-in:focus { border-color: var(--gold); }
+.pr-in::placeholder { color: var(--dim); }
+.pr-add { font-size: 15px; letter-spacing: .14em; color: #0b0b0c; background: var(--gold); padding: 7px 14px; cursor: pointer; white-space: nowrap; }
+.pr-add:hover { background: #ffd54a; }
+.pr-ex { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; height: 28px; overflow: hidden; }
+
+/* export */
+.pr-go { font-size: 22px; letter-spacing: .14em; color: #0b0b0c; background: var(--gold); padding: 11px 24px; cursor: pointer; white-space: nowrap; text-align: center; }
+.pr-go:hover { background: #ffd54a; }
+.pr-go.sec { background: transparent; color: var(--gold); border: 1px solid #5a4a14; font-size: 18px; padding: 10px 22px; }
+.pr-go.sec:hover { background: rgba(242,194,48,.08); }
+.pr-gorow { display: flex; gap: 12px; align-items: center; }
+.pr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; max-height: 66px; overflow: hidden; }
+.pr-hint { font-size: 18px; color: var(--mute); line-height: 1.6; }
+.pr-hint b { color: var(--gold); font-weight: 500; }
+

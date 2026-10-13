@@ -1,0 +1,52 @@
+/* My Drive on the top screen: same black-and-gold look as friends mode and the Rig Doctor. */
+#mydrive { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --green: #1fbf5f; --red: #e0483c;
+  position: fixed; inset: 0; z-index: 925; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .5s ease;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }
+#mydrive.on { opacity: 1; }
+#mydrive label { display: block; font-size: 14px; letter-spacing: .34em; text-transform: uppercase; color: var(--mute); }
+#mydrive small { display: block; margin-top: 8px; font-size: 18px; letter-spacing: .1em; color: var(--mute); }
+#mydrive .g-top, #mydrive .g-foot { position: absolute; left: 64px; right: 64px; display: flex; justify-content: space-between;
+  font-size: 15px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); }
+#mydrive .g-top { top: 34px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+#mydrive .g-top span:first-child, #mydrive .g-top b { color: var(--gold); font-weight: 600; }
+#mydrive .g-foot { bottom: 34px; padding-top: 18px; border-top: 1px solid var(--line); }
+#mydrive .g-foot b { color: var(--ink); }
+
+/* the chosen combo */
+.md-pick { position: absolute; left: 64px; top: 130px; right: 64px; }
+.md-pick > div { border-top: 1px solid var(--line); padding-top: 16px; margin-bottom: 40px; }
+.md-pick > div > b { display: block; margin-top: 10px; font-size: 92px; font-weight: 300; line-height: 1.05; }
+.md-pick small { font-size: 26px !important; color: var(--gold) !important; }
+.md-pick .md-small { display: flex; gap: 90px; border-top: 1px solid var(--line); }
+.md-pick .md-small b { font-size: 42px; font-weight: 400; margin-top: 8px; display: block; }
+
+/* typing, searching, starting */
+.md-type, .md-busy, .md-results { position: absolute; left: 64px; right: 64px; top: 150px; }
+.md-type b, .md-busy b { display: block; font-size: 150px; font-weight: 300; letter-spacing: .05em; margin-top: 14px; min-height: 1.1em; }
+.md-busy b { font-size: 64px; letter-spacing: 0; line-height: 1.15; }
+.md-busy.bad b { color: #ff8a80; }
+.md-type small, .md-busy small { font-size: 24px !important; color: var(--gold) !important; margin-top: 22px !important; }
+.md-type .caret { display: inline-block; width: 6px; height: .8em; margin-left: 10px; background: var(--gold); vertical-align: -6px; animation: mdCaret 1s steps(2) infinite; }
+@keyframes mdCaret { 50% { opacity: 0; } }
+
+/* search results, numbered like the keys */
+.md-res { display: grid; grid-template-columns: 56px 1fr; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 40px; }
+.md-res span { color: var(--mute); font-size: 22px; }
+.md-res b { font-weight: 400; }
+.md-empty { margin-top: 24px; font-size: 34px; color: var(--mute); }
+.md-results small { margin-top: 22px !important; color: var(--gold) !important; font-size: 22px !important; }
+
+.md-last { position: absolute; right: 64px; bottom: 96px; text-align: right; }
+.md-last b { display: block; margin-top: 6px; font-size: 44px; font-weight: 400; color: var(--gold); font-variant-numeric: tabular-nums; }
+
+/* a few seconds at the top when START has put you in the car */
+#mdToast { position: fixed; top: 176px; left: 50%; transform: translate(-50%, -8px); max-width: 1100px; z-index: 6; opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease;
+  background: #1c1704; border: 1px solid #f2c230; color: var(--text, #f4f1ea); border-radius: 6px; padding: 12px 22px; font-size: 24px; box-shadow: 0 8px 30px rgba(0, 0, 0, .6); }
+#mdToast.on { opacity: 1; transform: translate(-50%, 0); }
+#mdToast b { color: #f2c230; margin-right: 14px; letter-spacing: .12em; text-transform: uppercase; font-size: 15px; }
+#mdToast em { font-style: normal; color: #f2c230; font-size: 32px; font-variant-numeric: tabular-nums; }
+#mdToast small { display: block; margin-top: 4px; font-size: 15px; letter-spacing: .12em; color: #8d8a82; text-transform: uppercase; }
+
+/* the word in the hint is bold text, not the big typed text */
+.md-type small b, .md-busy small b { display: inline; font-size: inherit; font-weight: 600; letter-spacing: inherit; margin: 0; min-height: 0; color: var(--ink); }

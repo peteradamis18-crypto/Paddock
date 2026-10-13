@@ -1,0 +1,78 @@
+/* Data extras: the idle screen's weekly progress and Sessions link, the Sessions page host, the pre-session brief and the race extras.
+   Same look as the idle screen: gold on near-black. */
+
+/* ---- idle screen: link to the sessions page, weekly progress ---- */
+.idle-link { cursor: pointer; letter-spacing: .3em; color: #6f6c64; transition: color .25s ease; padding: 0 8px; }
+.idle-link:hover, .idle-link:focus-visible { color: var(--gold); outline: none; }
+.idle-week { position: absolute; left: 64px; bottom: 148px; display: flex; align-items: flex-start; gap: 0; color: var(--ink); opacity: .96; }
+.idle-week > label { align-self: flex-start; margin: 0 44px 0 0; padding-top: 8px; font-size: 14px; letter-spacing: .34em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
+.idle-week .w { padding: 0 38px 0 38px; border-left: 1px solid var(--line); }
+.idle-week .w b { display: block; font-size: 44px; font-weight: 300; line-height: 1.02; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.idle-week .w b small { font-size: 20px; color: var(--mute); margin-left: 6px; letter-spacing: .04em; }
+.idle-week .w span { display: block; margin-top: 6px; font-size: 13px; letter-spacing: .26em; text-transform: uppercase; color: var(--mute); }
+.idle-week .w em { font-style: normal; display: block; margin-top: 2px; font-size: 14px; letter-spacing: .04em; color: #6f6c64; text-transform: none; }
+.idle-week .w.pb b { color: var(--gold); }
+.idle-week .none { border-left: 1px solid var(--line); padding: 8px 38px 0; font-size: 22px; font-weight: 300; color: #c9c5bb; letter-spacing: .02em; }
+.idle-week .none em { font-style: normal; color: var(--mute); font-size: 16px; margin-left: 12px; }
+
+/* ---- the sessions page over the idle screen ---- */
+#sessHost { position: fixed; inset: 0; z-index: 945; background: #060606; opacity: 0; transition: opacity .5s ease; }
+#sessHost.on { opacity: 1; }
+#sessHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #060606; }
+
+/* ---- pre-session brief ---- */
+#brief { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
+  position: fixed; inset: 0; z-index: 920; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .9s ease; pointer-events: none;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }
+#brief.on { opacity: 1; }
+#brief .bf-top, #brief .bf-foot { position: absolute; left: 64px; right: 64px; display: flex; justify-content: space-between; font-size: 15px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); }
+#brief .bf-top { top: 34px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+#brief .bf-foot { bottom: 34px; padding-top: 18px; border-top: 1px solid var(--line); justify-content: flex-end; }
+#brief .bf-top b, #brief .bf-foot b { color: var(--ink); font-weight: 600; }
+#brief .bf-top span:first-child b { color: var(--gold); }
+#brief .bf-head { position: absolute; left: 64px; top: 112px; width: 880px; }
+#brief .bf-head label, #brief .bf-card label { display: block; font-size: 14px; letter-spacing: .34em; text-transform: uppercase; color: var(--mute); }
+#brief .bf-track { font-size: 86px; font-weight: 300; line-height: 1.04; margin-top: 10px; letter-spacing: .005em; }
+#brief .bf-cfg { font-size: 26px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); margin-top: 10px; }
+#brief .bf-car { font-size: 40px; font-weight: 300; margin-top: 30px; color: #d8d4ca; }
+#brief .bf-car small { font-size: 18px; letter-spacing: .26em; text-transform: uppercase; color: var(--gold); margin-left: 18px; }
+#brief .bf-cards { position: absolute; left: 64px; top: 478px; width: 900px; display: grid; grid-template-columns: 1fr 1fr; gap: 34px 48px; }
+#brief .bf-card { border-top: 1px solid var(--line); padding-top: 16px; min-height: 150px; }
+#brief .bf-card b { display: block; margin-top: 10px; font-size: 62px; font-weight: 300; line-height: 1.04; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#brief .bf-card b.gold { color: var(--gold); }
+#brief .bf-card b small { font-size: 24px; color: var(--mute); margin-left: 8px; letter-spacing: .04em; }
+#brief .bf-card b.w { font-size: 36px; margin-top: 18px; }
+#brief .bf-card span { display: block; margin-top: 10px; font-size: 19px; letter-spacing: .03em; color: var(--mute); line-height: 1.35; }
+#brief .bf-card span i { font-style: normal; color: var(--ink); }
+#brief .bf-map { position: absolute; right: 64px; top: 112px; width: 820px; height: 800px; }
+#brief .bf-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#brief .bf-credit { position: absolute; right: 64px; bottom: 100px; font-size: 13px; letter-spacing: .08em; color: #55524c; }
+
+/* ---- race extras in the standings header ---- */
+.sof { margin-left: 14px; font-size: 17px; font-weight: 600; letter-spacing: .03em; text-transform: none; color: #c9d1da; white-space: nowrap; }
+.sof em { font-style: normal; color: var(--muted); font-weight: 400; margin-right: 6px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.sof .sep { color: var(--dim); margin: 0 8px; font-weight: 400; }
+.sof .up { color: var(--green); } .sof .down { color: var(--red); }
+
+/* ---- flag glow: a soft coloured edge while a session is live ---- */
+#flagGlow { position: fixed; inset: 0; z-index: 800; pointer-events: none; opacity: 0; transition: opacity 1s ease; mix-blend-mode: screen; --c: 255, 204, 0; }
+#flagGlow.on { opacity: 1; }
+#flagGlow::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 70px 2px rgba(var(--c), .40), inset 0 0 0 2px rgba(var(--c), .70); }
+#flagGlow.yellow { --c: 255, 204, 0; }
+#flagGlow.blue { --c: 60, 140, 255; }
+#flagGlow.white { --c: 225, 225, 225; } #flagGlow.white::after { box-shadow: inset 0 0 60px 0 rgba(var(--c), .26), inset 0 0 0 2px rgba(var(--c), .55); }
+#flagGlow.green { --c: 47, 224, 122; }
+#flagGlow.red { --c: 255, 40, 40; animation: flagPulse 2.4s ease-in-out infinite; }
+#flagGlow.red::after { box-shadow: inset 0 0 90px 6px rgba(var(--c), .55), inset 0 0 0 3px rgba(var(--c), .85); }
+#flagGlow.black { --c: 235, 235, 235; animation: flagPulse 1.6s ease-in-out infinite; }
+#flagGlow.black::after { box-shadow: inset 0 0 0 5px rgba(var(--c), .85), inset 0 0 0 12px rgba(0, 0, 0, .9), inset 0 0 70px 2px rgba(var(--c), .22); }
+#flagGlow.checkered { --c: 235, 235, 235; }
+#flagGlow.checkered::after { box-shadow: inset 0 0 70px 2px rgba(var(--c), .20); }
+#flagGlow.checkered::before { content: ""; position: absolute; inset: 0; padding: 8px; box-sizing: border-box;
+  background: repeating-conic-gradient(rgba(240, 240, 240, .5) 0 25%, rgba(0, 0, 0, 0) 0 50%) 0 0 / 16px 16px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: flagSweep 14s linear infinite; }
+@keyframes flagPulse { 50% { opacity: .55; } }
+@keyframes flagSweep { to { background-position: 128px 128px; } }
+@media (prefers-reduced-motion: reduce) { #flagGlow, #flagGlow::before { animation: none !important; } }

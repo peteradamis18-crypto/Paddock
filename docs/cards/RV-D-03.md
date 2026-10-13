@@ -1,0 +1,4 @@
+You are the independent reviewer for card D-03 of PADDOCK (read AGENTS.md and CLAUDE.md first). Do NOT edit anything.
+The card: docs\cards\v4\D-03.md. The builder's report: docs\tasks\log\D-03.md (may be missing = the builder failed). Judge the current code against the card.
+Check with file:line evidence: every Build step met/partly/missing; real bugs (threads, files deleted, wrong data, C# 5: no $"", ?., nameof, =>, out var); copy rules on visible text; whether the test would FAIL on broken code; anything that could hurt Peter (frame rate, acting while he drives, iRacing files).
+Answer: a verdict line (ACCEPT / ACCEPT WITH FIXES / REJECT), then findings by severity with file:line and a concrete fix. Max 40 lines.

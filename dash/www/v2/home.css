@@ -1,0 +1,161 @@
+/* Paddock HOME (DS-1): the top screen between sessions. One picture, one name, one gold button, one quiet row of facts.
+   Canvas 1920 x 1080. Outer margin 96 px left and right, 12 columns of 122 px with 24 px gutters (column n starts at 96 + (n-1) x 146).
+   Chrome (top line, status line) sits 48 px from the edge. Type: hero 88 px, values 30 px, labels 14 to 16 px with tracking.
+   Gold: the number and the one button. Everything else is ink on black. */
+
+/* the picture: 1843 px wide, pushed 257 px right (the nose ends on the right margin) and 163 px up (the sky above the car is cut).
+   Its left edge and its foot dissolve into the black through eased masks, so there is no seam and no panel edge. */
+#overlay { background: radial-gradient(90% 95% at 20% 40%, #0d0d0c 0%, #070707 58%, #030303 100%); }
+#overlay .hero { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 2.4s ease; pointer-events: none; }
+#overlay .hero.on { opacity: 1; }
+#overlay .hero img { position: absolute; left: 257px; top: -163px; width: 1843px; height: 1037px; display: block; filter: brightness(1.1) contrast(1.04) saturate(1.05);
+  -webkit-mask-image:
+    linear-gradient(90deg, rgba(0,0,0,0) 24.04%, rgba(0,0,0,0.005) 26.75%, rgba(0,0,0,0.035) 29.46%, rgba(0,0,0,0.104) 32.18%, rgba(0,0,0,0.21) 34.89%, rgba(0,0,0,0.347) 37.6%, rgba(0,0,0,0.5) 40.31%, rgba(0,0,0,0.653) 43.03%, rgba(0,0,0,0.79) 45.74%, rgba(0,0,0,0.896) 48.45%, rgba(0,0,0,0.965) 51.17%, rgba(0,0,0,0.995) 53.88%, rgba(0,0,0,1) 56.59%),
+    linear-gradient(180deg, rgba(0,0,0,.08) 15.72%, rgba(0,0,0,0.035) 21.02%, rgba(0,0,0,0.21) 26.33%, rgba(0,0,0,0.5) 31.63%, rgba(0,0,0,0.79) 36.93%, rgba(0,0,0,0.965) 42.24%, rgba(0,0,0,1) 47.54%, rgba(0,0,0,1) 82.26%, rgba(0,0,0,0.995) 83.42%, rgba(0,0,0,0.965) 84.59%, rgba(0,0,0,0.896) 85.75%, rgba(0,0,0,0.79) 86.92%, rgba(0,0,0,0.653) 88.08%, rgba(0,0,0,0.5) 89.25%, rgba(0,0,0,0.347) 90.41%, rgba(0,0,0,0.21) 91.58%, rgba(0,0,0,0.104) 92.74%, rgba(0,0,0,0.035) 93.91%, rgba(0,0,0,0.005) 95.07%, rgba(0,0,0,0) 96.24%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(90deg, rgba(0,0,0,0) 24.04%, rgba(0,0,0,0.005) 26.75%, rgba(0,0,0,0.035) 29.46%, rgba(0,0,0,0.104) 32.18%, rgba(0,0,0,0.21) 34.89%, rgba(0,0,0,0.347) 37.6%, rgba(0,0,0,0.5) 40.31%, rgba(0,0,0,0.653) 43.03%, rgba(0,0,0,0.79) 45.74%, rgba(0,0,0,0.896) 48.45%, rgba(0,0,0,0.965) 51.17%, rgba(0,0,0,0.995) 53.88%, rgba(0,0,0,1) 56.59%),
+    linear-gradient(180deg, rgba(0,0,0,.08) 15.72%, rgba(0,0,0,0.035) 21.02%, rgba(0,0,0,0.21) 26.33%, rgba(0,0,0,0.5) 31.63%, rgba(0,0,0,0.79) 36.93%, rgba(0,0,0,0.965) 42.24%, rgba(0,0,0,1) 47.54%, rgba(0,0,0,1) 82.26%, rgba(0,0,0,0.995) 83.42%, rgba(0,0,0,0.965) 84.59%, rgba(0,0,0,0.896) 85.75%, rgba(0,0,0,0.79) 86.92%, rgba(0,0,0,0.653) 88.08%, rgba(0,0,0,0.5) 89.25%, rgba(0,0,0,0.347) 90.41%, rgba(0,0,0,0.21) 91.58%, rgba(0,0,0,0.104) 92.74%, rgba(0,0,0,0.035) 93.91%, rgba(0,0,0,0.005) 95.07%, rgba(0,0,0,0) 96.24%);
+  mask-composite: intersect; }
+/* the old pieces of the garage screen that HOME no longer shows */
+#overlay .idle-line, #overlay .idle-mark, #overlay .idle-glow, #overlay .idle-week, #overlay .idle-official { display: none !important; }
+
+/* top line: wordmark, the pages, date and time */
+#overlay .idle-top { position: absolute; left: 96px; right: 96px; top: 48px; height: 24px; padding: 0; border: 0; display: flex; align-items: center; gap: 44px;
+  font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+#overlay .idle-top .idle-name { margin-right: auto; color: var(--ink); font-weight: 600; letter-spacing: .6em; }
+#overlay .idle-top .idle-link { padding: 12px 0; color: rgba(244, 241, 234, .56); letter-spacing: .3em; }
+#overlay .idle-top .idle-link:hover, #overlay .idle-top .idle-link:focus-visible { color: var(--ink); }
+#overlay .idle-top #idleDate { margin-left: 20px; }
+#overlay .idle-top #idleClock { color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: .24em; }
+
+@keyframes homeIn { from { opacity: 0; transform: translateY(10px); } }
+#overlay.show #homeDriver { animation: homeIn 1s cubic-bezier(.2, .7, .2, 1) .15s both; }
+#overlay.show .home-next { animation: homeIn 1s cubic-bezier(.2, .7, .2, 1) .35s both; }
+#overlay.show .home-facts { animation: homeIn 1s cubic-bezier(.2, .7, .2, 1) .55s both; }
+
+/* 1) name, number, car */
+#homeDriver { position: absolute; left: 96px; top: 268px; width: 760px; }
+#homeDriver .idrow { display: flex; align-items: center; gap: 30px; }
+#homeDriver .num { font-size: 88px; font-weight: 300; font-stretch: condensed; line-height: 1; letter-spacing: -.02em; color: var(--gold); font-variant-numeric: tabular-nums; }
+#homeDriver .num.wide { font-size: 72px; }
+#homeDriver .rule { width: 1px; height: 60px; background: rgba(244, 241, 234, .26); flex: none; }
+#homeDriver .who b { display: block; font-size: 88px; font-weight: 300; letter-spacing: -.012em; line-height: 1; color: var(--ink); white-space: nowrap; }
+#homeDriver .idcar { display: flex; align-items: center; gap: 28px; margin-top: 40px; }
+#homeDriver .mycar { flex: none; }
+#homeDriver .mycar .cpic { display: block; }
+#homeDriver .car b { display: block; font-size: 30px; font-weight: 400; letter-spacing: .005em; line-height: 1.1; color: var(--ink); white-space: nowrap; }
+#homeDriver .car span { display: block; margin-top: 12px; font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+#homeDriver .car span i { font-style: normal; color: rgba(244, 241, 234, .86); }
+
+/* 2) the one button: 4 columns wide */
+.home-next { position: absolute; left: 96px; top: 592px; width: 560px; height: 88px; padding: 0 32px; border: 0; border-radius: 6px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; justify-content: space-between; background: linear-gradient(180deg, #f5cb47 0%, #e2b42a 100%); color: #0d0b05; font-family: inherit;
+  box-shadow: 0 22px 60px rgba(242, 194, 48, .16), inset 0 1px 0 rgba(255, 255, 255, .28); transition: transform .15s ease, filter .2s ease; }
+.home-next:hover, .home-next:focus-visible { filter: brightness(1.07); outline: none; }
+.home-next:active { transform: scale(.988); }
+.home-next b { display: block; font-size: 30px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; line-height: 1; }
+.home-next span { display: block; margin-top: 9px; font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: rgba(13, 11, 5, .72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 440px; }
+.home-next svg { width: 28px; height: 28px; flex: none; fill: none; stroke: #0d0b05; stroke-width: 2; stroke-linecap: square; }
+.home-next.busy { filter: saturate(.25) brightness(.78); cursor: default; }
+
+/* 3) the quiet row of facts: personal bests, career, this week, last outing - four blocks of 3 columns (P0-04) */
+.home-facts { position: absolute; left: 96px; right: 96px; top: 804px; display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 24px; align-items: start; }
+.home-facts > div[hidden] { display: none; }
+.home-facts > div { min-width: 0; }
+.home-facts > .home-pbs, .home-facts > .home-career, .home-facts > .home-week, .home-facts > .home-last { grid-column: span 3; }
+.home-facts label { display: flex; justify-content: flex-start; gap: 20px; align-items: baseline; margin: 0 0 20px; padding-bottom: 14px; border-bottom: 1px solid rgba(244, 241, 234, .16);
+  font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); white-space: nowrap; overflow: hidden; }
+.home-facts label .dim { color: rgba(244, 241, 234, .42); letter-spacing: .24em; }
+.home-pbs .pbs { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); column-gap: 24px; }
+.home-pbs .pb, .home-last .lv { display: grid; grid-template-rows: 22px 40px 18px; min-width: 0; }
+.home-facts .tk { min-width: 0; font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
+.home-facts .tk small { margin-left: 10px; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.home-facts .t { font-size: 30px; font-weight: 300; line-height: 40px; letter-spacing: .01em; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.home-facts .t small { margin-left: 8px; font-size: 14px; font-weight: 400; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); }
+.home-facts .cap { font-size: 14px; letter-spacing: .22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 18px; }
+.home-career .cv { display: grid; grid-template-columns: repeat(4, 1fr); padding-top: 22px; }
+.home-career .w { display: grid; grid-template-rows: 40px 18px; }
+.home-career .w b { font-size: 30px; font-weight: 300; line-height: 40px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.home-week .cv { display: grid; grid-template-columns: repeat(3, 1fr); padding-top: 22px; }
+.home-week .w { display: grid; grid-template-rows: 40px 18px; }
+.home-week .w b { font-size: 30px; font-weight: 300; line-height: 40px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.home-week .sub { margin-top: 10px; font-size: 14px; letter-spacing: .22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-last .lv { position: relative; }
+.home-last .review { position: absolute; right: 0; top: 24px; height: 44px; padding: 0 24px; border: 1px solid var(--gold); border-radius: 5px; background: transparent; color: var(--gold);
+  font-family: inherit; font-size: 14px; letter-spacing: .3em; text-transform: uppercase; cursor: pointer; transition: background .2s ease, color .2s ease; }
+.home-last .review:hover, .home-last .review:focus-visible { background: var(--gold); color: #0a0905; outline: none; }
+
+/* the pairing square: only while no phone is paired. Top right, over the dark sky of the picture */
+.home-phone { position: absolute; right: 96px; top: 124px; display: flex; align-items: flex-start; gap: 24px; }
+.home-phone[hidden] { display: none; }
+.home-phone canvas { width: 140px; height: 140px; border-radius: 4px; background: #fff; flex: none; image-rendering: pixelated; }
+.home-phone .txt { text-align: right; padding-top: 2px; }
+.home-phone .txt label { display: block; font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); }
+.home-phone .txt b { display: block; margin-top: 10px; font-size: 30px; font-weight: 300; letter-spacing: .06em; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* the status line: rig, iRacing, phone, and the picture credit at the far right */
+#overlay .idle-foot { position: absolute; left: 96px; right: 96px; bottom: 44px; padding: 0; border: 0; display: flex; align-items: center; gap: 40px; font-size: 14px;
+  letter-spacing: .24em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+#overlay .idle-foot b { color: var(--ink); font-weight: 600; }
+#overlay .idle-rig { position: static; display: flex; align-items: center; gap: 12px; font-size: 14px; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); flex-wrap: nowrap; }
+#overlay .idle-rig b { font-size: 14px; letter-spacing: .24em; }
+#overlay .idle-rig small { display: none; }
+#overlay .idle-rig .rg-dot { width: 8px; height: 8px; }
+#overlay .idle-status { gap: 12px; }
+#overlay .idle-status i { width: 8px; height: 8px; }
+#overlay .idle-status em { display: none; }
+#overlay .foot-phone { color: var(--mute); }
+#overlay .foot-phone.ask { color: #ffb21e; }
+#overlay .hero-credit { position: static; margin-left: auto; font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: rgba(244, 241, 234, .4); }
+
+/* the Session Review over HOME, with a back bar; closes by itself when he gets in the car */
+#homeHost { position: fixed; inset: 0; z-index: 950; background: #030405; display: flex; flex-direction: column; opacity: 0; transition: opacity .5s ease; }
+#homeHost.on { opacity: 1; }
+#homeHost[hidden] { display: none; }   /* display:flex above beats the hidden attribute; without this an invisible full-screen layer swallowed every click */
+#homeHost:not(.on) { pointer-events: none; }
+#homeHost .bar { height: 64px; flex: none; display: flex; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid rgba(244, 241, 234, .12); }
+#homeHost .bar button { height: 44px; padding: 0 22px; border: 1px solid var(--gold, #f2c230); border-radius: 6px; background: transparent; color: var(--gold, #f2c230);
+  font-family: inherit; font-size: 15px; letter-spacing: .3em; text-transform: uppercase; cursor: pointer; }
+#homeHost .bar span { font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: #8d8a82; }
+#homeHost iframe { flex: 1; border: none; width: 100%; background: #030405; }
+
+/* Schedule-first HOME wireframe (SPEC-v4 3b). */
+#overlay .hero { left: 920px; top: 60px; right: 0; bottom: auto; width: 1000px; height: 480px; opacity: 1; }
+#overlay .hero img { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 8%), linear-gradient(180deg, #000 0%, #000 88%, transparent 100%); -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent 0%, #000 8%), linear-gradient(180deg, #000 0%, #000 88%, transparent 100%); mask-composite: intersect; filter: brightness(.92) contrast(1.04); }
+#homeDriver { left: 960px; top: 552px; width: 920px; min-height: 76px; }
+#homeDriver .idrow { gap: 20px; }
+#homeDriver .num, #homeDriver .who b { font-size: 38px; }
+#homeDriver .num.wide { font-size: 34px; }
+#homeDriver .rule { height: 34px; }
+#homeDriver .idcar { display: none; }
+.home-race, .home-weekend { position: absolute; box-sizing: border-box; padding: 32px 48px; border-top: 1px solid rgba(244,241,234,.16); min-width: 0; overflow: hidden; }
+.home-race { left: 0; top: 60px; width: 920px; height: 480px; padding-left: 96px; }
+.home-race label, .home-weekend label { display: block; margin: 0 0 24px; font-size: 14px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); }
+.home-race h2 { margin: 0 0 22px; font-size: 34px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--ink); }
+.home-race p { margin: 8px 0; font-size: 22px; line-height: 1.25; color: var(--ink); }
+.home-race-time { margin-top: 20px; font-size: 24px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.home-race-count { margin-top: 6px; font-size: 30px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.home-race-cadence { margin-top: 12px; font-size: 22px; color: var(--mute); }
+.home-race-stat { display: inline-flex; align-items: baseline; gap: 10px; margin: 14px 28px 0 0; font-size: 16px; color: var(--mute); }
+.home-race-stat b { font-size: 22px; font-weight: 400; color: var(--ink); font-variant-numeric: tabular-nums; }
+.home-race-none { font-size: 22px; color: var(--ink); }
+.home-weekend { left: 0; top: 640px; width: 920px; height: 280px; padding-left: 96px; }
+.home-event { display: grid; grid-template-columns: 1fr; row-gap: 5px; margin: 0 0 12px; min-width: 0; }
+.home-event b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 22px; font-weight: 500; color: var(--ink); }
+.home-event span { font-size: 22px; color: var(--ink); }
+.home-event small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--mute); }
+.home-event-source { display: block; font-size: 14px; }
+.home-facts { left: 920px; right: 0; top: 640px; height: 280px; grid-template-columns: 1fr 1fr; column-gap: 24px; padding: 32px 48px; box-sizing: border-box; }
+.home-facts > .home-pbs, .home-facts > .home-career { display: none !important; }
+.home-facts > .home-week, .home-facts > .home-last { grid-column: span 1; }
+.home-next { left: 640px; top: 956px; width: 640px; height: 80px; }
+.home-phone { right: 96px; top: 940px; }
+#overlay .idle-top { left: 96px; right: 96px; top: 18px; height: 24px; }
+#overlay .idle-foot { bottom: 20px; }
+
+#homeDriver .idcar { display: flex; align-items: center; gap: 20px; margin-top: 12px; }
+#homeDriver .mycar { flex: none; }
+#homeDriver .mycar .cpic { display: block; }
+#homeDriver .car b { font-size: 20px; }
+#homeDriver .car span { margin-top: 6px; font-size: 14px; letter-spacing: .18em; }

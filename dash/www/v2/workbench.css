@@ -1,0 +1,235 @@
+/* Paddock Analysis Workbench - top screen 1920x1080 (docs\DESIGN-analysis.md section 8 tokens, docs\mockups\workbench.html look) */
+:root {
+  --bg: #0b0b0c; --panel: #121214; --line: #26262a; --ink: #ece8df; --mute: #8b877d; --dim: #5d5a54;
+  --gold: #f2c230; --ref: #cfd8e3; --gain: #3ccf7e; --loss: #e5534b; --purple: #b46cff; --green: #3ccf7e; --yellow: #e8c547; --abs: #ff9f43;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; background: var(--bg); color: var(--ink); overflow: hidden; cursor: default;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; -webkit-user-select: none; user-select: none; }
+.gold { color: var(--gold); } .ref { color: var(--ref); } .gain { color: var(--gain); } .loss { color: var(--loss); } .mute { color: var(--mute); } .purple { color: var(--purple); }
+
+/* header: brand, pages, this lap vs the reference */
+.top { position: absolute; left: 32px; right: 32px; top: 16px; height: 48px; display: flex; align-items: center; gap: 12px; }   /* INT-3: 12 px, not 22: with ADD LAPS, OPEN IN COSWORTH, MAKE SHARE VIDEO and 9 tabs the lap times ran off the 1920 px screen */
+.top .brand, .top .tabs, .top .addch, .top .vs { flex: none; }
+.brand { font-size: 14px; letter-spacing: .22em; color: var(--gold); white-space: nowrap; }
+.tabs { display: flex; gap: 4px; }
+.tabs span { padding: 10px 9px; font-size: 14px; letter-spacing: .14em; color: var(--mute); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.tabs span.on { color: var(--ink); border-bottom-color: var(--gold); }
+.vs { margin-left: auto; display: flex; gap: 14px; align-items: baseline; font-size: 16px; white-space: nowrap; }
+.vs b { font-size: 26px; font-weight: 500; }
+.sw { display: inline-block; width: 26px; border-top: 3px solid var(--gold); margin-right: 8px; vertical-align: middle; }
+.sw.r { border-top: 3px dotted var(--ref); }
+.mode { font-size: 14px; letter-spacing: .18em; color: var(--mute); flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top .mode { position: absolute; left: 0; right: 0; top: 40px; width: auto; text-align: left; }
+.mode b { color: var(--gold); font-weight: 500; }
+
+/* lap navigator: one block per lap of the session, width = lap time */
+#nav { position: absolute; left: 32px; right: 32px; top: 82px; height: 40px; display: flex; gap: 3px; }
+#nav div { height: 40px; padding: 0 10px; display: flex; align-items: center; font-size: 15px; background: #141417; border: 2px solid transparent; overflow: hidden; white-space: nowrap; cursor: pointer; }
+#nav div.out { background: #1a1a1d; color: var(--dim); } #nav div.pb { background: rgba(180,108,255,.22); color: var(--purple); }
+#nav div.on { border-color: var(--gold); } #nav div.refl { border-color: #5a6470; }
+
+/* displays */
+.panel { position: absolute; }
+.ph { font-size: 14px; letter-spacing: .22em; color: var(--mute); text-transform: uppercase; height: 20px; white-space: nowrap; overflow: hidden; }
+.ph b { color: var(--gold); font-weight: 500; }
+.ph .r { color: var(--ref); }
+.cv { position: absolute; left: 0; top: 0; display: block; }
+.stage { position: relative; }
+.keys { font-size: 15px; color: var(--mute); letter-spacing: .06em; margin-top: 8px; white-space: nowrap; overflow: hidden; }
+.keys b { color: var(--gold); font-weight: 500; }
+
+table.ro { border-collapse: collapse; width: 100%; font-size: 22px; }
+table.ro td { padding: 4px 0; border-bottom: 1px solid #1a1a1d; height: 34px; }
+table.ro td.n { color: var(--mute); font-size: 14px; letter-spacing: .12em; text-transform: uppercase; }
+table.ro td.a { color: var(--gold); text-align: right; } table.ro td.r { color: var(--ref); text-align: right; } table.ro td.v { text-align: right; }
+
+table.ct { border-collapse: collapse; width: 100%; font-size: 18px; }
+table.ct th { font-size: 14px; letter-spacing: .12em; color: var(--mute); font-weight: 400; text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.ct th:first-child, table.ct td:first-child { text-align: left; }
+table.ct td { padding: 5px 4px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; cursor: pointer; }
+table.ct tr.on td { background: rgba(242,194,48,.07); }
+table.ct td small { color: var(--ref); font-size: 13px; margin-left: 5px; }
+
+.ev { display: grid; grid-template-columns: 96px 70px 1fr 90px; align-items: center; font-size: 19px; padding: 5px 0; border-bottom: 1px solid #19191c; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.ev.on { background: rgba(242,194,48,.07); }
+.ev .tag { font-size: 12px; letter-spacing: .14em; padding: 3px 6px; border: 1px solid; justify-self: start; white-space: nowrap; }
+.ev .km { text-align: right; color: var(--mute); }
+.compact .ev { grid-template-columns: 58px 56px 1fr 74px; font-size: 17px; padding: 4px 0; }
+.compact .ev .tag { font-size: 11px; padding: 2px 4px; letter-spacing: .1em; }
+.empty { font-size: 22px; color: var(--mute); position: absolute; left: 32px; top: 200px; line-height: 1.6; }
+
+/* C-41: + CHANNEL, the picker, and the BRAKING / TYRES & STINT / SUSPENSION / SPLITS displays */
+.addch { font-size: 14px; letter-spacing: .06em; color: var(--gold); border: 1px solid #5a4a14; padding: 7px 8px; cursor: pointer; white-space: nowrap; }
+.addch:hover { background: rgba(242,194,48,.08); }
+.picker { display: none; position: absolute; left: 1120px; top: 118px; width: 768px; z-index: 20; background: #121214; border: 1px solid #5a4a14; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.7); }
+.picker.on { display: block; }
+.picker .pt { font-size: 14px; letter-spacing: .16em; color: var(--mute); text-transform: uppercase; margin-bottom: 10px; white-space: nowrap; }
+.picker .pt b { color: var(--gold); font-weight: 500; }
+.picker input { width: 100%; font: 26px Bahnschrift, "Segoe UI", sans-serif; color: var(--ink); background: #0b0b0c; border: 1px solid var(--line); padding: 8px 12px; outline: none; -webkit-user-select: text; user-select: text; }
+.picker input:focus { border-color: var(--gold); }
+.picker .pr { display: grid; grid-template-columns: 1fr 80px 250px 40px; align-items: center; height: 36px; padding: 0 10px; font-size: 20px; border-bottom: 1px solid #19191c; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.picker .pr.on { background: rgba(242,194,48,.10); }
+.picker .p1 { overflow: hidden; text-overflow: ellipsis; }
+.picker .p2 { color: var(--mute); font-size: 16px; }
+.picker .p3 { color: var(--dim); font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+.picker .p4 { color: var(--gold); font-size: 14px; letter-spacing: .1em; text-align: right; }
+.picker .pnote { min-height: 22px; margin-top: 8px; font-size: 16px; color: var(--mute); }
+.chip { display: inline-block; margin-left: 14px; padding: 0 8px; border: 1px solid var(--line); color: var(--mute); cursor: pointer; }
+.chip.on { color: var(--gold); border-color: #5a4a14; }
+
+/* BRAKING table has more columns than the corner table: a little tighter */
+table.ct td small { opacity: .95; }
+table.ct td.mute { color: var(--mute); }
+
+/* TYRES & STINT */
+.tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 4px; }
+.tc { background: #0f0f11; border: 1px solid var(--line); padding: 10px 14px 6px; }
+.tch { font-size: 14px; letter-spacing: .18em; color: var(--mute); display: flex; align-items: baseline; gap: 10px; height: 36px; white-space: nowrap; }
+.tch b { font-size: 22px; font-weight: 500; letter-spacing: .06em; }
+.tcp { margin-left: auto; font-size: 18px; letter-spacing: 0; color: var(--ink); text-align: right; }
+.tcp b { font-size: 26px; color: var(--ink); letter-spacing: 0; }
+.tcp small { display: block; font-size: 14px; color: var(--mute); letter-spacing: 0; margin-top: -3px; }
+table.tt { border-collapse: collapse; width: 100%; font-size: 22px; }
+table.tt th { font-size: 14px; letter-spacing: .14em; color: var(--mute); font-weight: 400; text-align: right; padding: 2px 4px; }
+table.tt td { padding: 3px 4px; border-bottom: 1px solid #19191c; height: 40px; text-align: right; }
+table.tt td.n { color: var(--mute); font-size: 14px; letter-spacing: .12em; text-align: left; width: 170px; white-space: nowrap; }
+table.tt td.a { color: var(--gold); } table.tt td.r { color: var(--ref); font-size: 19px; } table.tt td.v { color: var(--ink); }
+table.tt td.asat { color: var(--mute); }
+.sc { display: grid; grid-template-columns: 200px 200px 300px 1fr; align-items: center; font-size: 19px; padding: 6px 0; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; }
+.sc .tag { font-size: 12px; letter-spacing: .14em; padding: 3px 6px; border: 1px solid var(--abs); color: var(--abs); justify-self: start; }
+
+/* SPLITS */
+table.sp { font-size: 20px; }
+table.sp td, table.sp th { padding: 4px 6px; height: 31px; cursor: default; }
+table.sp td { text-align: right; cursor: pointer; }
+table.sp td.tm { text-align: left; } table.sp td.tm i { font-style: normal; font-size: 12px; letter-spacing: .12em; color: var(--mute); border: 1px solid var(--line); padding: 1px 4px; margin-left: 6px; white-space: nowrap; }
+table.sp td.tm { white-space: nowrap; }
+table.sp th.gapc, table.sp td.gapc { width: 22px; padding: 0; border-bottom: none; }
+table.sp td.hc { text-align: center; font-size: 14px; padding: 0; border-left: 1px solid #0b0b0c; border-right: 1px solid #0b0b0c; }
+table.sp th.hc { text-align: center; padding: 4px 0; overflow: hidden; }
+table.sp tr.bestrow td.tm { color: var(--gold); }
+table.sp td.sp { color: var(--purple); } table.sp td.sn { color: var(--green); } table.sp td.sy { color: var(--yellow); } table.sp td.sg { color: var(--dim); }
+table.sp tr.foot td { border-top: 1px solid var(--line); height: 31px; }
+table.sp tr.foot td b { font-weight: 500; }
+.nts { display: flex; flex-direction: column; gap: 0; }
+.nt { padding: 10px 0 10px; border-bottom: 1px solid #1a1a1d; }
+.nl { font-size: 14px; letter-spacing: .22em; color: var(--mute); }
+.nv { font-size: 40px; font-weight: 500; line-height: 1.15; white-space: nowrap; }
+.nv.gold { color: var(--gold); } .nv.purple { color: var(--purple); }
+.ns { font-size: 16px; color: var(--mute); white-space: nowrap; overflow: hidden; }
+.ns b { font-weight: 500; }
+.tnote { font-size: 15px; color: var(--mute); letter-spacing: .04em; margin-top: 10px; line-height: 1.45; }
+.tnote b { color: var(--gold); font-weight: 500; }
+table.sp th.tl { text-align: left; }
+table.sp tr.foot td.lab { text-align: left; color: var(--mute); font-size: 14px; letter-spacing: .14em; }
+table.sp tr.foot td.tm { color: var(--purple); }
+table.rs { table-layout: fixed; width: 1130px; }
+table.rs th, table.rs td { padding: 5px 8px; }
+table.rs td.n { color: var(--mute); font-size: 14px; letter-spacing: .12em; text-align: left; width: 210px; }
+table.rs td small .mute { font-size: 14px; }table.rs th:first-child { width: 210px; }
+
+/* W5 VIDEO page + the small video (workbench-video.js) */
+.vhold { position: absolute; left: -4000px; top: 0; width: 4px; height: 4px; overflow: hidden; }
+.vstage { background: #000; overflow: hidden; }
+.wbvid { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; cursor: pointer; }
+.ph .warn { color: var(--abs); letter-spacing: .1em; }
+.vtiles { display: grid; gap: 10px; }
+.vtiles.grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+.vtiles.strip { grid-template-columns: repeat(6, 1fr); grid-template-rows: 1fr; gap: 12px; }
+.vt { background: #0f0f11; border: 1px solid var(--line); padding: 8px 14px 6px; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.vl { font-size: 14px; letter-spacing: .16em; color: var(--mute); white-space: nowrap; }
+.vv { font-size: 52px; line-height: 1.05; color: var(--gold); white-space: nowrap; font-weight: 500; }
+.vv.gain { color: var(--gain); } .vv.loss { color: var(--loss); }
+.vtiles.strip .vv { font-size: 36px; }
+.vr { font-size: 18px; color: var(--ref); height: 22px; white-space: nowrap; overflow: hidden; }
+.pip { position: absolute; z-index: 30; display: none; border: 2px solid var(--gold); background: #000; box-shadow: 0 8px 30px rgba(0,0,0,.7); }
+.pip.on, .pip.wait { display: block; } .pip.wait { visibility: hidden; }
+.addch.on { background: rgba(242,194,48,.18); }
+.tabs.many span { padding: 10px 7px; letter-spacing: .1em; }
+
+/* W6 RACE page (workbench-race.js): the timing tower, the compare table, the passes list */
+table.rt { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 18px; }
+table.rt th { font-size: 14px; letter-spacing: .1em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 6px; border-bottom: 1px solid var(--line); white-space: nowrap; height: 28px; overflow: hidden; }
+table.rt td { padding: 0 6px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+table.rt th.l, table.rt td.l { text-align: left; }
+table.rt td.pos, table.rt td.cls { color: var(--mute); }
+table.rt tr.me td { background: rgba(242,194,48,.09); color: var(--gold); }
+table.rt tr.me td.cls { color: var(--gold); }
+table.rt tr.near td { background: rgba(207,216,227,.045); }
+table.rt tr.sel td { background: rgba(207,216,227,.13); }
+table.rt tr.skip td { text-align: center; color: var(--dim); font-size: 15px; letter-spacing: .12em; cursor: default; }
+table.rt td .mute, table.rt td.mute { color: var(--mute); }
+/* P4: the little car (cars.js) beside the number plate, and the winner / Peter chips in the tower's header */
+table.rt td.no .pcar, .rpc .pcar { display: inline-block; vertical-align: middle; }
+table.rt td.no .pcar { margin-left: 8px; }
+table.rt td.no .cpic { margin-left: 10px; }   /* CP-1: iRacing's own car picture beside the number plate (carpics.js) */
+.ph .rpc .cpic { margin: 0 2px; }
+.cr-race .crcar .cpic { display: block; }
+.ph.rph2 { display: flex; align-items: center; justify-content: space-between; gap: 24px; overflow: visible; }
+.ph .rpt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph .rph { flex: none; display: flex; align-items: center; gap: 26px; letter-spacing: .12em; color: var(--ink); }
+.ph .rpc { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ph .rpc .w { color: var(--mute); }
+.ph .rpc b { font-weight: 500; color: var(--ink); }
+.ph .rpc.me b, .ph .rpc.me { color: var(--gold); }
+.ph .rpc .pcar { height: 18px; width: auto; }
+.plate { display: inline-block; min-width: 46px; padding: 0 8px; border-radius: 4px; font-size: 16px; font-weight: 600; line-height: 24px; text-align: center; letter-spacing: .02em; }
+table.rc { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 17px; }
+table.rc th { font-size: 14px; letter-spacing: .08em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 4px; border-bottom: 1px solid var(--line); height: 28px; white-space: nowrap; overflow: hidden; }
+table.rc td { padding: 0 4px; text-align: right; border-bottom: 1px solid #19191c; height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.rc th.l, table.rc td.l { text-align: left; }
+table.rc tr.me td { color: var(--gold); }
+table.rc tr.sel td.l { background: rgba(207,216,227,.1); }
+table.rc td.l .nm { margin-left: 6px; color: var(--ink); }
+table.rc tr.me td.l .nm { color: var(--gold); }
+table.rc td.l .wd { margin-left: 8px; font-size: 13px; letter-spacing: .12em; color: var(--mute); }
+table.rc td.gain { color: var(--gain); } table.rc td.loss { color: var(--loss); } table.rc td.mute { color: var(--dim); }
+.pz { display: grid; grid-template-columns: 78px 150px 118px 1fr 56px; align-items: center; height: 29px; font-size: 17px; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; cursor: pointer; }
+.pz.sel { background: rgba(207,216,227,.12); }
+.pz .lp { color: var(--mute); font-size: 14px; letter-spacing: .12em; }
+.pz .wh { overflow: hidden; text-overflow: ellipsis; }
+.pz .tag { font-size: 12px; letter-spacing: .14em; padding: 2px 6px; border: 1px solid; justify-self: start; }
+.pz .tag.gain { color: var(--gain); border-color: var(--gain); } .pz .tag.loss { color: var(--loss); border-color: var(--loss); }
+.pz .who { overflow: hidden; text-overflow: ellipsis; }
+.pz .at { text-align: right; color: var(--mute); }
+
+/* W6c CAREER page (workbench-career.js): tiles, the theoretical-best and corner tables, totals, races */
+.tabs.tight span { padding: 10px 4px; letter-spacing: .05em; }      /* P3: the PRO tab is one more (up to 10): a touch tighter keeps the header's room for the mode words */
+.cr-tiles { display: flex; gap: 10px; }
+.cr-tile { flex: 1 1 0; min-width: 0; background: #0f0f11; border: 1px solid var(--line); padding: 8px 14px 8px; overflow: hidden; }
+.cr-l { font-size: 14px; letter-spacing: .12em; color: var(--mute); white-space: nowrap; }
+.cr-v { font-size: 34px; line-height: 1.15; white-space: nowrap; font-weight: 500; }
+.cr-s { font-size: 15px; color: var(--mute); white-space: nowrap; overflow: hidden; }
+table.cth, table.cc { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 18px; }
+table.cth th, table.cc th { font-size: 14px; letter-spacing: .1em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 6px; border-bottom: 1px solid var(--line); height: 28px; white-space: nowrap; overflow: hidden; }
+table.cth td, table.cc td { padding: 0 6px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.cth td { height: 26px; }
+table.cth th { height: 26px; }
+table.cth th.l, table.cth td.l, table.cc th.l, table.cc td.l { text-align: left; }
+table.cth td.n, table.cc td.n { color: var(--mute); letter-spacing: .06em; }
+table.cth tr.foot td { border-top: 1px solid var(--line); }
+table.cc td small { margin-left: 8px; font-size: 14px; color: var(--mute); }
+table.cc { font-size: 17px; }
+table.cc td { line-height: 1.05; }
+.cr-tot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 2px; }
+.cr-tc { background: #0f0f11; border: 1px solid var(--line); padding: 6px 10px 6px; overflow: hidden; }
+.cr-tc .cr-l { letter-spacing: .08em; }
+.cr-tv { font-size: 28px; line-height: 1.1; white-space: nowrap; font-weight: 500; }
+.cr-line { font-size: 15px; color: var(--mute); letter-spacing: .06em; margin-top: 4px; min-height: 22px; white-space: nowrap; overflow: hidden; }
+.cr-line b { font-weight: 500; }
+.cr-race .crcar { order: -1; display: flex; align-items: center; }   /* P4: his car in that race's livery, first on the row though it is the last child */
+.cr-race.pic { grid-template-columns: 76px 66px 168px 98px 1fr; }
+.cr-race { display: grid; grid-template-columns: 74px 170px 150px 1fr; align-items: center; height: 28px; font-size: 17px; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; }
+.cr-race.go { cursor: pointer; }
+.cr-race .d { color: var(--mute); font-size: 15px; letter-spacing: .08em; }
+.cr-race .g { text-align: right; padding-right: 14px; }
+.cr-race .f { text-align: right; color: var(--mute); font-size: 14px; letter-spacing: .06em; }
+
+/* SEE IN iRACING (workbench-share.js, P2): hidden until the sim has this session open; then the event rows and passes get one more column */
+.sj { display: none; font-size: 11px; letter-spacing: .12em; color: var(--gold); border: 1px solid #5a4a14; padding: 3px 7px; margin-left: 10px; cursor: pointer; white-space: nowrap; justify-self: end; }
+.sj:hover { background: rgba(242,194,48,.12); }
+body.canjump .sj { display: inline-block; }
+body.canjump .ev { grid-template-columns: 96px 70px 1fr 90px auto; }
+body.canjump .compact .ev { grid-template-columns: 58px 56px 1fr 74px auto; }
+body.canjump .pz { grid-template-columns: 78px 150px 118px 1fr 56px auto; }
