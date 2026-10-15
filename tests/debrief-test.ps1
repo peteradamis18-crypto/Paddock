@@ -215,10 +215,10 @@ try {
   $doDb = $dbType.GetMethod('Do', $bf)
   $activeQ = New-Object 'System.Collections.Generic.Dictionary[string,string]'
   $activeQ['id'] = [string]$r2.obj.id; $activeQ['open'] = '1'
-  $null = $lease.Invoke($null, [object[]]@($activeQ))
+  $null = $lease.Invoke($null, [object[]]@($activeQ.PSObject.BaseObject))
   $openState = $dbType.GetMethod('StateJson').Invoke($null, @()) | ConvertFrom-Json
   Check 'the visible dashboard heartbeat exposes the current debrief to the deck' ($openState.open -and $openState.id -eq $r2.obj.id)
-  $activeQ['open'] = '0'; $null = $lease.Invoke($null, [object[]]@($activeQ))
+  $activeQ['open'] = '0'; $null = $lease.Invoke($null, [object[]]@($activeQ.PSObject.BaseObject))
   $closedState = $dbType.GetMethod('StateJson').Invoke($null, @()) | ConvertFrom-Json
   $allStale = $true
   foreach ($cmd in @('db-save','db-share','db-cosworth','db-deepdive')) {
@@ -226,15 +226,15 @@ try {
     if ($doDb.Invoke($null, $argsDb)) { $allStale = $false }
   }
   $wrong = New-Object 'System.Collections.Generic.Dictionary[string,string]'; $wrong['id'] = 'unknown-debrief'; $wrong['open'] = '1'
-  $badLease = $lease.Invoke($null, [object[]]@($wrong)) | ConvertFrom-Json
+  $badLease = $lease.Invoke($null, [object[]]@($wrong.PSObject.BaseObject)) | ConvertFrom-Json
   Check 'closing the screen dims the state and every production action refuses its stale id' (-not $closedState.open -and $allStale)
   Check 'an unknown debrief id cannot acquire the visible-screen lease' (-not $badLease.ok)
-  $activeQ['open'] = '1'; $null = $lease.Invoke($null, [object[]]@($activeQ))
+  $activeQ['open'] = '1'; $null = $lease.Invoke($null, [object[]]@($activeQ.PSObject.BaseObject))
   $dbType.GetField('dbAt', $bf).SetValue($null, [DateTime]::UtcNow.AddSeconds(-16))
   $expired = $dbType.GetMethod('StateJson').Invoke($null, @()) | ConvertFrom-Json
   $expiredAction = $doDb.Invoke($null, [object[]]@('db-deepdive', [string]$r2.obj.id))
   Check 'the lease expiry dims all keys and refuses actions after heartbeat stops' (-not $expired.open -and -not $expiredAction)
-  $activeQ['open'] = '0'; $null = $lease.Invoke($null, [object[]]@($activeQ))
+  $activeQ['open'] = '0'; $null = $lease.Invoke($null, [object[]]@($activeQ.PSObject.BaseObject))
 
   # =====================================================================================================
   Section '6. 503 while driving'
@@ -449,9 +449,23 @@ try {
   $laps = @(@{ n = 8; offset = 0.0; time = 79.878; clean = $true; pb = $false }, @{ n = 9; offset = 80.0; time = 70.0; clean = $true; pb = $false })
   $incs = @(@{ offset = $incA; count = 2 }, @{ offset = $incB; count = 1 }, @{ offset = 79.9; count = 1 }, @{ offset = 80.0; count = 1 })
   $mp4Len = (Get-Item (Join-Path $sessDir "$recId.mp4")).Length
+  # A schema-2 recorder sidecar carries the iRacing session identity; the debrief matches on it, never on track + time.
+  # First a legacy sidecar (no identity): at best "probable", and it must never become the SAVE target.
   $side = @{ id = $recId; track = 'Road Atlanta'; config = 'Full Course'; car = "$($m7.car)"; sessionType = 'Practice'; startMs = [double]$m7.startMs; durationSec = 100.0; bytes = $mp4Len; encoder = 'libx264'; saved = $false; recovered = $false; created = [long]$m7.startMs; laps = $laps; incidents = $incs }
   ($side | ConvertTo-Json -Compress -Depth 6) | Set-Content -LiteralPath (Join-Path $sessDir "$recId.json") -Encoding UTF8
+  $rl = DbLap $pbName '8'
+  Check "a legacy sidecar without session identity is never the SAVE target (association $($rl.obj.bar.recording.association))" ($rl.code -eq 200 -and $null -eq $rl.obj.bar.recId -and $rl.obj.bar.recording.association -ne 'verified')
+  $ev = $asm.GetType('IRDash.Analysis').GetMethod('ShareEvent', $bf).Invoke($null, [object[]]@([string]$pbName, [int]8, [double]0, $true, [double]0, $false))
+  Check "the PB session's identity is in its telemetry (SessionUniqueID $($ev.Unique), SessionNum $($ev.SessNum))" ($ev.Err -eq '' -and $ev.Unique -gt 0)
+  $side.schema = 2; $side.uniqueId = [int]$ev.Unique; $side.sessionNum = [int]$ev.SessNum; $side.state = 'ready'; $side.gaps = @()
+  ($side | ConvertTo-Json -Compress -Depth 6) | Set-Content -LiteralPath (Join-Path $sessDir "$recId.json") -Encoding UTF8
+  # and a newer recording at the same track with another identity must not steal it (the old code's newest-wins)
+  $other = $side.Clone(); $other.id = '20261010-235959-roadatlanta'; $other.uniqueId = [int]$ev.Unique + 1; $other.startMs = [double]$m7.startMs + 600000
+  ($other | ConvertTo-Json -Compress -Depth 6) | Set-Content -LiteralPath (Join-Path $sessDir "$($other.id).json") -Encoding UTF8
+  Copy-Item $script:srcMp4 (Join-Path $sessDir "$($other.id).mp4") -Force
   $ri = DbLap $pbName '8'
+  Check "the recording with the same session identity is verified ($($ri.obj.bar.recording.association), $($ri.obj.bar.recording.id))" ($ri.obj.bar.recording.association -eq 'verified' -and $ri.obj.bar.recording.id -eq $recId)
+  Remove-Item (Join-Path $sessDir "$($other.id).*") -Force
   $inc = @($ri.obj.incidents)
   Check "the debrief lists the recorder's incidents ($($inc.Count))" ($ri.code -eq 200 -and $inc.Count -eq 4)
   Check 'each names lap 8, a corner, a type and a clip id' (@($inc | Where-Object { $_.lap -eq 8 -and $_.corner -and $_.type -and $_.videoId }).Count -eq 2)

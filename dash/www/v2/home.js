@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // Paddock HOME (DS-1 rebuild): the top screen when no session runs. One picture, his name and number and car, one gold button, one quiet row of facts.
 // ui.js shows and hides #overlay; this only draws while it is shown, so nothing here runs or polls while he drives. Every button is one irdash call the deck has too.
 // Words: docs\COPY-RULES.md (labels and numbers only).
@@ -124,13 +124,17 @@ const Home = {
     this.next();
   },
 
+  // one clock everywhere: New York time, 12-hour, with EST or EDT as it applies on that date (whatever zone the PC is in)
+  nyDay(d) { return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }); },
+  nyTime(d) { return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); },
+
   drawSchedules(h) {
     const race = $('homeRace'), weekend = $('homeWeekend'); if (!race || !weekend) return;
     const r = h.nextRace;
     if (!r) race.innerHTML = '<label>Next race</label><div class="home-race-none">Schedule not published</div>';
     else {
       const d = new Date(String(r.localStart || '').replace(' ', 'T'));
-      const abs = isNaN(d) ? '' : d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' \u00b7 ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      const abs = isNaN(d) ? '' : this.nyDay(d) + ' \u00b7 ' + this.nyTime(d);
       const sec = Math.max(0, Number(r.countdownSeconds || 0));
       const eta = sec >= 3600 ? Math.floor(sec / 3600) + ' h ' + String(Math.floor(sec % 3600 / 60)).padStart(2, '0') : Math.floor(sec / 60) + ' min';
       const pb = r.pb && Number(r.pb.time) > 0 ? '<div class="home-race-stat"><span>PB</span><b>' + this.lap(r.pb.time) + '</b></div>' : '';
@@ -142,8 +146,8 @@ const Home = {
     const domains = [];
     const rows = events.map(e => {
       let when = 'TBC';
-      if (!e.tbc && e.localStart) { const ms = Date.parse(e.localStart); if (!isNaN(ms)) { const dt = new Date(ms); when = dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); } }
-      else if (e.eventDate) { const dt = new Date(e.eventDate + 'T12:00:00'); if (!isNaN(dt)) when = dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' TBC'; }
+      if (!e.tbc && e.localStart) { const ms = Date.parse(e.localStart); if (!isNaN(ms)) { const dt = new Date(ms); when = this.nyDay(dt) + ' ' + this.nyTime(dt); } }
+      else if (e.eventDate) { const dt = new Date(e.eventDate + 'T12:00:00'); if (!isNaN(dt)) when = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · time TBC'; }
       try { const d = new URL(e.source).hostname.replace(/^www\./, ''); if (d && domains.indexOf(d) < 0) domains.push(d); } catch (x) { }
       return '<div class="home-event"><span>' + esc(e.series) + ' \u00b7 ' + esc(e.session) + ' \u00b7 ' + esc(when) + '</span></div>';
     }).join('');

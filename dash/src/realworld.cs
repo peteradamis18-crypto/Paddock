@@ -233,8 +233,8 @@ namespace IRDash
                 Dictionary<string, object> mr = root != null && root.ContainsKey("MRData") ? root["MRData"] as Dictionary<string, object> : null;
                 Dictionary<string, object> table = mr != null && mr.ContainsKey("RaceTable") ? mr["RaceTable"] as Dictionary<string, object> : null;
                 IList races = table != null && table.ContainsKey("Races") ? table["Races"] as IList : null;
-                string[] fields = { "FirstPractice", "SecondPractice", "ThirdPractice", "Sprint", "Qualifying", "Race" };
-                string[] labels = { "First Practice", "Second Practice", "Third Practice", "Sprint", "Qualifying", "Race" };
+                string[] fields = { "FirstPractice", "SecondPractice", "ThirdPractice", "SprintQualifying", "Sprint", "Qualifying", "Race" };
+                string[] labels = { "First Practice", "Second Practice", "Third Practice", "Sprint Qualifying", "Sprint", "Qualifying", "Race" };
                 if (races != null) foreach (object item in races)
                 {
                     Dictionary<string, object> race = item as Dictionary<string, object>; if (race == null) continue;
@@ -315,12 +315,24 @@ namespace IRDash
         {
             raw = (raw ?? "").Trim();
             if (raw.Length == 0) { e.Tbc = true; e.LocalStart = ""; e.Utc = DateTime.MaxValue; return; }
-            if (Regex.IsMatch(raw, @"^\d{4}-\d{2}-\d{2}$")) { e.Tbc = true; e.LocalStart = ""; DateTime day; if (DateTime.TryParseExact(raw, "yyyy-MM-dd", Inv, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out day)) e.Utc = day; else e.Utc = DateTime.MaxValue; return; }
+            // a date with no time: the DAY is known, the time is not. It is grouped by that date, never shown as midnight UTC
+            // (which is the evening before in New York).
+            if (Regex.IsMatch(raw, @"^\d{4}-\d{2}-\d{2}$")) { e.Tbc = true; e.LocalStart = ""; e.EventDate = raw; DateTime day; if (DateTime.TryParseExact(raw, "yyyy-MM-dd", Inv, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out day)) e.Utc = day; else e.Utc = DateTime.MaxValue; return; }
             DateTimeOffset dto;
             if (!DateTimeOffset.TryParse(raw, Inv, DateTimeStyles.None, out dto)) { e.Tbc = true; e.LocalStart = ""; e.Utc = DateTime.MaxValue; return; }
             e.Tbc = false;
             e.Utc = dto.UtcDateTime;
-            e.LocalStart = new DateTimeOffset(e.Utc).ToOffset(TimeZoneInfo.Local.GetUtcOffset(e.Utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", Inv);
+            e.LocalStart = ShowLocal(e.Utc);
+        }
+
+        // Peter watches in New York time: EST or EDT chosen per instant by Windows' own rules, whatever the PC's zone is.
+        public static TimeZoneInfo ShowZone
+        {
+            get { try { return TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); } catch { return TimeZoneInfo.Local; } }
+        }
+        static string ShowLocal(DateTime utc)
+        {
+            return new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToOffset(ShowZone.GetUtcOffset(utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", Inv);
         }
 
         public static List<RwEvent> ParseImsa(string html, string source, string asOf) { return ParseTable(html, "IMSA", source, asOf); }
@@ -367,7 +379,8 @@ namespace IRDash
                 RwEvent e = new RwEvent();
                 e.Series = series; e.Event = eventName; e.Session = session; e.Source = source; e.AsOf = asOf;
                 FillIcsWhen(e, start);
-                if (!e.Tbc) list.Add(e);
+                // keep a row whose time is not certain (date only, or a zone Windows does not know) when its day is known
+                if (!e.Tbc || e.EventDate.Length > 0) list.Add(e);
             }
             return list;
         }
@@ -389,30 +402,40 @@ namespace IRDash
             DateTime parsed;
             string fmt = raw.Length == 8 ? "yyyyMMdd" : (raw.EndsWith("Z", StringComparison.OrdinalIgnoreCase) ? "yyyyMMdd'T'HHmmss'Z'" : "yyyyMMdd'T'HHmmss");
             if (!DateTime.TryParseExact(raw, fmt, Inv, DateTimeStyles.None, out parsed)) { e.Tbc = true; return; }
+            if (raw.Length == 8) { e.Tbc = true; e.EventDate = parsed.ToString("yyyy-MM-dd", Inv); e.Utc = DateTime.SpecifyKind(parsed, DateTimeKind.Utc); return; }   // all-day row: day known, time not
             if (raw.EndsWith("Z", StringComparison.OrdinalIgnoreCase)) e.Utc = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
             else if (tzid.Length > 0)
             {
                 try { e.Utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified), TimeZoneInfo.FindSystemTimeZoneById(WindowsZone(tzid))); }
-                catch { e.Tbc = true; return; }
+                catch { e.Tbc = true; e.EventDate = parsed.ToString("yyyy-MM-dd", Inv); e.Utc = DateTime.SpecifyKind(parsed.Date, DateTimeKind.Utc); W("unknown time zone " + tzid + " for " + e.Series + " " + e.Event + " - shown as time TBC"); return; }
             }
-            else { e.Tbc = true; return; }
+            else { e.Tbc = true; e.EventDate = parsed.ToString("yyyy-MM-dd", Inv); e.Utc = DateTime.SpecifyKind(parsed.Date, DateTimeKind.Utc); return; }   // floating local time: the track's zone is unknown
             e.Tbc = false;
-            e.LocalStart = new DateTimeOffset(e.Utc).ToOffset(TimeZoneInfo.Local.GetUtcOffset(e.Utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", Inv);
+            e.LocalStart = ShowLocal(e.Utc);
         }
 
+        // IANA zone (ICS TZID) -> Windows zone id. The venues these series race at; anything else becomes "time TBC", never a guess.
+        static readonly Dictionary<string, string> IanaToWindows = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "UTC", "UTC" }, { "Etc/UTC", "UTC" }, { "Europe/London", "GMT Standard Time" }, { "Europe/Lisbon", "GMT Standard Time" }, { "Europe/Dublin", "GMT Standard Time" },
+            { "Europe/Paris", "Romance Standard Time" }, { "Europe/Brussels", "Romance Standard Time" }, { "Europe/Madrid", "Romance Standard Time" },
+            { "Europe/Berlin", "W. Europe Standard Time" }, { "Europe/Rome", "W. Europe Standard Time" }, { "Europe/Amsterdam", "W. Europe Standard Time" }, { "Europe/Monaco", "W. Europe Standard Time" },
+            { "Europe/Vienna", "W. Europe Standard Time" }, { "Europe/Zurich", "W. Europe Standard Time" }, { "Europe/Budapest", "Central Europe Standard Time" }, { "Europe/Prague", "Central Europe Standard Time" },
+            { "Europe/Warsaw", "Central European Standard Time" }, { "Europe/Helsinki", "FLE Standard Time" }, { "Europe/Athens", "GTB Standard Time" }, { "Europe/Istanbul", "Turkey Standard Time" },
+            { "America/New_York", "Eastern Standard Time" }, { "America/Toronto", "Eastern Standard Time" }, { "America/Montreal", "Eastern Standard Time" }, { "America/Detroit", "Eastern Standard Time" },
+            { "America/Indiana/Indianapolis", "US Eastern Standard Time" }, { "America/Indianapolis", "US Eastern Standard Time" },
+            { "America/Chicago", "Central Standard Time" }, { "America/Winnipeg", "Central Standard Time" }, { "America/Denver", "Mountain Standard Time" }, { "America/Phoenix", "US Mountain Standard Time" },
+            { "America/Los_Angeles", "Pacific Standard Time" }, { "America/Vancouver", "Pacific Standard Time" }, { "America/Mexico_City", "Central Standard Time (Mexico)" },
+            { "America/Sao_Paulo", "E. South America Standard Time" }, { "America/Argentina/Buenos_Aires", "Argentina Standard Time" },
+            { "Asia/Tokyo", "Tokyo Standard Time" }, { "Asia/Shanghai", "China Standard Time" }, { "Asia/Singapore", "Singapore Standard Time" }, { "Asia/Kuala_Lumpur", "Singapore Standard Time" },
+            { "Asia/Dubai", "Arabian Standard Time" }, { "Asia/Qatar", "Arab Standard Time" }, { "Asia/Bahrain", "Arab Standard Time" }, { "Asia/Riyadh", "Arab Standard Time" },
+            { "Asia/Baku", "Azerbaijan Standard Time" }, { "Asia/Kolkata", "India Standard Time" },
+            { "Australia/Sydney", "AUS Eastern Standard Time" }, { "Australia/Melbourne", "AUS Eastern Standard Time" }, { "Australia/Adelaide", "Cen. Australia Standard Time" }, { "Australia/Perth", "W. Australia Standard Time" },
+            { "Pacific/Auckland", "New Zealand Standard Time" }, { "Africa/Johannesburg", "South Africa Standard Time" }
+        };
         static string WindowsZone(string tzid)
         {
-            if (tzid == "Europe/Lisbon" || tzid == "Europe/London") return "GMT Standard Time";
-            if (tzid == "Europe/Paris" || tzid == "Europe/Berlin" || tzid == "Europe/Rome" || tzid == "Europe/Madrid") return "Romance Standard Time";
-            if (tzid == "Europe/Helsinki" || tzid == "Europe/Athens") return "FLE Standard Time";
-            if (tzid == "America/New_York" || tzid == "America/Toronto") return "Eastern Standard Time";
-            if (tzid == "America/Chicago" || tzid == "America/Winnipeg") return "Central Standard Time";
-            if (tzid == "America/Denver") return "Mountain Standard Time";
-            if (tzid == "America/Los_Angeles" || tzid == "America/Vancouver") return "Pacific Standard Time";
-            if (tzid == "Asia/Tokyo") return "Tokyo Standard Time";
-            if (tzid == "Asia/Shanghai") return "China Standard Time";
-            if (tzid == "Australia/Sydney") return "AUS Eastern Standard Time";
-            return tzid;
+            string w; return IanaToWindows.TryGetValue((tzid ?? "").Trim('"'), out w) ? w : tzid;
         }
 
         static List<RwEvent> ParseSro(string html, string series, string source, string asOf)
@@ -534,8 +557,9 @@ namespace IRDash
             {
                 if (e == null) continue;
                 if (e.Series != "F1" && e.Series != "IMSA" && e.Series != "WEC" && e.Series != "GTWC" && e.Series != "GTWC Europe" && e.Series != "GTWC America") continue;
-                DateTime localDay;
-                if (e.Tbc && e.Utc != DateTime.MaxValue && e.Utc != DateTime.MinValue) localDay = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc), tz).Date;
+                DateTime localDay, d0;
+                if (e.Tbc && e.EventDate.Length > 0 && DateTime.TryParseExact(e.EventDate, "yyyy-MM-dd", Inv, DateTimeStyles.None, out d0)) localDay = d0;   // the published day itself
+                else if (e.Tbc && e.Utc != DateTime.MaxValue && e.Utc != DateTime.MinValue) localDay = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc), tz).Date;
                 else if (!e.Tbc && e.Utc != DateTime.MinValue && e.Utc != DateTime.MaxValue) localDay = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc), tz).Date;
                 else continue;
                 if (localDay < from || localDay >= to) continue;
@@ -588,21 +612,39 @@ namespace IRDash
                 if (!AllowLive && TestTransport == null) return "off";
                 DateTime asOf = NowUtc();
                 string asOfS = asOf.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", Inv);
+                // Each provider stands alone: one that fails, or is cut off because iRacing started mid-fetch (GetBytes -> null),
+                // keeps its own previous rows. Only providers that really answered replace theirs.
+                string[][] providers = {
+                    new string[] { "F1", "https://api.jolpi.ca/ergast/f1/current.json" },
+                    new string[] { "IMSA", "https://racetagger.cloud/api/calendar/ical?championship_id=9df731ac-2a96-41c3-96f1-80e73731da96" },
+                    new string[] { "WEC", "https://racetagger.cloud/api/calendar/ical?championship_id=e1edb481-9432-4e5a-af11-287ace8cf999" },
+                    new string[] { "GTWC Europe", "https://racetagger.cloud/api/calendar/ical?championship_id=a4eb8c77-eff5-4e23-8306-86256bcf5035" } };
                 List<RwEvent> all = new List<RwEvent>();
-                Exception problem = null;
-                try { string u = "https://api.jolpi.ca/ergast/f1/current.json"; byte[] b = GetBytes(u); if (b != null) all.AddRange(ParseF1(Encoding.UTF8.GetString(b), u, asOfS)); } catch (Exception ex) { problem = ex; W("F1: " + ex.Message); }
-                try { string u = "https://racetagger.cloud/api/calendar/ical?championship_id=9df731ac-2a96-41c3-96f1-80e73731da96"; byte[] b = GetBytes(u); if (b != null) all.AddRange(ParseIcs(Encoding.UTF8.GetString(b), "IMSA", u, asOfS)); } catch (Exception ex) { if (problem == null) problem = ex; W("IMSA ICS: " + ex.Message); }
-                try { string u = "https://racetagger.cloud/api/calendar/ical?championship_id=e1edb481-9432-4e5a-af11-287ace8cf999"; byte[] b = GetBytes(u); if (b != null) all.AddRange(ParseIcs(Encoding.UTF8.GetString(b), "WEC", u, asOfS)); } catch (Exception ex) { if (problem == null) problem = ex; W("WEC ICS: " + ex.Message); }
-                try { string u = "https://racetagger.cloud/api/calendar/ical?championship_id=a4eb8c77-eff5-4e23-8306-86256bcf5035"; byte[] b = GetBytes(u); if (b != null) all.AddRange(ParseIcs(Encoding.UTF8.GetString(b), "GTWC Europe", u, asOfS)); } catch (Exception ex) { if (problem == null) problem = ex; W("GTWC ICS: " + ex.Message); }
-                if (problem != null)
+                List<string> missing = new List<string>(); string firstErr = null;
+                foreach (string[] p in providers)
+                {
+                    try
+                    {
+                        byte[] b = GetBytes(p[1]);
+                        if (b == null) { missing.Add(p[0]); continue; }
+                        string body = Encoding.UTF8.GetString(b);
+                        all.AddRange(p[0] == "F1" ? ParseF1(body, p[1], asOfS) : ParseIcs(body, p[0], p[1], asOfS));
+                    }
+                    catch (Exception ex) { missing.Add(p[0]); if (firstErr == null) firstErr = ex.Message; W(p[0] + ": " + ex.Message); }
+                }
+                if (missing.Count == providers.Length)
                 {
                     if (events.Count > 0) { cacheJson = EventsJson(events, cacheAsOf, false); return "kept"; }
-                    if (all.Count > 0) { SaveCache(MergeFilterSort(all, asOf, TimeZoneInfo.Local), asOf); W("saved events from sources that answered"); return "partial"; }
-                    return problem.Message;
+                    return firstErr ?? "busy";
                 }
-                if (all.Count == 0 && events.Count > 0) { cacheJson = EventsJson(events, cacheAsOf, false); return "kept"; }
-                List<RwEvent> next = MergeFilterSort(all, asOf, TimeZoneInfo.Local);
-                SaveCache(next, asOf);
+                foreach (RwEvent old in events)
+                    foreach (string m in missing)
+                        if (old.Series == m || (m == "GTWC Europe" && old.Series == "GTWC")) { all.Add(old); break; }
+                List<RwEvent> next = MergeFilterSort(all, asOf, ShowZone);
+                // a partial refresh is not fresh: keep the old age so the missing providers are tried again soon
+                DateTime keepAsOf = missing.Count == 0 ? asOf : (cacheAsOf != DateTime.MinValue ? cacheAsOf : asOf.AddHours(-5));
+                SaveCache(next, keepAsOf);
+                if (missing.Count > 0) { W("kept the previous rows of " + string.Join(", ", missing.ToArray()) + " (no answer this time)"); return "partial"; }
                 return null;
             }
             finally { Interlocked.Exchange(ref fetchLock, 0); }

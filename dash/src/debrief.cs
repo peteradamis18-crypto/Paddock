@@ -115,7 +115,7 @@ namespace IRDash
             Result(sb, d, me, sm, tower, focus);
             Positions(sb, d, sm);
             Pace(sb, d, me, sm, tower, focus);
-            sb.Append(TailSection(id, lapq, d.TrackName.Length > 0 ? d.TrackName : d.Track, d.StartMs));
+            sb.Append(TailSection(id, lapq, d.TrackName.Length > 0 ? d.TrackName : d.Track, d.StartMs, d.SessType));
             sb.Append('}');
             return sb.ToString();
         }
@@ -293,7 +293,7 @@ namespace IRDash
               .Append(",\"optimal\":").Append(double.IsNaN(optimal) ? "null" : N(optimal, "0.000"))
               .Append(",\"median\":").Append(double.IsNaN(med) ? "null" : N(med, "0.000"))
               .Append(",\"n\":").Append(valid.Count).Append(",\"lap\":").Append(bestLap).Append('}');
-            sb.Append(TailSection(id, lapq, S(G(s, "track")), 0));
+            sb.Append(TailSection(id, lapq, S(G(s, "track")), 0, S(G(s, "type"))));
             sb.Append('}');
             return sb.ToString();
         }
@@ -526,10 +526,67 @@ namespace IRDash
             return cx;
         }
 
-        static string TailSection(string id, string lapStr, string track, double startMs)
+        static string TailSection(string id, string lapStr, string track, double startMs, string type)
         {
             Cx cx = Analyse(id, lapStr);
-            return CornersSection(cx, id) + IncidentsSection(cx, track, startMs) + BarSection(cx, id, track, startMs);
+            string assoc; Dictionary<string, object> sess = ResolveRecording(cx, track, startMs, type, out assoc);
+            return CornersSection(cx, id) + IncidentsSection(cx, sess) + BarSection(cx, id, sess, assoc);
+        }
+
+        // The recording of THIS telemetry session: the iRacing session identity (SessionUniqueID + SessionNum) read from the
+        // analysed lap in the .ibt. Old sidecars without identity can only be "probable" (same track/type within 2 h) and
+        // never enable SAVE. Nothing matches -> no recording, never the newest one.
+        static Dictionary<string, object> ResolveRecording(Cx cx, string track, double startMs, string type, out string association)
+        {
+            association = "none";
+            try
+            {
+                double uid = -1; int snum = -1;
+                if (cx.File.Length > 0 && cx.Lap > 0)
+                {
+                    ShareEv ev = Analysis.ShareEvent(cx.File, cx.Lap, 0, true, 0, false);
+                    if (ev.Err.Length == 0 && ev.Unique > 0) { uid = ev.Unique; snum = ev.SessNum; }
+                }
+                if (startMs <= 0) startMs = IbtStartMs(cx.File);
+                string root = Vault.Root ?? Path.Combine(Program.RootDir, "vault");
+                List<RecCand> cands = new List<RecCand>(); Dictionary<RecCand, Dictionary<string, object>> by = new Dictionary<RecCand, Dictionary<string, object>>();
+                foreach (string dir in new string[] { Path.Combine(root, "sessions"), Path.Combine(root, "saved") })
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (string f in Directory.GetFiles(dir, "*.json"))
+                    {
+                        try
+                        {
+                            Dictionary<string, object> d = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(File.ReadAllText(f, Encoding.UTF8)) as Dictionary<string, object>;
+                            if (d == null) continue;
+                            RecCand c = new RecCand();
+                            c.Id = S(G(d, "id")); c.Track = S(G(d, "track")); c.Car = S(G(d, "car")); c.Type = S(G(d, "sessionType"));
+                            c.StartMs = D(G(d, "startMs")); if (double.IsNaN(c.StartMs)) c.StartMs = 0;
+                            double u = D(G(d, "uniqueId")), n = D(G(d, "sessionNum"));
+                            c.UniqueId = double.IsNaN(u) ? -1 : u; c.SessionNum = double.IsNaN(n) ? -99 : (int)n;
+                            if (c.Id.Length == 0) continue;
+                            cands.Add(c); by[c] = d;
+                        }
+                        catch { }
+                    }
+                }
+                RecCand pick = SessMatch.Pick(cands, uid, snum, track ?? "", "", type ?? "", startMs, out association);
+                return pick != null ? by[pick] : null;
+            }
+            catch (Exception ex) { Log.W("debrief: sessions: " + ex.Message); association = "none"; return null; }
+        }
+
+        // iRacing names its telemetry files by the local start time: "<car>_<track> 2026-10-12 21-26-25.ibt"
+        static double IbtStartMs(string file)
+        {
+            Match m = Regex.Match(Path.GetFileName(file ?? ""), @"(\d{4})-(\d\d)-(\d\d) (\d\d)-(\d\d)-(\d\d)");
+            if (!m.Success) return 0;
+            try
+            {
+                DateTime st = new DateTime(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), int.Parse(m.Groups[5].Value), int.Parse(m.Groups[6].Value), DateTimeKind.Local);
+                return (st.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            }
+            catch { return 0; }
         }
 
         static string CornersSection(Cx cx, string id)
@@ -582,36 +639,6 @@ namespace IRDash
             catch (Exception ex) { Log.W("debrief: corners: " + ex.Message); return ",\"corners\":[]"; }
         }
 
-        // The recorder session that ran this debrief session: the same track and, when the debrief knows it, the nearest start time.
-        static Dictionary<string, object> FindSession(string track, double startMs)
-        {
-            try
-            {
-                string root = Vault.Root ?? Path.Combine(Program.RootDir, "vault");
-                Dictionary<string, object> best = null; double bestD = double.MaxValue;
-                foreach (string dir in new string[] { Path.Combine(root, "sessions"), Path.Combine(root, "saved") })
-                {
-                    if (!Directory.Exists(dir)) continue;
-                    foreach (string f in Directory.GetFiles(dir, "*.json"))
-                    {
-                        try
-                        {
-                            Dictionary<string, object> d = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(File.ReadAllText(f, Encoding.UTF8)) as Dictionary<string, object>;
-                            if (d == null) continue;
-                            if (track.Length > 0 && !SameTrack(S(G(d, "track")), track)) continue;
-                            double sm = D(G(d, "startMs"));
-                            double dist = startMs > 0 ? Math.Abs(sm - startMs) : -sm;     // with no start hint the newest session wins
-                            if (best == null || dist < bestD) { best = d; bestD = dist; }
-                        }
-                        catch { }
-                    }
-                }
-                if (best != null && startMs > 0 && bestD > 6L * 3600 * 1000) return null;   // a start hint means a session within 6 hours
-                return best;
-            }
-            catch (Exception ex) { Log.W("debrief: sessions: " + ex.Message); return null; }
-        }
-
         static string OnlyAlnum(string s) { StringBuilder b = new StringBuilder(); foreach (char c in (s ?? "")) if (char.IsLetterOrDigit(c)) b.Append(char.ToLowerInvariant(c)); return b.ToString(); }
         static bool SameTrack(string a, string b)
         {
@@ -635,11 +662,10 @@ namespace IRDash
             return "";
         }
 
-        static string IncidentsSection(Cx cx, string track, double startMs)
+        static string IncidentsSection(Cx cx, Dictionary<string, object> sess)
         {
             try
             {
-                Dictionary<string, object> sess = FindSession(track, startMs);
                 if (sess == null) return ",\"incidents\":[]";
                 string recId = S(G(sess, "id"));
                 double duration = D(G(sess, "durationSec"));
@@ -660,7 +686,13 @@ namespace IRDash
                 {
                     Dictionary<string, object> inc = O(incs[i]); if (inc == null) continue;
                     double off = D(G(inc, "offset")); int count = I(G(inc, "count"));
-                    if (double.IsNaN(off)) continue;
+                    if (double.IsNaN(off))
+                    {
+                        // the incident happened where the recording has a hole: list it honestly, with no clip
+                        if (!first) arr.Append(','); first = false;
+                        arr.Append("{\"lap\":0,\"corner\":\"\",\"type\":").Append(Json_.S(count > 0 ? count + "x" : "")).Append(",\"timeSec\":null,\"videoId\":null,\"status\":\"gap\"}");
+                        continue;
+                    }
                     int lapN = 0; double lapOff = 0;
                     foreach (Dictionary<string, object> p in laps)
                     {
@@ -701,10 +733,10 @@ namespace IRDash
             catch (Exception ex) { Log.W("debrief: incidents: " + ex.Message); return ",\"incidents\":[]"; }
         }
 
-        static string BarSection(Cx cx, string id, string track, double startMs)
+        static string BarSection(Cx cx, string id, Dictionary<string, object> sess, string assoc)
         {
-            Dictionary<string, object> sess = FindSession(track, startMs);
-            string recId = sess != null ? S(G(sess, "id")) : "";
+            // only a verified recording can be kept: a probable one is shown with its reason, never saved
+            string recId = sess != null && assoc == "verified" ? S(G(sess, "id")) : "";
             bool saved = sess != null && Bl(G(sess, "saved"));
             string shareId = cx.Clip != null && cx.Clip.Id.Length > 0 ? cx.Clip.Id : "";
             string ddId = cx.File.Length > 0 ? cx.File : "";
@@ -715,7 +747,10 @@ namespace IRDash
                 dbDdId = ddId; dbDdLap = cx.Lap; dbDdCorner = cx.WorstLabel; dbDdN = cx.WorstN;
                 dbAt = DateTime.UtcNow; dbOpen = false;
             }
+            string recState = sess == null ? "none" : S(G(sess, "state")); if (sess != null && recState.Length == 0) recState = "ready";
+            int gapCount = sess != null ? A(G(sess, "gaps")).Length : 0;
             return ",\"bar\":{\"recId\":" + (recId.Length > 0 ? Json_.S(recId) : "null")
+              + ",\"recording\":{\"association\":" + Json_.S(assoc) + ",\"state\":" + Json_.S(recState) + ",\"gaps\":" + gapCount + ",\"id\":" + (sess != null ? Json_.S(S(G(sess, "id"))) : "null") + "}"
               + ",\"saved\":" + B(saved)
               + ",\"shareId\":" + (shareId.Length > 0 ? Json_.S(shareId) : "null")
               + ",\"deepDive\":{\"id\":" + (ddId.Length > 0 ? Json_.S(ddId) : "null") + ",\"lap\":" + cx.Lap + ",\"corner\":" + Json_.S(cx.WorstLabel) + ",\"cornerN\":" + cx.WorstN + "}"

@@ -1,4 +1,4 @@
-﻿// RECORDER (C-06 in docs\TASKS.md; the plain-English notes are in docs\vault.md): Paddock's own video of the middle race screen.
+// RECORDER (C-06 in docs\TASKS.md; the plain-English notes are in docs\vault.md): Paddock's own video of the middle race screen.
 //   While the sim runs and he is in the car, irdash runs vault\bin\ffmpeg.exe hidden (BelowNormal, no window, no focus):
 //   ddagrab of the middle screen -> h264_nvenc (libx264 only if NVENC will not start) -> rolling ~10 s MPEG-TS segments, the last ~3 min kept.
 //   Every frame is stamped with the wall clock (setpts=RTCTIME), so a segment's start is an exact time and the start of a lap, which
@@ -182,6 +182,9 @@ namespace IRDash
         public List<double[]> Incidents = new List<double[]>();     // {wall ms, points added} while open; {offset s, points} once written
         public int IncSeen = -1;
         public string File = "";
+        // schema 2: holes where recorded segments went missing ({from, to} wall ms), how the length was measured, and a SAVE that could not happen yet
+        public List<double[]> Gaps = new List<double[]>();
+        public string DurationSource = "", SaveBlocked = "";
     }
 
     // S1: a clip cut around a rise in the player's incident count
@@ -1200,13 +1203,14 @@ namespace IRDash
                     if (!pend) break;
                     Thread.Sleep(100);
                 }
-                List<RecSeg> sel = new List<RecSeg>(); List<RecLap> lapSnapshot; List<double[]> incidentSnapshot;
+                List<RecSeg> sel = new List<RecSeg>(), closed = new List<RecSeg>(); List<RecLap> lapSnapshot; List<double[]> incidentSnapshot;
                 lock (gate)
                 {
                     foreach (RecSeg g in s.Segs) if (g.Closed)
                     {
+                        closed.Add(g);
                         if (File.Exists(Path.Combine(RecDir, g.Name))) sel.Add(g);
-                        else Log.W("recorder: session " + s.Id + " is missing segment " + g.Name + " - joining the remaining video");
+                        else Log.W("recorder: session " + s.Id + " is missing segment " + g.Name + " - joining the remaining video, marked as a gap");
                     }
                     lapSnapshot = new List<RecLap>(s.Laps);
                     incidentSnapshot = new List<double[]>(); foreach (double[] x in s.Incidents) incidentSnapshot.Add((double[])x.Clone());
@@ -1238,48 +1242,73 @@ namespace IRDash
                 File.Move(tmp, mp4);
                 try { File.Delete(lst); } catch { }
                 s.File = mp4; s.Bytes = new FileInfo(mp4).Length;
-                s.Duration = ProbeDuration(mp4);
-                if (s.Duration <= 0) { double d = 0; foreach (RecSeg g in sel) d += Math.Max(0, g.End - g.Start) / 1000.0; s.Duration = d; }
+                // the same spans that went into the concat list (clipped to the session), so a wall time maps to the picture really in the file
+                double[] fs, fe; ClipSpans(sel, s, out fs, out fe);
+                double spanSec = 0; for (int i = 0; i < fs.Length; i++) spanSec += Math.Max(0, fe[i] - fs[i]) / 1000.0;
+                s.Duration = ProbeDuration(mp4); s.DurationSource = "probe";
+                if (s.Duration <= 0) { s.Duration = spanSec; s.DurationSource = "segments"; Log.W("recorder: session " + s.Id + " - ffprobe could not measure the video; its length is estimated from the segments"); }
+                {
+                    double[] as_ = new double[closed.Count], ae = new double[closed.Count]; bool[] pr = new bool[closed.Count];
+                    closed.Sort(delegate (RecSeg a, RecSeg b) { return a.Start.CompareTo(b.Start); });
+                    for (int i = 0; i < closed.Count; i++) { as_[i] = closed[i].Start; ae[i] = closed[i].End; pr[i] = sel.Contains(closed[i]); }
+                    s.Gaps = SessMatch.MissingSpans(as_, ae, pr);
+                }
                 s.Created = (long)WallMs();
                 s.LapRows = new List<double[]>();
-                foreach (RecLap l in lapSnapshot) s.LapRows.Add(new double[] { l.N, WallToFile(sel, l.Start), l.Time, (!l.Pit && !l.Off && !l.Dirty && l.Time > minLap) ? 1 : 0, (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005)) ? 1 : 0 });
+                foreach (RecLap l in lapSnapshot) s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, (!l.Pit && !l.Off && !l.Dirty && l.Time > minLap) ? 1 : 0, (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005)) ? 1 : 0 });
                 List<double[]> inc = new List<double[]>();
-                foreach (double[] x in incidentSnapshot) inc.Add(new double[] { WallToFile(sel, x[0]), x[1] });
+                foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
                 lock (gate)
                 {
                     long budget = savedBudgetBytes >= 0 ? savedBudgetBytes : (long)(SavedBudgetGb * 1024 * 1024 * 1024);
-                    if (s.SaveWhenDone && SavedBytesLocked() + savedReserved + s.Bytes <= budget) { savedReserved += s.Bytes; s.Saving = true; s.Saved = true; }
-                    else { s.SaveWhenDone = false; s.Saved = false; }
+                    if (s.SaveWhenDone && SavedBytesLocked() + savedReserved + s.Bytes <= budget) { savedReserved += s.Bytes; s.Saving = true; s.Saved = true; s.SaveBlocked = ""; }
+                    else if (s.SaveWhenDone)
+                    {
+                        // never withdraw a SAVE silently: keep the wish, say why it waits, and the next SAVE press can retry
+                        s.Saved = false; s.SaveBlocked = "full";
+                        Log.W("recorder: SAVE of session " + s.Id + " is waiting - the saved video would pass " + (budget / 1073741824.0).ToString("0", Inv) + " GB");
+                    }
+                    else s.Saved = false;
                 }
-                bool saveFinished = s.Saved;
-                if (saveFinished)
+                bool sidecarOk;
+                if (s.Saved)
                 {
                     bool moved = MoveToSaved(s);
-                    lock (gate) { savedReserved -= s.Bytes; s.Saving = false; if (!moved) s.Saved = false; }
-                    if (!moved) WriteSessJson(s);
+                    lock (gate) { savedReserved -= s.Bytes; s.Saving = false; if (!moved) { s.Saved = false; s.SaveBlocked = "failed"; } }
+                    sidecarOk = moved || WriteSessJson(s);
                 }
-                else WriteSessJson(s);
+                else sidecarOk = WriteSessJson(s);
+                if (!sidecarOk)
+                {
+                    // the video is written but its sidecar is not: keep the segments too, so nothing is lost, and try again later
+                    lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; }
+                    Log.W("recorder: session " + s.Id + " - the sidecar could not be written; keeping the segments and retrying in 60 s");
+                    return;
+                }
                 lock (gate) { foreach (RecSeg g in sel) segs.Remove(g); sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; }); sessions.Add(s); finishing.Remove(s); }
                 foreach (RecSeg g in sel) { try { File.Delete(Path.Combine(RecDir, g.Name)); } catch { } }
+                if (s.Gaps.Count > 0) Log.W("recorder: session " + s.Id + " is partial - " + s.Gaps.Count + " gap(s) where segments were missing; laps inside a gap have no video");
                 Log.W("recorder: session " + s.Id + " written (" + s.Duration.ToString("0.0", Inv) + " s, " + (s.Bytes / 1048576) + " MB, " + s.LapRows.Count + " laps, cut in " + sw.ElapsedMilliseconds + " ms, no re-encode" + (s.Saved ? ", SAVED" : "") + ")");
                 RetainSessions();
             }
             catch (Exception ex) { lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; } Log.W("recorder: session " + s.Id + ": " + ex.Message); }
         }
 
-        // Where a wall-clock time falls inside the joined session file (seconds). The gaps between stints are simply skipped.
-        static double WallToFile(List<RecSeg> segments, double wallMs)
+        // The wall-time span of each segment that the concat list puts in the file (same clipping as FinishSession's list).
+        static void ClipSpans(List<RecSeg> sel, RecSess s, out double[] starts, out double[] ends)
         {
-            double cum = 0, last = 0;
-            foreach (RecSeg g in segments)
+            List<double> a = new List<double>(), b = new List<double>();
+            foreach (RecSeg g in sel)
             {
-                if (!g.Closed) continue;
-                if (wallMs <= g.End) return cum + Math.Max(0, Math.Min(wallMs - g.Start, g.End - g.Start)) / 1000.0;
-                cum += Math.Max(0, g.End - g.Start) / 1000.0; last = cum;
+                double from = Math.Max(g.Start, s.StartMs), to = Math.Min(g.End, s.EndMs > 0 ? s.EndMs : g.End);
+                if (to <= from) continue;
+                a.Add(from); b.Add(to);
             }
-            return last;
+            starts = a.ToArray(); ends = b.ToArray();
         }
+
+        static string Num(double v) { return double.IsNaN(v) || double.IsInfinity(v) ? "null" : v.ToString("0.000", Inv); }
 
         static double ProbeDuration(string path)
         {
@@ -1291,42 +1320,63 @@ namespace IRDash
         static string SessJson(RecSess s)
         {
             StringBuilder lb = new StringBuilder("[");
-            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + r[1].ToString("0.000", Inv) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + "}"); }
+            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + "}"); }
             lb.Append(']');
             StringBuilder ib = new StringBuilder("[");
-            for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + r[0].ToString("0.000", Inv) + ",\"count\":" + ((int)r[1]) + "}"); }
+            for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + Num(r[0]) + ",\"count\":" + ((int)r[1]) + "}"); }
             ib.Append(']');
-            return "{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
-                   ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
-                   ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
+            StringBuilder gb = new StringBuilder("[");
+            for (int i = 0; i < s.Gaps.Count; i++) { if (i > 0) gb.Append(','); gb.Append("{\"fromMs\":" + s.Gaps[i][0].ToString("0", Inv) + ",\"toMs\":" + s.Gaps[i][1].ToString("0", Inv) + ",\"reason\":\"missing segment\"}"); }
+            gb.Append(']');
+            return "{\"schema\":2,\"id\":" + Json_.S(s.Id) + ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") +
+                   ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
+                   ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"durationSource\":" + Json_.S(s.DurationSource) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
+                   ",\"state\":" + Json_.S(s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
+                   ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
+                   ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
                    ",\"laps\":" + lb + ",\"incidents\":" + ib + "}";
         }
 
-        static void WriteSessJson(RecSess s)
+        // temp -> read back -> replace with a backup: the previous sidecar is never gone before the new one is on disk
+        static bool WriteSessJson(RecSess s) { return s.File.Length > 0 && WriteSidecar(Path.ChangeExtension(s.File, ".json"), SessJson(s), s.Id); }
+
+        static bool WriteSidecar(string f, string json, string id)
         {
+            string t = f + ".tmp", bak = f + ".bak";
             try
             {
-                if (s.File.Length == 0) return;
-                string f = Path.ChangeExtension(s.File, ".json"), t = f + ".tmp";
-                File.WriteAllText(t, SessJson(s), new UTF8Encoding(false));
-                if (File.Exists(f)) File.Delete(f);
-                File.Move(t, f);
+                File.WriteAllText(t, json, new UTF8Encoding(false));
+                if (File.ReadAllText(t, Encoding.UTF8) != json) throw new IOException("read-back did not match");
+                if (File.Exists(f)) { File.Replace(t, f, bak); try { File.Delete(bak); } catch { } }
+                else File.Move(t, f);
+                return true;
             }
-            catch (Exception ex) { Log.W("recorder: could not write the sidecar of session " + s.Id + " (" + ex.Message + ")"); }
+            catch (Exception ex) { try { File.Delete(t); } catch { } Log.W("recorder: could not write the sidecar of session " + id + " (" + ex.Message + ")"); return false; }
         }
 
+        // Saved = the video AND its sidecar are in vault\saved. The new sidecar goes first, so a crash halfway leaves the
+        // old pair (unsaved, still listed) rather than a saved video nobody can find.
         static bool MoveToSaved(RecSess s)
         {
             try
             {
                 if (s.File.Length == 0 || !File.Exists(s.File)) return false;
                 Directory.CreateDirectory(SavedDir);
-                if (s.File.StartsWith(SavedDir, StringComparison.OrdinalIgnoreCase)) { s.Saved = true; WriteSessJson(s); Log.W("recorder: session " + s.Id + " is already in vault\\saved"); return true; }
-                string dst = Path.Combine(SavedDir, s.Id + ".mp4"), oldJson = Path.ChangeExtension(s.File, ".json");
-                if (File.Exists(dst)) File.Delete(dst);
-                File.Move(s.File, dst);
-                s.File = dst; s.Saved = true;
-                WriteSessJson(s);
+                if (s.File.StartsWith(SavedDir, StringComparison.OrdinalIgnoreCase)) { s.Saved = true; s.SaveBlocked = ""; bool w = WriteSessJson(s); if (!w) s.Saved = false; return w; }
+                string dst = Path.Combine(SavedDir, s.Id + ".mp4"), dstJson = Path.ChangeExtension(dst, ".json"), oldFile = s.File, oldJson = Path.ChangeExtension(oldFile, ".json");
+                s.File = dst; s.Saved = true; s.SaveBlocked = "";
+                if (!WriteSessJson(s)) { s.File = oldFile; s.Saved = false; return false; }
+                try
+                {
+                    if (File.Exists(dst)) File.Delete(dst);
+                    File.Move(oldFile, dst);
+                }
+                catch (Exception ex)
+                {
+                    try { File.Delete(dstJson); } catch { }
+                    s.File = oldFile; s.Saved = false;
+                    Log.W("recorder: could not save session " + s.Id + " (" + ex.Message + ")"); return false;
+                }
                 try { if (File.Exists(oldJson)) File.Delete(oldJson); } catch { }
                 Log.W("recorder: session " + s.Id + " saved for good (vault\\saved, " + (s.Bytes / 1048576) + " MB)");
                 return true;
@@ -1334,18 +1384,26 @@ namespace IRDash
             catch (Exception ex) { Log.W("recorder: could not save session " + s.Id + " (" + ex.Message + ")"); return false; }
         }
 
+        // a number that may be null in the sidecar (no video for that moment) -> NaN, never a plausible 0
+        static double DN(Dictionary<string, object> d, string k) { object o; double v; return d.TryGetValue(k, out o) && o != null && double.TryParse(Convert.ToString(o, CultureInfo.InvariantCulture), NumberStyles.Float, Inv, out v) ? v : double.NaN; }
+
         static RecSess SessFromDict(Dictionary<string, object> d)
         {
             RecSess s = new RecSess(); s.Open = false;
             s.Id = DS(d, "id"); s.Track = DS(d, "track"); s.Config = DS(d, "config"); s.Car = DS(d, "car"); s.Type = DS(d, "sessionType"); s.Encoder = DS(d, "encoder");
             s.StartMs = DD(d, "startMs"); s.Duration = DD(d, "durationSec"); s.Bytes = (long)DD(d, "bytes"); s.Created = (long)DD(d, "created");
             s.Saved = DB(d, "saved"); s.Recovered = DB(d, "recovered"); s.EndMs = s.StartMs + s.Duration * 1000;
+            double uid = DN(d, "uniqueId"), sn = DN(d, "sessionNum");
+            s.UniqueId = double.IsNaN(uid) ? -1 : uid; s.SessionNum = double.IsNaN(sn) ? -99 : (int)sn;
+            s.DurationSource = DS(d, "durationSource"); s.SaveBlocked = DS(d, "saveBlocked"); s.SaveWhenDone = DB(d, "saveWhenDone") && !s.Saved;
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
-                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DD(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0 }); }
+                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0 }); }
                 System.Collections.IList inc = d.ContainsKey("incidents") ? d["incidents"] as System.Collections.IList : null;
-                if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DD(r, "offset"), DD(r, "count") }); }
+                if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DN(r, "offset"), DD(r, "count") }); }
+                System.Collections.IList gaps = d.ContainsKey("gaps") ? d["gaps"] as System.Collections.IList : null;
+                if (gaps != null) foreach (object o in gaps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Gaps.Add(new double[] { DD(r, "fromMs"), DD(r, "toMs") }); }
             }
             catch { }
             return s;
@@ -1412,8 +1470,9 @@ namespace IRDash
                 s.Saving = true; savedReserved += s.Bytes;
             }
             bool ok = MoveToSaved(s);
-            lock (gate) { savedReserved -= s.Bytes; s.Saving = false; }
-            recState = ok ? "SAVED" : "NOTHING";
+            lock (gate) { savedReserved -= s.Bytes; s.Saving = false; if (!ok) s.SaveBlocked = "failed"; }
+            // a failed move is not "nothing to save": say it failed, the video stays where it was and SAVE can be pressed again
+            recState = ok ? "SAVED" : "SAVE FAILED";
             return recState;
         }
 
@@ -1437,7 +1496,7 @@ namespace IRDash
                     sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
                               ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + dur.ToString("0.000", Inv) + ",\"bytes\":" + bytes +
                               ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone ? "true" : "false") + ",\"open\":" + (s.Open ? "true" : "false") + ",\"state\":" + Json_.S(s.Open ? "open" : (finishing.Contains(s) ? "finishing" : "finished")) +
-                              ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"laps\":" + laps + ",\"incidents\":" + s.Incidents.Count + "}");
+                              ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") + ",\"gaps\":" + s.Gaps.Count + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) + ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"laps\":" + laps + ",\"incidents\":" + s.Incidents.Count + "}");
                 }
                 sb.Append("]}");
                 return sb.ToString();
@@ -1460,7 +1519,7 @@ namespace IRDash
                 List<RecSess> del = new List<RecSess>();
                 lock (gate)
                 {
-                    List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving) un.Add(s);
+                    List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving && !s.SaveWhenDone) un.Add(s);
                     un.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); });
                     long total = 0; foreach (RecSess s in un) total += s.Bytes;
                     int n = un.Count;
@@ -1478,15 +1537,25 @@ namespace IRDash
                 {
                     if (freeOverride < 0)
                     {
-                        List<RecSess> gone = new List<RecSess>();
-                        lock (gate)
+                        // One at a time: delete the oldest unsaved session, measure again, then decide. (Measuring before any
+                        // delete, as this once did, picked EVERY unsaved session because the free space had not changed yet.)
+                        // A session someone asked to SAVE is never a candidate, even while the saved budget is full.
+                        for (int guard = 0; guard < 1000 && FreeBytes(VaultRoot) < min; guard++)
                         {
-                            List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving) un.Add(s);
-                            un.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); });
-                            foreach (RecSess s in un) { gone.Add(s); if (FreeBytes(VaultRoot) >= min) break; }
-                            foreach (RecSess s in gone) sessions.Remove(s);
+                            RecSess victim = null;
+                            lock (gate)
+                            {
+                                foreach (RecSess s in sessions)
+                                    if (!s.Saved && !s.Saving && !s.SaveWhenDone && (victim == null || s.StartMs < victim.StartMs)) victim = s;
+                            }
+                            if (victim == null) break;
+                            bool deleted = false;
+                            try { File.Delete(victim.File); deleted = !File.Exists(victim.File); } catch (Exception ex) { Log.W("recorder: could not remove session " + victim.Id + " (" + ex.Message + ")"); }
+                            if (!deleted) break;     // a locked file stays listed and counted; stop rather than spin
+                            try { File.Delete(Path.ChangeExtension(victim.File, ".json")); } catch { }
+                            lock (gate) sessions.Remove(victim);
+                            Log.W("recorder: removed the unsaved session " + victim.Id + " - the disk is nearly full");
                         }
-                        foreach (RecSess s in gone) { try { File.Delete(s.File); File.Delete(Path.ChangeExtension(s.File, ".json")); } catch { } Log.W("recorder: removed the unsaved session " + s.Id + " - the disk is nearly full"); }
                         PruneIncidentClips();
                         TrimClips(0, true);
                         free = FreeBytes(VaultRoot);

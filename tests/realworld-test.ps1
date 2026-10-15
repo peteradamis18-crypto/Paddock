@@ -1,4 +1,4 @@
-﻿# Real-world calendars (H-05 / H-06). Offline fixtures by default. -Live is opt-in and never part of the gate.
+# Real-world calendars (H-05 / H-06). Offline fixtures by default. -Live is opt-in and never part of the gate.
 param([switch]$Live)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -139,6 +139,42 @@ static class T {
     string b = RealWorld.TryRefresh();
     Check("Sdk.RealBusy blocks request", b == "busy" && RealWorld.TransportCalls == 0);
     RealWorld.TestBusy = null;
+
+    Console.WriteLine("provider independence");
+    // a cache with an IMSA race; then iRacing starts mid-fetch: F1 answers, every ICS fetch comes back null (the busy gate)
+    RwEvent imsaOld = RealWorld.ParseIcs("BEGIN:VEVENT\r\nDTSTART:20261011T160000Z\r\nSUMMARY:Petit Le Mans - Petit Le Mans\r\nEND:VEVENT", "IMSA", "https://racetagger.cloud/imsa.ics", AsOf)[0];
+    DateTime oldAsOf = asOf.AddHours(-7);
+    RealWorld.PutCache(new List<RwEvent> { imsaOld }, oldAsOf);
+    RealWorld.TestTransport = delegate (string u) { return u.IndexOf("jolpi") >= 0 ? Encoding.UTF8.GetBytes(F1Json) : null; };
+    string pr = RealWorld.TryRefresh();
+    Check("busy mid-fetch keeps the IMSA rows (series not wiped)", CountSeries(RealWorld.Events, "IMSA") == 1);
+    Check("the provider that answered (F1) is updated", CountSeries(RealWorld.Events, "F1") == 1);
+    Check("a partial refresh is reported and is not marked fresh", pr == "partial" && RealWorld.CacheAsOf == oldAsOf);
+    RealWorld.TestTransport = delegate (string u) { if (u.IndexOf("9df731ac") >= 0) throw new InvalidOperationException("IMSA down"); return u.IndexOf("jolpi") >= 0 ? Encoding.UTF8.GetBytes(F1Json) : Encoding.UTF8.GetBytes(WecIcs); };
+    RealWorld.PutCache(new List<RwEvent> { imsaOld }, oldAsOf);
+    RealWorld.TryRefresh();
+    Check("IMSA throws while F1 and WEC succeed: all three shown", CountSeries(RealWorld.Events, "IMSA") == 1 && CountSeries(RealWorld.Events, "F1") == 1 && CountSeries(RealWorld.Events, "WEC") == 1);
+    RealWorld.TestTransport = null;
+
+    Console.WriteLine("New York time");
+    Func<string, RwEvent> at = delegate (string iso) { return RealWorld.ParseF1("{\"MRData\":{\"RaceTable\":{\"Races\":[{\"raceName\":\"X\",\"Circuit\":{\"circuitName\":\"Y\"},\"date\":\"" + iso.Substring(0, 10) + "\",\"time\":\"" + iso.Substring(11) + "\"}]}}}", "s", AsOf)[0]; };
+    Check("January shows EST (-05:00)", at("2026-01-15T18:00:00Z").LocalStart == "2026-01-15T13:00:00-05:00");
+    Check("July shows EDT (-04:00)", at("2026-07-15T18:00:00Z").LocalStart == "2026-07-15T14:00:00-04:00");
+    Check("8 Mar 2026: 06:59Z is 01:59 EST, 07:00Z is 03:00 EDT", at("2026-03-08T06:59:00Z").LocalStart == "2026-03-08T01:59:00-05:00" && at("2026-03-08T07:00:00Z").LocalStart == "2026-03-08T03:00:00-04:00");
+    Check("1 Nov 2026: 05:30Z is 01:30 EDT, 06:30Z is 01:30 EST", at("2026-11-01T05:30:00Z").LocalStart == "2026-11-01T01:30:00-04:00" && at("2026-11-01T06:30:00Z").LocalStart == "2026-11-01T01:30:00-05:00");
+    RwEvent late = at("2026-10-11T03:30:00Z");   // 23:30 EDT on the 10th
+    List<RwEvent> day = RealWorld.MergeFilterSort(new List<RwEvent> { late }, RealWorld.TestNow, RealWorld.ShowZone);
+    Check("a race starting 23:30 New York time stays on that New York day", late.LocalStart.StartsWith("2026-10-10T23:30") && day.Count == 1);
+    RwEvent dateOnly = RealWorld.ParseF1("{\"MRData\":{\"RaceTable\":{\"Races\":[{\"raceName\":\"X\",\"Circuit\":{\"circuitName\":\"Y\"},\"date\":\"2026-10-11\"}]}}}", "s", AsOf)[0];
+    Check("a date with no time: TBC, no time shown, grouped on its own date (not the evening before)", dateOnly.Tbc && dateOnly.LocalStart.Length == 0 && dateOnly.EventDate == "2026-10-11");
+
+    Console.WriteLine("uncertain ICS rows kept");
+    List<RwEvent> allDay = RealWorld.ParseIcs("BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20261017\r\nSUMMARY:Race - Test Event\r\nEND:VEVENT", "IMSA", "s", AsOf);
+    Check("an all-day ICS row is kept as time TBC on its date", allDay.Count == 1 && allDay[0].Tbc && allDay[0].EventDate == "2026-10-17");
+    List<RwEvent> odd = RealWorld.ParseIcs("BEGIN:VEVENT\r\nDTSTART;TZID=Mars/Olympus:20261017T120000\r\nSUMMARY:Race - Odd Zone\r\nEND:VEVENT", "IMSA", "s", AsOf);
+    Check("an unknown TZID is kept as time TBC (no guessed time)", odd.Count == 1 && odd[0].Tbc && odd[0].LocalStart.Length == 0 && odd[0].EventDate == "2026-10-17");
+    List<RwEvent> bah = RealWorld.ParseIcs("BEGIN:VEVENT\r\nDTSTART;TZID=Asia/Bahrain:20261017T180000\r\nSUMMARY:Race - Bahrain 8h\r\nEND:VEVENT", "WEC", "s", AsOf);
+    Check("Asia/Bahrain (a WEC venue) converts: 18:00 +03 = 15:00Z", bah.Count == 1 && !bah[0].Tbc && bah[0].Utc == new DateTime(2026, 10, 17, 15, 0, 0, DateTimeKind.Utc));
   }
 
   static void Live(string[] a, string dir) {
@@ -162,7 +198,7 @@ static class T {
   }
 
   static int CountSeries(List<RwEvent> l, string s) { int n = 0; foreach (RwEvent e in l) if (e.Series == s) n++; return n; }
-  static string Local(DateTime utc) { return new DateTimeOffset(utc).ToOffset(TimeZoneInfo.Local.GetUtcOffset(utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture); }
+  static string Local(DateTime utc) { return new DateTimeOffset(utc).ToOffset(TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time").GetUtcOffset(utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture); }
 
   static void H06(string dir) {
     Console.WriteLine("preview disabled");
