@@ -150,7 +150,7 @@ const Home = {
         '<span class="lw">last week ' + Number(w.lastHours || 0).toFixed(1) + ' h</span>'
       : '<b>' + DASH + '</b>') + '</div>';
     el.innerHTML = out;
-    const rv = $('homeReview'); if (rv) rv.addEventListener('click', () => HomeHost.open('sessionreview.html?id=' + encodeURIComponent(l.file), 'Session review'));
+    const rv = $('homeReview'); if (rv) rv.addEventListener('click', () => HomeHost.open('coach.html?id=' + encodeURIComponent(l.file), 'Review' + DOT + (l.track || '')));   // the coach first; all the data is one press away
   },
 
   // ---- band C: what to watch. Grouped by event; the Race and the two sessions before it; never "Live" ----
@@ -276,6 +276,7 @@ const HomeHost = {
   init() {
     setInterval(() => { if (this.el && window.UI && UI.live && UI.live()) this.close(); }, 1500);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.el) { e.preventDefault(); this.close(); } });   // Esc always gets him back to HOME
+    window.addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.irdash === 'coach-close' && this.el) this.close(); });   // Esc inside the coach page
   },
   open(url, title) {
     if (this.el || (window.UI && UI.live && UI.live())) return;

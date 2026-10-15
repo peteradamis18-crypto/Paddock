@@ -609,9 +609,23 @@ namespace IRDash
                 string assoc; Dictionary<string, object> rec = ResolveRecording(cx, S(G(s, "track")), 0, S(G(s, "type")), out assoc);
                 bool ok = rec != null && assoc == "verified";
                 string st = rec == null ? "none" : S(G(rec, "state")); if (rec != null && st.Length == 0) st = "ready";
+                // where each lap starts inside the session video (seconds; null = that lap is in a gap), for WATCH on the coach cards
+                StringBuilder laps = new StringBuilder("[");
+                if (ok)
+                {
+                    bool first = true;
+                    foreach (object o in A(G(rec, "laps")))
+                    {
+                        Dictionary<string, object> p = O(o); if (p == null) continue;
+                        double off = D(G(p, "offset")); int n = I(G(p, "n")); if (n <= 0) continue;
+                        if (!first) laps.Append(','); first = false;
+                        laps.Append("{\"n\":").Append(n).Append(",\"offset\":").Append(double.IsNaN(off) ? "null" : N(off, "0.000")).Append('}');
+                    }
+                }
+                laps.Append(']');
                 return "{\"ok\":true,\"association\":" + Json_.S(assoc) + ",\"id\":" + (ok ? Json_.S(S(G(rec, "id"))) : "null") +
                        ",\"saved\":" + B(ok && Bl(G(rec, "saved"))) + ",\"state\":" + Json_.S(st) + ",\"gaps\":" + (rec != null ? A(G(rec, "gaps")).Length : 0) +
-                       ",\"saveBlocked\":" + Json_.S(rec != null ? S(G(rec, "saveBlocked")) : "") + "}";
+                       ",\"saveBlocked\":" + Json_.S(rec != null ? S(G(rec, "saveBlocked")) : "") + ",\"laps\":" + laps + "}";
             }
             catch (Exception ex) { Log.W("debrief: rec/for: " + ex.Message); return "{\"ok\":false,\"error\":\"could not read the recordings\"}"; }
         }

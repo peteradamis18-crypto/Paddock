@@ -153,13 +153,14 @@ namespace IRDash
                     {
                         TcpListener l = new TcpListener(IPAddress.Parse(ip), port);
                         l.Start();
+                        Server.NoInherit(l.Server);      // a program irdash starts must never keep this port
                         listeners[ip] = l;
                         Thread t = new Thread(delegate ()
                         {
                             while (true)
                             {
                                 TcpClient c;
-                                try { c = l.AcceptTcpClient(); } catch { break; }   // Stop() ends the loop
+                                try { c = l.AcceptTcpClient(); Server.NoInherit(c.Client); } catch { break; }   // Stop() ends the loop
                                 Thread h = new Thread(delegate () { handle(c); }); h.IsBackground = true; h.Start();
                             }
                         });

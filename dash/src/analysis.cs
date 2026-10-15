@@ -199,6 +199,7 @@ namespace IRDash
             if (path == "/analysis/deep") return DeepRoute(q, out code);       // corner deep-dive engines (deepdive.cs)
             if (path == "/analysis/career") return CareerRoute(q, out code);   // one car + track over every session (career.cs, W6c)
             if (path == "/analysis/gain") return GainRoute(q, out code);       // every car + track: PB, theoretical best, gap (gain.cs, MOST TO GAIN)
+            if (path == "/analysis/coach") return CoachRoute(q, out code);     // what to fix next, from every clean lap of one session (coach.cs)
             if (path != "/analysis/lap") { code = 404; return Err("not found"); }
             if (Program.IsDriving) { code = 503; return Err("Not while driving"); }
             string id = Q(q, "id"), rf = Q(q, "ref");

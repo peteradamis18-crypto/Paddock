@@ -444,16 +444,22 @@ namespace IRDash
         public Action OpenRequested;
         public Server(int port, string www, string maps) { this.port = port; this.www = Path.GetFullPath(www); this.maps = maps; }
 
+        // 2026-10-15: Pi Toolbox, started by irdash (Cosworth), inherited the listening socket and kept port 8199 after irdash
+        // stopped, so the next irdash could not start. A socket that no child process can inherit cannot be held that way.
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr h, int mask, int flags);
+        internal static void NoInherit(Socket s) { try { if (s != null) SetHandleInformation(s.Handle, 1, 0); } catch { } }
+
         public void Start()
         {
             TcpListener l = new TcpListener(IPAddress.Loopback, port);
             l.Start();
+            NoInherit(l.Server);
             Thread t = new Thread(delegate ()
             {
                 while (true)
                 {
                     TcpClient c;
-                    try { c = l.AcceptTcpClient(); } catch { Thread.Sleep(100); continue; }
+                    try { c = l.AcceptTcpClient(); NoInherit(c.Client); } catch { Thread.Sleep(100); continue; }
                     Thread h = new Thread(delegate () { Handle(c); });
                     h.IsBackground = true;
                     h.Start();
