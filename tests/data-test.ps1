@@ -223,6 +223,8 @@ Check "a selected session opens the shared Workbench at its best lap ($($info.la
 Check 'the Workbench has rendered its analysis page' ($info.page -and $info.page -notmatch 'Not connected|Loading')
 Cdp-Shot (Join-Path $shots 'd-analysis.png')
 $null = Cdp-Eval "document.querySelector('#wbHost iframe').contentWindow.WB.cmd('lap-next'); true"; Start-Sleep -Milliseconds 500
+# the next lap reloads the Workbench page: wait for its data instead of trusting a fixed half second
+for ($w = 0; $w -lt 30; $w++) { if ((Cdp-Eval "(function(){ try { var wb = document.querySelector('#wbHost iframe').contentWindow.WB; return !!(wb && wb.data() && wb.data().head); } catch (e) { return false; } })()") -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 $nextLap = Cdp-Eval "document.querySelector('#wbHost iframe').contentWindow.WB.data().head.lap.lap"
 Check 'the selected Workbench can step to the next clean lap' ([int]$nextLap -gt [int]$bestLap.n)
 $null = Cdp-Eval "document.getElementById('wbBack').click(); 1"; Start-Sleep -Seconds 2
@@ -415,8 +417,9 @@ Section '9b. Rig Doctor fixes things itself (safe cases only: it stops the overl
 # what the idle screen says: "All good" or one short line, never the list of warnings
 Cdp-Open "$api/v2/"; Start-Sleep -Seconds 4
 $idle = Cdp-Eval "(function(){ Rig.idle({ ranAt: 'x', bad: 2, warn: 3, headline: '5 things to look at', items: [{ state: 'warn', name: 'Race screens', fix: 'plug the cable in' }, { state: 'warn', name: 'Stream Deck', fix: 'click Install' }], ask: '', timings: '' }); var a = document.getElementById('idleRig').textContent; Rig.idle({ ranAt: 'x', ask: 'Disk nearly full (9 GB left) - free up space', timings: '' }); var b = document.getElementById('idleRig').textContent; return JSON.stringify([a, b]); })()" | ConvertFrom-Json
-Check 'warnings that only you could clear (a cable, an add-on update) do not nag: the idle line says All good' ($idle[0] -match 'All good' -and $idle[0] -notmatch 'cable|Install|Race screens|Stream Deck')
-Check 'something that truly needs you is one short line' ($idle[1] -match 'Disk nearly full' -and $idle[1] -notmatch 'All good')
+# HOME v3: the doctor's result lives in the READY panel (#idleRig): no line at all when nothing needs him, one "Rig" row when something does
+Check 'warnings that only he could clear (a cable, an add-on update) do not nag: READY shows no Rig row and none of those warnings' ($idle[0] -notmatch 'Rig\s*Disk|cable|Install|Race screens' -and $idle[0] -match '^(Ready|Live|.* off|Recording failed|Disk low)') "READY='$($idle[0])'"
+Check 'something that truly needs him is one short Rig row in READY, and READY no longer says Ready' ($idle[1] -match 'Rig\s*Disk nearly full' -and $idle[1] -notmatch '^Ready') "READY='$($idle[1])'"
 Cdp-Close
 $d = J '/doctor'
 Check 'an add-on update waiting to be installed is not a warning' ((($d.items | Where-Object id -eq 'streamdeck').state) -eq 'ok')

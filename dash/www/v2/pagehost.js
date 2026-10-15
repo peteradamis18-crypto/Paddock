@@ -39,7 +39,7 @@ const PageHost = {
     else if (/[?&]perf=1/.test(q)) this.open('perf', false);
   },
 
-  driving() { return !!(window.UI && UI.live && UI.live() && window.L && L.v && L.v.IsOnTrack); },
+  driving() { return !!(typeof UI !== 'undefined' && UI.live && UI.live() && typeof L !== 'undefined' && L.v && L.v.IsOnTrack); },
   isOpen(name) { return this.cur === name; },
   send(url) { fetch(url, { cache: 'no-store' }).catch(() => { }); },
 

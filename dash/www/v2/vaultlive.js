@@ -30,7 +30,7 @@ const VaultLive = {
     if (!foot) return;
     const a = document.createElement('span');
     a.id = 'dbVault'; a.tabIndex = 0; a.setAttribute('role', 'button'); a.textContent = 'In the Vault';
-    const open = e => { e.stopPropagation(); e.preventDefault(); if (window.Debrief && Debrief.hide) Debrief.hide(); this.openPage(true); };
+    const open = e => { e.stopPropagation(); e.preventDefault(); if (typeof Debrief !== 'undefined' && Debrief.hide) Debrief.hide(); this.openPage(true); };
     a.addEventListener('click', open);
     a.addEventListener('keydown', e => { if (e.key === 'Enter') open(e); });
     foot.appendChild(a);

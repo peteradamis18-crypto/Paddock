@@ -51,18 +51,24 @@ namespace IRDash
             List<Sess> sessions = Gather(file, null, true);     // this session only: the advice is about what he just drove
             Sess mine = sessions[0];
             CornerSet cs = LoadCorners(mine);
+            List<LapTrace> all = new List<LapTrace>();
+            foreach (LapTrace lap in mine.Laps) if (lap.Clean && lap.Tm != null) { Measure(lap, cs); all.Add(lap); }
+            // the reference: the fastest lap iRacing fully counted (no corner cut, no tow); clean-only if there is none
+            List<LapTrace> pure = PureOf(all);
+            LapTrace best = null;
+            foreach (LapTrace l in (pure.Count > 0 ? pure : all)) if (best == null || l.Time < best.Time) best = l;
+            // laps in his normal rhythm only: within 2 % of that best. A race start, a traffic lap or a cool-down lap is not
+            // a habit and would make every corner look slow.
             List<LapTrace> clean = new List<LapTrace>();
-            foreach (LapTrace lap in mine.Laps) if (lap.Clean && lap.Tm != null) { Measure(lap, cs); clean.Add(lap); }
+            foreach (LapTrace l in all) if (best != null && l.Time <= best.Time * 1.02) clean.Add(l);
             StringBuilder sb = new StringBuilder(4096);
             sb.Append("{\"ok\":true,\"file\":").Append(Json_.S(mine.File)).Append(",\"car\":").Append(Json_.S(mine.Car)).Append(",\"track\":").Append(Json_.S(CoachTrackName(mine)))
               .Append(",\"config\":").Append(Json_.S(mine.Config)).Append(",\"units\":\"imperial\",\"clean\":").Append(clean.Count);
             if (clean.Count < 3)
             {
-                sb.Append(",\"ready\":false,\"reason\":").Append(Json_.S("Not enough clean laps to compare (" + clean.Count + " of 3)")).Append(",\"focus\":[],\"inconsistent\":[]}");
+                sb.Append(",\"ready\":false,\"reason\":").Append(Json_.S("Not enough laps at race pace to compare (" + clean.Count + " of 3)")).Append(",\"focus\":[],\"inconsistent\":[]}");
                 return sb.ToString();
             }
-            LapTrace best = clean[0];
-            foreach (LapTrace l in clean) if (l.Time < best.Time) best = l;
             if (best.Corners == null || best.Corners.Count == 0)
             {
                 sb.Append(",\"ready\":false,\"reason\":").Append(Json_.S("No corner map for this track yet")).Append(",\"focus\":[],\"inconsistent\":[]}");
@@ -105,7 +111,11 @@ namespace IRDash
             {
                 double med = Median(r.Loss);
                 int need = Math.Max(2, (int)Math.Ceiling(r.Laps / 2.0));
-                if (!double.IsNaN(med) && med >= CoachMinLoss && r.Lost >= need) { if (focus.Count < 3) focus.Add(r); }
+                // the best lap must be repeatable here: another lap within 0.10 s of it. Otherwise the "habit" is only the
+                // best lap having been lucky in this corner, and copying luck is not advice.
+                double nearest = double.MaxValue; foreach (double v in r.Loss) if (v < nearest) nearest = v;
+                bool repeatable = nearest <= 0.10;
+                if (!double.IsNaN(med) && med >= CoachMinLoss && r.Lost >= need && repeatable) { if (focus.Count < 3) focus.Add(r); }
                 else
                 {
                     double max = double.MinValue; foreach (double v in r.Loss) if (v > max) max = v;
@@ -114,7 +124,7 @@ namespace IRDash
             }
 
             double total = 0; foreach (CoachRow r in focus) total += Median(r.Loss);
-            sb.Append(",\"ready\":true,\"reason\":").Append(Json_.S(focus.Count == 0 ? "No corner loses time lap after lap. The laps are consistent." : ""));
+            sb.Append(",\"ready\":true,\"reason\":").Append(Json_.S(focus.Count == 0 ? "No corner loses time lap after lap." : ""));
             sb.Append(",\"ref\":{\"lap\":").Append(best.Lap).Append(",\"time\":").Append(F(best.Time, "0.000")).Append(",\"kind\":\"session best\"}");
             sb.Append(",\"perLap\":").Append(F(total, "0.000"));
             sb.Append(",\"focus\":[");
@@ -137,7 +147,10 @@ namespace IRDash
         // one advice card: the corner, the typical loss, how often, the measured facts, one instruction, and where to look
         static void AppendFocus(StringBuilder sb, CoachRow r, LapTrace best)
         {
-            double br = Median(r.Br), en = Median(r.En), mn = Median(r.Mn), pk = Median(r.Pk), ex = Median(r.Ex);
+            // a fact must stand on at least half of the losing laps (and 2): one lap's braking point is not "typical"
+            int support = Math.Max(2, (int)Math.Ceiling(r.Lost / 2.0));
+            Func<List<double>, double> typical = delegate (List<double> v) { return v.Count >= support ? Median(v) : double.NaN; };
+            double br = typical(r.Br), en = typical(r.En), mn = typical(r.Mn), pk = typical(r.Pk), ex = typical(r.Ex);
             // phases (Delta-style): brake, entry, apex, exit. Each: the measured difference, or null under its noise floor.
             bool brake = !double.IsNaN(br) && Math.Abs(br) >= 5, entry = !double.IsNaN(en) && Math.Abs(en) / KmhPerMph >= 3,
                  apex = !double.IsNaN(mn) && Math.Abs(mn) / KmhPerMph >= 3, pick = !double.IsNaN(pk) && Math.Abs(pk) >= 10, exit = !double.IsNaN(ex) && Math.Abs(ex) / KmhPerMph >= 3;
@@ -158,14 +171,16 @@ namespace IRDash
                 else { pickIf("pickup", pick, pk, 10, pk > 0); pickIf("exit", exit, ex / KmhPerMph, 3, ex < 0); pickIf("min", apex, mn / KmhPerMph, 3, mn < 0); }
             };
             pickSide(before);
-            if (code.Length == 0) { pickSide(!before); if (code.Length > 0) before = !before; }     // nothing measured on the side where the time goes: the other side, if it explains a loss
+            // nothing measured on the side where the time goes: the other side, but only if real time is lost there too
+            double other = before ? tout : tin;
+            if (code.Length == 0 && !double.IsNaN(other) && other >= CoachMinLoss) { pickSide(!before); if (code.Length > 0) before = !before; }
             // the facts: the one behind the instruction first, then the others on the same side, three at most
             List<KeyValuePair<string, string>> all = new List<KeyValuePair<string, string>>();
             // only the differences that LOSE time are facts here (a faster exit next to a slower apex is noise for this card)
             if (brake && br < 0) all.Add(new KeyValuePair<string, string>("brake", "Braking " + Whole(Math.Abs(br)) + " m " + (br < 0 ? "earlier" : "later") + " than the best lap"));
             if (entry && en < 0) all.Add(new KeyValuePair<string, string>("entry", Whole(Math.Abs(en) / KmhPerMph) + " mph " + (en < 0 ? "slower" : "faster") + " into the turn"));
             if (apex && mn < 0) all.Add(new KeyValuePair<string, string>("min", Whole(Math.Abs(mn) / KmhPerMph) + " mph " + (mn < 0 ? "slower" : "faster") + " at the slowest point"));
-            if (pick && pk > 0) all.Add(new KeyValuePair<string, string>("pickup", "Throttle " + Whole(Math.Abs(pk)) + " m " + (pk > 0 ? "later" : "earlier")));
+            if (pick && pk > 0) all.Add(new KeyValuePair<string, string>("pickup", "Throttle " + Whole(Math.Abs(pk)) + " m later than the best lap"));
             if (exit && ex < 0) all.Add(new KeyValuePair<string, string>("exit", Whole(Math.Abs(ex) / KmhPerMph) + " mph " + (ex < 0 ? "slower" : "faster") + " on the exit"));
             string[] side = before ? new string[] { "brake", "entry", "min" } : new string[] { "pickup", "exit", "min" };
             List<string> facts = new List<string>();
@@ -177,9 +192,9 @@ namespace IRDash
             {
                 case "brake": say = "Brake later, at the best lap's braking point."; break;
                 case "entry": say = "Carry more speed to the turn-in."; break;
-                case "min": say = before ? "Release the brake more gently and keep speed to the apex." : "Keep more speed through the slowest point."; break;
+                case "min": say = "Keep more speed through the slowest point."; break;      // only what is measured: speed, not how the brake is released
                 case "pickup": say = "Back on the throttle earlier."; break;
-                case "exit": say = "Open the steering sooner for a faster exit."; break;
+                case "exit": say = "Carry more speed onto the exit."; break;                 // steering is not read, so it is not named
                 default: say = "No single input explains it. Watch both laps: the line may differ."; break;
             }
             double med = Median(r.Loss);
@@ -212,12 +227,13 @@ namespace IRDash
 
         static string Whole(double v) { return ((int)Math.Floor(v + 0.5)).ToString(CultureInfo.InvariantCulture); }
 
-        // seconds into the lap, 3 s before the corner window starts (never before the lap)
+        // seconds into the lap, 3 s before the corner window starts. It may be negative for a corner just after the line:
+        // the video runs on from the previous lap, so the run-up is still there (coach.js clamps at the start of the file)
         static double CueAt(LapTrace lap, double p0)
         {
             if (lap.Tm == null || lap.Metres <= 0) return 0;
             int m = (int)Math.Max(0, Math.Min(lap.Metres - 1, Math.Round(p0 * lap.Metres)));
-            return Math.Max(0, lap.Tm[m] - 3.0);
+            return lap.Tm[m] - 3.0;
         }
     }
 }

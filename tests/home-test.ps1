@@ -389,8 +389,8 @@ public static class PitProbe {
   Check 'no JS errors on HOME through the states' ($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
   # the REVIEW button opens the Session Review over HOME, with a back bar
   $null = Cdp-Eval "document.getElementById('homeReview').click(); true"
-  $hostOk = Wait-Until "(() => { const h = document.getElementById('homeHost'); return !h.hidden && !!h.querySelector('iframe') && h.querySelector('iframe').src.indexOf('sessionreview.html') > 0; })()" 8
-  Check 'REVIEW opens the Session Review over HOME' $hostOk
+  $hostOk = Wait-Until "(() => { const h = document.getElementById('homeHost'); return !h.hidden && !!h.querySelector('iframe') && h.querySelector('iframe').src.indexOf('coach.html') > 0; })()" 8
+  Check 'REVIEW opens the session coach over HOME (all laps and data are one press away inside it)' $hostOk
   Start-Sleep -Seconds 4
   Cdp-Shot (Join-Path $shots 'home-review.png')
   $null = Cdp-Eval "document.querySelector('#homeHost .bar button').click(); true"

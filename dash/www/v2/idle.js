@@ -10,7 +10,7 @@ const Idle = {
     if (document.hidden) return;
     const d = new Date();
     // one clock everywhere: New York, 12-hour (home.js draws the same)
-    if (window.Home && Home.clock) { Home.clock(); return; }
+    if (typeof Home !== 'undefined' && Home.clock) { Home.clock(); return; }
     setText('idleClock', d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET');
   },
 

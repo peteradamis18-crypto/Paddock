@@ -30,10 +30,10 @@ Check "at most three things to fix, biggest typical loss first ($(@($o.focus | F
 foreach ($f in @($o.focus)) {
   "     $($f.label): $($f.loss) s typical, lost in $($f.lost) of $($f.laps) laps | $($f.facts -join ' | ') | $($f.say) | example lap $($f.example.lap) cue $($f.example.at) s, best lap cue $($f.best.at) s"
   Check "$($f.label): a repeated loss (>= 0.05 s, lost in at least half the laps and at least 2)" ([double]$f.loss -ge 0.05 -and $f.lost -ge [math]::Max(2, [math]::Ceiling($f.laps / 2)))
-  Check "$($f.label): every fact is a measured difference in metres or mph, and there is one instruction" (@($f.facts | Where-Object { $_ -notmatch '^(Braking \d+ m (earlier|later) than the best lap|\d+ mph (slower|faster) (into the turn|at the slowest point|on the exit)|Throttle \d+ m (later|earlier))$' }).Count -eq 0 -and $f.say.Length -gt 0)
-  Check "$($f.label): the video cues are inside their laps (example $($f.example.at) s, best $($f.best.at) s)" ([double]$f.example.at -ge 0 -and [double]$f.example.at -lt [double]$f.example.time -and [double]$f.best.at -ge 0 -and [double]$f.best.at -lt [double]$o.ref.time)
+  Check "$($f.label): every fact is a measured difference in metres or mph, and there is one instruction" (@($f.facts | Where-Object { $_ -notmatch '^(Braking \d+ m (earlier|later) than the best lap|\d+ mph (slower|faster) (into the turn|at the slowest point|on the exit)|Throttle \d+ m later than the best lap)$' }).Count -eq 0 -and $f.say.Length -gt 0)
+  Check "$($f.label): the video cues are inside their laps (or up to 3 s before the line, from the previous lap) (example $($f.example.at) s, best $($f.best.at) s)" ([double]$f.example.at -ge -3 -and [double]$f.example.at -lt [double]$f.example.time -and [double]$f.best.at -ge -3 -and [double]$f.best.at -lt [double]$o.ref.time)
   $first = if (@($f.facts).Count) { [string]$f.facts[0] } else { '' }
-  $agree = ($f.code -eq '' -and @($f.facts).Count -eq 0) -or ($f.code -eq 'brake' -and $first -match '^Braking \d+ m earlier') -or ($f.code -eq 'pickup' -and $first -match '^Throttle \d+ m later') -or ($f.code -in @('entry', 'min', 'exit') -and $first -match 'slower')
+  $agree = ($f.code -eq '' -and @($f.facts).Count -eq 0) -or ($f.code -eq 'brake' -and $first -match '^Braking \d+ m earlier') -or ($f.code -eq 'pickup' -and $first -match '^Throttle \d+ m later than the best lap') -or ($f.code -in @('entry', 'min', 'exit') -and $first -match 'slower')
   $onlyLoss = @($f.facts | Where-Object { $_ -match 'faster|later than the best lap|Throttle \d+ m earlier' }).Count -eq 0
   Check "$($f.label): the facts agree with the instruction (its own fact is shown first, and every fact is a loss)" ($agree -and $onlyLoss)
 }
@@ -45,7 +45,7 @@ $short = Get-ChildItem $tel -Filter '*.ibt' | Where-Object { $_.LastWriteTime -l
 $done = $false
 foreach ($s in $short) {
   $q = Run $s.Name
-  if ($q.obj.ok -and -not $q.obj.ready -and $q.obj.clean -lt 3) { Check "a short session ($($s.Name), $($q.obj.clean) clean laps) says '$($q.obj.reason)' and gives no advice" ($q.obj.reason -match 'Not enough clean laps to compare \(\d of 3\)' -and @($q.obj.focus).Count -eq 0); $done = $true; break }
+  if ($q.obj.ok -and -not $q.obj.ready -and $q.obj.clean -lt 3) { Check "a short session ($($s.Name), $($q.obj.clean) clean laps) says '$($q.obj.reason)' and gives no advice" ($q.obj.reason -match 'Not enough laps at race pace to compare \(\d of 3\)' -and @($q.obj.focus).Count -eq 0); $done = $true; break }
 }
 if (-not $done) { '  info  no short old session found to check the "too few laps" answer' }
 

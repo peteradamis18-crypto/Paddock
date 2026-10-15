@@ -159,7 +159,7 @@ const Debrief = {
       box.querySelector('#dbChoose').addEventListener('click', e => {
         e.stopPropagation(); e.preventDefault();
         fetch('/api/do?c=vkchoose', { cache: 'no-store' }).catch(() => { });
-        if (window.VaultLive && VaultLive.openPage) VaultLive.openPage(false);
+        if (typeof VaultLive !== 'undefined' && VaultLive.openPage) VaultLive.openPage(false);     // const VaultLive is not window.VaultLive
         if (this.el) this.el.style.zIndex = '1';             // the Vault sits under the review; let it through
         this.hide();
       });

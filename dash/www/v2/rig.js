@@ -36,7 +36,7 @@ const Rig = {
   // fixes most things itself and the rest stays in the list (RIG DOCTOR key).
   idle(d) {
     this.doc = d;
-    if (window.Home && Home.drawReady) Home.drawReady();
+    if (typeof Home !== 'undefined' && Home.drawReady) Home.drawReady();     // const Home is not window.Home
   },  render(d) {
     const rows = (d.items || []).map(i =>
       '<div class="dr-row ' + esc(i.state) + '"><i></i><div><b>' + esc(i.name) + '</b><span>' + esc(i.detail) + (i.done ? ' &nbsp;·&nbsp; fixed: ' + esc(i.done) : '') + '</span>' +

@@ -30,7 +30,7 @@
     if (!R || !R.ok || !R.id) return { ok: false, why: 'No video of this session' };
     const a = f.example ? offsetOf(f.example.lap) : null, b = f.best ? offsetOf(f.best.lap) : null;
     if (a == null && b == null) return { ok: false, why: 'These laps are not in the recording' };
-    return { ok: true, a: a == null ? null : a + f.example.at, b: b == null ? null : b + f.best.at, src: '/api/rec/session-video?id=' + encodeURIComponent(R.id) };
+    return { ok: true, a: a == null ? null : Math.max(0, a + f.example.at), b: b == null ? null : Math.max(0, b + f.best.at), src: '/api/rec/session-video?id=' + encodeURIComponent(R.id) };
   }
 
   function draw() {
@@ -39,12 +39,12 @@
       '<div class="ref">' + (C.ref ? 'Compared with the best clean lap: <b>lap ' + C.ref.lap + DOT + lap(C.ref.time) + '</b><br>' : '') + C.clean + ' clean laps</div>' +
       '<button class="btn" id="cAll" type="button">All laps and data</button></div>';
     if (!C.ready) {
-      h += '<div class="empty"><b>' + esc(C.reason || 'Nothing to compare yet') + '</b><span>The coach needs three clean laps of one session: no off-tracks, no pit laps.</span></div>';
+      h += '<div class="empty"><b>' + esc(C.reason || 'Nothing to compare yet') + '</b><span>The coach needs three laps of one session that iRacing counted, at race pace, with no pit stop.</span></div>';
       stage.innerHTML = h; wire(); return;
     }
     const f = C.focus || [];
     if (!f.length) {
-      h += '<div class="empty"><b>' + esc(C.reason) + '</b><span>The time differences between laps change from lap to lap.</span></div>';
+      h += '<div class="empty"><b>' + esc(C.reason) + '</b><span>Where time is lost changes from lap to lap: repeatable laps come first.</span></div>';
     } else {
       const a = f[0], v = video(a);
       h += '<div class="hr" style="top:184px"></div><section class="main">' +
@@ -91,11 +91,21 @@
     $('cReplay').addEventListener('click', play); $('cClose').addEventListener('click', closeWatch);
     play();
   }
+  // Both start together once each is at its cue. A video that fails to load, or is already at the cue (no 'seeked'),
+  // must not hold the other back: each counts once (seeked, error, or a 3 s timeout), and a newer press wins (gen).
+  let gen = 0;
   function play() {
     const vids = [].slice.call(document.querySelectorAll('#cWatch video')); clearTimeout(stopT);
-    let ready = 0;
-    vids.forEach(x => { x.pause(); const go = () => { if (++ready === vids.length) { vids.forEach(y => y.play().catch(() => { })); stopT = setTimeout(() => vids.forEach(y => y.pause()), 10000); } };
-      x.addEventListener('seeked', go, { once: true }); x.currentTime = +x.dataset.at; });
+    const my = ++gen; let ready = 0;
+    const start = () => { if (my !== gen) return; vids.forEach(y => { if (!y.error) y.play().catch(() => { }); }); stopT = setTimeout(() => { if (my === gen) vids.forEach(y => y.pause()); }, 10000); };
+    vids.forEach(x => {
+      x.pause();
+      let counted = false; const go = () => { if (counted || my !== gen) return; counted = true; if (++ready === vids.length) start(); };
+      x.addEventListener('seeked', go, { once: true }); x.addEventListener('error', go, { once: true }); setTimeout(go, 3000);
+      const at = +x.dataset.at;
+      if (x.readyState >= 1 && Math.abs(x.currentTime - at) < 0.01) go(); else x.currentTime = at;
+    });
+    if (!vids.length) return;
   }
   function closeWatch() { const w = $('cWatch'); if (!w) return; clearTimeout(stopT); w.querySelectorAll('video').forEach(x => { x.pause(); x.removeAttribute('src'); x.load(); }); w.classList.remove('on'); w.innerHTML = ''; }
 
@@ -105,12 +115,15 @@
     const host = document.createElement('div'); host.className = 'host';
     host.innerHTML = '<div class="bar"><button class="btn" type="button">‹ Coach</button><span>' + esc(title) + '</span></div><iframe title="' + esc(title) + '"></iframe>';
     host.querySelector('iframe').src = url; document.body.appendChild(host);
-    host.querySelector('button').addEventListener('click', () => host.remove());
-    addEventListener('message', function m(e) { if (e.origin === location.origin && e.data && e.data.irdash === 'workbench-close') { host.remove(); removeEventListener('message', m); } });
+    const m = e => { if (e.origin === location.origin && e.data && e.data.irdash === 'workbench-close') close(); };
+    const close = () => { removeEventListener('message', m); host.remove(); };
+    host._close = close;
+    host.querySelector('button').addEventListener('click', close);
+    addEventListener('message', m);
   }
   addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    const host = document.querySelector('.host'); if (host) { host.remove(); return; }
+    const host = document.querySelector('.host'); if (host) { if (host._close) host._close(); else host.remove(); return; }
     const w = $('cWatch'); if (w && w.classList.contains('on')) { closeWatch(); return; }
     if (parent !== window) parent.postMessage({ irdash: 'coach-close' }, location.origin);
   });

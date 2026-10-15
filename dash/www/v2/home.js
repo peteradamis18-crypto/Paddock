@@ -20,7 +20,7 @@ const Home = {
     HomeHost.init();
   },
 
-  shown() { const ov = $('overlay'); return !!(ov && ov.classList.contains('show')) && !(window.UI && UI.live && UI.live()); },
+  shown() { const ov = $('overlay'); return !!(ov && ov.classList.contains('show')) && !(typeof UI !== 'undefined' && UI.live && UI.live()); },
 
   lap(t) { if (!(t > 0)) return DASH; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); },
   short(car) { return String(car || '').replace(/^Chevrolet /, ''); },
@@ -104,7 +104,7 @@ const Home = {
     else if (!p.lan) rows.push(['Phone', 'no home network', 'mute']);
     else rows.push(['Phone', p.paired ? 'paired' : 'not paired', p.paired ? '' : 'mute']);
     // the Rig Doctor's one line, when something really needs him (rig.js keeps the last result)
-    const doc = window.Rig && Rig.doc;
+    const doc = typeof Rig !== 'undefined' ? Rig.doc : null;     // const Rig is not window.Rig
     if (doc && doc.ask) { rows.push(['Rig', doc.ask, 'warn']); if (worst === 'ok') { worst = 'warn'; bad.push('Check the rig'); } }
     const live = apps.sim === 'live';
     let head = live ? 'Live' : 'Ready', hc = live ? 'live' : 'ok';
@@ -274,12 +274,12 @@ const Home = {
 const HomeHost = {
   el: null,
   init() {
-    setInterval(() => { if (this.el && window.UI && UI.live && UI.live()) this.close(); }, 1500);
+    setInterval(() => { if (this.el && typeof UI !== 'undefined' && UI.live && UI.live()) this.close(); }, 1500);
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.el) { e.preventDefault(); this.close(); } });   // Esc always gets him back to HOME
     window.addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.irdash === 'coach-close' && this.el) this.close(); });   // Esc inside the coach page
   },
   open(url, title) {
-    if (this.el || (window.UI && UI.live && UI.live())) return;
+    if (this.el || (typeof UI !== 'undefined' && UI.live && UI.live())) return;
     const host = $('homeHost'); host.hidden = false;
     host.innerHTML = '<div class="bar"><button type="button">&lsaquo; Home</button><span>' + esc(title || '') + '</span></div>';
     const f = document.createElement('iframe'); f.src = url; f.title = title || 'page';
