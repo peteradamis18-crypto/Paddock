@@ -23,7 +23,9 @@ main { position: relative; }
 .tv-lower label i { display:block; width:150px; height:8px; overflow:hidden; background:#252830; }
 .tv-lower label i b { display:block; height:100%; width:0; background:#f2c230; }
 #tvBrake { background:#f4f1ea; }
-#tvRec { margin-left:auto; color:#f2c230; letter-spacing:.16em; }
+#tvRec { margin-left:auto; letter-spacing:.16em; font-variant-numeric:tabular-nums; }
+#tvRec.rec-on { color:#f4f1ea; } #tvRec.rec-on::before { content:""; display:inline-block; width:.62em; height:.62em; border-radius:50%; background:#e0362c; margin-right:.45em; vertical-align:.05em; }
+#tvRec.rec-warn { color:#f2a530; } #tvRec.rec-bad { color:#e0362c; }
 body.tv-on #pMap, body.tv-on #pTime { visibility: hidden; }
 .tv-tower {
   position: absolute; z-index: 4; right: 18px; top: 54px; width: 560px; padding: 10px 12px 12px;

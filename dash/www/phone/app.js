@@ -678,10 +678,10 @@ const PhoneApp = {
     d.loading = false; if (this.detail === d) this.render();
     try { const r = await this.api('/analysis/race?id=' + encodeURIComponent(file)); if (r.ok) d.race = await r.json(); } catch (e) { }
     try { d.career = await this.json('/analysis/career?id=' + encodeURIComponent(file)); } catch (e) { }
-    // the session's recording (S1): matched by the start-time window; the button only shows when there is one
+    // the session's recording (S1): irdash names the verified one for this telemetry file (/api/rec/for); none = no button
     try {
-      const rs = await this.json('/api/rec/sessions'); const ss = (rs && rs.sessions) || [], start = d.s && d.s.startMs;
-      if (start) { let hit = null; ss.forEach(x => { const dur = Number(x.durationSec) || 0; if (start >= x.startMs - 5000 && start <= x.startMs + (dur + 60) * 1000 && (!hit || x.startMs > hit.startMs)) hit = x; }); d.rec = hit; }
+      const rf = await this.json('/api/rec/for?id=' + encodeURIComponent(file));
+      d.rec = rf && rf.ok && rf.id ? { id: rf.id, saved: !!rf.saved, state: rf.state, saveBlocked: rf.saveBlocked || '' } : null;
     } catch (e) { }
     if (this.detail === d) this.render();
   },
@@ -799,7 +799,7 @@ const PhoneApp = {
       const h = {}; if (this.tok) h['X-Paddock-Token'] = this.tok;
       const r = await fetch('/api/rec/save?id=' + encodeURIComponent(id) + (this.asPhone ? '&asphone=1' : ''), { method: 'POST', cache: 'no-store', headers: h });
       const x = await r.json(), st = x && x.state;
-      if (el) { el.textContent = st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : 'SAVE'; if (st === 'SAVED') el.disabled = true; }
+      if (el) { el.textContent = st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE'; if (st === 'SAVED') el.disabled = true; }
       if (this.detail && this.detail.rec && this.detail.rec.id === id) this.detail.rec.saved = st === 'SAVED';
     } catch (e) { if (e.message !== 'pair') this.toast('PC not reachable', true); }
   },

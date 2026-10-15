@@ -185,6 +185,7 @@ namespace IRDash
         // schema 2: holes where recorded segments went missing ({from, to} wall ms), how the length was measured, and a SAVE that could not happen yet
         public List<double[]> Gaps = new List<double[]>();
         public string DurationSource = "", SaveBlocked = "";
+        public double RecEndMs;      // wall clock of the last recorded picture (the review asks "was this lap driven while it ran?")
     }
 
     // S1: a clip cut around a rise in the player's incident count
@@ -1052,8 +1053,24 @@ namespace IRDash
                        ",\"outputIdx\":" + outIdx + ",\"outputAdapter\":" + outAdapter + ",\"outputRect\":" + Json_.S(outRect) + ",\"rotation\":" + outRot + ",\"black\":" + (black ? "true" : "false") + ",\"blackChecked\":" + (blackChecked ? "true" : "false") + ",\"note\":" + Json_.S(note) + ",\"lastError\":" + Json_.S(lastErr) +
                        ",\"segments\":" + closed + ",\"segmentBytes\":" + bytes + ",\"oldestMs\":" + oldest.ToString("0", Inv) + ",\"newestMs\":" + newest.ToString("0", Inv) + ",\"keepSecs\":" + (KeepMs() / 1000.0).ToString("0", Inv) + ",\"probing\":" + probing + ",\"pendingCuts\":" + pending + ",\"busy\":" + busy +
                        ",\"clips\":" + clips.Count + ",\"freeGb\":" + (FreeBytes(ClipDir) / 1073741824.0).ToString("0.0", Inv) + ",\"minFreeGb\":" + MinFreeGb.ToString("0", Inv) + ",\"sessionBest\":" + N3(sessionBest) + ",\"lastCutArgs\":" + Json_.S(lastCutArgs) + ",\"lastRunArgs\":" + Json_.S(lastRunArgs) + ",\"encoderUsed\":" + Json_.S(run != null ? run.Encoder : "") + ",\"ffmpegPid\":" + (ff != null ? SafePid() : 0) +
-                       ",\"segList\":" + seg0 + ",\"clipList\":" + cl + "}";
+                       ",\"capture\":" + CaptureJson(newest, sessSecs) + ",\"segList\":" + seg0 + ",\"clipList\":" + cl + "}";
             }
+        }
+
+        // The one verdict every screen shows: "recording" only while new segments are really landing on disk (a running
+        // ffmpeg alone is not proof). Called under gate. starting | recording | stalled | paused-disk | failed | idle | off
+        static string CaptureJson(double newestSegEnd, double sessSecs)
+        {
+            double now = WallMs(), fresh = segSecs * 1000.0 * 2 + 5000;
+            string st;
+            if (!enabled) st = "off";
+            else if (diskPaused) st = "paused-disk";
+            else if (gaveUp) st = "failed";
+            else if (ff == null) st = "idle";
+            else if (newestSegEnd > 0 && run != null && newestSegEnd >= run.StartMs && now - newestSegEnd <= fresh) st = "recording";
+            else if (run != null && now - run.StartMs <= fresh + 10000) st = "starting";
+            else st = "stalled";
+            return "{\"state\":" + Json_.S(st) + ",\"secs\":" + sessSecs.ToString("0", Inv) + ",\"lastSegAgoS\":" + (newestSegEnd > 0 ? ((now - newestSegEnd) / 1000.0).ToString("0.0", Inv) : "null") + "}";
         }
 
         // ---------------- S1: whole-session video, incident clips, retention and SAVE ----------------
@@ -1174,6 +1191,7 @@ namespace IRDash
         // Concat the session's segments, without re-encoding, into sessions\<id>.mp4 + a sidecar, then delete its .ts files.
         static void FinishSession(RecSess s, bool waitVideo)
         {
+            List<double[]> wallIncidents = null;     // the incidents in wall time, put back if this attempt fails (a retry must not read file offsets as wall time)
             try
             {
                 if (FreeBytes(SessDir) < (long)(MinFreeGb * 1073741824.0)) { lock (gate) s.FinishQueued = false; Log.W("recorder: session " + s.Id + " kept as segments - less than 50 GB is free"); return; }
@@ -1214,6 +1232,7 @@ namespace IRDash
                     }
                     lapSnapshot = new List<RecLap>(s.Laps);
                     incidentSnapshot = new List<double[]>(); foreach (double[] x in s.Incidents) incidentSnapshot.Add((double[])x.Clone());
+                    wallIncidents = incidentSnapshot;
                 }
                 sel.Sort(delegate (RecSeg a, RecSeg b) { return a.Start.CompareTo(b.Start); });
                 if (sel.Count == 0) { lock (gate) finishing.Remove(s); Log.W("recorder: session " + s.Id + " had no closed segments - nothing to write"); return; }
@@ -1244,6 +1263,7 @@ namespace IRDash
                 s.File = mp4; s.Bytes = new FileInfo(mp4).Length;
                 // the same spans that went into the concat list (clipped to the session), so a wall time maps to the picture really in the file
                 double[] fs, fe; ClipSpans(sel, s, out fs, out fe);
+                s.RecEndMs = fe.Length > 0 ? fe[fe.Length - 1] : 0;
                 double spanSec = 0; for (int i = 0; i < fs.Length; i++) spanSec += Math.Max(0, fe[i] - fs[i]) / 1000.0;
                 s.Duration = ProbeDuration(mp4); s.DurationSource = "probe";
                 if (s.Duration <= 0) { s.Duration = spanSec; s.DurationSource = "segments"; Log.W("recorder: session " + s.Id + " - ffprobe could not measure the video; its length is estimated from the segments"); }
@@ -1282,17 +1302,21 @@ namespace IRDash
                 if (!sidecarOk)
                 {
                     // the video is written but its sidecar is not: keep the segments too, so nothing is lost, and try again later
-                    lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; }
+                    lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; s.Incidents = wallIncidents; }
                     Log.W("recorder: session " + s.Id + " - the sidecar could not be written; keeping the segments and retrying in 60 s");
                     return;
                 }
+                // the picture must be on the disk itself (not only in the Windows cache) before the segments go
+                try { using (FileStream vf = new FileStream(s.File, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete)) vf.Flush(true); }
+                catch (Exception ex) { Log.W("recorder: session " + s.Id + " - could not flush the video to disk (" + ex.Message + "); keeping the segments for now"); lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; s.Incidents = wallIncidents; } return; }
+                lock (gate) recState = s.Saved ? "SAVED" : s.SaveBlocked == "full" ? "SAVED FULL" : s.SaveBlocked == "failed" ? "SAVE FAILED" : recState;
                 lock (gate) { foreach (RecSeg g in sel) segs.Remove(g); sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; }); sessions.Add(s); finishing.Remove(s); }
                 foreach (RecSeg g in sel) { try { File.Delete(Path.Combine(RecDir, g.Name)); } catch { } }
                 if (s.Gaps.Count > 0) Log.W("recorder: session " + s.Id + " is partial - " + s.Gaps.Count + " gap(s) where segments were missing; laps inside a gap have no video");
                 Log.W("recorder: session " + s.Id + " written (" + s.Duration.ToString("0.0", Inv) + " s, " + (s.Bytes / 1048576) + " MB, " + s.LapRows.Count + " laps, cut in " + sw.ElapsedMilliseconds + " ms, no re-encode" + (s.Saved ? ", SAVED" : "") + ")");
                 RetainSessions();
             }
-            catch (Exception ex) { lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; } Log.W("recorder: session " + s.Id + ": " + ex.Message); }
+            catch (Exception ex) { lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; if (wallIncidents != null) s.Incidents = wallIncidents; } Log.W("recorder: session " + s.Id + ": " + ex.Message); }
         }
 
         // The wall-time span of each segment that the concat list puts in the file (same clipping as FinishSession's list).
@@ -1330,7 +1354,7 @@ namespace IRDash
             gb.Append(']');
             return "{\"schema\":2,\"id\":" + Json_.S(s.Id) + ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") +
                    ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
-                   ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"durationSource\":" + Json_.S(s.DurationSource) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
+                   ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"endMs\":" + (s.RecEndMs > 0 ? s.RecEndMs.ToString("0", Inv) : "null") + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"durationSource\":" + Json_.S(s.DurationSource) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
                    ",\"state\":" + Json_.S(s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
                    ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
                    ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
@@ -1345,7 +1369,8 @@ namespace IRDash
             string t = f + ".tmp", bak = f + ".bak";
             try
             {
-                File.WriteAllText(t, json, new UTF8Encoding(false));
+                byte[] data = new UTF8Encoding(false).GetBytes(json);
+                using (FileStream w = new FileStream(t, FileMode.Create, FileAccess.Write, FileShare.None)) { w.Write(data, 0, data.Length); w.Flush(true); }   // on the disk, not just in the cache
                 if (File.ReadAllText(t, Encoding.UTF8) != json) throw new IOException("read-back did not match");
                 if (File.Exists(f)) { File.Replace(t, f, bak); try { File.Delete(bak); } catch { } }
                 else File.Move(t, f);
@@ -1364,8 +1389,10 @@ namespace IRDash
                 Directory.CreateDirectory(SavedDir);
                 if (s.File.StartsWith(SavedDir, StringComparison.OrdinalIgnoreCase)) { s.Saved = true; s.SaveBlocked = ""; bool w = WriteSessJson(s); if (!w) s.Saved = false; return w; }
                 string dst = Path.Combine(SavedDir, s.Id + ".mp4"), dstJson = Path.ChangeExtension(dst, ".json"), oldFile = s.File, oldJson = Path.ChangeExtension(oldFile, ".json");
-                s.File = dst; s.Saved = true; s.SaveBlocked = "";
-                if (!WriteSessJson(s)) { s.File = oldFile; s.Saved = false; return false; }
+                // the saved sidecar is written from a copy of the state, so nobody sees "saved" before the video has moved
+                string json; string oldBlocked;
+                lock (gate) { oldBlocked = s.SaveBlocked; s.File = dst; s.Saved = true; s.SaveBlocked = ""; json = SessJson(s); s.File = oldFile; s.Saved = false; s.SaveBlocked = oldBlocked; }
+                if (!WriteSidecar(dstJson, json, s.Id)) return false;
                 try
                 {
                     if (File.Exists(dst)) File.Delete(dst);
@@ -1374,9 +1401,9 @@ namespace IRDash
                 catch (Exception ex)
                 {
                     try { File.Delete(dstJson); } catch { }
-                    s.File = oldFile; s.Saved = false;
                     Log.W("recorder: could not save session " + s.Id + " (" + ex.Message + ")"); return false;
                 }
+                lock (gate) { s.File = dst; s.Saved = true; s.SaveBlocked = ""; }
                 try { if (File.Exists(oldJson)) File.Delete(oldJson); } catch { }
                 Log.W("recorder: session " + s.Id + " saved for good (vault\\saved, " + (s.Bytes / 1048576) + " MB)");
                 return true;
@@ -1393,7 +1420,8 @@ namespace IRDash
             s.Id = DS(d, "id"); s.Track = DS(d, "track"); s.Config = DS(d, "config"); s.Car = DS(d, "car"); s.Type = DS(d, "sessionType"); s.Encoder = DS(d, "encoder");
             s.StartMs = DD(d, "startMs"); s.Duration = DD(d, "durationSec"); s.Bytes = (long)DD(d, "bytes"); s.Created = (long)DD(d, "created");
             s.Saved = DB(d, "saved"); s.Recovered = DB(d, "recovered"); s.EndMs = s.StartMs + s.Duration * 1000;
-            double uid = DN(d, "uniqueId"), sn = DN(d, "sessionNum");
+            double uid = DN(d, "uniqueId"), sn = DN(d, "sessionNum"), re = DN(d, "endMs");
+            s.RecEndMs = double.IsNaN(re) ? 0 : re;
             s.UniqueId = double.IsNaN(uid) ? -1 : uid; s.SessionNum = double.IsNaN(sn) ? -99 : (int)sn;
             s.DurationSource = DS(d, "durationSource"); s.SaveBlocked = DS(d, "saveBlocked"); s.SaveWhenDone = DB(d, "saveWhenDone") && !s.Saved;
             try
@@ -1540,21 +1568,28 @@ namespace IRDash
                         // One at a time: delete the oldest unsaved session, measure again, then decide. (Measuring before any
                         // delete, as this once did, picked EVERY unsaved session because the free space had not changed yet.)
                         // A session someone asked to SAVE is never a candidate, even while the saved budget is full.
-                        for (int guard = 0; guard < 1000 && FreeBytes(VaultRoot) < min; guard++)
+                        // Also stop when the bytes already removed cover the shortfall, or when a delete did not raise the free
+                        // space (a player holding the file open, or the shortage is outside the vault): never empty the vault
+                        // chasing space it cannot win back. A session written in the last 10 minutes is not a candidate.
+                        long shortfall = min - FreeBytes(VaultRoot), freed = 0;
+                        for (int guard = 0; guard < 1000 && freed < shortfall && FreeBytes(VaultRoot) < min; guard++)
                         {
                             RecSess victim = null;
                             lock (gate)
                             {
                                 foreach (RecSess s in sessions)
-                                    if (!s.Saved && !s.Saving && !s.SaveWhenDone && (victim == null || s.StartMs < victim.StartMs)) victim = s;
+                                    if (!s.Saved && !s.Saving && !s.SaveWhenDone && WallMs() - s.Created > 600000 && (victim == null || s.StartMs < victim.StartMs)) victim = s;
                             }
                             if (victim == null) break;
+                            long before = FreeBytes(VaultRoot);
                             bool deleted = false;
                             try { File.Delete(victim.File); deleted = !File.Exists(victim.File); } catch (Exception ex) { Log.W("recorder: could not remove session " + victim.Id + " (" + ex.Message + ")"); }
                             if (!deleted) break;     // a locked file stays listed and counted; stop rather than spin
                             try { File.Delete(Path.ChangeExtension(victim.File, ".json")); } catch { }
                             lock (gate) sessions.Remove(victim);
+                            freed += victim.Bytes;
                             Log.W("recorder: removed the unsaved session " + victim.Id + " - the disk is nearly full");
+                            if (FreeBytes(VaultRoot) - before < victim.Bytes / 2) { Log.W("recorder: free space did not come back after removing " + victim.Id + " - stopping the clean-up"); break; }
                         }
                         PruneIncidentClips();
                         TrimClips(0, true);

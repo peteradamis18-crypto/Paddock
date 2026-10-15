@@ -1,4 +1,4 @@
-﻿# Recorder test (C-06, dash\src\recorder.cs, docs\vault.md "Video"): Paddock's own ffmpeg recorder.
+# Recorder test (C-06, dash\src\recorder.cs, docs\vault.md "Video"): Paddock's own ffmpeg recorder.
 # Offline part: a made-up screen (ffmpeg testsrc2, upside down like ddagrab's, with a 32-block binary clock and a readable clock burned into every
 # frame) goes through the SAME recorder code as the real screen, driven by a pretend session. It checks the segment bookkeeping (names = exact start
 # times, the rolling window), lap detection from telemetry, the clips cut without re-encoding, the sidecar offset to 1/60 s (the burned clock is read
@@ -318,6 +318,18 @@ if ($segs.Count) {
   Copy-Item (Join-Path $recDir $g.name) (Join-Path $tmp 'seg-sample.ts')
 }
 Check 'the picture check ran on the first segment: not black, and logged' ($s.blackChecked -eq $true -and $s.black -eq $false -and @(Log-Since $l0 | Where-Object { $_ -match 'recorder: picture check ok' }).Count -ge 1)
+# PX-06: the REC pill's one verdict. "recording" only while segments keep landing; a frozen ffmpeg (process alive, no
+# output) must turn into "stalled" (NOT RECORDING on the fourth screen), and back once video lands again.
+$s = St
+Check "capture verdict while segments land: recording ($($s.capture.state), last segment $($s.capture.lastSegAgoS) s ago)" ($s.capture.state -eq 'recording')
+if (-not ('RecSusp' -as [type])) { Add-Type 'using System; using System.Runtime.InteropServices; public static class RecSusp { [DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr h); [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr h); }' }
+$fp = Get-Process -Id $s.ffmpegPid -ErrorAction SilentlyContinue
+if ($fp -and $fp.Path -match 'ffmpeg') {
+  [void][RecSusp]::NtSuspendProcess($fp.Handle)
+  try { $stalled = Wait-For { (St).capture.state -eq 'stalled' } 30 } finally { [void][RecSusp]::NtResumeProcess($fp.Handle) }
+  Check 'a frozen ffmpeg (alive, writing nothing) is reported as stalled, not recording' $stalled
+  Check 'once video lands again the verdict is recording again' (Wait-For { (St).capture.state -eq 'recording' } 25)
+} else { Check 'the test ffmpeg process is there to freeze' $false }
 Fake @{ IsOnTrack = 0 }
 $ok = Wait-For { -not (St).running } 15
 Check 'ffmpeg stops a few seconds after he leaves the car (grace 3 s in the test; 20 s for real)' $ok

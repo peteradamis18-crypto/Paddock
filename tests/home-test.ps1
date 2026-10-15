@@ -321,8 +321,10 @@ public static class PitProbe {
   $null = Cdp-Eval "Home.home = window.__savedHome; window.PCarPic = window.__savedPic; Home.draw(); true"
   $sched = Cdp-Json "({ race: document.getElementById('homeRace').innerText, weekend: document.getElementById('homeWeekend').innerText })"
   $firstReal = @($timedReal | Sort-Object localStart | Select-Object -First 1)[0]
-  $firstRealDate = ([DateTimeOffset]::Parse($firstReal.localStart)).ToLocalTime().ToString('ddd d MMM', [Globalization.CultureInfo]::InvariantCulture)
-  Check 'NEXT RACE and THIS WEEKEND REAL WORLD use the current published local schedule' ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track) -and $sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match [regex]::Escape($firstRealDate) -and $sched.weekend -match '\d{2}:\d{2}') "race='$($sched.race -replace '\s+',' ')'; first='$($sched.weekend -replace '\s+',' ')' wanted=$($firstReal.series) $firstRealDate"
+  # one clock everywhere: New York time, 12-hour, EST/EDT (home.js nyDay/nyTime)
+  $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+  $firstRealDate = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::Parse($firstReal.localStart), $ny).ToString('ddd, MMM d', [Globalization.CultureInfo]::InvariantCulture)
+  Check 'NEXT RACE and THIS WEEKEND REAL WORLD use the current published local schedule' ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track) -and $sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match [regex]::Escape($firstRealDate) -and $sched.weekend -match '\d{1,2}:\d{2} (AM|PM) E[SD]T') "race='$($sched.race -replace '\s+',' ')'; first='$($sched.weekend -replace '\s+',' ')' wanted=$($firstReal.series) $firstRealDate"
   # P0-04: THIS WEEK and LAST OUTING drawn from /home, with real numbers only
   Check "THIS WEEK on screen equals /home week: $($dom.week -join ' ') (hours, laps, PBs)" (@($dom.week).Count -ge 3 -and $dom.week[0] -eq ([double]$h.week.hours).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) -and ($dom.week[1] -replace ',', '') -eq "$($h.week.laps)" -and ($dom.week[2] -replace ',', '') -eq "$($h.week.pbs)") "week='$($dom.week -join ' ')' vs $($h.week.hours)/$($h.week.laps)/$($h.week.pbs)"
   Check "the THIS WEEK heading is there ('$($dom.weekLabel)')" ($dom.weekLabel -eq 'This week')

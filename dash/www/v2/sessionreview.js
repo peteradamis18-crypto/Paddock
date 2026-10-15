@@ -392,26 +392,23 @@ const SessionReview = (function () {
       }).catch(() => { });
     },
 
-    // SAVE keeps this session's recording for good (S1). The recorder's session is matched to the review by its start-time window;
-    // the button is hidden when there is no recording. Words: SAVE, SAVED, SAVED FULL only.
+    // SAVE keeps this session's recording for good (S1). irdash says which recording belongs to this telemetry file
+    // (/api/rec/for: same SessionUniqueID/SessionNum and the lap driven while it ran); with no verified recording the
+    // button is hidden - never the newest one nearby. Words: SAVE, SAVED, SAVED FULL, SAVE FAILED (press again to retry).
     wireSave(root, M) {
       const b = root.querySelector('#srSave'); if (!b) return;
-      if (!M || !isN(M.startMs)) { b.hidden = true; return; }
-      const start = M.startMs;
-      const show = txt => { b.textContent = txt; b.hidden = false; b.disabled = txt !== 'SAVE'; };
-      fetch('/api/rec/sessions', { cache: 'no-store' }).then(r => r.json()).then(j => {
-        const ss = (j && j.sessions) || []; let hit = null;
-        ss.forEach(s => { const d = isN(s.durationSec) ? s.durationSec : 0; if (start >= s.startMs - 5000 && start <= s.startMs + (d + 60) * 1000 && (!hit || s.startMs > hit.startMs)) hit = s; });
-        if (!hit) { b.hidden = true; return; }
-        if (M.live && hit.state !== 'finishing') { b.hidden = true; return; }
-        show(hit.saved ? 'SAVED' : 'SAVE');
+      if (!M || !M.file || M.live) { b.hidden = true; return; }
+      const show = txt => { b.textContent = txt; b.hidden = false; b.disabled = txt === 'SAVED' || txt === 'SAVED FULL'; };
+      fetch('/api/rec/for?id=' + encodeURIComponent(M.file), { cache: 'no-store' }).then(r => r.json()).then(hit => {
+        if (!hit || !hit.ok || !hit.id) { b.hidden = true; return; }
+        show(hit.saved ? 'SAVED' : hit.saveBlocked === 'full' ? 'SAVED FULL' : 'SAVE');
         if (hit.saved) return;
         b.onclick = e => {
           e.stopPropagation(); e.preventDefault();
           fetch('/api/rec/save?id=' + encodeURIComponent(hit.id), { method: 'POST', cache: 'no-store' }).then(r => r.json()).then(x => {
             const st = x && x.state;
-            if (st === 'SAVED') show('SAVED'); else if (st === 'SAVING') show('SAVE'); else if (st === 'SAVED FULL') show('SAVED FULL');
-          }).catch(() => { });
+            show(st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE');
+          }).catch(() => show('SAVE FAILED'));
         };
       }).catch(() => { b.hidden = true; });
     },

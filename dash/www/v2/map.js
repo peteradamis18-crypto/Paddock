@@ -2,7 +2,8 @@
 // Track map. iRacing does not send GPS live (Lat/Lon only exist in the .ibt files it logs to disk), so
 // irdash builds outlines from your own telemetry files, or downloads one from the SIMRacingApps library
 // (Apache-2.0, keyed by lap percentage). Cars are placed on the outline from CarIdxLapDistPct.
-// Until an outline exists, cars are shown on a straight lap bar instead.
+// Until an outline exists the map says so in words and draws no cars (a straight bar put cars where they are not);
+// the tower still shows the order. irdash answers 202 while it builds one in the background.
 // The outline, sector ticks and corner names are drawn once into an offscreen layer; each animation
 // frame only copies that layer and draws the cars.
 
@@ -31,18 +32,19 @@ const TrackMap = {
     this.gps = null; this.gpsOverlay = false;
     clearTimeout(this.timer);
     if (L.demo && !QS.has('track')) { this.useDemo(); return; }
-    this.status = 'No map yet';
+    this.status = 'Loading track map'; this.tries = 0;
     this.load();
   },
 
   async load() {
     const key = this.key;
-    let data = null;
+    let data = null; this.building = false;
     try {
       const r = await fetch('/trackmap?key=' + encodeURIComponent(key) + '&id=' + encodeURIComponent(this.id) +
         '&name=' + encodeURIComponent(this.rawName), { cache: 'no-store' });
-      if (r.ok) data = await r.json();
-    } catch (e) { /* irdash restarting */ }
+      if (r.status === 200) data = await r.json();
+      else if (r.status === 202) { const b = await r.json().catch(() => null); this.retryAfter = b && b.retryAfter > 0 ? b.retryAfter : 15; this.building = true; }
+    } catch (e) { this.building = false; /* irdash restarting */ }
     if (key !== this.key) return;
     // a measured GPS line from Peter's own telemetry (irdash builds it from his .ibt files); Alt is metadata only
     const g = data && data.gps && Array.isArray(data.gps.pts) && data.gps.pts.length >= 100 ? data.gps : null;
@@ -58,11 +60,13 @@ const TrackMap = {
         this.gps = g; this.gpsOverlay = !!(g && this.pts !== g.pts);
       }
       this.status = '';
-    } else {
-      this.status = 'No map yet'; this.gps = null; this.gpsOverlay = false;
+    } else if (!this.pts) {
+      this.tries = (this.tries || 0) + 1;
+      this.status = this.building ? (this.tries > 3 ? 'No outline for this track yet' : 'Building track map') : 'Track map unavailable, retrying';
+      this.gps = null; this.gpsOverlay = false;
     }
-    // keep checking: a fresh lap in your telemetry replaces a library map or the lap bar
-    if (this.source !== 'ibt' && this.source !== 'gps') this.timer = setTimeout(() => this.load(), this.pts ? 60000 : 15000);
+    // keep checking: a fresh lap in your telemetry replaces a library map; with none, back off 5 s -> 30 s
+    if (this.source !== 'ibt' && this.source !== 'gps') this.timer = setTimeout(() => this.load(), this.pts ? 60000 : Math.min(30000, Math.max(5000, (this.retryAfter || 5) * 1000, 5000 * (this.tries || 1))));
   },
 
   useDemo() {
@@ -118,8 +122,8 @@ const TrackMap = {
     g.drawImage(this.layer, 0, 0);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     let place;
-    if (this.pts) { const vw = this.fit(w, h); place = pct => this.toScreen(this.at(pct), vw); }
-    else { const x0 = 40, span = w - 80, y = h / 2; place = pct => [x0 + (((pct % 1) + 1) % 1) * span, y]; }
+    if (!this.pts) return;     // no outline: no invented car positions
+    const vw = this.fit(w, h); place = pct => this.toScreen(this.at(pct), vw);
     this.drawCars(g, place);
   },
 
@@ -161,17 +165,10 @@ const TrackMap = {
       tick(sp(0), sp(0.002), 15 * sc, MAP_COL.sf, 4 * sc);
       this.drawTrackInfo(g, w, h, sp);
     } else {
-      const x0 = 40, x1 = w - 40, y = h / 2, span = x1 - x0;
-      g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.strokeStyle = MAP_COL.shoulder; g.lineWidth = 20; g.stroke();
-      g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.strokeStyle = MAP_COL.tarmac; g.lineWidth = 8; g.stroke();
-      g.font = '14px ' + MAP_FONT; g.textAlign = 'center';
-      S.sectors.forEach((p, k) => {
-        const x = x0 + p * span;
-        g.beginPath(); g.moveTo(x, y - 15); g.lineTo(x, y + 15); g.strokeStyle = k ? MAP_COL.sector : MAP_COL.sf; g.lineWidth = k ? 2 : 4; g.stroke();
-        g.fillStyle = MAP_COL.label; g.fillText(k === 0 ? 'S/F' : 'S' + (k + 1), x, y + 36);
-      });
-      g.fillStyle = MAP_COL.label; g.font = '17px ' + MAP_FONT;
-      g.fillText(this.status || '', w / 2, y - 42);
+      // no outline yet: one quiet line in the middle, nothing that looks like a track
+      g.fillStyle = MAP_COL.label; g.font = '26px ' + MAP_FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(this.status || 'Loading track map', w / 2, h / 2);
+      g.textBaseline = 'alphabetic';
     }
   },
 

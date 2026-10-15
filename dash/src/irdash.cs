@@ -1,4 +1,4 @@
-﻿// irdash - iRacing dashboard for the top monitor.
+// irdash - iRacing dashboard for the top monitor.
 //   Reads the iRacing SDK shared memory (same source SimHub and irdeck use), serves the web dashboard
 //   in dash\www on http://localhost:<port>/, streams telemetry to it as Server-Sent Events, and opens it
 //   full screen on the top monitor. Lives in the tray; idle when iRacing is not running.
@@ -774,7 +774,7 @@ namespace IRDash
                         tq.TryGetValue("key", out key); tq.TryGetValue("id", out id); tq.TryGetValue("name", out name);
                         if (key == null || !Regex.IsMatch(key, "^[a-z0-9_-]{1,80}$")) { Send(s, 400, "text/plain", Encoding.ASCII.GetBytes("bad key")); return; }
                         string json = TrackMaps.Resolve(key, id, name);
-                        if (json == null) Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("no map yet"));
+                        if (json == null) Send(s, 202, "application/json", Encoding.UTF8.GetBytes(TrackMaps.BuildState(key)));
                         else Send(s, 200, "application/json", Encoding.UTF8.GetBytes(json));
                         return;
                     }
@@ -884,7 +884,7 @@ namespace IRDash
 
         static void Send(NetworkStream s, int code, string type, byte[] body, string extraHeaders)
         {
-            string reason = code == 200 ? "OK" : code == 204 ? "No Content" : code == 404 ? "Not Found" : code == 503 ? "Service Unavailable" : "Error";
+            string reason = code == 200 ? "OK" : code == 202 ? "Accepted" : code == 204 ? "No Content" : code == 404 ? "Not Found" : code == 503 ? "Service Unavailable" : "Error";
             string h = "HTTP/1.1 " + code + " " + reason + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length +
                        "\r\nCache-Control: no-store\r\nConnection: close\r\n" + extraHeaders + "\r\n";
             byte[] hb = Encoding.ASCII.GetBytes(h);
@@ -942,26 +942,112 @@ namespace IRDash
             return k.Length > 80 ? k.Substring(0, 80) : k;
         }
 
-        // Returns the map JSON for a track, building it if possible, or null.
+        // Returns the cached map JSON for a track, or null ("building"). Never reads telemetry or the network here: this
+        // runs on the HTTP thread the top screen polls, and it used to rebuild from up to 15 .ibt files under the same
+        // lock BuildAll holds for minutes at startup (the straight-bar placeholder). A missing or library-only map is
+        // queued for the background builder instead.
         public static string Resolve(string key, string id, string name)
         {
-            lock (gate)
+            string file = Path.Combine(MapsDir, key + ".json"), json = null;
+            try { if (File.Exists(file)) json = File.ReadAllText(file); } catch (IOException) { json = null; }   // mid-Save: treat as building
+            if (json == null)
             {
-                string file = Path.Combine(MapsDir, key + ".json");
-                string have = File.Exists(file) ? File.ReadAllText(file) : null;
-                string json = have;
-                if (json == null || !json.Contains("\"source\":\"ibt\""))
+                // the offline library copy is one small local file: cheap enough for the request, so a cold start still has a map
+                // no lock: BuildAll may hold the builder lock for minutes at startup; a clashing Save just fails and the builder writes it later
+                try { json = FromLibrary(key, name, true); if (json != null) Save(file, json); } catch (Exception ex) { Log.W("maps: " + key + ": " + ex.Message); }
+            }
+            if (json == null || !json.Contains("\"source\":\"ibt\"")) QueueBuild(key, name);
+            return AddGps(key, json);
+        }
+
+        // ---- background builder: one thread, below normal, the active telemetry file excluded ----
+        static readonly object qgate = new object();
+        static readonly Queue<string[]> buildQ = new Queue<string[]>();
+        static readonly Dictionary<string, DateTime> nextTry = new Dictionary<string, DateTime>();
+        static readonly Dictionary<string, int> fails = new Dictionary<string, int>();
+        static readonly Dictionary<string, string> lastError = new Dictionary<string, string>();
+        static Thread builder;
+
+        static void QueueBuild(string key, string name)
+        {
+            lock (qgate)
+            {
+                DateTime t;
+                if (nextTry.TryGetValue(key, out t) && DateTime.UtcNow < t) return;
+                foreach (string[] q in buildQ) if (q[0] == key) return;
+                buildQ.Enqueue(new string[] { key, name ?? "" });
+                nextTry[key] = DateTime.UtcNow.AddSeconds(30);     // no re-queue while this one is pending
+                if (builder == null)
                 {
-                    string built = FromIbt(key);
-                    if (built != null) { Save(file, built); json = built; }
-                    else if (json == null)
+                    builder = new Thread(BuildLoop) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "map builder" };
+                    builder.Start();
+                }
+                Monitor.Pulse(qgate);
+            }
+        }
+
+        static void BuildLoop()
+        {
+            while (true)
+            {
+                string[] job;
+                lock (qgate) { while (buildQ.Count == 0) Monitor.Wait(qgate); job = buildQ.Dequeue(); }
+                string key = job[0], name = job[1], file = Path.Combine(MapsDir, key + ".json"), err = "";
+                bool ok = false;
+                try
+                {
+                    lock (gate)
                     {
-                        string lib = FromLibrary(key, name);
-                        if (lib != null) { Save(file, lib); json = lib; }
+                        string have = File.Exists(file) ? File.ReadAllText(file) : null;
+                        if (have != null && have.Contains("\"source\":\"ibt\"")) ok = true;
+                        else
+                        {
+                            string built = FromIbt(key);
+                            if (built != null) { Save(file, built); ok = true; }
+                            else if (have == null)
+                            {
+                                string lib = FromLibrary(key, name);
+                                if (lib != null) { Save(file, lib); ok = true; }
+                                else err = "no clean lap in telemetry and no library outline";
+                            }
+                            else ok = true;     // a library map stays until telemetry can do better
+                        }
                     }
                 }
-                return AddGps(key, json);
+                catch (Exception ex) { err = ex.Message; }
+                lock (qgate)
+                {
+                    // retry 1 / 5 / 15 / 60 minutes after failures; a success re-checks in 15 min (new laps may improve it)
+                    int n; fails.TryGetValue(key, out n);
+                    if (ok) { fails[key] = 0; lastError.Remove(key); nextTry[key] = DateTime.UtcNow.AddMinutes(15); }
+                    else
+                    {
+                        n++; fails[key] = n; lastError[key] = err;
+                        int[] back = { 1, 5, 15, 60 };
+                        nextTry[key] = DateTime.UtcNow.AddMinutes(back[Math.Min(n - 1, back.Length - 1)]);
+                        Log.W("maps: " + key + " not built (" + err + ") - next try in " + back[Math.Min(n - 1, back.Length - 1)] + " min");
+                    }
+                }
             }
+        }
+
+        // what the builder knows about one track, for the 202 answer
+        public static string BuildState(string key)
+        {
+            lock (qgate)
+            {
+                DateTime t; string e; int retry = 15;
+                if (nextTry.TryGetValue(key, out t)) retry = Math.Max(5, Math.Min(3600, (int)(t - DateTime.UtcNow).TotalSeconds));
+                lastError.TryGetValue(key, out e);
+                return "{\"status\":\"building\",\"retryAfter\":" + retry + ",\"lastError\":" + Json_.S(e ?? "") + "}";
+            }
+        }
+
+        // the telemetry file iRacing may be writing right now: never read on any map path
+        static bool ActiveIbt(FileInfo fi)
+        {
+            if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 120) return true;
+            return Process.GetProcessesByName("iRacingSim64DX11").Length > 0 && (DateTime.Now - fi.LastWriteTime).TotalMinutes < 30;
         }
 
         // The measured GPS line (gpsmap.cs) is exposed beside the geometry; with no geometry at all it is the map.
@@ -1072,6 +1158,7 @@ namespace IRDash
             var mine = new List<FileInfo>(); StringBuilder sigs = new StringBuilder();
             foreach (FileInfo fi in files)
             {
+                if (ActiveIbt(fi)) continue;
                 string sig, k = IbtKey(fi.FullName, out sig);
                 if (k != key) continue;
                 mine.Add(fi); sigs.Append(sig).Append(';');
@@ -1229,12 +1316,22 @@ namespace IRDash
         }
 
         // ---- SIMRacingApps library (only files whose outline is keyed by lap percentage) ----
-        static string FromLibrary(string key, string trackName)
+        static string FromLibrary(string key, string trackName) { return FromLibrary(key, trackName, false); }
+        static string FromLibrary(string key, string trackName, bool localOnly)
         {
             if (string.IsNullOrEmpty(trackName)) return null;
-            DateTime when;
-            if (libTried.TryGetValue(key, out when) && (DateTime.Now - when).TotalHours < 6) return null;
-            libTried[key] = DateTime.Now;
+            if (localOnly)
+            {
+                string ln = Regex.Replace(trackName.Trim().ToLowerInvariant(), "\\s+", "_");
+                if (!Regex.IsMatch(ln, "^[a-z0-9_.-]{1,80}$") || !File.Exists(Path.Combine(Program.RootDir, @"data\corners\library\" + ln + ".json"))) return null;
+            }
+            else
+            {
+                // the builder's own 1/5/15/60-minute backoff paces the download; this only stops a hammering loop
+                DateTime when;
+                if (libTried.TryGetValue(key, out when) && (DateTime.Now - when).TotalMinutes < 1) return null;
+                libTried[key] = DateTime.Now;
+            }
             string name = Regex.Replace(trackName.Trim().ToLowerInvariant(), "\\s+", "_");
             if (!Regex.IsMatch(name, "^[a-z0-9_.-]{1,80}$")) return null;
             string text;

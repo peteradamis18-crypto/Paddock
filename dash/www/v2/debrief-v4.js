@@ -120,11 +120,12 @@ const Debrief4 = (function () {
     if (isN(r.lap) && r.lap > 0) bits.push('lap ' + r.lap);
     if (r.corner) bits.push(esc(r.corner));
     if (r.type) bits.push(esc(r.type));
+    if (r.status === 'gap') bits.push('no video: recording gap');     // honest: the recording has a hole there
     const btn = r.videoId ? '<button class="db4-iplay" data-vid="' + esc(r.videoId) + '">\u25b6 30 s</button>' : '';
     return '<div class="i-row">' + SP(bits.join(' · ')) + btn + '</div>';
   }
   function incidentsBand(j) {
-    const rows = (j.incidents || []).filter(r => isN(r.lap) && r.lap > 0);
+    const rows = (j.incidents || []).filter(r => (isN(r.lap) && r.lap > 0) || r.status === 'gap');
     if (!rows.length) return '';
     return '<section class="db4-inc" id="db4Incidents"><h3 class="lab">INCIDENTS</h3>' +
       '<div class="i-rows">' + rows.map(incidentRow).join('') + '</div></section>';
@@ -325,13 +326,50 @@ const Debrief4 = (function () {
     return r;
   }
 
+  // After leaving the car: the review of THAT session. While driving we remember iRacing's session identity and the
+  // laps completed; afterwards "last" is asked every 4 s for up to 90 s (the telemetry file may still be finishing) and
+  // a reply about any other session is thrown away. Getting back in the car cancels it. No lap completed: no review.
+  let seen = null, wait = null;
+  function remember() {
+    try {
+      const v = (typeof L !== 'undefined' && L.v) || {};
+      if (isN(v.SessionUniqueID) && v.SessionUniqueID > 0) seen = { uid: v.SessionUniqueID, snum: v.SessionNum, laps: isN(v.LapCompleted) ? v.LapCompleted : null };
+    } catch (e) { }
+  }
+  function matches(j, want) {
+    if (!want || !isN(want.uid)) return true;                       // no live identity (old frames, tests): accept as before
+    const s = j && j.session;
+    return !!(s && s.uniqueId === want.uid && s.sessionNum === want.snum);
+  }
+  function awaitReview(want) {
+    clearTimeout(wait && wait.t);
+    const until = Date.now() + 90000;
+    wait = { want, t: 0 };
+    const tick = () => {
+      if (!wait || wait.want !== want) return;
+      let live = false; try { live = UI.live(); } catch (e) { }
+      if (live || Date.now() > until) { wait = null; return; }
+      fetch(src(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => {
+        if (!wait || wait.want !== want) return;
+        try { if (UI.live()) { wait = null; return; } } catch (e) { }
+        if (j && j.ok === true && !j.error && matches(j, want)) { wait = null; show(j); return; }
+        wait.t = setTimeout(tick, 4000);
+      }).catch(() => { if (wait && wait.want === want) wait.t = setTimeout(tick, 4000); });
+    };
+    tick();
+  }
+
   function init() {
     // The old debrief.js trigger is off (D-03): this file owns the after-session screen. The signal is the same one
     // core.js feeds every frame: the dashboard was live and now it is not.
     setInterval(() => {
       if (typeof Conn !== 'undefined' && Conn.status === 'noserver') { lastLive = false; return; }
       let live = false; try { live = UI.live(); } catch (e) { }
-      if (lastLive && !live) load();
+      if (live) { remember(); if (wait) { clearTimeout(wait.t); wait = null; } }
+      if (lastLive && !live) {
+        const want = seen; seen = null;
+        if (!want || want.laps == null || want.laps >= 1) awaitReview(want);
+      }
       lastLive = live;
     }, 1000);
     // D-05: the deck's DEEP DIVE key asks irdash for it; while this screen is up, open the Workbench on the corner
@@ -345,7 +383,7 @@ const Debrief4 = (function () {
     if (n && n.go && n.seq !== navSeq) { navSeq = n.seq; openDeepDive(el, window.__deb4Last); }
   }
 
-  return { show: show, hide: hide, load: load, onSessionEnd: load, init: init, boxes: boxes, overlaps: overlaps, bands: bands, root: function () { return el; },
+  return { show: show, hide: hide, load: load, onSessionEnd: load, init: init, matches: matches, awaitReview: awaitReview, waiting: function () { return !!wait; }, boxes: boxes, overlaps: overlaps, bands: bands, root: function () { return el; },
     // D-04: the one-press bar and the incident player (also the test hooks)
     save: save, share: share, setCosworth: setCosworth, applyVaultList: applyVaultList, deepDiveUrl: deepDiveUrl, openDeepDive: openDeepDive,
     playIncident: playIncident, closePlayer: closePlayer,

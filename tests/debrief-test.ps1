@@ -405,6 +405,38 @@ try {
   Check 'the old debrief.js no longer puts a summary up by itself' ((Cdp-Eval "!document.getElementById('debrief')") -eq $true)
   Cdp-Close
 
+  # PX-03: the screen is for the session that just ended. A reply about another session (a stale "last") is refused and
+  # asked again; the matching one goes up; no completed lap = no review; getting back in the car cancels the wait.
+  Section '9b. the after-session screen refuses a stale session and waits for the right one'
+  $fw = $r2.obj | ConvertTo-Json -Depth 12 | ConvertFrom-Json; $fw | Add-Member -Force -NotePropertyName session -NotePropertyValue ([pscustomobject]@{ uniqueId = 7; sessionNum = 1; lap = 5 })
+  ($fw | ConvertTo-Json -Depth 12 -Compress) | Set-Content -LiteralPath (Join-Path $www 'db4-wrong.json') -Encoding UTF8
+  $fw.session.sessionNum = 2
+  ($fw | ConvertTo-Json -Depth 12 -Compress) | Set-Content -LiteralPath (Join-Path $www 'db4-right.json') -Encoding UTF8
+  Cdp-Open "$api/v2/index.html"
+  $null = Cdp-Wait "typeof Debrief4 !== 'undefined'" 25
+  $null = Cdp-Eval "window.__debrief4Src = '/v2/db4-wrong.json'; window.__db4Live = true; UI.live = function(){ return window.__db4Live; }; L.v = Object.assign(L.v || {}, { SessionUniqueID: 7, SessionNum: 2, LapCompleted: 3 }); 1"
+  Start-Sleep -Milliseconds 1500
+  $null = Cdp-Eval "window.__db4Live = false; 1"
+  Start-Sleep -Seconds 7
+  Check 'a reply about another session (SessionNum 1, he drove 2) is not shown; it keeps asking' ((Cdp-Eval "!document.querySelector('#debrief4.on') && Debrief4.waiting()") -eq $true)
+  $null = Cdp-Eval "window.__debrief4Src = '/v2/db4-right.json'; 1"
+  $onR = Cdp-Wait "!!document.querySelector('#debrief4.on')" 12
+  Check 'once the right session answers, its review goes up by itself' ($onR -and (Cdp-Eval "!Debrief4.waiting()") -eq $true)
+  $null = Cdp-Eval "Debrief4.hide(); window.__debrief4Src = '/v2/db4-right.json'; window.__db4Live = true; L.v.LapCompleted = 0; 1"
+  Start-Sleep -Milliseconds 1500
+  $null = Cdp-Eval "window.__db4Live = false; 1"
+  Start-Sleep -Seconds 5
+  Check 'no completed lap (left in the pits): no review and no waiting' ((Cdp-Eval "!document.querySelector('#debrief4.on') && !Debrief4.waiting()") -eq $true)
+  $null = Cdp-Eval "window.__debrief4Src = '/v2/db4-wrong.json'; window.__db4Live = true; L.v.LapCompleted = 4; 1"
+  Start-Sleep -Milliseconds 1500
+  $null = Cdp-Eval "window.__db4Live = false; 1"
+  Start-Sleep -Seconds 2
+  $null = Cdp-Eval "window.__db4Live = true; 1"
+  Start-Sleep -Seconds 2
+  Check 'getting back in the car cancels the wait (no review pops up over the drive)' ((Cdp-Eval "!document.querySelector('#debrief4.on') && !Debrief4.waiting()") -eq $true)
+  Cdp-Close
+  Remove-Item (Join-Path $www 'db4-wrong.json'), (Join-Path $www 'db4-right.json') -Force -ErrorAction SilentlyContinue
+
   # =====================================================================================================
   Section '10. a practice session: the PACE block, no RESULT column'
   Remove-Item (Join-Path $fd '*.json') -Force -ErrorAction SilentlyContinue     # no race log overlaps this file (same as section 4)
@@ -457,10 +489,10 @@ try {
   Check "a legacy sidecar without session identity is never the SAVE target (association $($rl.obj.bar.recording.association))" ($rl.code -eq 200 -and $null -eq $rl.obj.bar.recId -and $rl.obj.bar.recording.association -ne 'verified')
   $ev = $asm.GetType('IRDash.Analysis').GetMethod('ShareEvent', $bf).Invoke($null, [object[]]@([string]$pbName, [int]8, [double]0, $true, [double]0, $false))
   Check "the PB session's identity is in its telemetry (SessionUniqueID $($ev.Unique), SessionNum $($ev.SessNum))" ($ev.Err -eq '' -and $ev.Unique -gt 0)
-  $side.schema = 2; $side.uniqueId = [int]$ev.Unique; $side.sessionNum = [int]$ev.SessNum; $side.state = 'ready'; $side.gaps = @()
+  $side.schema = 2; $side.uniqueId = [int]$ev.Unique; $side.sessionNum = [int]$ev.SessNum; $side.state = 'ready'; $side.gaps = @(); $side.endMs = [double]$m7.startMs + 900000
   ($side | ConvertTo-Json -Compress -Depth 6) | Set-Content -LiteralPath (Join-Path $sessDir "$recId.json") -Encoding UTF8
   # and a newer recording at the same track with another identity must not steal it (the old code's newest-wins)
-  $other = $side.Clone(); $other.id = '20261010-235959-roadatlanta'; $other.uniqueId = [int]$ev.Unique + 1; $other.startMs = [double]$m7.startMs + 600000
+  $other = $side.Clone(); $other.id = '20261010-235959-roadatlanta'; $other.uniqueId = [int]$ev.Unique + 1
   ($other | ConvertTo-Json -Compress -Depth 6) | Set-Content -LiteralPath (Join-Path $sessDir "$($other.id).json") -Encoding UTF8
   Copy-Item $script:srcMp4 (Join-Path $sessDir "$($other.id).mp4") -Force
   $ri = DbLap $pbName '8'

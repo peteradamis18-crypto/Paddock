@@ -1,4 +1,4 @@
-﻿// VAULT (WS17 in docs\SPEC-next.md; notes for Peter in docs\vault.md): keep the best races, laps and clips and replay them with the data.
+// VAULT (WS17 in docs\SPEC-next.md; notes for Peter in docs\vault.md): keep the best races, laps and clips and replay them with the data.
 //   V1  moments: a lap or a race saved with everything about it. Finished sessions (.ibt in Documents\iRacing\telemetry) are read once,
 //       in the background, at below-normal priority, never while driving. Keepers (never pruned, untouched .ibt copy in vault\telemetry):
 //       a new personal best, a lap in the fastest 10% for that car and track, the best 3 laps of that combo, a race win or top 3,
@@ -1068,7 +1068,7 @@ namespace IRDash
                     Wheel.CancelForChoose();
                     TestEvents.Add("choose");
                     return NavSet("vault");
-                case "recsave": return Recorder.Save(a ?? "").Length > 0;
+                case "recsave": { string st = Recorder.Save(a ?? ""); return st == "SAVED" || st == "SAVING"; }   // the key lights only for a real save, not SAVED FULL / SAVE FAILED / NOTHING
                 case "wheelteach": return Wheel.Teach(10000).Length > 0;
                 case "vkdelete":
                     {
@@ -1443,6 +1443,7 @@ namespace IRDash
                     case "/vault/videoinfo": j = Recorder.InfoJson(Q(q, "id"), out code); break;             // its sidecar: where the lap starts inside the clip
                     case "/vault/recorder": j = Recorder.StatusJson(); break;
                     case "/api/rec/sessions": j = Recorder.SessionsJson(); break;
+                    case "/api/rec/for": j = Debrief.RecordingFor(Q(q, "id"), Q(q, "lap")); break;              // the verified recording of one telemetry session (debrief.cs)
                     case "/api/rec/save": j = "{\"state\":" + Json_.S(Recorder.Save(Q(q, "id"))) + "}"; break;
                     case "/api/rec/session-video": return Recorder.ServeSession(s, Q(q, "id"), hdr);
                     case "/vault/thumb": return ServeThumb(s, Q(q, "id"));

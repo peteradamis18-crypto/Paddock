@@ -678,14 +678,13 @@ const Tv = {
       }
       ctx.drawImage(TrackMap.layer, 0, 0, cv.width, cv.height, 0, 0, w, h);
     } else {
-      const x0 = 40, span = Math.max(1, w - 80), y = h / 2;
-      ctx.strokeStyle = '#232a32'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + span, y); ctx.stroke();
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, y - 12); ctx.lineTo(x0, y + 12); ctx.stroke();
+      // no outline yet: say so, and draw no cars - a straight bar put them where they are not; the tower has the order
+      ctx.fillStyle = '#8f9aa7'; ctx.font = '26px Bahnschrift, "Segoe UI", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(TrackMap.status || 'Loading track map', w / 2, h / 2);
+      return;
     }
     if (!data || !Array.isArray(data.cars)) return;
-    const place = hasOutline
-      ? c => TrackMap.toScreen(TrackMap.at(c.pct), TrackMap.fit(w, h))
-      : c => [40 + (((c.pct % 1) + 1) % 1) * Math.max(1, w - 80), h / 2];
+    const place = c => TrackMap.toScreen(TrackMap.at(c.pct), TrackMap.fit(w, h));
     const battles = Array.isArray(data.battles) ? data.battles : [];
     for (const c of data.cars) {
       if (!c || typeof c.pct !== 'number' || !isFinite(c.pct) || c.pct < 0 || c.pct > 1) continue;
@@ -732,8 +731,14 @@ const Tower = {
     const now = Date.now(); if (this.recBusy || now - this.recAt < 2000) return;
     this.recBusy = true; this.recAt = now;
     fetch('/vault/recorder', { cache: 'no-store' }).then(r => r.json()).then(d => {
-      const el = $('tvRec'); if (el) el.hidden = !(d && d.running === true);
-    }).catch(() => { const el = $('tvRec'); if (el) el.hidden = true; }).then(() => { this.recBusy = false; });
+      // irdash's one verdict (recorder.cs CaptureJson): REC only while video is really landing on disk
+      const el = $('tvRec'); if (!el) return;
+      const c = d && d.capture, st = c && c.state;
+      const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+      const words = { recording: 'REC ' + mmss(c && c.secs), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
+      el.hidden = !words[st]; el.textContent = words[st] || '';
+      el.className = st === 'recording' ? 'rec-on' : st === 'stalled' || st === 'failed' ? 'rec-bad' : 'rec-warn';
+    }).catch(() => { const el = $('tvRec'); if (el) { el.hidden = false; el.textContent = 'RECORDING UNKNOWN'; el.className = 'rec-warn'; } }).then(() => { this.recBusy = false; });
   },
   fmtTime(n) {
     if (typeof n !== 'number' || !isFinite(n) || n <= 0) return '\u2013';

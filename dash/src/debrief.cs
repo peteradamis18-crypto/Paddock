@@ -529,8 +529,11 @@ namespace IRDash
         static string TailSection(string id, string lapStr, string track, double startMs, string type)
         {
             Cx cx = Analyse(id, lapStr);
-            string assoc; Dictionary<string, object> sess = ResolveRecording(cx, track, startMs, type, out assoc);
-            return CornersSection(cx, id) + IncidentsSection(cx, sess) + BarSection(cx, id, sess, assoc);
+            string assoc; double uid; int snum;
+            Dictionary<string, object> sess = ResolveRecording(cx, track, startMs, type, out assoc, out uid, out snum);
+            // which iRacing session this review is about, so the after-session screen can refuse a stale "last"
+            string who = ",\"session\":{\"uniqueId\":" + (uid > 0 ? uid.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (snum >= 0 ? snum.ToString(Inv) : "null") + ",\"lap\":" + cx.Lap + "}";
+            return who + CornersSection(cx, id) + IncidentsSection(cx, sess) + BarSection(cx, id, sess, assoc);
         }
 
         // The recording of THIS telemetry session: the iRacing session identity (SessionUniqueID + SessionNum) read from the
@@ -538,16 +541,25 @@ namespace IRDash
         // never enable SAVE. Nothing matches -> no recording, never the newest one.
         static Dictionary<string, object> ResolveRecording(Cx cx, string track, double startMs, string type, out string association)
         {
-            association = "none";
+            double u; int n; return ResolveRecording(cx, track, startMs, type, out association, out u, out n);
+        }
+        static Dictionary<string, object> ResolveRecording(Cx cx, string track, double startMs, string type, out string association, out double uidOut, out int snumOut)
+        {
+            association = "none"; uidOut = -1; snumOut = -1;
             try
             {
-                double uid = -1; int snum = -1;
+                // the wall-clock moment the analysed lap was driven: the file's start (its name) + the lap's session time
+                double uid = -1, lapMs = 0; int snum = -1;
+                double fileStart = IbtStartMs(cx.File);
                 if (cx.File.Length > 0 && cx.Lap > 0)
                 {
                     ShareEv ev = Analysis.ShareEvent(cx.File, cx.Lap, 0, true, 0, false);
-                    if (ev.Err.Length == 0 && ev.Unique > 0) { uid = ev.Unique; snum = ev.SessNum; }
+                    if (ev.Err.Length == 0)
+                    {
+                        if (ev.Unique > 0) { uid = ev.Unique; snum = ev.SessNum; uidOut = uid; snumOut = snum; }
+                        if (fileStart > 0) lapMs = fileStart + (ev.SessTime - ev.FirstTime) * 1000.0;
+                    }
                 }
-                if (startMs <= 0) startMs = IbtStartMs(cx.File);
                 string root = Vault.Root ?? Path.Combine(Program.RootDir, "vault");
                 List<RecCand> cands = new List<RecCand>(); Dictionary<RecCand, Dictionary<string, object>> by = new Dictionary<RecCand, Dictionary<string, object>>();
                 foreach (string dir in new string[] { Path.Combine(root, "sessions"), Path.Combine(root, "saved") })
@@ -562,18 +574,46 @@ namespace IRDash
                             RecCand c = new RecCand();
                             c.Id = S(G(d, "id")); c.Track = S(G(d, "track")); c.Car = S(G(d, "car")); c.Type = S(G(d, "sessionType"));
                             c.StartMs = D(G(d, "startMs")); if (double.IsNaN(c.StartMs)) c.StartMs = 0;
+                            c.EndMs = D(G(d, "endMs")); if (double.IsNaN(c.EndMs)) c.EndMs = 0;
                             double u = D(G(d, "uniqueId")), n = D(G(d, "sessionNum"));
                             c.UniqueId = double.IsNaN(u) ? -1 : u; c.SessionNum = double.IsNaN(n) ? -99 : (int)n;
-                            if (c.Id.Length == 0) continue;
+                            if (c.Id.Length == 0 || !File.Exists(Path.ChangeExtension(f, ".mp4"))) continue;   // a leftover sidecar with no video is not a recording
                             cands.Add(c); by[c] = d;
                         }
                         catch { }
                     }
                 }
-                RecCand pick = SessMatch.Pick(cands, uid, snum, track ?? "", "", type ?? "", startMs, out association);
+                if (lapMs <= 0) lapMs = startMs;     // no lap clock: the race log's own start, still never "newest"
+                RecCand pick = SessMatch.Pick(cands, uid, snum, track ?? "", "", type ?? "", lapMs, out association);
                 return pick != null ? by[pick] : null;
             }
             catch (Exception ex) { Log.W("debrief: sessions: " + ex.Message); association = "none"; return null; }
+        }
+
+        // GET /api/rec/for?id=<telemetry file | Vault id>[&lap=n]: the recording of that session, by the same rule as the
+        // review. Only a verified one gets an id (and so a SAVE button); the Session Review page and the phone use this.
+        public static string RecordingFor(string id, string lapStr)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(id) || id.Length > 160) return "{\"ok\":false,\"error\":\"need id=\"}";
+                Dictionary<string, string> sq = new Dictionary<string, string>(); sq["id"] = id;
+                int sc; string sj = Analysis.SessionRoute(sq, out sc);
+                Dictionary<string, object> s = sc == 200 ? Obj(sj) : null;
+                if (s == null) return "{\"ok\":false,\"error\":\"session not found\"}";
+                int lap = 0; int.TryParse(lapStr ?? "", NumberStyles.Integer, Inv, out lap);
+                Dictionary<string, object> best = O(G(s, "best"));
+                if (lap <= 0 && best != null) lap = I(G(best, "lap"));
+                if (lap <= 0) { object[] rows = A(G(s, "laps")); if (rows.Length > 0) lap = I(G(O(rows[0]), "n")); }
+                Cx cx = new Cx(); cx.File = S(G(s, "file")); if (cx.File.Length == 0) cx.File = id; cx.Lap = lap;
+                string assoc; Dictionary<string, object> rec = ResolveRecording(cx, S(G(s, "track")), 0, S(G(s, "type")), out assoc);
+                bool ok = rec != null && assoc == "verified";
+                string st = rec == null ? "none" : S(G(rec, "state")); if (rec != null && st.Length == 0) st = "ready";
+                return "{\"ok\":true,\"association\":" + Json_.S(assoc) + ",\"id\":" + (ok ? Json_.S(S(G(rec, "id"))) : "null") +
+                       ",\"saved\":" + B(ok && Bl(G(rec, "saved"))) + ",\"state\":" + Json_.S(st) + ",\"gaps\":" + (rec != null ? A(G(rec, "gaps")).Length : 0) +
+                       ",\"saveBlocked\":" + Json_.S(rec != null ? S(G(rec, "saveBlocked")) : "") + "}";
+            }
+            catch (Exception ex) { Log.W("debrief: rec/for: " + ex.Message); return "{\"ok\":false,\"error\":\"could not read the recordings\"}"; }
         }
 
         // iRacing names its telemetry files by the local start time: "<car>_<track> 2026-10-12 21-26-25.ibt"

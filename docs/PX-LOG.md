@@ -39,3 +39,36 @@ Gates per `docs/QUALITY-GATES.md`: contract / engineering / experience / rig, ea
 
 ### Evidence
 See the commit message for the test run of this increment.
+
+## Increment 2 — independent review fixes, map off the request path, truthful REC, review trigger (2026-10-15)
+
+Independent review (Opus, read-only, of commit 48fe856) found 9 defects; fixed here:
+1. HIGH "verified" could pick another sim launch's recording (SessionUniqueID is a per-launch counter, seen = 2):
+   verified now also requires the analysed lap's wall-clock time (IBT file-name start + lap session time) to fall
+   inside the recording's span (new sidecar `endMs`, ±120 s). No nearest-in-time fallback.
+2. HIGH Session Review and phone SAVE still used newest-in-window: both now ask `/api/rec/for?id=<ibt>` (same rule).
+3. Sidecar retry turned incidents into gaps: wall-time incidents restored on every failed attempt.
+4. Encoder start-up: a moment ≤ 3 s before a span shows that span's first picture; otherwise null.
+5. Disk clean-up stops when freed bytes cover the shortfall or free space does not rise; skips sessions < 10 min old.
+6. `recsave` deck key lit for SAVE FAILED/FULL: now only SAVED/SAVING; pages show SAVE FAILED; recState set at finish.
+7. Durability: sidecar temp and finished mp4 flushed to disk (`Flush(true)`) before segments are deleted.
+9. MoveToSaved no longer exposes "saved" before the move; review skips sidecars whose mp4 is gone; gap incidents shown.
+Not fixed (recorded): a SAVE blocked as "full" keeps protecting its session from clean-up indefinitely (deliberate:
+Peter asked to keep it; recording pauses with "Disk nearly full" if space runs out) — needs a product decision.
+
+Map (PX-05 core): `/trackmap` is cache-only (+ the small offline-library file); IBT and network builds run on one
+BelowNormal background thread with 1/5/15/60-min backoff, never reading an IBT written in the last 2 min (30 min while
+the sim runs). 202 `{status:"building",retryAfter,lastError}`. The startup straight-bar placeholder came from
+`BuildAll` holding the same lock for minutes; both map.js and tv.js now draw a status line and no invented car positions.
+
+REC (PX-06 part): recorder status carries one `capture` verdict — recording only while segments keep landing
+(`starting|recording|stalled|paused-disk|failed|idle|off`); the fourth screen shows `REC 41:12`, `REC PAUSED: DISK FULL`,
+`NOT RECORDING`, or `RECORDING UNKNOWN` when irdash cannot be reached.
+
+Review trigger (PX-03 core): the debrief reply names its session (`session.uniqueId/sessionNum/lap`); the page
+remembers the live SessionUniqueID/SessionNum/LapCompleted, and after leaving the car polls for 90 s, accepting only
+the matching session; no completed lap → no review; getting back in cancels.
+
+Open failures: tv-test "CHASE replaces BATTLE" is pre-existing (also in tests\last\tv.txt). home-test has 3 state
+checks failing that look unrelated to the schedule-text change (not verified against the old build) (START label with the iRacing UI open; PB/long-name fixtures
+overwritten by the live refresh). Real-world data note: today's series name "SENSIT!" trips the copy rule on HOME.

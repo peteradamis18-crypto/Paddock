@@ -49,7 +49,7 @@ namespace IRDash
     }
 
     // where in the session an event is, and which session it was (for the replay jump)
-    sealed class ShareEv { public string Err = ""; public int SessNum, Unique, Sub; public double SessTime; }
+    sealed class ShareEv { public string Err = ""; public int SessNum, Unique, Sub; public double SessTime, FirstTime; }
 
     static partial class Analysis
     {
@@ -199,6 +199,7 @@ namespace IRDash
                     VarDef vSt = V(t, "SessionTime"), vSn = V(t, "SessionNum"), vUid = V(t, "SessionUniqueID");
                     if (vSt == null || t.records < 2) { ev.Err = "No session clock"; return ev; }
                     double first = ShareRecord(t, 0, vSt), last = ShareRecord(t, t.records - 1, vSt);
+                    ev.FirstTime = first;
                     if (hasT)
                     {
                         LapTrace me = null;

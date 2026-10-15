@@ -9,15 +9,21 @@ namespace IRDash
     sealed class RecCand
     {
         public string Id = "", Track = "", Car = "", Type = "";
-        public double StartMs;
+        public double StartMs, EndMs;        // wall clock (UTC ms) of the first and last recorded picture; EndMs 0 = unknown (old sidecar)
         public int SessionNum = -99; public double UniqueId = -1;
     }
 
     static class SessMatch
     {
-        // Where a wall-clock moment falls inside the joined file (seconds), from the segments that really went into it
-        // (start/end wall ms, sorted). A moment that is not covered by any of them (a missing segment, out of the car,
-        // before or after the recording) is NaN: the video does not have it, so nothing may seek to a later picture.
+        // How far a moment may sit before a recorded span and still show that span's first picture (encoder start-up).
+        public const double SnapMs = 3000;
+        // Slack around a recording's span when asking "was this lap driven during this recording?" (file-name clock, seconds).
+        public const double SpanSlackMs = 120000;
+
+        // Where a wall-clock moment falls inside the joined file (seconds), from the spans that really went into it
+        // (start/end wall ms, sorted). A moment up to SnapMs before a span shows that span's first picture; anything
+        // else not covered (a missing segment, out of the car, after the end) is NaN: the video does not have it, so
+        // nothing may seek to a later picture and call it this moment.
         public static double WallToFile(double[] starts, double[] ends, double wallMs)
         {
             double cum = 0;
@@ -26,6 +32,7 @@ namespace IRDash
                 double s = starts[i], e = ends[i];
                 if (e <= s) continue;
                 if (wallMs >= s && wallMs <= e) return cum + (wallMs - s) / 1000.0;
+                if (wallMs < s) return s - wallMs <= SnapMs ? cum : double.NaN;
                 cum += (e - s) / 1000.0;
             }
             return double.NaN;
@@ -45,39 +52,32 @@ namespace IRDash
             return r;
         }
 
-        // "verified" = same iRacing session: SessionUniqueID + SessionNum, the same track, and starting within 12 hours.
-        // SessionUniqueID is only a small counter per sim launch (2 is common), so the ids alone repeat across days.
-        // "probable" = an old sidecar without that identity, same track, car and type, starting within 2 hours.
-        // "none" otherwise. Never newest-wins.
-        public static RecCand Pick(List<RecCand> cands, double uniqueId, int sessionNum, string track, string car, string type, double startMs, out string association)
+        // lapMs = the wall-clock time the analysed lap was driven (from the telemetry file).
+        // "verified" = same iRacing session (SessionUniqueID + SessionNum; the uid is only a small counter per sim
+        //              launch, so it repeats across launches) AND the lap was driven while this recording ran.
+        // "probable" = an old sidecar without identity: same track, car and type, and the lap inside its span.
+        // "none" otherwise. Never newest-wins, never nearest-in-time.
+        public static RecCand Pick(List<RecCand> cands, double uniqueId, int sessionNum, string track, string car, string type, double lapMs, out string association)
         {
             association = "none";
-            if (startMs <= 0) return null;     // without a time the ids cannot tell one day from another
+            if (lapMs <= 0) return null;
             if (uniqueId > 0 && sessionNum >= 0)
-            {
-                RecCand v = null; double vd = double.MaxValue;
                 foreach (RecCand c in cands)
                 {
-                    if (c.UniqueId != uniqueId || c.SessionNum != sessionNum) continue;
+                    if (c.UniqueId != uniqueId || c.SessionNum != sessionNum || c.EndMs <= 0) continue;
                     if (track.Length > 0 && c.Track.Length > 0 && !SameName(c.Track, track)) continue;
-                    double d = Math.Abs(c.StartMs - startMs);
-                    if (d <= 12.0 * 3600 * 1000 && d < vd) { v = c; vd = d; }
+                    if (lapMs >= c.StartMs - SpanSlackMs && lapMs <= c.EndMs + SpanSlackMs) { association = "verified"; return c; }
                 }
-                if (v != null) { association = "verified"; return v; }
-            }
-            RecCand best = null; double bestD = double.MaxValue;
             foreach (RecCand c in cands)
             {
                 if (c.UniqueId > 0) continue;   // a sidecar that knows its session and is not this one never stands in
                 if (!SameName(c.Track, track)) continue;
                 if (car.Length > 0 && c.Car.Length > 0 && !SameName(c.Car, car)) continue;
                 if (type.Length > 0 && c.Type.Length > 0 && !string.Equals(c.Type, type, StringComparison.OrdinalIgnoreCase)) continue;
-                double d = Math.Abs(c.StartMs - startMs);
-                if (d < bestD) { best = c; bestD = d; }
+                double end = c.EndMs > 0 ? c.EndMs : c.StartMs + 3600000;   // old sidecars: duration excludes time out of the car
+                if (lapMs >= c.StartMs - SpanSlackMs && lapMs <= end + SpanSlackMs) { association = "probable"; return c; }
             }
-            if (best == null || bestD > 2.0 * 3600 * 1000) return null;
-            association = "probable";
-            return best;
+            return null;
         }
 
         static string Alnum(string s) { System.Text.StringBuilder b = new System.Text.StringBuilder(); foreach (char c in (s ?? "")) if (char.IsLetterOrDigit(c)) b.Append(char.ToLowerInvariant(c)); return b.ToString(); }
