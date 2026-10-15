@@ -7,16 +7,13 @@
 // Nothing is drawn on the race screens.
 const PerfLive = {
   fpsEl: null, warnEl: null, ring: [], onSince: 0, normal: null, cause: '', polledAt: 0, polling: false, shownAt: 0, shown: false,
-  host: null, lockUntil: 0,
 
   CSS: '#fpsLive { margin-left: auto; flex: none; font-size: 14px; letter-spacing: .08em; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }' +
        '#fpsLive b { font-weight: 600; color: var(--text); margin-right: 5px; letter-spacing: 0; }' +
        '#perfWarn { font-size: 13px; letter-spacing: .03em; line-height: 1.3; color: var(--amber); opacity: .95; }' +
        '#perfWarn b { font-weight: 600; }' +
        'body.perfwarn .health { display: none; }' +
-       '#perfHost { position: fixed; inset: 0; z-index: 946; background: #060606; opacity: 0; transition: opacity .5s ease; }' +
-       '#perfHost.on { opacity: 1; }' +
-       '#perfHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #060606; }',
+       '',
 
   init() {
     const st = document.createElement('style'); st.textContent = this.CSS; document.head.appendChild(st);
@@ -32,11 +29,6 @@ const PerfLive = {
       sess.parentNode.insertBefore(a, sess.nextSibling);
     }
     setInterval(() => this.tick(), 500);
-    window.addEventListener('message', e => {
-      if (e.origin === location.origin && e.data && (e.data.irdash === 'perf-close' || e.data.irdash === 'sessions-close')) this.closePage(true);
-    });
-    this.pollNav(); setInterval(() => this.pollNav(), 1500);
-    if (/[?&]perf=1/.test(location.search)) this.openPage(false);
   },
 
   /* ---------- the number and the amber line ---------- */
@@ -82,34 +74,10 @@ const PerfLive = {
     this.polling = false;
   },
 
-  /* ---------- the Performance page over the dashboard ---------- */
-  driving() { return UI.live() && !!(L.v && L.v.IsOnTrack); },
-
-  openPage(tell) {
-    if (this.host || this.driving()) return;
-    const host = document.createElement('div'); host.id = 'perfHost';
-    const f = document.createElement('iframe'); f.src = 'perf.html?embed=1'; f.title = 'Performance';
-    host.appendChild(f); document.body.appendChild(host);
-    requestAnimationFrame(() => host.classList.add('on'));
-    this.host = host; this.lockUntil = Date.now() + 3000;
-    if (tell) fetch('/api/do?c=perf', { cache: 'no-store' }).catch(() => { });
-  },
-
-  closePage(tell) {
-    const el = this.host; this.host = null; this.lockUntil = Date.now() + 3000;
-    if (!el) return;
-    el.classList.remove('on'); setTimeout(() => el.remove(), 600);
-    if (tell) fetch('/api/do?c=perfclose', { cache: 'no-store' }).catch(() => { });
-  },
-
-  async pollNav() {
-    if (document.hidden) return;
-    if (this.driving()) { if (this.host) this.closePage(true); return; }      // no requests at all while you drive
-    let n;
-    try { n = await (await fetch('/perf/nav', { cache: 'no-store' })).json(); } catch (e) { return; }
-    if (Date.now() < this.lockUntil) return;
-    if (n.to === 'perf' && !this.host) this.openPage(false);
-    else if (n.to !== 'perf' && this.host) this.closePage(false);
-  },
+  /* ---------- the Performance page over the dashboard: pagehost.js opens, closes and follows irdash ---------- */
+  driving() { return PageHost.driving(); },
+  get host() { return PageHost.isOpen('perf') ? PageHost.el : null; },
+  openPage(tell) { return PageHost.open('perf', tell); },
+  closePage(tell) { if (PageHost.isOpen('perf')) PageHost.close(tell); },
 };
 PerfLive.init();

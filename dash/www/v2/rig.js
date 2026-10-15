@@ -32,17 +32,12 @@ const Rig = {
     }
   },
 
-  // the idle screen's line above the footer: "All good", or one short line when something really needs you. The doctor
-  // fixes most things itself; the rest stays in the list (RIG DOCTOR key) and does not nag here. Then the timings.
+  // HOME's READY panel (home.js drawReady) shows the doctor's one line when something really needs him; the doctor
+  // fixes most things itself and the rest stays in the list (RIG DOCTOR key).
   idle(d) {
-    const el = $('idleRig'); if (!el) return;
-    const ask = d.ask || '';
-    const cls = ask ? 'bad' : d.ranAt ? 'ok' : '';
-    let h = '<span class="rg-dot ' + cls + '"></span><b>Rig check</b> ' + (ask ? '<em>' + esc(ask) + '</em>' : d.ranAt ? 'All good' : 'checking…');
-    if (d.timings) h += '<small>' + esc(d.timings) + '</small>';
-    setHTML(el, h);
-  },
-  render(d) {
+    this.doc = d;
+    if (window.Home && Home.drawReady) Home.drawReady();
+  },  render(d) {
     const rows = (d.items || []).map(i =>
       '<div class="dr-row ' + esc(i.state) + '"><i></i><div><b>' + esc(i.name) + '</b><span>' + esc(i.detail) + (i.done ? ' &nbsp;·&nbsp; fixed: ' + esc(i.done) : '') + '</span>' +
       (i.fix ? '<em>' + esc(i.fix) + '</em>' : '') + '</div></div>').join('');

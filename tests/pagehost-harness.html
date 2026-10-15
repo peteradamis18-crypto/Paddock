@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pagehost harness</title></head>
+<body>
+<span id="idleSessions">Sessions</span>
+<pre id="out"></pre>
+<script>
+// Offline harness for dash\www\v2\pagehost.js (tests\pagehost-test.ps1 opens it in headless Chrome from disk).
+// irdash is a mock here: no network, no live app.
+window.$ = id => document.getElementById(id);
+window.setHTML = (el, h) => { if (typeof el === 'string') el = $(el); if (el) el.innerHTML = h; };
+window.esc = s => String(s);
+window.isNum = x => typeof x === 'number' && isFinite(x);
+window.UI = { live: () => window.__live };
+window.L = { v: {} };
+window.__live = false;
+window.NAV = { '/nav': { to: '', seq: 1 }, '/vault/nav': { to: '', seq: 1, enabled: true }, '/perf/nav': { to: '', seq: 1 } };
+window.SENT = []; window.LOSE_CLOSE = false;
+const CMDS = { '/api/nav?to=sessions': ['/nav', 'sessions'], '/api/nav?to=home': ['/nav', ''], '/api/do?c=vkopen': ['/vault/nav', 'vault'], '/api/do?c=vkclose': ['/vault/nav', ''], '/api/do?c=perf': ['/perf/nav', 'perf'], '/api/do?c=perfclose': ['/perf/nav', ''] };
+window.fetch = url => {
+  SENT.push(url);
+  if (NAV[url]) return Promise.resolve({ json: () => Promise.resolve(Object.assign({}, NAV[url])) });
+  const c = CMDS[url];
+  if (c && !(LOSE_CLOSE && c[1] === '')) { const n = NAV[c[0]]; if (n.to !== c[1]) { n.to = c[1]; n.seq++; } }
+  return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+};
+</script>
+<script src="../dash/www/v2/pagehost.js"></script>
+<script src="../dash/www/v2/nav.js"></script>
+<script src="../dash/www/v2/vaultlive.js"></script>
+<script>
+const out = [];
+const check = (what, ok) => out.push((ok ? 'ok    ' : 'FAIL  ') + what);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const open = id => !!document.getElementById(id);
+const deck = (nav, to) => { const n = NAV[nav]; n.to = to; n.seq++; };
+(async () => {
+  try {
+    await sleep(1700);
+    check('nothing opens at start when irdash asks for nothing', !open('sessHost') && !open('vaultHost') && !open('perfHost'));
+    deck('/nav', 'sessions'); await sleep(1700);
+    check('a NEW Stream Deck request opens Sessions', open('sessHost'));
+    check('it has a CLOSE button drawn by the dashboard itself', !!document.querySelector('#sessHost .pg-close'));
+    LOSE_CLOSE = true;                                   // the close request never reaches irdash (the old code re-opened here)
+    document.querySelector('#sessHost .pg-close').click(); await sleep(6200);
+    check('CLOSE closes it, and it stays closed even when irdash still says "sessions"', !open('sessHost') && NAV['/nav'].to === 'sessions');
+    LOSE_CLOSE = false;
+    deck('/nav', 'sessions'); await sleep(1700);
+    check('the next NEW request opens it again', open('sessHost'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(300);
+    check('Esc closes it from anywhere, and irdash is told', !open('sessHost') && NAV['/nav'].to === '');
+    SessionsHost.open(true); await sleep(100);
+    VaultLive.openPage(true); await sleep(1700);
+    check('opening the Vault from Sessions leaves exactly one page (the Vault)', open('vaultHost') && !open('sessHost') && document.querySelectorAll('.pg-host').length <= 2);
+    await sleep(600);
+    check('the closed page is gone from the screen after its fade', document.querySelectorAll('.pg-host').length === 1);
+    window.dispatchEvent(new MessageEvent('message', { data: { irdash: 'vault-close' }, origin: location.origin })); await sleep(300);   // as the Vault page (same origin) sends it
+    check('the page\'s own close message closes it', !open('vaultHost'));
+    deck('/perf/nav', 'perf'); await sleep(1700);
+    check('a Performance request opens Performance', open('perfHost'));
+    window.__live = true; L.v.IsOnTrack = 1; await sleep(1700);
+    check('getting in the car closes it', !open('perfHost'));
+    deck('/nav', 'sessions'); const n0 = SENT.length; await sleep(3200);
+    check('while driving nothing opens and nothing is requested', !open('sessHost') && SENT.length === n0);
+  } catch (e) { out.push('FAIL  harness error: ' + e.message); }
+  document.getElementById('out').textContent = out.join('\n') + '\nDONE';
+})();
+</script>
+</body></html>

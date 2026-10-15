@@ -121,25 +121,20 @@
 
 <!-- shown whenever no session is live: covers the whole screen, so no empty race boxes -->
 <div id="overlay" class="show">
-  <!-- HOME (home.js, DS-1): one picture, his name and car, one button, one row of facts. Hidden with the rest of #overlay the moment a session is live. -->
-  <div class="hero" id="homeHero" aria-hidden="true"><img id="heroImg" alt=""></div>
-  <div class="idle-top"><span class="idle-name">Paddock</span><span class="idle-link" id="idleSessions" tabindex="0" role="button">Sessions</span><span id="idleDate"></span><span id="idleClock">–</span></div>
-  <section id="homeDriver"></section>
+  <!-- HOME v3 (home.js; design docs\design\home-v3\spec.md): band A the one action, his car, is the rig ready; band B next race,
+       last outing and this week; band C what to watch. Hidden with the rest of #overlay the moment a session is live. -->
+  <div class="idle-top"><span class="idle-name">Paddock</span><span class="idle-link" id="idleSessions" tabindex="0" role="button">Sessions</span><span id="idleDate"></span><span id="idleClock">&#8212;</span></div>
   <button class="home-next" id="homeNext" type="button" hidden></button>
-  <div class="home-facts">
-    <div class="home-pbs" id="homePbs"></div>
-    <div class="home-career" id="homeCareer"></div>
-    <div class="home-week" id="homeWeek"></div>
-    <div class="home-last" id="homeLast"></div>
-  </div>
+  <section id="homeDriver"></section>
+  <div class="home-car" id="homeCar"></div>
   <div class="home-phone" id="homePhone" hidden></div>
-  <div class="idle-official" id="idleOfficial"></div>
-  <div class="idle-foot">
-    <span class="idle-rig" id="idleRig"></span>
-    <span class="idle-status"><i></i><b id="ovTitle">Waiting for iRacing</b><em id="ovText"></em></span>
-    <span class="foot-phone" id="homePhoneNote" hidden></span>
-    <span class="hero-credit" id="heroCredit"></span>
-  </div>
+  <section class="home-ready" id="idleRig"></section>
+  <div class="home-hr" style="top:476px"></div>
+  <section class="home-race" id="homeRace"></section>
+  <section class="home-last" id="homeLast"></section>
+  <div class="home-hr" style="top:784px"></div>
+  <section class="home-weekend" id="homeWeekend"></section>
+  <div class="idle-foot" hidden><span class="idle-status"><i></i><b id="ovTitle">Waiting for iRacing</b><em id="ovText"></em></span><span class="foot-phone" id="homePhoneNote" hidden></span></div>
   <div id="homeHost" hidden></div>
 </div>
 
@@ -157,6 +152,7 @@
 <script src="debrief-v4.js"></script>
 <script src="guest.js"></script>
 <script src="rig.js"></script>
+<script src="pagehost.js"></script><!-- one manager for the pages over the dashboard (Sessions, Vault, Performance) -->
 <script src="nav.js"></script>
 <script src="brief.js"></script>
 <script src="race.js"></script>

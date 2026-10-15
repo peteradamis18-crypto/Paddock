@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paddock Home v3</title>
+<style>
+/* Paddock HOME v3 mockup. Canvas 1920 x 1080, viewed from the seat (1.2 to 1.5 m).
+   Grid: 96 px margins, 12 columns of 122 px, 24 px gutters: column n starts at 96 + (n-1) * 146.
+   Three bands: A drive (128-440), B next race / last outing (512-748), C watch (820-1040). Hairlines between.
+   Type: glance 56, read 30, body 26, label 20 small caps, tiny 16 (sources only). Nothing else under 20 px.
+   Colour: gold = Peter and the one primary action; amber = stale or warning; red = failure; green = ok dot only. */
+:root {
+  --bg: #060606; --panel: #0b0b0a; --hair: rgba(244, 241, 234, .12); --hair2: rgba(244, 241, 234, .22);
+  --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54;
+  --gold: #f2c230; --gold2: #e2b42a; --amber: #ffb21e; --red: #ff5a4d; --green: #2fe07a;
+  --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --glance: 56px; --read: 30px; --body: 26px; --label: 20px; --tiny: 16px;
+}
+html, body { margin: 0; padding: 0; background: #000; }
+body { width: 1920px; height: 1080px; overflow: hidden; position: relative; font-family: var(--font); color: var(--ink);
+  background: radial-gradient(80% 70% at 30% 20%, #0c0c0b 0%, #070707 55%, #040404 100%); font-variant-numeric: tabular-nums; }
+.lbl { font-size: var(--label); letter-spacing: .24em; text-transform: uppercase; color: var(--mute); white-space: nowrap; line-height: 24px; }
+.lbl .sep { margin: 0 .5em; color: var(--dim); }
+.lbl.warn, .warn { color: var(--amber); }
+.fail { color: var(--red); }
+.ok { color: var(--green); }
+.tiny { font-size: var(--tiny); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.hr { position: absolute; left: 96px; right: 96px; height: 1px; background: var(--hair); }
+.dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ok { background: var(--green); } .dot.warn { background: var(--amber); } .dot.fail { background: var(--red); } .dot.live { background: var(--green); box-shadow: 0 0 0 6px rgba(47, 224, 122, .18); }
+
+/* top line */
+.top { position: absolute; left: 96px; right: 96px; top: 40px; height: 36px; display: flex; align-items: center; gap: 48px; white-space: nowrap; }
+.top .mark { font-size: 24px; font-weight: 600; letter-spacing: .5em; text-transform: uppercase; color: var(--ink); margin-right: auto; }
+.top .nav { font-size: 22px; letter-spacing: .26em; text-transform: uppercase; color: rgba(244, 241, 234, .6); }
+.top .date { font-size: 26px; color: var(--mute); margin-left: 24px; }
+.top .clock { font-size: 26px; color: var(--ink); letter-spacing: .04em; }
+
+/* band A: the one action, his car, is it ready */
+.go { position: absolute; left: 96px; top: 128px; width: 706px; height: 214px; box-sizing: border-box; padding: 0 40px; border: 0; border-radius: 8px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; justify-content: space-between; gap: 24px; font-family: inherit; color: #0d0b05;
+  background: linear-gradient(180deg, #f6cd4c 0%, #e2b42a 100%); box-shadow: 0 24px 70px rgba(242, 194, 48, .16), inset 0 1px 0 rgba(255, 255, 255, .3); }
+.go b { display: block; font-size: var(--glance); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; line-height: 1; }
+.go span { display: block; margin-top: 14px; font-size: var(--read); font-weight: 400; line-height: 36px; color: rgba(13, 11, 5, .74); max-width: 560px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.go svg { width: 44px; height: 44px; flex: none; fill: none; stroke: #0d0b05; stroke-width: 2.4; stroke-linecap: square; }
+.go.busy { background: #3a3324; color: #b9ad8a; box-shadow: none; cursor: default; } .go.busy span { color: #8d8468; } .go.busy svg { stroke: #8d8468; }
+.who { position: absolute; left: 96px; top: 370px; width: 706px; display: flex; align-items: baseline; gap: 18px; white-space: nowrap; }
+.who .num { font-size: var(--read); font-weight: 600; color: var(--gold); letter-spacing: .02em; }
+.who .name { font-size: var(--read); font-weight: 400; color: var(--ink); }
+.who .lic { font-size: var(--body); color: var(--mute); margin-left: 10px; }
+.car { position: absolute; left: 826px; top: 128px; width: 480px; height: 270px; border-radius: 6px; overflow: hidden; border: 1px solid var(--hair2); background: #111; }
+.car img { display: block; width: 480px; height: 270px; filter: brightness(.9) contrast(1.04); }
+.car.none { border: 0; background: none; display: flex; flex-direction: column; justify-content: center; }
+.car.none .big { font-size: var(--glance); font-weight: 300; line-height: 1.05; color: var(--ink); white-space: nowrap; }
+.car.none .big i { font-style: normal; color: var(--gold); font-weight: 600; margin-right: 18px; }
+.car.none .sub { margin-top: 14px; font-size: var(--body); color: var(--mute); }
+.ready { position: absolute; left: 1410px; top: 128px; width: 414px; }
+.ready .head { display: flex; align-items: center; gap: 18px; height: 64px; }
+.ready .head b { font-size: var(--glance); font-weight: 300; letter-spacing: .04em; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+.ready .head b.w { font-size: 40px; letter-spacing: .02em; }
+.ready .row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; height: 40px; font-size: var(--body); white-space: nowrap; border-top: 1px solid var(--hair); }
+.ready .row:first-of-type { border-top: 0; }
+.ready .row .k { color: var(--mute); }
+.ready .row .v { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.ready .row .v.mute { color: var(--mute); }
+.ready .apps { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 22px; line-height: 30px; color: var(--mute); letter-spacing: .02em; }
+.ready .apps i { font-style: normal; white-space: nowrap; }
+.ready .apps i::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin: 0 10px 3px 0; }
+.ready .apps i.off::before { background: var(--amber); }
+.ready .apps i.off { color: var(--amber); }
+
+/* band B: next race, last outing + this week */
+.race { position: absolute; left: 96px; top: 512px; width: 998px; }
+.race .eta { display: flex; align-items: baseline; gap: 28px; margin-top: 12px; height: 64px; white-space: nowrap; }
+.race .eta b { font-size: var(--glance); font-weight: 300; line-height: 1; color: var(--ink); }
+.race .eta span { font-size: var(--body); color: var(--mute); }
+.race .ser { margin-top: 14px; font-size: var(--read); font-weight: 500; line-height: 38px; color: var(--ink); max-height: 76px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.race .ct { margin-top: 8px; font-size: var(--body); line-height: 34px; color: var(--ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.race .ct small { font-size: var(--label); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); margin-left: 16px; }
+.race .ct small.no { color: var(--amber); }
+.race .none { margin-top: 12px; font-size: var(--read); line-height: 64px; color: var(--mute); }
+.last { position: absolute; left: 1118px; top: 512px; width: 706px; }
+.last .val { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; height: 64px; }
+.last .val b { font-size: var(--glance); font-weight: 300; line-height: 1; color: var(--ink); white-space: nowrap; }
+.last .val b small { font-size: var(--body); font-weight: 400; color: var(--mute); margin-left: 12px; }
+.last .val button { height: 56px; padding: 0 30px; border: 1px solid var(--hair2); border-radius: 6px; background: transparent; color: var(--ink); font-family: inherit;
+  font-size: var(--body); letter-spacing: .22em; text-transform: uppercase; cursor: pointer; }
+.last .det { margin-top: 14px; font-size: var(--body); line-height: 34px; color: var(--ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.last .det.mute { color: var(--mute); }
+.last .wk { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--hair); display: flex; align-items: baseline; gap: 26px; white-space: nowrap; }
+.last .wk .lbl { margin-right: 6px; }
+.last .wk b { font-size: var(--read); font-weight: 400; color: var(--ink); }
+.last .wk b small { font-size: var(--label); letter-spacing: .16em; text-transform: uppercase; color: var(--mute); margin-left: 8px; }
+.last .wk .lw { margin-left: auto; font-size: 22px; color: var(--mute); }
+
+/* band C: watch, grouped by event, three columns */
+.watch { position: absolute; left: 96px; right: 96px; top: 820px; height: 220px; }
+.watch .lbl { display: flex; align-items: baseline; }
+.watch .lbl .src { margin-left: auto; }
+.watch .cols { position: absolute; left: 0; top: 44px; display: grid; grid-template-columns: 560px 560px 560px; column-gap: 24px; }
+.ev { min-width: 0; }
+.ev .h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: var(--label); letter-spacing: .24em; text-transform: uppercase; color: var(--mute); line-height: 24px; white-space: nowrap; }
+.ev .h span { color: var(--dim); letter-spacing: .12em; }
+.ev .n { margin-top: 6px; font-size: var(--read); font-weight: 500; line-height: 36px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev .s { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; height: 36px; font-size: var(--body); color: var(--mute); white-space: nowrap; }
+.ev .s.key { color: var(--ink); }
+.ev .s em { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+.ev .s span { flex: none; }
+.ev .s span.tbc { color: var(--amber); }
+.watch .none { margin-top: 44px; font-size: var(--read); color: var(--mute); }
+</style>
+</head>
+<body>
+<div class="top"><span class="mark">Paddock</span><span class="nav">Sessions</span><span class="nav">Vault</span><span class="nav">Performance</span><span class="date" id="idleDate"></span><span class="clock" id="idleClock"></span></div>
+
+<button class="go" id="homeNext" type="button"></button>
+<div class="who" id="homeDriver"></div>
+<div class="car" id="homeCar"></div>
+<div class="ready" id="idleRig"></div>
+
+<div class="hr" style="top:476px"></div>
+<section class="race" id="homeRace"></section>
+<section class="last" id="homeLast"></section>
+<div class="hr" style="top:784px"></div>
+<section class="watch" id="homeWeekend"></section>
+
+<script>
+'use strict';
+// ---- the real snapshot (docs/design/home-v3/data/*.json), hard-coded ----
+const NOW = new Date('2026-10-15T16:55:00Z');  // 12:55 PM EDT, 20 min before the 1:15 PM race in home.json
+const HOME = {
+  me: { name: 'Peter Adamis', num: '64', car: 'BMW Z4 GT3', path: 'bmwz4gt3' },
+  last: { car: 'BMW Z4 GT3', track: 'Road America', config: 'Full Course', type: 'Race', laps: 4, best: 132.462, date: '2026-10-15 10:51', ago: 'Thu 15 Oct' },
+  week: { hours: 3.7, laps: 84, pbs: 0, lastHours: 7.5, lastLaps: 213, from: 'Mon 12 Oct' },
+  nextRace: { series: 'BMW M2 Cup by Vero Motion', car: 'BMW M2 Racing (G87)', track: 'Circuito de Navarra', localStart: '2026-10-15 13:15', countdownSeconds: 1206, ownedCar: true, ownedTrack: true, cadence: 'every hour at :15 & :45' },
+  phone: { allowed: true, lan: true, paired: 2 }
+};
+const CAREER = { lic: 'C 2.54', ir: 1308 };
+const HEALTH = { apps: [{ id: 'deck', name: 'Stream Deck', state: 'ok' }, { id: 'ui', name: 'iRacing UI', state: 'ok' }, { id: 'sim', name: 'Sim', state: 'off' }, { id: 'cc', name: 'CrewChief', state: 'ok' }, { id: 'overlays', name: 'Overlays', state: 'ok' }] };
+const REC = { enabled: true, gaveUp: false, freeGb: 333.2, minFreeGb: 50, capture: { state: 'idle', secs: 0 } };
+const RW = { asOf: '2026-10-15T13:11:39Z', fresh: true, events: [
+  ['GTWC Europe', 'GT World Challenge Europe Powered by AWS Endurance Cup - Portimão', 'Free Practice 1', '2026-10-16T04:30:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Free Practice 1', '2026-10-16T05:00:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Free Practice 2', '2026-10-16T09:50:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Free Practice 3', '2026-10-17T04:10:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Qualifying', '2026-10-17T05:50:00-04:00'],
+  ['GTWC Europe', 'GT World Challenge Europe Powered by AWS Endurance Cup - Portimão', 'Free Practice 2', '2026-10-17T06:15:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Hyperpole', '2026-10-17T06:30:00-04:00'],
+  ['GTWC Europe', 'GT World Challenge Europe Powered by AWS Endurance Cup - Portimão', 'Qualifying (Q1-Q3)', '2026-10-17T10:00:00-04:00'],
+  ['GTWC Europe', 'GT World Challenge Europe Powered by AWS Endurance Cup - Portimão', 'Race', '2026-10-17T13:00:00-04:00'],
+  ['WEC', '6 Hours of Barcelona', 'Race', '2026-10-18T06:00:00-04:00'],
+  ['F1', 'United States Grand Prix', 'First Practice', '2026-10-23T13:30:00-04:00'],
+  ['F1', 'United States Grand Prix', 'Second Practice', '2026-10-23T17:00:00-04:00'],
+  ['F1', 'United States Grand Prix', 'Third Practice', '2026-10-24T13:30:00-04:00'],
+  ['F1', 'United States Grand Prix', 'Qualifying', '2026-10-24T17:00:00-04:00'],
+  ['F1', 'United States Grand Prix', 'Race', '2026-10-25T16:00:00-04:00']
+].map(e => ({ series: e[0], event: e[1], session: e[2], localStart: e[3], tbc: false })) };
+
+// ---- states: ?state=normal|live|norace|stale|offline|recfail|first|long ----
+const S = (location.search.match(/state=(\w+)/) || [])[1] || 'normal';
+const clone = o => JSON.parse(JSON.stringify(o));
+let home = clone(HOME), health = clone(HEALTH), rec = clone(REC), rw = clone(RW), career = clone(CAREER), srcOk = true;
+if (S === 'live') { health.apps[2].state = 'live'; rec.capture = { state: 'recording', secs: 40 }; }
+if (S === 'norace') { home.nextRace = null; }
+if (S === 'stale') { rw.fresh = false; rw.asOf = '2026-10-13T13:11:39Z'; rw.events.find(e => e.series === 'F1' && e.session === 'Race').tbc = true; home.nextRace.stale = 'Tue 13 Oct 9:11 AM'; }
+if (S === 'offline') { health.apps[1].state = 'off'; health.apps[4].state = 'off'; rec.capture = { state: 'off' }; }
+if (S === 'recfail') { rec.gaveUp = true; rec.capture = { state: 'failed' }; rec.freeGb = 41.3; home.phone.paired = 0; }
+if (S === 'first') { home.last = null; home.week = null; home.me = { name: 'Peter Adamis', num: '64' }; career = {}; home.phone.paired = 0; rec.enabled = false; }
+if (S === 'long') { home.nextRace.series = 'iRacing GT3 Regional Tour by SENSIT! - Americas'; home.nextRace.car = 'Mercedes-AMG GT3 2020'; home.nextRace.track = 'Circuit des 24 Heures du Mans'; home.nextRace.ownedTrack = false; home.nextRace.countdownSeconds = 4380;
+  home.last.track = 'Circuit des 24 Heures du Mans'; home.last.car = 'Chevrolet Corvette Z06 GT3.R'; home.last.laps = 1; home.last.best = 229.251; }
+
+// ---- helpers (the same formats home.js uses, imperial units, New York time) ----
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const html = (id, h) => { document.getElementById(id).innerHTML = h; };
+const lap = t => { if (!(t > 0)) return '—'; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); };
+const short = car => String(car || '').replace(/^Chevrolet /, '');
+const NY = 'America/New_York';
+const nyDay = d => d.toLocaleDateString('en-US', { timeZone: NY, weekday: 'short' }) + ' ' + d.toLocaleDateString('en-US', { timeZone: NY, day: 'numeric' }) + ' ' + d.toLocaleDateString('en-US', { timeZone: NY, month: 'short' });
+const nyTime = d => d.toLocaleTimeString('en-US', { timeZone: NY, hour: 'numeric', minute: '2-digit' });
+const nyWd = d => d.toLocaleDateString('en-US', { timeZone: NY, weekday: 'short' });
+const eta = sec => sec < 60 ? 'starting' : sec < 3600 ? 'in ' + Math.floor(sec / 60) + ' min' : 'in ' + Math.floor(sec / 3600) + ' h ' + String(Math.floor(sec % 3600 / 60)).padStart(2, '0');
+
+// top line
+html('idleDate', nyDay(NOW));
+html('idleClock', nyTime(NOW) + ' ET');
+
+// the one action
+const apps = {}; health.apps.forEach(a => apps[a.id] = a.state);
+let act;
+if (apps.ui !== 'ok') act = { label: 'Rig on', sub: 'iRacing UI off' };
+else if (apps.sim === 'live') act = { label: 'Get in', sub: short(home.me.car) + ' · ' + (home.last ? home.last.track : '') };
+else if (home.last) act = { label: 'Last drive', sub: short(home.last.car) + ' · ' + home.last.track };
+else act = { label: 'Start', sub: '' };
+html('homeNext', '<div><b>' + esc(act.label) + '</b>' + (act.sub ? '<span>' + esc(act.sub) + '</span>' : '') + '</div><svg viewBox="0 0 44 44" aria-hidden="true"><path d="M6 22h31M24 9l13 13-13 13"/></svg>');
+
+// who he is (secondary)
+html('homeDriver', home.me.path ? '<span class="num">' + esc(home.me.num) + '</span><span class="name">' + esc(home.me.name) + '</span>' +
+  (career.lic ? '<span class="lic">Licence ' + esc(career.lic) + ' · ' + esc(career.ir) + ' iR</span>' : '') : '');
+
+// his car: the official iRacing image at native size; with no car yet, his name takes the slot (clean type, no drawing)
+const car = document.getElementById('homeCar');
+if (home.me.path) car.innerHTML = '<img src="../../../paddock/cars/' + esc(home.me.path) + '.jpg" alt="' + esc(home.me.car) + '">';
+else { car.className = 'car none'; car.innerHTML = '<div class="big"><i>' + esc(home.me.num) + '</i>' + esc(home.me.name) + '</div>' + (career.lic ? '<div class="sub">Licence ' + esc(career.lic) + ' · ' + esc(career.ir) + ' iR</div>' : ''); }
+
+// is everything ready: one word, then only the rows that carry a value or a problem
+(function () {
+  const rows = [], bad = [];
+  let worst = 'ok';
+  const names = { deck: 'Stream Deck', ui: 'iRacing UI', cc: 'CrewChief', overlays: 'Overlays' };
+  const appLine = [];
+  health.apps.forEach(a => {
+    if (a.id === 'sim') return;
+    if (a.state === 'ok') appLine.push('<i>' + esc(a.name) + '</i>');
+    else { appLine.push('<i class="off">' + esc(a.name) + ' off</i>'); bad.push(a.name + ' off'); worst = worst === 'fail' ? 'fail' : 'warn'; }
+  });
+  // recording
+  let rv, rc = '';
+  const gb = rec.freeGb != null ? Math.round(rec.freeGb) + ' GB free' : '';
+  const low = rec.enabled && rec.freeGb != null && rec.freeGb < rec.minFreeGb;
+  if (!rec.enabled) { rv = 'Not available'; rc = 'mute'; }
+  else if (rec.gaveUp || rec.capture.state === 'failed') { rv = 'Failed · ' + gb; rc = 'fail'; bad.unshift('Recording failed'); worst = 'fail'; }
+  else if (rec.capture.state === 'recording') { rv = 'On ' + Math.floor(rec.capture.secs / 60) + ':' + String(rec.capture.secs % 60).padStart(2, '0') + ' · ' + Math.round(rec.freeGb) + ' GB'; rc = 'ok'; }
+  else if (rec.capture.state === 'off') { rv = 'Off · ' + gb; rc = 'mute'; }
+  else if (low) { rv = 'Disk low · ' + gb; rc = 'warn'; worst = worst === 'fail' ? 'fail' : 'warn'; bad.push('Disk low'); }
+  else { rv = 'Ready · ' + gb; }
+  rows.push(['Recording', rv, rc]);
+  // phone
+  const p = home.phone;
+  if (!p.allowed) rows.push(['Phone', 'run tools\\phone-allow.cmd', 'warn']);
+  else if (!p.lan) rows.push(['Phone', 'no home network', 'mute']);
+  else rows.push(['Phone', p.paired ? p.paired + ' paired' : 'none paired', p.paired ? '' : 'mute']);
+  // sim live
+  const live = apps.sim === 'live';
+  let head = live ? 'Live' : 'Ready', hc = live ? 'live' : 'ok';
+  if (worst !== 'ok' && !live) { head = bad[0]; hc = worst; }
+  html('idleRig', '<div class="head"><span class="dot ' + hc + '"></span><b class="' + (head.length > 9 ? 'w' : '') + ' ' + (hc === 'ok' || hc === 'live' ? '' : hc) + '">' + esc(head) + '</b></div>' +
+    rows.map(r => '<div class="row"><span class="k">' + r[0] + '</span><span class="v ' + r[2] + '">' + esc(r[1]) + '</span></div>').join('') +
+    '<div class="apps">' + appLine.join('') + '</div>');
+})();
+
+// next race
+(function () {
+  const r = home.nextRace;
+  if (!r) { html('homeRace', '<div class="lbl">Next race</div><div class="none">No race published</div>'); return; }
+  const d = new Date(r.localStart.replace(' ', 'T'));
+  // one trailing marker: quiet when he owns both, amber naming what he lacks
+  const own = (!r.ownedCar && !r.ownedTrack) ? '<small class="no">car and track not owned</small>' : !r.ownedCar ? '<small class="no">car not owned</small>' : !r.ownedTrack ? '<small class="no">track not owned</small>' : '<small>owned</small>';
+  html('homeRace', '<div class="lbl">Next race' + (r.stale ? '<span class="sep">·</span><span class="warn">schedule as of ' + esc(r.stale) + '</span>' : '') + '</div>' +
+    '<div class="eta"><b>' + esc(eta(r.countdownSeconds)) + '</b><span>' + esc(nyTime(d)) + ' ET · ' + esc(r.cadence) + '</span></div>' +
+    '<div class="ser">' + esc(r.series) + '</div>' +
+    '<div class="ct">' + esc(r.car) + ' · ' + esc(r.track) + own + '</div>');
+})();
+
+// last outing + this week
+(function () {
+  const l = home.last, w = home.week;
+  let h;
+  if (!l) h = '<div class="lbl">Last outing</div><div class="val"><b>—</b></div><div class="det mute">No drive recorded yet</div>';
+  else {
+    const bits = [l.track, l.type, l.laps + (l.laps === 1 ? ' lap' : ' laps'), short(l.car)].filter(Boolean).join(' · ');
+    h = '<div class="lbl">Last outing<span class="sep">·</span>' + esc(l.ago) + '</div>' +
+      '<div class="val"><b>' + lap(l.best) + '<small>best lap</small></b><button type="button" id="homeReview">Review</button></div>' +
+      '<div class="det">' + esc(bits) + '</div>';
+  }
+  h += '<div class="wk"><span class="lbl">This week</span>' + (w
+    ? '<b>' + w.hours.toFixed(1) + '<small>h</small></b><b>' + w.laps + '<small>laps</small></b><b>' + w.pbs + '<small>PBs</small></b><span class="lw">last week ' + w.lastHours.toFixed(1) + ' h · ' + w.lastLaps + ' laps</span>'
+    : '<b>—</b>') + '</div>';
+  html('homeLast', h);
+})();
+
+// watch: group the feed by event, keep the Race and the two sessions before it, three events at most
+(function () {
+  const groups = [];
+  rw.events.forEach(e => {
+    let g = groups.find(x => x.series === e.series && x.event === e.event);
+    if (!g) { g = { series: e.series, event: e.event, rows: [] }; groups.push(g); }
+    g.rows.push(e);
+  });
+  const srcs = 'racetagger.cloud · jolpi.ca';
+  const label = '<div class="lbl">Watch<span class="sep">·</span>Real world' + (rw.fresh ? '' : '<span class="sep">·</span><span class="warn">as of ' + esc(nyDay(new Date(rw.asOf)) + ' ' + nyTime(new Date(rw.asOf))) + '</span>') + '<span class="src tiny">' + srcs + '</span></div>';
+  if (!groups.length) { html('homeWeekend', label + '<div class="none">No events published</div>'); return; }
+  const cols = groups.slice(0, 3).map(g => {
+    const ri = g.rows.findIndex(x => /^race$/i.test(x.session));
+    const keep = ri >= 0 ? g.rows.slice(Math.max(0, ri - 2), ri + 1) : g.rows.slice(0, 3);
+    const first = new Date(g.rows[0].localStart), lastd = new Date(g.rows[g.rows.length - 1].localStart);
+    const range = first.toLocaleDateString('en-US', { timeZone: NY, day: 'numeric' }) + '–' + lastd.toLocaleDateString('en-US', { timeZone: NY, day: 'numeric' }) + ' ' + lastd.toLocaleDateString('en-US', { timeZone: NY, month: 'short' });
+    const name = g.event.indexOf(' - ') >= 0 ? g.event.slice(g.event.lastIndexOf(' - ') + 3) : g.event;
+    return '<div class="ev"><div class="h">' + esc(g.series) + '<span>' + esc(range) + '</span></div><div class="n">' + esc(name) + '</div>' +
+      keep.map(x => { const d = new Date(x.localStart); const t = x.tbc ? '<span class="tbc">' + nyWd(d) + ' · time TBC</span>' : '<span>' + nyWd(d) + ' ' + nyTime(d) + '</span>';
+        return '<div class="s' + (/^race$/i.test(x.session) ? ' key' : '') + '"><em>' + esc(x.session) + '</em>' + t + '</div>'; }).join('') + '</div>';
+  }).join('');
+  html('homeWeekend', label + '<div class="cols">' + cols + '</div>');
+})();
+</script>
+</body>
+</html>

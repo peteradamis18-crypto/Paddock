@@ -9,8 +9,9 @@ const Idle = {
   clock() {
     if (document.hidden) return;
     const d = new Date();
-    setText('idleClock', d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
-    setText('idleDate', d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }));
+    // one clock everywhere: New York, 12-hour (home.js draws the same)
+    if (window.Home && Home.clock) { Home.clock(); return; }
+    setText('idleClock', d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET');
   },
 
   async last() {

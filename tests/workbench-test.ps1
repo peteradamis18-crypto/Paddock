@@ -838,6 +838,17 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Cdp-Key 'Enter' 'Enter' ''; Start-Sleep -Milliseconds 400
   $rowsLG = Cdp-Json 'WB.displays().filter(function(d){return d.kind==="traces"})[0].rows.map(function(r){return r.key||r.kind})'
   Check 'Enter adds Lateral G as a trace row and closes the picker' (@($rowsLG).Count -eq $rows0 + 1 -and ($rowsLG -contains 'latG') -and -not (Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0'))
+  # Peter 2026-10-15: "channel button can't escape" - every way out must work, with or without the keyboard
+  $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 150
+  $null = Cdp-Eval '(function(){var b=document.querySelector(".picker .pclose");b.dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))})()'; Start-Sleep -Milliseconds 150
+  Check 'the picker has a visible Close button and it closes the picker' (-not (Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0'))
+  $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 150
+  $null = Cdp-Eval 'document.querySelector(".picker input").blur(); document.body.focus(); 1'
+  Cdp-Key 'Escape' 'Escape' ''; Start-Sleep -Milliseconds 200
+  Check 'Esc closes the picker even when the search field has lost focus' (-not (Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0'))
+  $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 150
+  $null = Cdp-Eval '(function(){document.body.dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))})()'; Start-Sleep -Milliseconds 150
+  Check 'a click outside the picker closes it' (-not (Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0'))
   $null = Cdp-Eval 'WB.cmd("cursor", 1500)'; Start-Sleep -Milliseconds 200
   $lat = Cdp-Eval 'WB.data().A.c.latG[1500].toFixed(2)'
   Check "the new row shows the lateral g at the cursor ($lat) like every other row" ((Cdp-Eval ('WB.textBoxes().some(function(b){return b.s==="' + $lat + '"})')) -eq $true)

@@ -266,98 +266,79 @@ public static class PitProbe {
   $yNum = if ($h.me -and $h.me.file -and (Test-Path -LiteralPath $mePath)) { Yaml-Me $y 'CarNumber' } else { '' }
   Check "the car on HOME is the last real session's ($($h.last.file)) and the number box is that session's number ($yNum)" ($yNum -and $h.num -eq $yNum -and $h.me.num -eq $yNum -and $h.me.file -eq $h.last.file) "num=$($h.num) me.num=$($h.me.num) yaml=$yNum me=$($h.me.file) last=$($h.last.file)"
 
-  Section '2. the page in headless Chrome (1920x1080): data, his car, the button, the grid, the picture, the states'
+  Section '2. the page in headless Chrome (1920x1080): HOME v3 - live data, his car, the one button, READY, the states'
+  # The layout itself (grid, type sizes, overlaps, eight states) is measured offline by tests\home-v3-test.ps1. Here: the
+  # real page against the real irdash - the numbers on screen equal the endpoints, and every control does what it says.
   Add-Type -AssemblyName System.Drawing
   Cdp-Open "$api/v2/"
-  $drawn = Wait-Until "!!document.querySelector('#homePbs .pb') && !!document.querySelector('#homeCareer .w') && !!document.querySelector('#homeWeek .w') && !!document.querySelector('#homeLast .tk') && !!document.querySelector('#homeRace h2') && !!document.querySelector('#homeWeekend .home-event') && !document.getElementById('homeNext').hidden" 20
-  Check 'HOME drew its blocks' $drawn
-  # The first refresh has finished once every block is present. Stop subsequent polling before controlled fixtures.
+  $drawn = Wait-Until "!!document.querySelector('#homeWeek b') && !!document.querySelector('#homeLast .val') && !!document.querySelector('#homeRace .lbl') && !!document.querySelector('#homeWeekend .lbl') && !!document.querySelector('#idleRig .head') && !document.getElementById('homeNext').hidden" 20
+  Check 'HOME drew its three bands (button, READY, next race, last outing, this week, watch)' $drawn
   $null = Cdp-Eval "window.__homeTick = Home.tick; clearInterval(Home.tickTimer); clearInterval(Home.nextTimer); clearInterval(Home.phoneTimer); Home.tick = async function(){ return true; }; true"
-  Start-Sleep -Seconds 3        # the blocks arrive one after another (about 1.5 s)
-  Start-Sleep -Milliseconds 1200
-  $heroOk = Wait-Until "document.getElementById('homeHero').classList.contains('on') && document.getElementById('heroImg').naturalWidth > 1000 && getComputedStyle(document.getElementById('homeHero')).opacity > 0.99" 15
-  Check 'the hero picture is drawn (>1000 px wide)' $heroOk
+  Start-Sleep -Seconds 2
   Check 'the overlay (HOME) is shown while no session runs' ((Cdp-Eval "document.getElementById('overlay').classList.contains('show')") -eq $true)
-  $dom = Cdp-Json "({ name: document.querySelector('#homeDriver .who b') && document.querySelector('#homeDriver .who b').textContent, num: document.querySelector('#homeDriver .num') && document.querySelector('#homeDriver .num').textContent, pbs: Array.from(document.querySelectorAll('#homePbs .pb')).map(e => ({ track: e.querySelector('.tk').firstChild.textContent, t: e.querySelector('.t').textContent })), career: Array.from(document.querySelectorAll('#homeCareer .w b')).map(e => e.textContent.trim()), since: (function(){ var e = document.querySelector('#homeCareer label .dim'); return e ? { text: e.textContent, fs: parseFloat(getComputedStyle(e).fontSize), bigNums: Array.from(document.querySelectorAll('#homeCareer .w b')).map(b => b.textContent.trim()) } : null; })(), week: Array.from(document.querySelectorAll('#homeWeek .w b')).map(e => e.textContent.trim()), weekLabel: (document.querySelector('#homeWeek label span') || {}).textContent || '', lastWeek: (document.querySelector('#homeWeek .sub') || {}).textContent || '', lastLabel: (document.querySelector('#homeLast label span') || {}).textContent || '', last: document.querySelector('#homeLast .tk') && document.querySelector('#homeLast .tk').textContent, lastBest: (document.querySelector('#homeLast .t') || {}).textContent || '', review: !!document.getElementById('homeReview'), next: document.querySelector('#homeNext b').textContent, nextSub: (document.querySelector('#homeNext span') || {}).textContent || '', phone: document.getElementById('homePhoneNote').textContent, qr: !!document.querySelector('#homePhone canvas') && !document.getElementById('homePhone').hidden })"
-  Check 'driver name on screen equals /home' ($dom.name -eq $h.name) "'$($dom.name)'"
-  Check 'number on screen equals /home' ($dom.num -eq $h.num) "'$($dom.num)'"
-  Check 'number on screen equals the number of the car shown (/home me.num)' ($dom.num -eq $h.me.num -and $dom.num) "'$($dom.num)' vs '$($h.me.num)'"
-  Section '2a. driver card fixtures: one YAML row, cached official picture, and text-only fallback'
+  $dom = Cdp-Json "({ name: (document.querySelector('#homeDriver .name') || document.querySelector('#homeCar .big') || {}).textContent || '', num: (document.querySelector('#homeDriver .num') || document.querySelector('#homeCar .big i') || {}).textContent || '', week: Array.from(document.querySelectorAll('#homeWeek b')).map(e => e.firstChild.textContent.trim()), weekLabel: (document.querySelector('#homeWeek .lbl') || {}).textContent || '', lastLabel: (document.querySelector('#homeLast > .lbl') || {}).textContent || '', lastDet: (document.querySelector('#homeLast .det') || {}).textContent || '', lastBest: ((document.querySelector('#homeLast .val b') || {}).firstChild || {}).textContent || '', review: !!document.getElementById('homeReview'), head: (document.querySelector('#idleRig .head b') || {}).textContent || '', rows: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.querySelector('.k').textContent + '=' + r.querySelector('.v').textContent), clock: document.getElementById('idleClock').textContent })"
+  Check 'driver name on screen equals /home' ($dom.name -match [regex]::Escape($h.name)) "'$($dom.name)'"
+  Check 'number on screen equals /home and the car shown (me.num)' ($dom.num -eq $h.num -and $dom.num -eq $h.me.num) "'$($dom.num)' vs '$($h.num)' / '$($h.me.num)'"
+  Check "the clock is New York time, 12-hour, marked ET ('$($dom.clock)')" ($dom.clock -match '^\d{1,2}:\d{2} (AM|PM) ET$')
+  Check "READY says one word and lists Recording and Phone ('$($dom.head)': $($dom.rows -join ', '))" ($dom.head.Length -gt 0 -and @($dom.rows | Where-Object { $_ -like 'Recording=*' }).Count -eq 1 -and @($dom.rows | Where-Object { $_ -like 'Phone=*' }).Count -eq 1)
+  $rec = J "$api/vault/recorder"
+  $recRow = @($dom.rows | Where-Object { $_ -like 'Recording=*' })[0]
+  Check "the Recording row follows irdash's capture verdict ($($rec.capture.state), $([math]::Round([double]$rec.freeGb)) GB free): '$recRow'" ((-not $rec.enabled -and $recRow -match 'Off') -or ($rec.capture.state -eq 'recording' -and $recRow -match '^Recording=On ') -or ($rec.capture.state -in @('idle', 'starting') -and $recRow -match ('^Recording=(Ready|Disk low)'))) "row='$recRow'"
+
+  Section '2a. his car: iRacing''s own picture at native size, or his name in clean type - never a drawing'
   $cardFixture = @'
 (() => {
   const original = Home.home, oldPic = window.PCarPic;
-  const rows = [
-    { CarIdx: 2, UserName: 'Wrong Driver', CarNumber: '91', TeamName: 'Decoy Team', CarScreenName: 'Decoy Car', CarPath: 'decoy' },
-    { CarIdx: 7, UserName: 'Peter Fixture', CarNumber: '4', TeamName: '', CarScreenName: 'Corvette Fixture', CarPath: 'corvettez06rgt3' }
-  ];
-  const rootDriverCarIdx = 7;
-  const me = rows.filter(r => r.CarIdx === rootDriverCarIdx)[0];
   window.__picCalls = 0; window.__picWidth = 0;
   window.PCarPic = { known: () => ({ corvettez06rgt3: 1 }), key: p => p, html: o => { window.__picCalls++; window.__picWidth = o.w; return '<div class="cpic" data-fixture="official"></div>'; }, refresh: () => {}, ready: () => Promise.resolve() };
-  Home.home = { name: me.UserName, num: me.CarNumber, car: me.CarScreenName, me: { name: me.UserName, num: me.CarNumber, team: me.TeamName || 'Pratt Miller Motorsports', car: me.CarScreenName, path: me.CarPath } };
+  Home.home = Object.assign({}, original, { name: 'Peter Fixture', num: '4', me: { name: 'Peter Fixture', num: '4', car: 'Corvette Fixture', path: 'corvettez06rgt3' } });
   Home.draw();
-  const read = () => ({ name: document.querySelector('#homeDriver .who b').textContent, num: (document.querySelector('#homeDriver .num') || {}).textContent || '', team: (document.querySelector('#homeDriver .car span') || {}).textContent || '', car: (document.querySelector('#homeDriver .car b') || {}).textContent || '', frame: !!document.querySelector('#homeDriver .cpic'), box: !!document.querySelector('#homeDriver .mycar'), emptyImg: !!document.querySelector('#homeDriver img'), calls: window.__picCalls, width: window.__picWidth });
+  const read = () => ({ row: document.getElementById('homeDriver').innerText.replace(/\s+/g, ' ').trim(), frame: !!document.querySelector('#homeCar .cpic'), big: (document.querySelector('#homeCar .big') || {}).textContent || '', calls: window.__picCalls, width: window.__picWidth, svg: document.querySelectorAll('#homeCar svg, svg.pcar').length });
   const cached = read();
-  Home.home = { name: 'Peter Fixture', num: '4', me: { name: 'Peter Fixture', num: '4', team: 'Pratt Miller Motorsports', car: 'Corvette Fixture', path: 'unavailable' } };
+  Home.home = Object.assign({}, original, { me: { name: 'Peter Fixture', num: '4', car: 'Corvette Fixture', path: 'unavailable' } });
   window.PCarPic = { known: () => ({}), key: p => p, html: () => { window.__picCalls++; return ''; }, refresh: () => {}, ready: () => Promise.resolve() };
   Home.draw(); const absent = read();
-  Home.home = { name: '', num: '', car: '', me: null };
-  Home.draw(); const empty = { name: document.querySelector('#homeDriver .who b').textContent, num: !!document.querySelector('#homeDriver .num'), car: !!document.querySelector('#homeDriver .idcar'), text: document.getElementById('homeDriver').innerText };
+  Home.home = Object.assign({}, original, { me: null });
+  Home.draw(); const empty = read();
   Home.home = original; window.PCarPic = oldPic; Home.draw();
   return { cached, absent, empty };
 })()
 '@
   $fixture = Cdp-Json $cardFixture
-  Check 'driver card takes name and number from the DriverCarIdx row, not the other driver' ($fixture.cached.name -eq 'Peter Fixture' -and $fixture.cached.num -eq '4' -and $fixture.cached.car -eq 'Corvette Fixture') ($fixture.cached | ConvertTo-Json -Compress)
-  Check 'the other driver row does not leak into HOME' ($fixture.cached.name -ne 'Wrong Driver' -and $fixture.cached.num -ne '91' -and $fixture.cached.team -ne 'Decoy Team') ($fixture.cached | ConvertTo-Json -Compress)
-  Check 'team is taken only from the actual row, with no unverified fallback' ($fixture.cached.team -eq 'Pratt Miller Motorsports') "team='$($fixture.cached.team)'"
-  Check 'the local official picture uses HOME column size and matching CarPath' ($fixture.cached.frame -and $fixture.cached.calls -eq 1 -and $fixture.cached.width -eq 144) ($fixture.cached | ConvertTo-Json -Compress)
-  Check 'an unavailable local picture leaves typography with no frame, image box or fetch request' (-not $fixture.absent.frame -and -not $fixture.absent.box -and -not $fixture.absent.emptyImg -and $fixture.absent.calls -eq 1 -and $fixture.absent.name -eq 'Peter Fixture' -and $fixture.absent.num -eq '4') ($fixture.absent | ConvertTo-Json -Compress)
-  Check 'missing YAML identity renders no substitute name, number or car and does not throw' (-not $fixture.empty.name -and -not $fixture.empty.num -and -not $fixture.empty.car -and -not $fixture.empty.text) ($fixture.empty | ConvertTo-Json -Compress)
-  $null = Cdp-Eval "window.__savedHome = Home.home; window.__savedPic = window.PCarPic; Home.home = { name: 'Peter Fixture', num: '4', car: 'Corvette Fixture', me: { name: 'Peter Fixture', num: '4', team: 'Pratt Miller Motorsports', car: 'Corvette Fixture', path: 'corvettez06rgt3' } }; window.PCarPic = { known: function(){ return { corvettez06rgt3: 1 }; }, key: function(p){ return p; }, html: function(){ return '<div class=\"cpic\"><img alt=\"\" src=\"/cars/corvettez06rgt3.jpg\"></div>'; }, refresh: function(){ } }; Home.draw(); true"
-  Cdp-Shot (Join-Path $shots 'home-driver-card-picture.png')
-  $null = Cdp-Eval "window.PCarPic = { known: function(){ return {}; }, key: function(p){ return p; }, html: function(){ return ''; }, refresh: function(){ } }; Home.draw(); true"
-  Cdp-Shot (Join-Path $shots 'home-driver-card-text.png')
-  $null = Cdp-Eval "Home.home = window.__savedHome; window.PCarPic = window.__savedPic; Home.draw(); true"
+  Check 'with a picture: the official picture is asked for at its native 480 px, and the name row sits under the button' ($fixture.cached.frame -and $fixture.cached.calls -eq 1 -and $fixture.cached.width -eq 480 -and $fixture.cached.row -match 'Peter Fixture') ($fixture.cached | ConvertTo-Json -Compress)
+  Check 'no picture for that car: his number and name take the car slot in clean type, no frame, no drawing' (-not $fixture.absent.frame -and $fixture.absent.big -match '4' -and $fixture.absent.big -match 'Peter Fixture' -and $fixture.absent.svg -eq 0) ($fixture.absent | ConvertTo-Json -Compress)
+  Check 'no identity at all: nothing is invented (no name, number or picture)' (-not $fixture.empty.frame -and -not $fixture.empty.big -and -not $fixture.empty.row) ($fixture.empty | ConvertTo-Json -Compress)
+  $nocar = Cdp-Json "({ pcars: document.querySelectorAll('svg.pcar').length, api: typeof window.PCars, dormant: typeof window.PCarsDormant, hero: !!document.getElementById('heroImg') })"
+  Check "no DRAWN car and no stock photo on HOME (svg.pcar $($nocar.pcars), window.PCars $($nocar.api), hero photo element present: $($nocar.hero))" ($nocar.pcars -eq 0 -and $nocar.api -eq 'undefined' -and -not $nocar.hero)
+
+  Section '2b. the numbers on screen equal the endpoints'
   $sched = Cdp-Json "({ race: document.getElementById('homeRace').innerText, weekend: document.getElementById('homeWeekend').innerText })"
+  if ($h.nextRace) { Check "NEXT RACE shows the published series and track ($($h.nextRace.series), $($h.nextRace.track))" ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track)) ($sched.race -replace '\s+', ' ') }
+  else { Check 'no next race: says so, invents nothing' ($sched.race -match 'No race published') }
   $firstReal = @($timedReal | Sort-Object localStart | Select-Object -First 1)[0]
-  # one clock everywhere: New York time, 12-hour, EST/EDT (home.js nyDay/nyTime)
-  $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
-  $firstRealDate = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::Parse($firstReal.localStart), $ny).ToString('ddd, MMM d', [Globalization.CultureInfo]::InvariantCulture)
-  Check 'NEXT RACE and THIS WEEKEND REAL WORLD use the current published local schedule' ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track) -and $sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match [regex]::Escape($firstRealDate) -and $sched.weekend -match '\d{1,2}:\d{2} (AM|PM) E[SD]T') "race='$($sched.race -replace '\s+',' ')'; first='$($sched.weekend -replace '\s+',' ')' wanted=$($firstReal.series) $firstRealDate"
-  # P0-04: THIS WEEK and LAST OUTING drawn from /home, with real numbers only
+  Check "WATCH shows the published schedule ($($firstReal.series) first), New York times, never the word Live" ($sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match '\d{1,2}:\d{2} (AM|PM)' -and $sched.weekend -notmatch '\bLive\b') ($sched.weekend -replace '\s+', ' ')
   Check "THIS WEEK on screen equals /home week: $($dom.week -join ' ') (hours, laps, PBs)" (@($dom.week).Count -ge 3 -and $dom.week[0] -eq ([double]$h.week.hours).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) -and ($dom.week[1] -replace ',', '') -eq "$($h.week.laps)" -and ($dom.week[2] -replace ',', '') -eq "$($h.week.pbs)") "week='$($dom.week -join ' ')' vs $($h.week.hours)/$($h.week.laps)/$($h.week.pbs)"
   Check "the THIS WEEK heading is there ('$($dom.weekLabel)')" ($dom.weekLabel -eq 'This week')
-  if ($c.week.sessions -eq 0) { Check 'empty THIS WEEK is explicit on HOME: 0.0 h, 0 laps, and a LAST WEEK line' ($h.week.hours -eq 0 -and $h.week.laps -eq 0 -and $dom.week.Count -ge 2 -and $dom.week[0] -eq '0.0' -and $dom.week[1] -eq '0' -and $dom.lastWeek -match '^Last week ') "week=$($dom.week -join '/') lastWeek='$($dom.lastWeek)'" }
-  Check "LAST OUTING on screen equals /home lastOuting: '$($dom.last)' ($($dom.lastBest)), heading '$($dom.lastLabel)'" ($dom.lastLabel -eq 'Last outing' -and $dom.last -eq $h.lastOuting.track -and (-not $h.lastOuting.best -or $dom.lastBest -eq (Lap $h.lastOuting.best))) "label='$($dom.lastLabel)' track='$($dom.last)' best='$($dom.lastBest)'"
-  # PL-1: no DRAWN car anywhere on HOME (cars.js CARS_DRAWN = false); the car slot holds a real picture only
-  $meName = ([string]$h.me.car) -replace '^Chevrolet ', ''
-  $nocar = Cdp-Json "(function(){var d=document.getElementById('homeDriver'),t=d.querySelector('.idcar .car b');return {pcars:document.querySelectorAll('svg.pcar').length,mycarSvg:document.querySelectorAll('.mycar svg').length,api:typeof window.PCars,dormant:typeof window.PCarsDormant,txt:t?t.textContent:''}})()"
-  Check "no DRAWN car anywhere on HOME (svg.pcar $($nocar.pcars), svg in the car slot $($nocar.mycarSvg), window.PCars is $($nocar.api)): CARS_DRAWN is off, the drawing code is only dormant ($($nocar.dormant))" ($nocar.pcars -eq 0 -and $nocar.mycarSvg -eq 0 -and $nocar.api -eq 'undefined' -and $nocar.dormant -eq 'object')
-  Check "the car line names the car of his last real session ('$($nocar.txt)' is $meName)" ($nocar.txt -eq $meName)
-  # Lead review: no studio tile on HOME (the hero photo shows the car); the car name stands alone on the left margin
-  $tile = Cdp-Json "(function(){var d=document.getElementById('homeDriver'),c=d.querySelector('.idcar .car');return {tiles:d.querySelectorAll('.mycar, .cpic').length,left:c?c.getBoundingClientRect().left:-1}})()"
-  Check "driver identity is on the right card; no studio car tile is shown (tiles $($tile.tiles))" ($tile.tiles -eq 0 -and (Cdp-Eval "Math.round(document.getElementById('homeDriver').getBoundingClientRect().left)") -eq 960)
-  # 2026-10-11: an invisible full-screen layer (#homeHost, display:flex beat [hidden]) swallowed every click on HOME.
-  # Every visible control must receive a click at its centre.
+  Check "LAST OUTING on screen equals /home lastOuting: '$($dom.lastDet)' ($($dom.lastBest))" ($dom.lastLabel -like 'Last outing*' -and $dom.lastDet -like "$($h.lastOuting.track)*" -and (-not $h.lastOuting.best -or $dom.lastBest -eq (Lap $h.lastOuting.best)) -and $dom.review) "label='$($dom.lastLabel)' det='$($dom.lastDet)' best='$($dom.lastBest)'"
+  # 2026-10-11: an invisible full-screen layer swallowed every click on HOME. Every visible control must receive a click at its centre.
   $clk = Cdp-Json "(function(){var bad=[],n=0;[].forEach.call(document.querySelectorAll('#overlay button, #overlay a, #overlay .idle-link, #overlay [data-act]'),function(el){var r=el.getBoundingClientRect();if(r.width<4||r.height<4||getComputedStyle(el).visibility==='hidden')return;n++;var t=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);if(!(t===el||el.contains(t)))bad.push((el.id||el.className||el.tagName)+' under '+(t?(t.id||t.className||t.tagName):'nothing'))});return {n:n,bad:bad}})()"
   Check "every visible HOME control receives a click at its centre ($($clk.n) controls)" ($clk.n -ge 3 -and @($clk.bad).Count -eq 0) (@($clk.bad) -join '; ')
-  $hcJs = "(function(){var d=document.getElementById('homeDriver'),b=d.querySelector('.who b').getBoundingClientRect(),car=d.querySelector('.idcar .car'),f=d.querySelector('.mycar .cpic'),im=f&&f.querySelector('img'),fr=f?f.getBoundingClientRect():null,cr=car?car.getBoundingClientRect():null;return {hasF:!!f,nat:im?im.naturalWidth:0,natH:im?im.naturalHeight:0,src:im?im.getAttribute('src'):'',w:fr?fr.width:0,h:fr?fr.height:0,left:fr?fr.left:0,gapName:fr?fr.top-b.bottom:-99,gapText:fr&&cr?cr.left-fr.right:-99,midDiff:fr&&cr?Math.abs((fr.top+fr.bottom)/2-(cr.top+cr.bottom)/2):-1,broken:[].filter.call(document.querySelectorAll('img'),function(i){return i.complete&&i.naturalWidth===0}).length,frames:document.querySelectorAll('.cpic').length}})()"
-  $hc = Cdp-Json $hcJs
-  Check "no broken image on HOME ($($hc.broken))" ($hc.broken -eq 0)
-  $pbBad = @(); for ($i = 0; $i -lt [math]::Min(3, $h.pbs.Count); $i++) { if ($dom.pbs[$i].track -ne $h.pbs[$i].track -or $dom.pbs[$i].t -ne (Lap $h.pbs[$i].best)) { $pbBad += "$($dom.pbs[$i].track) $($dom.pbs[$i].t) vs $($h.pbs[$i].track) $(Lap $h.pbs[$i].best)" } }
-  Check 'personal bests on screen equal /home (track and time), three at most' ($pbBad.Count -eq 0 -and @($dom.pbs).Count -eq [math]::Min(3, $h.pbs.Count)) ($pbBad -join '; ')
-  Check 'career hours on screen equal /career' ($dom.career[0] -eq ([double]$c.hours).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) "'$($dom.career[0])' vs $($c.hours)"
-  Check 'career laps, km and races on screen equal /career' ((($dom.career[1] -replace ',', '') -eq "$($c.laps)") -and (($dom.career[2] -replace ',', '') -eq "$([math]::Round([double]$c.km))") -and (($dom.career[3] -replace ',', '') -eq "$($c.races)")) "'$($dom.career -join ' ')'"
-  # PL-1: "since May 2023" is one small label beside CAREER, not a number that reads like a statistic
-  Check "the career 'since' is one small label ('$($dom.since.text)'): Since <month> <year> as /career says ($($c.since)), 14 px, and no big number on the row is a year" ($dom.since -and $dom.since.text -eq "Since $($c.since)" -and $dom.since.fs -le 14 -and @($dom.since.bigNums | Where-Object { $_ -match '^(19|20)\d\d$' }).Count -eq 0) "since=$($dom.since | ConvertTo-Json -Compress)"
-  Check 'last session on screen with its REVIEW button' ($dom.last -eq $h.last.track -and $dom.review) "'$($dom.last)'"
+  Check "no broken image on HOME" ((Cdp-Eval "[].filter.call(document.querySelectorAll('#overlay img'),function(i){return i.complete&&i.naturalWidth===0}).length") -eq 0)
+  $lay = Cdp-Json "(function(){var ov=document.getElementById('overlay'),out=[],small=[],w=document.createTreeWalker(ov,NodeFilter.SHOW_TEXT);while(w.nextNode()){var n=w.currentNode,s=n.textContent.trim();if(!s)continue;var p=n.parentElement;if(p.closest('#homeHost, [hidden], .idle-foot'))continue;var cs=getComputedStyle(p);if(cs.display==='none'||cs.visibility==='hidden')continue;var rg=document.createRange();rg.selectNodeContents(n);var r=rg.getBoundingClientRect();if(r.width<1)continue;if(r.left<-0.5||r.top<-0.5||r.right>1920.5||r.bottom>1080.5)out.push(s.slice(0,24));if(parseFloat(cs.fontSize)<20&&!p.closest('.tiny'))small.push(cs.fontSize+' '+s.slice(0,20));}var t=ov.cloneNode(true);[].forEach.call(t.querySelectorAll('.ser, .ev .n, #homeHost'),function(e){e.remove();});return {out:out,small:small,text:t.innerText};})()"
+  Check "nothing is outside 1920 x 1080 ($(@($lay.out) -join '; '))" (@($lay.out).Count -eq 0)
+  Check "no text under 20 px except the source line ($(@($lay.small) -join '; '))" (@($lay.small).Count -eq 0)
+  # COPY-RULES; series and event names are iRacing's / the organisers' own words (e.g. "SENSIT!") and are left out of this check
+  $banned = @('\b(you|your|yours|you''re|you''ve|you''ll)\b', 'good (morning|afternoon|evening)', 'ready when', 'when you are', 'welcome', '\b(just|simply|quietly|automatically|insight|journey|story)\b', 'by itself', 'let''s', 'here''s', '!', '\s–\s', '\w - \w', 'outline from', 'from your own', 'sampled', 'explains', 'is the mean', 'worked out from', 'last time here')
+  $hitW = @($banned | Where-Object { ([string]$lay.text) -match "(?i)$_" })
+  Check "no banned words or punctuation on HOME (COPY-RULES, $($banned.Count) patterns)" ($hitW.Count -eq 0) "found: $($hitW -join ' | ') in: $(([string]$lay.text) -replace '\s+', ' ')"
+  Check 'REVIEW is a big enough target (44 px tall or more)' ((Cdp-Eval "document.getElementById('homeReview').getBoundingClientRect().height") -ge 44)
+  Cdp-Shot (Join-Path $shots 'home-v3-live-idle.png')
 
-  # DS-1: the one button does exactly what it says. LAST DRIVE names the car and track of his last session and sends: choose that exact car + track
-  # (mdpick with the id MY DRIVE gives that drive), then start (mdstart). The click is a dry run here: recorded, never sent.
-  $btn = Cdp-Json "(function(){var b=document.getElementById('homeNext'),r=b.getBoundingClientRect();return {label:b.querySelector('b').textContent,sub:(b.querySelector('span')||{}).textContent||'',car:b.getAttribute('data-car'),track:b.getAttribute('data-track'),w:r.width,h:r.height,left:r.left}})()"
-  Check "the button says LAST DRIVE and names his last session's car and track on its face ('$($btn.sub)'): $($h.last.car) at $($h.last.track)" ($btn.label -eq 'Last drive' -and $btn.car -ceq $h.last.car -and $btn.track -ceq $h.last.track -and $btn.sub -ceq (([string]$h.last.car -replace '^Chevrolet ', '') + ' ' + [char]0x00B7 + ' ' + $h.last.track)) "label='$($btn.label)' sub='$($btn.sub)' car='$($btn.car)' track='$($btn.track)'"
-  Check "the button is a big target: $([math]::Round($btn.w)) x $([math]::Round($btn.h)) px" ($btn.w -ge 480 -and $btn.h -ge 80)
+  Section '2c. the one button does exactly what it says (dry run: recorded, never sent)'
+  $btn = Cdp-Json "(function(){var b=document.getElementById('homeNext'),r=b.getBoundingClientRect();return {label:b.querySelector('b').textContent,sub:(b.querySelector('span')||{}).innerText||'',car:b.getAttribute('data-car'),track:b.getAttribute('data-track'),w:r.width,h:r.height}})()"
+  $shortCar = ([string]$h.last.car -replace '^Chevrolet ', '')
+  Check "the button says LAST DRIVE and names his last car and track on its face ('$($btn.sub -replace '\s+', ' ')')" ($btn.label -eq 'Last drive' -and $btn.car -ceq $h.last.car -and $btn.track -ceq $h.last.track -and $btn.sub -match [regex]::Escape($shortCar) -and $btn.sub -match [regex]::Escape($h.last.track)) "label='$($btn.label)' car='$($btn.car)' track='$($btn.track)'"
+  Check "the button is a big target: $([math]::Round($btn.w)) x $([math]::Round($btn.h)) px" ($btn.w -ge 700 -and $btn.h -ge 200)
   function Fnv($kind, $text) { [uint32]$x = 2166136261; foreach ($ch in $text.ToLowerInvariant().ToCharArray()) { $x = [uint32](([uint64]($x -bxor [uint32][char]$ch) * 16777619) % 4294967296) }; return $kind + $x.ToString('x8') }
   $null = Cdp-Eval "Home.dry = true; Home.sent = []; Home.busyUntil = 0; true"
   $null = Cdp-Eval "document.getElementById('homeNext').click(); true"
@@ -365,20 +346,20 @@ public static class PitProbe {
   $sent = Cdp-Json "Home.sent"
   $idWant = Fnv 'r' ("$($btn.car)|$($btn.track)")
   $my = J "$api/mydrive"; $row = @($my.all | Where-Object { $_.id -eq $sent[0].a }) | Select-Object -First 1
-  Check "the click (dry run) sends exactly: mdpick $idWant (the id of '$($btn.car)|$($btn.track)'), then mdstart - nothing else" (@($sent).Count -eq 2 -and $sent[0].c -eq 'mdpick' -and $sent[0].a -eq $idWant -and $sent[1].c -eq 'mdstart') ($sent | ConvertTo-Json -Compress)
-  Check "that id is the drive MY DRIVE lists as '$($row.car)' at '$($row.track)': the car and track on the button's face are the ones the command chooses" ($row -and $row.car -ceq $btn.car -and $row.track -ceq $btn.track) "all[] has no entry $($sent[0].a)"
+  Check "the click (dry run) sends exactly: mdpick $idWant, then mdstart - nothing else" (@($sent).Count -eq 2 -and $sent[0].c -eq 'mdpick' -and $sent[0].a -eq $idWant -and $sent[1].c -eq 'mdstart') ($sent | ConvertTo-Json -Compress)
+  Check "that id is the drive MY DRIVE lists as '$($row.car)' at '$($row.track)'" ($row -and $row.car -ceq $btn.car -and $row.track -ceq $btn.track) "all[] has no entry $($sent[0].a)"
   Check 'the button shows STARTING while it works (and presses are ignored then)' ((Cdp-Eval "(function(){ var t = document.querySelector('#homeNext b').textContent; document.getElementById('homeNext').click(); return t + '|' + Home.sent.length; })()") -eq 'Starting|2')
   $null = Cdp-Eval "Home.busyUntil = 0; Home.next(); true"
-  # the other states of the one button (a pretend /health through a thin fetch wrapper; nothing is sent)
   $null = Cdp-Eval "(function(){ if (!window.__realFetch) { window.__realFetch = window.fetch; window.__fake = {}; window.fetch = function(u, o) { var k = String(u).split('?')[0]; if (window.__fake[k]) return Promise.resolve({ ok: true, json: function () { return Promise.resolve(window.__fake[k]); } }); return window.__realFetch.call(window, u, o); }; } return true; })()"
-  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'off' }, { id: 'sim', state: 'off' }] }; Home.next().then(function(){ return true; })"
-  $bn = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: !!document.querySelector('#homeNext span') })"
+  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', name: 'iRacing UI', state: 'off' }, { id: 'sim', state: 'off' }] }; Home.next().then(function(){ return true; })"
+  $bn = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: (document.querySelector('#homeNext span') || {}).textContent || '', head: (document.querySelector('#idleRig .head b') || {}).textContent || '' })"
   $null = Cdp-Eval "Home.sent = []; Home.busyUntil = 0; document.getElementById('homeNext').click(); true"; Start-Sleep -Milliseconds 400
   $ss = Cdp-Json "Home.sent"
-  Check 'iRacing not started: the button says RIG ON, no sub line, and sends the deck key rig-on' ($bn.label -eq 'Rig on' -and -not $bn.sub -and @($ss).Count -eq 1 -and $ss[0].c -eq 'key' -and $ss[0].a -eq 'rig-on') ($ss | ConvertTo-Json -Compress)
+  Check "iRacing not started: the button says RIG ON ('$($bn.sub)'), READY names it ('$($bn.head)'), and the press sends the deck key rig-on" ($bn.label -eq 'Rig on' -and $bn.sub -eq 'iRacing UI off' -and $bn.head -match 'off' -and @($ss).Count -eq 1 -and $ss[0].c -eq 'key' -and $ss[0].a -eq 'rig-on') ($ss | ConvertTo-Json -Compress)
+  Cdp-Shot (Join-Path $shots 'home-v3-live-rigon.png')
   $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'ok' }, { id: 'sim', state: 'live' }] }; Home.busyUntil = 0; Home.next().then(function(){ return true; })"
-  $bg = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: !!document.querySelector('#homeNext span') })"
-  Check 'a session is open: the button says GET IN, no sub line' ($bg.label -eq 'Get in' -and -not $bg.sub)
+  $bg = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, head: (document.querySelector('#idleRig .head b') || {}).textContent || '' })"
+  Check "a session is open: the button says GET IN and READY says LIVE ('$($bg.head)')" ($bg.label -eq 'Get in' -and $bg.head -eq 'Live')
   $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'ok' }, { id: 'sim', state: 'off' }] }; var keepLast = Home.home.last; Home.home.last = null; Home.busyUntil = 0; (async function(){ await Home.next(); return true; })()"
   $bs = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: !!document.querySelector('#homeNext span'), car: document.getElementById('homeNext').getAttribute('data-car'), key: Home.act.key, buttonKey: document.getElementById('homeNext').homeAct.key })"
   $null = Cdp-Eval "Home.sent = []; Home.busyUntil = 0; document.getElementById('homeNext').click(); true"; Start-Sleep -Milliseconds 400
@@ -386,119 +367,25 @@ public static class PitProbe {
   Check 'no last session: START keeps its own command and sends only test-drive-last' ($bs.label -eq 'Start' -and -not $bs.sub -and -not $bs.car -and $bs.key -eq 'test-drive-last' -and $bs.buttonKey -eq 'test-drive-last' -and @($s3).Count -eq 1 -and $s3[0].c -eq 'key' -and $s3[0].a -eq 'test-drive-last') ("state=$($bs | ConvertTo-Json -Compress) sent=$($s3 | ConvertTo-Json -Compress)")
   $null = Cdp-Eval "Home.home.last = keepLast; Home.dry = false; Home.busyUntil = 0; delete window.__fake['/health']; Home.next().then(function(){ return true; })"
 
-  # DS-1 layout: the grid, the car, the type, the words
-  $lay = Cdp-Json @'
-(() => {
-  const ov = document.getElementById('overlay'), regions = Home.carRegion();
-  const hit = r => regions.some(g => Math.min(r.right, g.right) - Math.max(r.left, g.left) > 1 && Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top) > 1);
-  const walker = document.createTreeWalker(ov, NodeFilter.SHOW_TEXT), texts = [], onCar = [], outside = [], sizes = {}, small = [];
-  while (walker.nextNode()) {
-    const n = walker.currentNode, s = n.textContent.trim(); if (!s) continue;
-    const p = n.parentElement; if (p.closest('#homeHero, #homeHost, [hidden]') || !p.offsetParent && getComputedStyle(p).position !== 'fixed') continue;
-    const cs = getComputedStyle(p); if (cs.visibility === 'hidden' || cs.display === 'none') continue;
-    const rg = document.createRange(); rg.selectNodeContents(n);
-    const boxes = cs.textOverflow === 'ellipsis' ? [p.getBoundingClientRect()] : Array.from(rg.getClientRects());
-    const facts = p.closest('.home-facts');
-    if (facts && getComputedStyle(p.closest('.home-facts > div')).display === 'none') continue;
-    sizes[cs.fontSize] = (sizes[cs.fontSize] || 0) + 1;
-    if (parseFloat(cs.fontSize) < 14) small.push(cs.fontSize + ' ' + s);
-    for (const r of boxes) {
-      if (r.width < 1) continue; texts.push(s);
-      if (hit(r)) onCar.push(s.slice(0, 24) + ' @' + Math.round(r.left) + ',' + Math.round(r.top));
-      if (r.left < -0.5 || r.top < -0.5 || r.right > 1920.5 || r.bottom > 1080.5) outside.push(s.slice(0, 24));
-    }
-  }
-  const blocks = [];
-  for (const e of ov.querySelectorAll('button, canvas, .cpic, .home-facts, #homeDriver, .idle-top, .idle-foot')) {
-    if (e.closest('#homeHost, [hidden]')) continue; const r = e.getBoundingClientRect(); if (!r.width) continue;
-    blocks.push((e.id || e.className || e.tagName));
-    if (/BUTTON|CANVAS/.test(e.tagName) || e.classList.contains('cpic')) { if (hit(r)) onCar.push('block ' + (e.id || e.className || e.tagName)); }
-    if (r.left < -0.5 || r.top < -0.5 || r.right > 1920.5 || r.bottom > 1080.5) outside.push('block ' + (e.id || e.className || e.tagName));
-  }
-  const L = s => { const e = document.querySelector(s); if (!e || e.closest('[hidden]')) return null; const r = e.getBoundingClientRect(); return { l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10, t: Math.round(r.top * 10) / 10, b: Math.round(r.bottom * 10) / 10 }; };
-  return { n: texts.length, onCar: onCar, outside: outside, sizes: sizes, small: small, blocks: blocks.length, car: regions.map(g => [Math.round(g.left), Math.round(g.top), Math.round(g.right), Math.round(g.bottom)]),
-    edges: { name: L('.idle-name'), top: L('.idle-top'), driver: L('#homeDriver'), pic: L('#homeDriver .mycar'), next: L('#homeNext'), race: L('#homeRace'), weekend: L('#homeWeekend'), pbs: L('#homePbs'), career: L('#homeCareer'), week: L('#homeWeek'), last: L('#homeLast'), foot: L('.idle-foot'), facts: L('.home-facts') },
-    text: ov.innerText };
-})()
-'@
-  Check "no text, button, picture or square sits on the car (the car is $($lay.car.Count) boxes: $(($lay.car | ForEach-Object { $_ -join ',' }) -join ' | ')); $($lay.n) text boxes checked" ($lay.onCar.Count -eq 0) ($lay.onCar -join '; ')
-  Check "nothing is outside 1920 x 1080 ($($lay.blocks) blocks, $($lay.n) text boxes)" ($lay.outside.Count -eq 0) ($lay.outside -join '; ')
-  $cols = 0..11 | ForEach-Object { 96 + 146 * $_ }; $colsR = 0..11 | ForEach-Object { 96 + 146 * $_ + 122 }
-  function OnCol($v, $set) { foreach ($c in $set) { if ([math]::Abs($v - $c) -lt 1.0) { return $true } }; return $false }
-  $e = $lay.edges; $gridBad = @()
-  if ($e.name.l -ne 96 -or $e.driver.l -ne 960 -or $e.race.l -ne 0 -or $e.race.r -ne 920 -or $e.weekend.l -ne 0 -or $e.weekend.t -ne 640) { $gridBad += 'HOME regions do not match wireframe 3b' }
-  if ($e.week.l -ne 968 -or $e.last.l -ne 1432 -or $e.next.l -ne 640) { $gridBad += "week $($e.week.l) / last $($e.last.l) / action $($e.next.l) misplaced" }
-  Check "HOME regions match 3b (header, next race, hero, real world, this week, last outing, action)" ($gridBad.Count -eq 0) ($gridBad -join '; ')
-  $sz = @($lay.sizes.PSObject.Properties.Name | ForEach-Object { [double]($_ -replace 'px', '') } | Sort-Object)
-  Check "HOME body copy is at least 22 px and labels are at least 14 px: $($sz -join ', ') px" ((Cdp-Eval "Array.from(document.querySelectorAll('.home-race p,.home-race h2,.home-event b,.home-event span')).every(function(e){return parseFloat(getComputedStyle(e).fontSize)>=22})") -eq $true -and @($sz | Where-Object { $_ -lt 14 }).Count -eq 0) ("$($sz -join ', ') :: $($lay.small -join '; ')")
-  $banned = @('\b(you|your|yours|you''re|you''ve|you''ll)\b', 'good (morning|afternoon|evening)', 'ready when', 'when you are', 'welcome', '\b(just|simply|quietly|automatically|insight|journey|story)\b', 'by itself', 'let''s', 'here''s', '!', '\u2014', '\s\u2013\s', '\w - \w', 'outline from', 'from your own', 'sampled', 'explains', 'is the mean', 'worked out from', 'last time here')
-  $hitW = @($banned | Where-Object { ([string]$lay.text) -match "(?i)$_" })
-  Check "no banned words or punctuation on HOME (COPY-RULES): $($banned.Count) patterns, the screen has $((([string]$lay.text) -split '\s+').Count) words" ($hitW.Count -eq 0) "found: $($hitW -join ' | ') in: $(([string]$lay.text) -replace '\s+', ' ')"
-  $ov = Cdp-Json "(() => { const ids = ['homeDriver','homeNext','homeRace','homeWeekend','homePbs','homeCareer','homeWeek','homeLast','homePhone','idleRig','homePhoneNote']; const els = ids.map(i => document.getElementById(i)).filter(e => e && e.offsetParent !== null && e.innerHTML.trim() && getComputedStyle(e).display !== 'none'); els.push(document.querySelector('.idle-top'));
-    const r = els.map(e => ({ id: e.id || e.className, b: e.getBoundingClientRect() })).filter(x => x.b.width > 0 && x.b.height > 0); const bad = [];
-    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) { const a = r[i].b, b = r[j].b; const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left), oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (ox > 2 && oy > 2) bad.push(r[i].id + ' x ' + r[j].id + ' (' + Math.round(ox) + 'x' + Math.round(oy) + ')'); }
-    return { n: r.length, bad: bad }; })()"
-  Check "no overlaps between the HOME blocks ($($ov.n) boxes)" ($ov.bad.Count -eq 0) ($ov.bad -join '; ')
-  Check 'REVIEW is a big enough target (44 px tall or more)' ((Cdp-Eval "document.getElementById('homeReview').getBoundingClientRect().height") -ge 44)
-  Start-Sleep -Milliseconds 800     # the button's colour fades back after the last press (0.2 s); the picture is taken when it is at rest
-  Cdp-Shot (Join-Path $shots 'home-v4-idle.png')
-  Check 'no JS errors on HOME'($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
-
-  # the fixtures below stay deterministic after the live HOME polls are stopped.
-  # the states (pictures: home-states-*.png). Each is checked for the same rules: nothing on the car, nothing outside, no overlaps.
-  $stateJs = @'
-(() => { const regions = Home.carRegion(), hit = r => regions.some(g => Math.min(r.right, g.right) - Math.max(r.left, g.left) > 1 && Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top) > 1);
-  const ov = document.getElementById('overlay'), walker = document.createTreeWalker(ov, NodeFilter.SHOW_TEXT), bad = [], tx = [];
-  while (walker.nextNode()) { const n = walker.currentNode, s = n.textContent.trim(); if (!s) continue; const p = n.parentElement; if (p.closest('#homeHero, #homeHost, [hidden]')) continue; const cs = getComputedStyle(p); if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-    const rg = document.createRange(); rg.selectNodeContents(n); const boxes = cs.textOverflow === 'ellipsis' ? [p.getBoundingClientRect()] : Array.from(rg.getClientRects());
-    for (const r of boxes) { if (r.width < 1) continue; tx.push(s); if (hit(r) || r.left < 0 || r.right > 1920 || r.bottom > 1080) bad.push(s.slice(0, 30)); } }
-  for (const e of ov.querySelectorAll('button, canvas, .cpic')) { if (e.closest('#homeHost, [hidden]')) continue; const r = e.getBoundingClientRect(); if (r.width && (hit(r) || r.right > 1920 || r.bottom > 1080)) bad.push('block ' + (e.id || e.tagName)); }
-  const ids = ['homeDriver','homeNext','homeRace','homeWeekend','homePbs','homeCareer','homeWeek','homeLast','homePhone'], els = ids.map(i => document.getElementById(i)).filter(e => e && !e.hidden && e.innerHTML.trim() && getComputedStyle(e).display !== 'none'), ovl = [];
-  const r = els.map(e => ({ id: e.id, b: e.getBoundingClientRect() })); for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) { const a = r[i].b, b = r[j].b; if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) ovl.push(r[i].id + ' x ' + r[j].id); }
-  const q = id => { const e = document.getElementById(id); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top), b: Math.round(b.bottom) }; };
-  return { bad: bad, ovl: ovl, career: q('homeCareer'), week: q('homeWeek'), last: q('homeLast'), pbs: q('homePbs'), phone: q('homePhone'), qr: !!document.querySelector('#homePhone canvas'), pbCount: document.querySelectorAll('#homePbs .pb').length, headings: Array.from(document.querySelectorAll('.home-facts label')).filter(l => { const p=l.closest('.home-facts > div'); return !l.closest('[hidden]') && p && getComputedStyle(p).display !== 'none'; }).map(l => l.textContent.trim()), btn: document.querySelector('#homeNext b').textContent, note: document.getElementById('homePhoneNote').textContent, tx: tx.join(' | ') }; })()
-'@
-  # a. no personal best yet: the block is gone (no empty heading) and the others close up to the margin
-  $keepPbs = Cdp-Eval "window.__keepPbs = Home.home.pbs; Home.home.pbs = []; Home.draw(); true"; Start-Sleep -Milliseconds 400
-  $s1 = Cdp-Json $stateJs
-  Check "state: no personal best yet - no empty best block; THIS WEEK and LAST OUTING remain in 3b regions with no overlap" ($s1.pbCount -eq 0 -and $s1.headings -notcontains 'Personal bests' -and $s1.week.l -eq 968 -and $s1.last.l -eq 1432 -and $s1.bad.Count -eq 0 -and $s1.ovl.Count -eq 0) "pbs=$($s1.pbCount) bad=$($s1.bad -join ',') ovl=$($s1.ovl -join ',') headings=$($s1.headings -join ',') week=$($s1.week.l) last=$($s1.last.l)"
-  Cdp-Shot (Join-Path $shots 'home-states-nopb.png')
-  $null = Cdp-Eval "Home.home.pbs = window.__keepPbs; Home.draw(); true"
-  # b. a long track name: ellipsis inside its own column, REVIEW and the next block stay clear
-  $null = Cdp-Eval "window.__keepH = JSON.stringify(Home.home); var hh = Home.home; hh.pbs[1].track = 'Autodromo Nazionale Monza Grand Prix Circuit'; hh.last.track = 'Circuit des 24 Heures du Mans Bugatti Circuit Alternative Layout With The Chicane'; hh.lastOuting.track = 'Circuit des 24 Heures du Mans Bugatti Circuit Alternative Layout With The Chicane'; Home.draw(); true"; Start-Sleep -Milliseconds 400
-  $s2 = Cdp-Json $stateJs
-  $revGap = Cdp-Json "(function(){var t=document.querySelector('#homeLast .tk'),b=t.getBoundingClientRect(),r=document.getElementById('homeReview').getBoundingClientRect();return {revBelowName:r.top-b.bottom,clipped:t.scrollWidth>t.clientWidth,scroll:t.scrollWidth,client:t.clientWidth,text:t.textContent,ellipsis:getComputedStyle(t).textOverflow}})()"
-  Check "state: long track names stay inside LAST OUTING and REVIEW stays clear" ($revGap.clipped -and $revGap.revBelowName -ge -2 -and $s2.bad.Count -eq 0 -and $s2.ovl.Count -eq 0) "bad=$($s2.bad -join ',') ovl=$($s2.ovl -join ',') $($revGap | ConvertTo-Json -Compress)"
-  Cdp-Shot (Join-Path $shots 'home-states-longtrack.png')
-  $null = Cdp-Eval "Home.home = JSON.parse(window.__keepH); Home.draw(); true"
-  # c. the pairing square: shown only while no phone is paired, top right over the dark sky, not on the car
-  $qr = J "$api/phone/qr"; $qr.paired = 0; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
-  $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-  $s3 = Cdp-Json $stateJs
-  Check "state: no phone paired - the pairing square shows (140 x 140, top right x $($s3.phone.l)-$($s3.phone.r), y $($s3.phone.t)-$($s3.phone.b)) with the code, nothing on the car, no overlaps" ($s3.qr -and $s3.phone.r -le 1824 -and $s3.phone.t -ge 96 -and ($s3.phone.b - $s3.phone.t) -le 150 -and $s3.bad.Count -eq 0 -and $s3.ovl.Count -eq 0 -and $s3.tx -match [regex]::Escape(($qr.code.Substring(0, 3) + ' ' + $qr.code.Substring(3)))) "bad=$($s3.bad -join ',') ovl=$($s3.ovl -join ',') phone=$($s3.phone | ConvertTo-Json -Compress)"
-  Cdp-Shot (Join-Path $shots 'home-states-phone.png')
-  $qr.paired = 1; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
-  $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-  $s3b = Cdp-Json $stateJs
-  Check 'state: a phone is paired - no square, one quiet status word at the foot (PHONE PAIRED)' (-not $s3b.qr -and $s3b.note -eq 'Phone paired' -and $s3b.bad.Count -eq 0)
+  Section '2d. the phone: the pairing square only while no phone is paired, otherwise one row in READY'
+  $qr = J "$api/phone/qr"
+  if ($qr.rows -and @($qr.rows).Count) {
+    $qr.paired = 0; $qr.allowed = $true; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
+    $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
+    $p1 = Cdp-Json "({ qr: !!document.querySelector('#homePhone canvas') && !document.getElementById('homePhone').hidden, txt: document.getElementById('homePhone').innerText, car: !document.getElementById('homeCar').hidden, row: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|') })"
+    Check "no phone paired: the pairing square and its code take the car slot ('$($p1.txt -replace '\s+', ' ')')" ($p1.qr -and -not $p1.car -and $p1.txt -match [regex]::Escape(($qr.code.Substring(0, 3) + ' ' + $qr.code.Substring(3))) -and $p1.row -match 'not paired')
+    Cdp-Shot (Join-Path $shots 'home-v3-live-pair.png')
+    $qr.paired = 1; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
+    $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
+    $p2 = Cdp-Json "({ qr: !document.getElementById('homePhone').hidden, row: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|') })"
+    Check 'a phone is paired: no square, READY says Phone paired' (-not $p2.qr -and $p2.row -match 'Phone\s+paired')
+  } else { '  info  no home network address: the pairing square cannot be shown here (skipped)' }
   $qr.allowed = $false; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
   $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-  $s3c = Cdp-Json $stateJs
-  Check 'state: the phone is not allowed yet - no square, the status line names the one file to run (phone-allow.cmd)' (-not $s3c.qr -and $s3c.note -like '*phone-allow.cmd*' -and $s3c.bad.Count -eq 0) "note='$($s3c.note)'"
+  $p3 = Cdp-Json "Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|')"
+  Check "the phone is not allowed yet: READY names the one file to run ('$p3')" ($p3 -match 'phone-allow\.cmd')
   $null = Cdp-Eval "delete window.__fake['/phone/qr']; Home.phone().then(function(){ return true; })"
-  # d. iRacing not started yet (RIG ON), shown in full
-  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'off' }, { id: 'sim', state: 'off' }] }; Home.busyUntil = 0; Home.next().then(function(){ return true; })"
-  $s4 = Cdp-Json $stateJs
-  Check "state: iRacing not started - the one gold button reads RIG ON ('$($s4.btn)'), nothing on the car, no overlaps" ($s4.btn -eq 'Rig on' -and $s4.bad.Count -eq 0 -and $s4.ovl.Count -eq 0)
-  Cdp-Shot (Join-Path $shots 'home-states-starting.png')
-  $null = Cdp-Eval "delete window.__fake['/health']; Home.next().then(function(){ return true; })"
   $null = Cdp-Eval "Home.tick = window.__homeTick; true"
-
-  Check 'hero photo stays in its wireframe region and fades at the panel edges' ((Cdp-Eval "(function(){var h=document.getElementById('homeHero').getBoundingClientRect(),i=document.getElementById('heroImg');return h.left===920&&h.top===60&&h.right===1920&&h.bottom===540&&getComputedStyle(i).maskImage.indexOf('linear-gradient')>=0})()") -eq $true)
-  # the credit sits bottom right on black, tiny
-  $null = Cdp-Eval "document.getElementById('flatTest').remove(); true"
-  $cr = Cdp-Json "(function(){var e=document.getElementById('heroCredit'),r=e.getBoundingClientRect();return {t:e.textContent,r:r.right,b:r.bottom,fs:parseFloat(getComputedStyle(e).fontSize)}})()"
-  Check "the picture credit stays factual and small: '$($cr.t)'" ($h.hero.kind -ne 'standin' -or ($cr.t -like 'Photo:*' -and $cr.fs -le 14))
   Check 'no JS errors on HOME through the states' ($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
   # the REVIEW button opens the Session Review over HOME, with a back bar
   $null = Cdp-Eval "document.getElementById('homeReview').click(); true"

@@ -1018,10 +1018,14 @@ function fetchExtra(name) {
 function buildPicker() {
   var box = el('div', 'picker'), inp = el('input'), list = el('div', 'pl'), note = el('div', 'pnote'), sel = 0, res = [];
   inp.type = 'text'; inp.placeholder = 'Search'; inp.spellcheck = false; inp.autocomplete = 'off';
-  var pt = el('div', 'pt', ADDTXT), acts = el('div', 'pacts');
-  box.appendChild(pt); box.appendChild(inp); box.appendChild(list); box.appendChild(note); box.appendChild(acts);
+  var pt = el('div', 'pt', ADDTXT), acts = el('div', 'pacts'), shut = el('button', 'pclose', 'Close');
+  // a big way out that needs no keyboard (Peter 2026-10-15: the channel box could not be left)
+  shut.type = 'button'; shut.addEventListener('mousedown', function (ev) { ev.preventDefault(); ev.stopPropagation(); closePicker(); });
+  box.appendChild(shut); box.appendChild(pt); box.appendChild(inp); box.appendChild(list); box.appendChild(note); box.appendChild(acts);
   X.pickActs.forEach(function (a) { var b = el('span', 'pbtn', a.label + ' <i>' + a.hint + '</i>'); b.addEventListener('mousedown', function (ev) { ev.preventDefault(); if (res[sel]) { closePicker(); a.fn(res[sel]); } }); acts.appendChild(b); });
   document.body.appendChild(box);
+  // a click anywhere outside the box closes it too
+  document.addEventListener('mousedown', function (ev) { if (pickerOpen() && !box.contains(ev.target)) closePicker(); }, true);
   function render() {
     res = searchChannels(inp.value); if (sel >= res.length) sel = Math.max(0, res.length - 1); list.innerHTML = '';
     if (!res.length) list.appendChild(el('div', 'pr', '<span class="mute">No match</span>'));
@@ -1319,7 +1323,7 @@ document.addEventListener('keydown', function (e) {
     case 't': case 'T': WB.cmd('tile'); break;
     case 'z': case 'Z': WB.cmd('zoom-in'); break;
     case 'Backspace': WB.cmd('zoom-out'); break;
-    case 'Escape': WB.cmd('zoom-reset'); break;
+    case 'Escape': if (pickerOpen()) closePicker(); else WB.cmd('zoom-reset'); break;     // Esc closes the channel box first, wherever the focus is
     case 'r': case 'R': WB.cmd('ref-cursor'); break;
     case 'o': case 'O': WB.cmd('offset'); break;
     case 'a': case 'A': WB.cmd('offset-auto'); break;

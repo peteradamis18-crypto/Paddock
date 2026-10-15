@@ -1,13 +1,18 @@
 'use strict';
-// Paddock HOME (DS-1 rebuild): the top screen when no session runs. One picture, his name and number and car, one gold button, one quiet row of facts.
-// ui.js shows and hides #overlay; this only draws while it is shown, so nothing here runs or polls while he drives. Every button is one irdash call the deck has too.
-// Words: docs\COPY-RULES.md (labels and numbers only).
+// Paddock HOME v3 (docs\design\home-v3\spec.md): the top screen when no session runs. Three bands:
+//  A  the one action (gold, the only gold fill), his car (iRacing's own picture, native size), is the rig ready (one word)
+//  B  the next race he can enter | his last outing with REVIEW, and this week
+//  C  what to watch this weekend, grouped by event, New York time
+// ui.js shows and hides #overlay; this only draws while it is shown, so nothing here runs or polls while he drives.
+// Every button is one irdash call the deck has too. Words: docs\COPY-RULES.md. Unknown is an em dash, never 0.
+const DASH = '—', DOT = ' · ';
 const Home = {
-  home: null, career: null, health: null, realworld: null, busyUntil: 0, failUntil: 0, act: null, healthSeq: 0, tickTimer: 0, nextTimer: 0, phoneTimer: 0,
+  home: null, career: null, health: null, realworld: null, rec: null, phoneInfo: null,
+  busyUntil: 0, failUntil: 0, act: null, healthSeq: 0, tickTimer: 0, nextTimer: 0, phoneTimer: 0, clockTimer: 0,
   dry: false, sent: [],      // tests: dry = true records the /api/do calls instead of sending them
 
   init() {
-    this.ensureScheduleNodes();
+    this.clock(); this.clockTimer = setInterval(() => this.clock(), 10000);
     this.tick(); this.tickTimer = setInterval(() => this.tick(), 60000);
     this.next(); this.nextTimer = setInterval(() => this.next(), 5000);
     this.phone(); this.phoneTimer = setInterval(() => this.phone(), 30000);
@@ -15,143 +20,176 @@ const Home = {
     HomeHost.init();
   },
 
-  ensureScheduleNodes() {
-    const root = $('overlay'); if (!root || $('homeRace')) return;
-    const race = document.createElement('section'); race.id = 'homeRace'; race.className = 'home-race'; root.appendChild(race);
-    const weekend = document.createElement('section'); weekend.id = 'homeWeekend'; weekend.className = 'home-weekend'; root.appendChild(weekend);
-  },
-
   shown() { const ov = $('overlay'); return !!(ov && ov.classList.contains('show')) && !(window.UI && UI.live && UI.live()); },
 
-  lap(t) { if (!(t > 0)) return 'â€“'; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); },
+  lap(t) { if (!(t > 0)) return DASH; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); },
   short(car) { return String(car || '').replace(/^Chevrolet /, ''); },
 
+  // one clock everywhere: New York, 12-hour; the zone named once, on the clock and the race start
+  NY: 'America/New_York',
+  nyDay(d) { const o = { timeZone: this.NY }; return d.toLocaleDateString('en-US', Object.assign({ weekday: 'short' }, o)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ day: 'numeric' }, o)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ month: 'short' }, o)); },
+  nyTime(d) { return d.toLocaleTimeString('en-US', { timeZone: this.NY, hour: 'numeric', minute: '2-digit' }); },
+  nyWd(d) { return d.toLocaleDateString('en-US', { timeZone: this.NY, weekday: 'short' }); },
+  nyDate(d, part) { return d.toLocaleDateString('en-US', { timeZone: this.NY, [part]: part === 'month' ? 'short' : 'numeric' }); },
+  clock() { const d = new Date(); setText('idleDate', this.nyDay(d)); setText('idleClock', this.nyTime(d) + ' ET'); },
+
   async tick() {
-    if (document.hidden) return;
-    if (!this.shown()) return;
+    if (document.hidden || !this.shown()) return;
     try { this.home = await (await fetch('/home', { cache: 'no-store' })).json(); } catch (e) { return; }
     try { this.career = await (await fetch('/career', { cache: 'no-store' })).json(); } catch (e) { this.career = null; }
     try { this.realworld = await (await fetch('/realworld', { cache: 'no-store' })).json(); } catch (e) { this.realworld = null; }
     this.draw();
   },
 
-  // where the car stands in the picture, as two boxes: the cabin (from where the picture is opaque enough to be "the car") and the nose, which is lower;
-  // the test checks that no text, button or square sits inside them
-  carRegion() {
-    const r = $('heroImg').getBoundingClientRect(), X = u => r.left + r.width * u, Y = v => r.top + r.height * v;
-    return [{ left: X(0.36), right: X(0.70), top: Y(0.34), bottom: Y(0.87) }, { left: X(0.70), right: X(0.86), top: Y(0.50), bottom: Y(0.87) }];
-  },
-
   draw() {
-    this.ensureScheduleNodes();
-    const h = this.home, c = this.career || {};
-    if (!h) return;
-    const name = (h.me && h.me.name) || '';
-    // the car of his last real session (PL-1) and iRacing's own picture of it (CP-1); no picture for it = text only
-    const me = h.me || null;
-    // no studio tile here: the hero photo already shows the car, and a bright white tile pulls the eye off the name (lead review)
-    let pic = '';
-    const path = me && me.path || '';
-    if (path && window.PCarPic) {
-      const known = PCarPic.known();
-      if (known === null) { if (!this.picWait) { this.picWait = true; PCarPic.ready().then(() => { this.picWait = false; this.draw(); }); } }
-      // HOME's identity row shares the 920 px column with adjacent cards; 480 px creates a 175 px tile over them.
-      else if (known[PCarPic.key(path)]) pic = PCarPic.html({ path: path, w: 144, title: me.car || '' });
-    }
-    // The driver identity is one YAML row. If it cannot be read, do not fill its gaps from a career aggregate.
-    const num = me && me.num || '';
-    const car = me && me.car ? this.short(me.car) : '';
-    const lic = me ? [c.lic ? 'Licence <i>' + esc(c.lic) + '</i>' : '', c.ir ? '<i>' + esc(c.ir) + '</i> iR' : ''].filter(Boolean).join(' &nbsp;\u00b7&nbsp; ') : '';
-    setHTML('homeDriver',
-      '<div class="idrow">' + (num ? '<span class="num' + (num.length > 2 ? ' wide' : '') + '">' + esc(num) + '</span><span class="rule"></span>' : '') +
-      '<div class="who"><b>' + esc(name) + '</b></div></div>' +
-      (car || pic || (me && me.team) ? '<div class="idcar">' + (pic ? '<div class="mycar">' + pic + '</div>' : '') + '<div class="car"><b>' + esc(car) + '</b>' + (me && me.team ? '<span>' + esc(me.team) + '</span>' : '') + (lic ? '<span>' + lic + '</span>' : '') + '</div></div>' : ''));
-    if (window.PCarPic) PCarPic.refresh();
-
-    // personal bests: at most three, one per track, newest tracks first
-    const pbs = (h.pbs || []).slice(0, 3);
-    setHTML('homePbs', pbs.length ? '<label>Personal bests</label><div class="pbs">' + pbs.map(p => {
-      const cfg = p.config && !/^(full|full course|grand prix)$/i.test(p.config) && p.track.toLowerCase().indexOf(p.config.toLowerCase()) < 0 ? '<small>' + esc(p.config) + '</small>' : '';
-      return '<div class="pb"><span class="tk">' + esc(p.track) + cfg + '</span><b class="t">' + this.lap(p.best) + '</b><span class="cap">' + esc(this.short(p.car)) + '</span></div>';
-    }).join('') + '</div>' : '');
-    $('homePbs').hidden = !pbs.length;
-    $('homePbs').style.setProperty('--n', Math.max(1, pbs.length));
-
-    const n = x => (x == null || isNaN(x)) ? 'â€“' : Math.round(x).toLocaleString('en-GB');
-    setHTML('homeCareer', '<label><span>Career</span>' + (c.since ? '<span class="dim">Since ' + esc(c.since) + '</span>' : '') + '</label>' +
-      '<div class="cv">' +
-      '<div class="w"><b>' + (c.hours != null ? Number(c.hours).toFixed(1) : 'â€“') + '</b><span class="cap">Hours</span></div>' +
-      '<div class="w"><b>' + n(c.laps) + '</b><span class="cap">Laps</span></div>' +
-      '<div class="w"><b>' + n(c.km) + '</b><span class="cap">Km</span></div>' +
-      '<div class="w"><b>' + n(c.races) + '</b><span class="cap">Races</span></div></div>');
-
-    this.drawSchedules(h);
-
-    // THIS WEEK (P0-04): the same numbers /career serves (data.cs week; short runs already left out), Monday 00:00 local
-    const w = h.week || c.week;
-    const wk = $('homeWeek');
-    if (wk) {
-      wk.hidden = !w;
-      if (w) setHTML(wk, '<label><span>This week</span>' + (w.from ? '<span class="dim">Since ' + esc(w.from) + '</span>' : '') + '</label>' +
-        '<div class="cv">' +
-        '<div class="w"><b>' + Number(w.hours).toFixed(1) + '</b><span class="cap">Hours</span></div>' +
-        '<div class="w"><b>' + n(w.laps) + '</b><span class="cap">Laps</span></div>' +
-        '<div class="w"><b>' + n(w.pbs) + '</b><span class="cap">PBs</span></div></div>' +
-        '<div class="sub">Last week ' + Number(w.lastHours || 0).toFixed(1) + ' h \u00b7 ' + n(w.lastLaps || 0) + ' laps</div>');
-    }
-
-    // LAST OUTING (P0-04): the last real drive (short runs already left out), from /home lastOuting
-    const l = h.lastOuting || h.last;
-    if (!l) setHTML('homeLast', '');
-    else {
-      const when = (l.date || '').slice(0, 10), wd = when ? new Date(when + 'T12:00:00') : null;
-      const dt = wd && !isNaN(wd) ? wd.getDate() + ' ' + wd.toLocaleDateString('en-GB', { month: 'short' }) : '';
-      const bits = [this.short(l.car), l.type ? l.type : '', l.finish ? l.finish : '', l.incidents != null ? l.incidents + 'x inc' : ''].filter(Boolean);
-      setHTML('homeLast', '<label><span>Last outing</span>' + (dt ? '<span class="dim">' + esc(dt) + '</span>' : '') + '</label>' +
-        '<div class="lv"><span class="tk">' + esc(l.track) + '</span>' +
-        '<b class="t">' + (l.best ? this.lap(l.best) : (l.laps ? l.laps + '<small>' + (l.laps === 1 ? 'lap' : 'laps') + '</small>' : 'â€“')) + '</b>' +
-        '<span class="cap">' + bits.join(' &nbsp;\u00b7&nbsp; ') + '</span>' +
-        (l.file ? '<button class="review" type="button" id="homeReview">Review</button>' : '') + '</div>');
-      const r = $('homeReview'); if (r) r.addEventListener('click', () => HomeHost.open('sessionreview.html?id=' + encodeURIComponent(l.file), 'Session review'));
-    }
-
-    // the flag lives on the hero itself: ui.js rewrites #overlay's class list at 10 Hz
-    const img = $('heroImg'), hero = $('homeHero');
-    if (h.hero && h.hero.src) {
-      if (img.getAttribute('src') !== h.hero.src) { img.onload = () => hero.classList.add('on'); img.src = h.hero.src; }
-      setText('heroCredit', h.hero.kind === 'standin' ? h.hero.credit : '');
-    } else { hero.classList.remove('on'); setText('heroCredit', ''); }
+    const h = this.home; if (!h) return;
+    this.drawDriver(h);
+    this.drawRace(h);
+    this.drawLast(h);
+    this.drawWatch();
+    this.drawReady();
     this.next();
   },
 
-  // one clock everywhere: New York time, 12-hour, with EST or EDT as it applies on that date (whatever zone the PC is in)
-  nyDay(d) { return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }); },
-  nyTime(d) { return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); },
-
-  drawSchedules(h) {
-    const race = $('homeRace'), weekend = $('homeWeekend'); if (!race || !weekend) return;
-    const r = h.nextRace;
-    if (!r) race.innerHTML = '<label>Next race</label><div class="home-race-none">Schedule not published</div>';
-    else {
-      const d = new Date(String(r.localStart || '').replace(' ', 'T'));
-      const abs = isNaN(d) ? '' : this.nyDay(d) + ' \u00b7 ' + this.nyTime(d);
-      const sec = Math.max(0, Number(r.countdownSeconds || 0));
-      const eta = sec >= 3600 ? Math.floor(sec / 3600) + ' h ' + String(Math.floor(sec % 3600 / 60)).padStart(2, '0') : Math.floor(sec / 60) + ' min';
-      const pb = r.pb && Number(r.pb.time) > 0 ? '<div class="home-race-stat"><span>PB</span><b>' + this.lap(r.pb.time) + '</b></div>' : '';
-      const median = r.fieldMedian && Number(r.fieldMedian) > 0 ? '<div class="home-race-stat"><span>Field median \u00b7 n=' + esc(r.fieldN) + '</span><b>' + this.lap(r.fieldMedian) + '</b></div>' : '';
-      race.innerHTML = '<label>Next race</label><h2>' + esc(r.series || '') + '</h2><p>' + esc(r.car || '') + ' \u00b7 ' + (r.ownedCar ? 'Owned' : 'Not owned') + '</p><p>' + esc(r.track || '') + ' \u00b7 ' + (r.ownedTrack ? 'Owned' : 'Not owned') + '</p><div class="home-race-time">' + esc(abs) + '</div><div class="home-race-count">in ' + esc(eta) + '</div><div class="home-race-cadence">' + esc(r.cadence || '') + '</div>' + pb + median;
+  // ---- band A: who he is (quiet) and his car: iRacing's own picture at its native 480 x 270, never stretched ----
+  drawDriver(h) {
+    const me = h.me || null, c = this.career || {};
+    const lic = c.lic ? 'Licence ' + esc(c.lic) + (c.ir ? DOT + esc(c.ir) + ' iR' : '') : '';
+    const path = me && me.path || '';
+    let pic = '';
+    if (path && window.PCarPic) {
+      const known = PCarPic.known();
+      if (known === null) { if (!this.picWait) { this.picWait = true; PCarPic.ready().then(() => { this.picWait = false; this.draw(); }); } }
+      else if (known[PCarPic.key(path)]) pic = PCarPic.html({ path: path, w: 480, title: me.car || '' });
     }
-    const source = this.realworld && this.realworld.events || [];
-    const events = source.filter(e => e.session && e.session.toLowerCase() !== 'event').slice(0, 6);
+    const car = $('homeCar');
+    const pairing = !!(this.phoneInfo && this.phoneInfo.square);       // the pairing square borrows the car slot until a phone is paired
+    if (pairing) { car.className = 'home-car none'; car.hidden = true; }
+    else if (pic) { car.className = 'home-car'; car.hidden = false; car.innerHTML = pic; }
+    else {
+      // no picture for this car: clean type in its place, never a drawing or a stock photo
+      car.className = 'home-car none'; car.hidden = false;
+      car.innerHTML = me && me.name ? '<div class="big">' + (me.num ? '<i>' + esc(me.num) + '</i>' : '') + esc(me.name) + '</div>' + (lic ? '<div class="sub">' + lic + '</div>' : '') : '';
+    }
+    const showRow = me && me.name && (pic || pairing);
+    setHTML('homeDriver', showRow ? (me.num ? '<span class="num">' + esc(me.num) + '</span>' : '') + '<span class="name">' + esc(me.name) + '</span>' + (lic ? '<span class="lic">' + lic + '</span>' : '') : '');
+    if (window.PCarPic) PCarPic.refresh();
+  },
+
+  // ---- band A: is everything ready. One word, then only the rows that carry a value or a problem ----
+  drawReady() {
+    const el = $('idleRig'); if (!el || !this.health) return;
+    const apps = {}, chips = [], bad = []; let worst = 'ok';
+    ((this.health && this.health.apps) || []).forEach(a => {
+      apps[a.id] = a.state;
+      if (a.id === 'sim') return;                                       // off is normal between sessions; live shows in the head
+      if (a.state === 'ok') chips.push('<i>' + esc(a.name) + '</i>');
+      else { chips.push('<i class="off">' + esc(a.name) + ' off</i>'); bad.push(a.name + ' off'); if (worst === 'ok') worst = 'warn'; }
+    });
+    const rows = [];
+    const r = this.rec;
+    if (!r) rows.push(['Recording', DASH, 'mute']);
+    else {
+      const gb = r.freeGb != null ? Math.round(r.freeGb) + ' GB free' : '';
+      const st = r.capture && r.capture.state || '';
+      if (!r.enabled) rows.push(['Recording', 'Off in settings', 'mute']);
+      else if (r.gaveUp || st === 'failed' || st === 'stalled') { rows.push(['Recording', 'Failed' + (gb ? DOT + gb : ''), 'fail']); bad.unshift('Recording failed'); worst = 'fail'; }
+      else if (st === 'paused-disk' || (r.freeGb != null && r.minFreeGb != null && r.freeGb < r.minFreeGb)) { rows.push(['Recording', 'Disk low' + (gb ? DOT + gb : ''), 'warn']); bad.push('Disk low'); if (worst === 'ok') worst = 'warn'; }
+      else if (st === 'recording') { const s = Math.round(r.capture.secs || 0); rows.push(['Recording', 'On ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + (r.freeGb != null ? DOT + Math.round(r.freeGb) + ' GB' : ''), 'ok']); }
+      else rows.push(['Recording', 'Ready' + (gb ? DOT + gb : ''), '']);
+    }
+    const p = this.phoneInfo;
+    if (!p) rows.push(['Phone', DASH, 'mute']);
+    else if (!p.allowed) rows.push(['Phone', 'run tools\\phone-allow.cmd', 'warn']);
+    else if (!p.lan) rows.push(['Phone', 'no home network', 'mute']);
+    else rows.push(['Phone', p.paired ? 'paired' : 'not paired', p.paired ? '' : 'mute']);
+    // the Rig Doctor's one line, when something really needs him (rig.js keeps the last result)
+    const doc = window.Rig && Rig.doc;
+    if (doc && doc.ask) { rows.push(['Rig', doc.ask, 'warn']); if (worst === 'ok') { worst = 'warn'; bad.push('Check the rig'); } }
+    const live = apps.sim === 'live';
+    let head = live ? 'Live' : 'Ready', hc = live ? 'live' : 'ok';
+    if (worst !== 'ok' && !live) { head = bad[0] || 'Check the rig'; hc = worst; }
+    if (worst === 'fail' && live) { head = bad[0]; hc = 'fail'; }
+    setHTML(el, '<div class="head"><span class="dot ' + hc + '"></span><b class="' + (head.length > 9 ? 'w ' : '') + (hc === 'ok' || hc === 'live' ? '' : hc) + '">' + esc(head) + '</b></div>' +
+      rows.map(x => '<div class="row"><span class="k">' + x[0] + '</span><span class="v ' + x[2] + '">' + esc(x[1]) + '</span></div>').join('') +
+      '<div class="apps">' + chips.join('') + '</div>');
+  },
+
+  // ---- band B: the next race he can enter ----
+  drawRace(h) {
+    const el = $('homeRace'); if (!el) return;
+    const r = h.nextRace;
+    if (!r) { el.innerHTML = '<div class="lbl">Next race</div><div class="none">No race published</div>'; return; }
+    const d = new Date(String(r.localStart || '').replace(' ', 'T'));
+    const sec = Math.max(0, Number(r.countdownSeconds || 0));
+    const eta = sec < 60 ? 'starting' : sec < 3600 ? 'in ' + Math.floor(sec / 60) + ' min' : 'in ' + Math.floor(sec / 3600) + ' h ' + String(Math.floor(sec % 3600 / 60)).padStart(2, '0');
+    const own = (!r.ownedCar && !r.ownedTrack) ? '<small class="no">car and track not owned</small>' : !r.ownedCar ? '<small class="no">car not owned</small>' : !r.ownedTrack ? '<small class="no">track not owned</small>' : '<small>owned</small>';
+    el.innerHTML = '<div class="lbl">Next race</div>' +
+      '<div class="eta"><b>' + esc(eta) + '</b><span>' + (isNaN(d) ? '' : esc(this.nyTime(d)) + ' ET') + (r.cadence ? DOT + esc(r.cadence) : '') + '</span></div>' +
+      '<div class="ser">' + esc(r.series || '') + '</div>' +
+      '<div class="ct">' + esc(r.car || DASH) + DOT + esc(r.track || DASH) + own + '</div>';
+  },
+
+  // ---- band B: the last outing (with REVIEW) and this week ----
+  drawLast(h) {
+    const el = $('homeLast'); if (!el) return;
+    const l = h.lastOuting || h.last, w = h.week || (this.career && this.career.week);
+    let out;
+    if (!l) out = '<div class="lbl">Last outing</div><div class="val"><b>' + DASH + '</b></div><div class="det mute">No drive recorded yet</div>';
+    else {
+      const when = String(l.date || '').slice(0, 10), wd = when ? new Date(when + 'T12:00:00') : null;
+      const dt = l.ago || (wd && !isNaN(wd) ? this.nyDay(wd) : '');
+      const bits = [l.track, l.type, l.laps ? l.laps + (l.laps === 1 ? ' lap' : ' laps') : ''].filter(Boolean).join(DOT);
+      out = '<div class="lbl">Last outing' + (dt ? '<span class="sep">·</span>' + esc(dt) : '') + '</div>' +
+        '<div class="val"><b>' + (l.best ? this.lap(l.best) + '<small>best lap</small>' : DASH) + '</b>' + (l.file ? '<button type="button" id="homeReview">Review</button>' : '') + '</div>' +
+        '<div class="det">' + esc(bits) + '</div><div class="det2">' + esc(this.short(l.car)) + '</div>';
+    }
+    const n = x => (x == null || isNaN(x)) ? DASH : Math.round(x).toLocaleString('en-US');
+    out += '<div class="wk" id="homeWeek"><span class="lbl">This week</span>' + (w
+      ? '<b>' + Number(w.hours).toFixed(1) + '<small>h</small></b><b>' + n(w.laps) + '<small>laps</small></b><b>' + n(w.pbs) + '<small>PBs</small></b>' +
+        '<span class="lw">last week ' + Number(w.lastHours || 0).toFixed(1) + ' h</span>'
+      : '<b>' + DASH + '</b>') + '</div>';
+    el.innerHTML = out;
+    const rv = $('homeReview'); if (rv) rv.addEventListener('click', () => HomeHost.open('sessionreview.html?id=' + encodeURIComponent(l.file), 'Session review'));
+  },
+
+  // ---- band C: what to watch. Grouped by event; the Race and the two sessions before it; never "Live" ----
+  drawWatch() {
+    const el = $('homeWeekend'); if (!el) return;
+    const rw = this.realworld || {}, list = (rw.events || []).filter(e => e && e.session && e.session.toLowerCase() !== 'event');
+    const when = e => { const t = !e.tbc && e.localStart ? Date.parse(e.localStart) : NaN; if (!isNaN(t)) return t; const d = e.eventDate ? Date.parse(e.eventDate + 'T12:00:00') : NaN; return isNaN(d) ? Infinity : d; };
+    const groups = [];
+    list.slice().sort((a, b) => when(a) - when(b)).forEach(e => {
+      let g = groups.find(x => x.series === e.series && x.event === e.event);
+      if (!g) { g = { series: e.series, event: e.event || '', rows: [] }; groups.push(g); }
+      g.rows.push(e);
+    });
     const domains = [];
-    const rows = events.map(e => {
-      let when = 'TBC';
-      if (!e.tbc && e.localStart) { const ms = Date.parse(e.localStart); if (!isNaN(ms)) { const dt = new Date(ms); when = this.nyDay(dt) + ' ' + this.nyTime(dt); } }
-      else if (e.eventDate) { const dt = new Date(e.eventDate + 'T12:00:00'); if (!isNaN(dt)) when = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · time TBC'; }
-      try { const d = new URL(e.source).hostname.replace(/^www\./, ''); if (d && domains.indexOf(d) < 0) domains.push(d); } catch (x) { }
-      return '<div class="home-event"><span>' + esc(e.series) + ' \u00b7 ' + esc(e.session) + ' \u00b7 ' + esc(when) + '</span></div>';
+    list.forEach(e => { try { const d = new URL(e.source).hostname.replace(/^www\./, ''); if (d && domains.indexOf(d) < 0) domains.push(d); } catch (x) { } });
+    const asOf = rw.asOf ? new Date(rw.asOf) : null;
+    const stale = rw.fresh === false && asOf && !isNaN(asOf);
+    const label = '<div class="lbl">Watch<span class="sep">·</span>Real world' + (stale ? '<span class="sep">·</span><span class="warn">as of ' + esc(this.nyDay(asOf) + ' ' + this.nyTime(asOf)) + '</span>' : '') +
+      (domains.length ? '<span class="src tiny">' + esc(domains.join(DOT)) + '</span>' : '') + '</div>';
+    if (!groups.length) { el.innerHTML = label + '<div class="none">No events published</div>'; return; }
+    const day = e => { const t = when(e); return t === Infinity ? null : new Date(t); };
+    const cols = groups.slice(0, 3).map(g => {
+      const ri = g.rows.findIndex(x => /^race$/i.test(x.session));
+      const keep = ri >= 0 ? g.rows.slice(Math.max(0, ri - 2), ri + 1) : g.rows.slice(0, 3);
+      const a = day(g.rows[0]), b = day(g.rows[g.rows.length - 1]);
+      let range = '';
+      if (a && b) {
+        const am = this.nyDate(a, 'month'), bm = this.nyDate(b, 'month'), ad = this.nyDate(a, 'day'), bd = this.nyDate(b, 'day');
+        range = ad === bd && am === bm ? ad + ' ' + bm : am === bm ? ad + '–' + bd + ' ' + bm : ad + ' ' + am + '–' + bd + ' ' + bm;
+      }
+      const name = g.event.indexOf(' - ') >= 0 ? g.event.slice(g.event.lastIndexOf(' - ') + 3) : g.event;
+      return '<div class="ev"><div class="h">' + esc(g.series) + '<span>' + esc(range) + '</span></div><div class="n">' + esc(name) + '</div>' +
+        keep.map(x => {
+          const d = day(x);
+          const t = (x.tbc || !x.localStart) ? '<span class="tbc">' + (d ? this.nyWd(d) + DOT : '') + 'time TBC</span>' : '<span>' + this.nyWd(d) + ' ' + this.nyTime(d) + '</span>';
+          return '<div class="s' + (/^race$/i.test(x.session) ? ' key' : '') + '"><em>' + esc(x.session) + '</em>' + t + '</div>';
+        }).join('') + '</div>';
     }).join('');
-    weekend.innerHTML = '<label>This weekend \u00b7 real world</label>' + (rows || '<div class="home-race-none">No published events</div>') + (domains.length ? '<small class="home-event-source">' + esc(domains.join(' \u00b7 ')) + '</small>' : '');
+    el.innerHTML = label + '<div class="cols">' + cols + '</div>';
   },
 
   // the same id irdeck and irdash give a recent drive (MY DRIVE: FNV-1a of the lower-case "car|track", prefixed r)
@@ -164,17 +202,17 @@ const Home = {
   // the one obvious button. It does exactly what it says: LAST DRIVE names the car and track of his last session and
   // starts that car at that track (MY DRIVE: choose it, check it is chosen, then start); with no last session it is START.
   async next() {
-    if (document.hidden) return;
-    if (!this.shown()) return;
+    if (document.hidden || !this.shown()) return;
     const seq = ++this.healthSeq;
     try { this.health = await (await fetch('/health', { cache: 'no-store' })).json(); } catch (e) { if (!this.health) return; }
+    try { this.rec = await (await fetch('/vault/recorder', { cache: 'no-store' })).json(); } catch (e) { this.rec = null; }
     if (seq !== this.healthSeq) return;
     const apps = {}; ((this.health && this.health.apps) || []).forEach(a => apps[a.id] = a.state);
     const l = this.home && this.home.last, b = $('homeNext');
     let act;
-    if (apps.ui && apps.ui !== 'ok') act = { key: 'rig-on', label: 'Rig on' };
+    if (apps.ui && apps.ui !== 'ok') act = { key: 'rig-on', label: 'Rig on', sub: 'iRacing UI off' };
     else if (apps.sim === 'live') act = { key: 'go', label: 'Get in' };
-    else if (l && l.car && l.track) act = { label: 'Last drive', car: l.car, track: l.track, sub: esc(this.short(l.car)) + ' \u00b7 ' + esc(l.track) };
+    else if (l && l.car && l.track) act = { label: 'Last drive', car: l.car, track: l.track, sub: esc(this.short(l.car)) + '<br>' + esc(l.track) };
     else act = { key: 'test-drive-last', label: 'Start' };
     this.act = act;
     b.homeAct = act; // keep the command paired with the label shown on this button
@@ -183,7 +221,8 @@ const Home = {
     b.setAttribute('data-car', act.car || ''); b.setAttribute('data-track', act.track || '');
     const sub = busy ? '' : failed ? 'Car not chosen' : (act.sub || '');
     setHTML(b, '<div><b>' + (busy ? 'Starting' : esc(act.label)) + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</div>' +
-      '<svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 14h19M15 6l8 8-8 8"/></svg>');
+      '<svg viewBox="0 0 44 44" aria-hidden="true"><path d="M6 22h31M24 9l13 13-13 13"/></svg>');
+    this.drawReady();
   },
 
   // one irdash call, the same ones the deck makes (dry run in tests: recorded, not sent)
@@ -210,32 +249,34 @@ const Home = {
     await this.send('mdstart', '');
   },
 
-  // the phone: a pairing square only while no phone is paired; otherwise one status word at the foot
+  // the phone: the pairing square only while no phone is paired (it borrows the car slot); otherwise one row in READY
   async phone() {
-    if (document.hidden) return;
-    if (!this.shown()) return;
+    if (document.hidden || !this.shown()) return;
     let p; try { p = await (await fetch('/phone/qr', { cache: 'no-store' })).json(); } catch (e) { return; }
-    const el = $('homePhone'), note = $('homePhoneNote');
-    let state = '', cls = '';
-    if (!p.allowed) { state = 'Phone: run tools\\phone-allow.cmd'; cls = 'ask'; }
-    else if (!p.rows || !p.rows.length) state = 'Phone: no home network';
-    else if (p.paired) state = 'Phone paired';
-    if (note) { setText(note, state); note.className = 'foot-phone' + (cls ? ' ' + cls : ''); note.hidden = !state; }
-    if (!p.allowed || !p.rows || !p.rows.length || p.paired) { el.hidden = true; setHTML(el, ''); return; }
-    el.hidden = false;
-    if (!el.querySelector('canvas')) setHTML(el, '<div class="txt"></div><canvas width="140" height="140" aria-label="Pair phone"></canvas>');
-    const cv = el.querySelector('canvas'), n = p.size, quiet = 3, scale = Math.floor(140 / (n + quiet * 2)), px = scale * (n + quiet * 2);
-    cv.width = px; cv.height = px;
-    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, px, px); g.fillStyle = '#000';
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (p.rows[y][x] === '1') g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
-    setHTML(el.querySelector('.txt'), '<label>Pair phone</label><b>' + esc(String(p.code || '').replace(/^(\d{3})(\d{3})$/, '$1 $2')) + '</b>');
+    const lan = !!(p.rows && p.rows.length);
+    this.phoneInfo = { allowed: !!p.allowed, lan: lan, paired: !!p.paired, square: !!(p.allowed && lan && !p.paired) };
+    const el = $('homePhone');
+    if (!this.phoneInfo.square) { el.hidden = true; setHTML(el, ''); }
+    else {
+      el.hidden = false;
+      if (!el.querySelector('canvas')) setHTML(el, '<canvas width="240" height="240" aria-label="Pair phone"></canvas><div class="txt"></div>');
+      const cv = el.querySelector('canvas'), n = p.size, quiet = 3, scale = Math.floor(240 / (n + quiet * 2)), px = scale * (n + quiet * 2);
+      cv.width = px; cv.height = px;
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, px, px); g.fillStyle = '#000';
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (p.rows[y][x] === '1') g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+      setHTML(el.querySelector('.txt'), '<div class="lbl">Pair phone</div><b>' + esc(String(p.code || '').replace(/^(\d{3})(\d{3})$/, '$1 $2')) + '</b><span>Scan with the phone camera</span>');
+    }
+    if (this.home) { this.drawDriver(this.home); this.drawReady(); }
   }
 };
 
 // a page over HOME (the Session Review) with a back bar. Never while he drives: it closes the moment the session is live.
 const HomeHost = {
   el: null,
-  init() { setInterval(() => { if (this.el && window.UI && UI.live && UI.live()) this.close(); }, 1500); },
+  init() {
+    setInterval(() => { if (this.el && window.UI && UI.live && UI.live()) this.close(); }, 1500);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.el) { e.preventDefault(); this.close(); } });   // Esc always gets him back to HOME
+  },
   open(url, title) {
     if (this.el || (window.UI && UI.live && UI.live())) return;
     const host = $('homeHost'); host.hidden = false;
@@ -254,4 +295,3 @@ const HomeHost = {
   }
 };
 Home.init();
-

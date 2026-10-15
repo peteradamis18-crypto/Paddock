@@ -64,6 +64,8 @@ table.ct td small { color: var(--ref); font-size: 13px; margin-left: 5px; }
 .addch:hover { background: rgba(242,194,48,.08); }
 .picker { display: none; position: absolute; left: 1120px; top: 118px; width: 768px; z-index: 20; background: #121214; border: 1px solid #5a4a14; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.7); }
 .picker.on { display: block; }
+.picker .pclose { float: right; height: 44px; margin: -4px -4px 8px 16px; padding: 0 22px; border: 1px solid var(--gold); border-radius: 5px; background: transparent; color: var(--gold); font: 18px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .2em; text-transform: uppercase; cursor: pointer; }
+.picker .pclose:hover { background: var(--gold); color: #0a0905; }
 .picker .pt { font-size: 14px; letter-spacing: .16em; color: var(--mute); text-transform: uppercase; margin-bottom: 10px; white-space: nowrap; }
 .picker .pt b { color: var(--gold); font-weight: 500; }
 .picker input { width: 100%; font: 26px Bahnschrift, "Segoe UI", sans-serif; color: var(--ink); background: #0b0b0c; border: 1px solid var(--line); padding: 8px 12px; outline: none; -webkit-user-select: text; user-select: text; }
