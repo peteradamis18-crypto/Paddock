@@ -529,6 +529,7 @@ namespace IRDash
         static string TailSection(string id, string lapStr, string track, double startMs, string type)
         {
             Cx cx = Analyse(id, lapStr);
+            if (cx.File.Length == 0) { int h; string f = Analysis.ShareFile(id, out h); if (f != null) cx.File = Path.GetFileName(f); }   // no lap analysed: still the session's own file, so its recording is found
             string assoc; double uid; int snum;
             Dictionary<string, object> sess = ResolveRecording(cx, track, startMs, type, out assoc, out uid, out snum);
             // which iRacing session this review is about, so the after-session screen can refuse a stale "last"
@@ -559,6 +560,14 @@ namespace IRDash
                         if (ev.Unique > 0) { uid = ev.Unique; snum = ev.SessNum; uidOut = uid; snumOut = snum; }
                         if (fileStart > 0) lapMs = fileStart + (ev.SessTime - ev.FirstTime) * 1000.0;
                     }
+                }
+                // no completed lap (an out-lap only): the identity from the file's first record, and a moment just after the
+                // file started, which lies inside that session's recording
+                if (uid <= 0 && cx.File.Length > 0)
+                {
+                    int u, n;
+                    if (Analysis.ShareFirst(cx.File, out u, out n)) { uid = u; snum = n; uidOut = uid; snumOut = snum; }
+                    if (lapMs <= 0 && fileStart > 0) lapMs = fileStart + 20000;
                 }
                 string root = Vault.Root ?? Path.Combine(Program.RootDir, "vault");
                 List<RecCand> cands = new List<RecCand>(); Dictionary<RecCand, Dictionary<string, object>> by = new Dictionary<RecCand, Dictionary<string, object>>();

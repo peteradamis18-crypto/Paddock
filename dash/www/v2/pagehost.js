@@ -11,6 +11,8 @@
 const PageHost = {
   PAGES: {
     sessions: { id: 'sessHost', src: 'sessions.html?embed=1', title: 'Sessions', nav: '/nav', open: '/api/nav?to=sessions', close: '/api/nav?to=home', z: 948 },
+    // the deck's DEBRIEF key: the coach for his last outing (same irdash request flag as Sessions, value 'coach')
+    coach: { id: 'coachHost', src: 'coach.html?id=last', title: 'Review', nav: '/nav', open: '/api/nav?to=coach', close: '/api/nav?to=home', z: 948 },
     vault: { id: 'vaultHost', src: 'vault.html?embed=1', title: 'Vault', nav: '/vault/nav', open: '/api/do?c=vkopen', close: '/api/do?c=vkclose', z: 947 },
     perf: { id: 'perfHost', src: 'perf.html?embed=1', title: 'Performance', nav: '/perf/nav', open: '/api/do?c=perf', close: '/api/do?c=perfclose', z: 946 },
   },
@@ -29,7 +31,7 @@ const PageHost = {
     window.addEventListener('message', e => {
       if (e.origin !== location.origin || !e.data) return;
       const m = e.data.irdash;
-      if (m === 'sessions-close' || m === 'vault-close' || m === 'perf-close') this.close(true);
+      if (m === 'sessions-close' || m === 'vault-close' || m === 'perf-close' || (m === 'coach-close' && this.cur === 'coach')) this.close(true);
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.cur) { e.preventDefault(); this.close(true); } }, true);
     this.poll(); setInterval(() => this.poll(), 1500);
@@ -43,10 +45,20 @@ const PageHost = {
   isOpen(name) { return this.cur === name; },
   send(url) { fetch(url, { cache: 'no-store' }).catch(() => { }); },
 
+  // Three things can sit over the dashboard: this manager's pages, the after-session coach (debrief-v4.js) and HOME's
+  // REVIEW (home.js). Only one at a time, or a new page opens UNDER an old one and looks like the key did nothing
+  // (2026-10-18: VAULT opened beneath a coach left up after a session).
+  closeOthers(except, tell) {
+    if (except !== 'db4' && typeof Debrief4 !== 'undefined' && Debrief4.root && Debrief4.root()) Debrief4.hide();
+    if (except !== 'home' && typeof HomeHost !== 'undefined' && HomeHost.el) HomeHost.close();
+    if (except !== 'page' && this.cur) this.close(tell);
+  },
+
   open(name, tell) {
     const p = this.PAGES[name]; if (!p || this.driving()) return false;
     if (this.cur === name) return true;
     if (this.cur) this.close(true);
+    this.closeOthers('page');
     const host = document.createElement('div'); host.id = p.id; host.className = 'pg-host'; host.style.zIndex = p.z;
     const f = document.createElement('iframe'); f.src = p.src; f.title = p.title;
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pg-close'; b.textContent = 'Close';

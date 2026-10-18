@@ -889,7 +889,8 @@ V.alignOnPlay = alignOnPlay;
 V.sameLap = sameLap;
 function init() {
   const v0 = $('vid'); if (v0) v0.removeAttribute('controls');
-  if (!EMBED) $('closeBtn').hidden = true; else $('closeBtn').onclick = closeMe;
+  $('closeBtn').hidden = true;   // standalone: nothing to close; embedded: pagehost draws the one CLOSE above every page
+  $('closeBtn').onclick = closeMe;
   $('sessBtn').onclick = () => { location.href = 'sessions.html' + (EMBED ? '?embed=1' : ''); };
   $('backBtn').onclick = () => { location.hash = ''; };
   $('q').oninput = e => { V.f.q = e.target.value; renderGrid(); };

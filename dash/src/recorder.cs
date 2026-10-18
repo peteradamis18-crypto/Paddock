@@ -178,14 +178,15 @@ namespace IRDash
         public long Bytes, Created; public double Duration;
         public List<RecSeg> Segs = new List<RecSeg>();
         public List<RecLap> Laps = new List<RecLap>();               // while open: the laps seen
-        public List<double[]> LapRows = new List<double[]>();        // once written: {n, offset s, time, clean, pb}
+        public List<double[]> LapRows = new List<double[]>();        // once written: {n, offset s, time, clean, pb, start wall ms (NaN if unknown)}
         public List<double[]> Incidents = new List<double[]>();     // {wall ms, points added} while open; {offset s, points} once written
         public int IncSeen = -1;
         public string File = "";
         // schema 2: holes where recorded segments went missing ({from, to} wall ms), how the length was measured, and a SAVE that could not happen yet
         public List<double[]> Gaps = new List<double[]>();
         public string DurationSource = "", SaveBlocked = "";
-        public double RecEndMs;      // wall clock of the last recorded picture (the review asks "was this lap driven while it ran?")
+        public string State = "";    // "finalize-stalled" while a finish timed out waiting (overrides ready/partial)
+        public double RecEndMs;     // wall clock of the last recorded picture (the review asks "was this lap driven while it ran?")
     }
 
     // S1: a clip cut around a rise in the player's incident count
@@ -233,6 +234,24 @@ namespace IRDash
         // ---------------- where things are ----------------
         static string VaultRoot { get { return Vault.Root ?? Path.Combine(Program.RootDir, "vault"); } }
         static string RecDir { get { return Path.Combine(VaultRoot, "rec"); } }
+
+        // A SAVE press must outlive a restart: a tiny marker next to the segments (temp + move, like the sidecars).
+        static string WishPath(string id)
+        {
+            string safe = id ?? ""; foreach (char c in Path.GetInvalidFileNameChars()) safe = safe.Replace(c, '_');
+            return Path.Combine(RecDir, "save-" + safe + ".wish");
+        }
+        static void WriteWish(string id)
+        {
+            try
+            {
+                Directory.CreateDirectory(RecDir); string f = WishPath(id), t = f + ".tmp";
+                File.WriteAllText(t, id ?? "", new UTF8Encoding(false));
+                if (File.Exists(f)) File.Delete(f);
+                File.Move(t, f);
+            }
+            catch (Exception ex) { Log.W("recorder: could not remember the SAVE of session " + id + " across a restart (" + ex.Message + ")"); }
+        }
         static string ClipDir { get { return Path.Combine(VaultRoot, "clips"); } }
         static string SessDir { get { return Path.Combine(VaultRoot, "sessions"); } }
         static string SavedDir { get { return Path.Combine(VaultRoot, "saved"); } }
@@ -1188,6 +1207,13 @@ namespace IRDash
             Enqueue(delegate () { FinishSession(s, waitVideo); });
         }
 
+        // A finish that waited too long gives up cleanly: the segments stay, the session says so, and the normal retry picks it up.
+        static void FinishStalled(RecSess s, string what)
+        {
+            lock (gate) { s.State = "finalize-stalled"; s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; }
+            Log.W("recorder: session " + s.Id + " - finishing stalled (" + what + " still busy after 120 s); keeping the segments and trying again in 60 s");
+        }
+
         // Concat the session's segments, without re-encoding, into sessions\<id>.mp4 + a sidecar, then delete its .ts files.
         static void FinishSession(RecSess s, bool waitVideo)
         {
@@ -1195,7 +1221,29 @@ namespace IRDash
             try
             {
                 if (FreeBytes(SessDir) < (long)(MinFreeGb * 1073741824.0)) { lock (gate) s.FinishQueued = false; Log.W("recorder: session " + s.Id + " kept as segments - less than 50 GB is free"); return; }
-                if (waitVideo) while (ff != null) Thread.Sleep(100);
+                // a SAVE pressed before a restart (or before this recovery) is still a SAVE; a recovered session has a new id, so any orphan wish is its
+                string wishFile = File.Exists(WishPath(s.Id)) ? WishPath(s.Id) : null;
+                // ...but only a wish pressed while THIS session was recording (or within 10 minutes after), never an old one
+                if (wishFile == null && s.Recovered)
+                {
+                    try
+                    {
+                        string[] w = Directory.Exists(RecDir) ? Directory.GetFiles(RecDir, "save-*.wish") : new string[0];
+                        double from = s.StartMs - 60000, to = (s.EndMs > 0 ? s.EndMs : WallMs()) + 600000;
+                        foreach (string x in w)
+                        {
+                            double at = (File.GetLastWriteTimeUtc(x) - Epoch).TotalMilliseconds;
+                            if (at >= from && at <= to) { wishFile = x; break; }
+                        }
+                    }
+                    catch { }
+                }
+                if (wishFile != null && !s.SaveWhenDone) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " - a SAVE pressed earlier is honoured"); }
+                if (waitVideo)
+                {
+                    double ffUntil = WallMs() + 120000;
+                    while (ff != null) { if (WallMs() > ffUntil) { FinishStalled(s, "the screen recorder"); return; } Thread.Sleep(100); }
+                }
                 // the lap and incident clips of this session go first (they read the same .ts)
                 for (int i = 0; i < 600; i++)
                 {
@@ -1209,6 +1257,7 @@ namespace IRDash
                     Thread.Sleep(100);
                 }
                 // Never discard source segments while any consumer is still active.
+                double consUntil = WallMs() + 120000;
                 while (true)
                 {
                     bool pend = false;
@@ -1219,8 +1268,10 @@ namespace IRDash
                         foreach (RecInc x in incCuts) if (x.Sess == s.Id && !x.Done) pend = true;
                     }
                     if (!pend) break;
+                    if (WallMs() > consUntil) { FinishStalled(s, "a lap or incident clip"); return; }
                     Thread.Sleep(100);
                 }
+                s.State = "";
                 List<RecSeg> sel = new List<RecSeg>(), closed = new List<RecSeg>(); List<RecLap> lapSnapshot; List<double[]> incidentSnapshot;
                 lock (gate)
                 {
@@ -1275,7 +1326,7 @@ namespace IRDash
                 }
                 s.Created = (long)WallMs();
                 s.LapRows = new List<double[]>();
-                foreach (RecLap l in lapSnapshot) s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, (!l.Pit && !l.Off && !l.Dirty && l.Time > minLap) ? 1 : 0, (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005)) ? 1 : 0 });
+                foreach (RecLap l in lapSnapshot) s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, (!l.Pit && !l.Off && !l.Dirty && l.Time > minLap) ? 1 : 0, (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005)) ? 1 : 0, l.Start });   // [5] = wall start, so a time inside the lap maps through the same spans even over a gap
                 List<double[]> inc = new List<double[]>();
                 foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
@@ -1309,6 +1360,7 @@ namespace IRDash
                 // the picture must be on the disk itself (not only in the Windows cache) before the segments go
                 try { using (FileStream vf = new FileStream(s.File, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete)) vf.Flush(true); }
                 catch (Exception ex) { Log.W("recorder: session " + s.Id + " - could not flush the video to disk (" + ex.Message + "); keeping the segments for now"); lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; s.Incidents = wallIncidents; } return; }
+                if (wishFile != null) { try { File.Delete(wishFile); } catch { } }   // the sidecar (and video) are durable now, so the marker has done its job
                 lock (gate) recState = s.Saved ? "SAVED" : s.SaveBlocked == "full" ? "SAVED FULL" : s.SaveBlocked == "failed" ? "SAVE FAILED" : recState;
                 lock (gate) { foreach (RecSeg g in sel) segs.Remove(g); sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; }); sessions.Add(s); finishing.Remove(s); }
                 foreach (RecSeg g in sel) { try { File.Delete(Path.Combine(RecDir, g.Name)); } catch { } }
@@ -1344,7 +1396,7 @@ namespace IRDash
         static string SessJson(RecSess s)
         {
             StringBuilder lb = new StringBuilder("[");
-            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + "}"); }
+            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
             lb.Append(']');
             StringBuilder ib = new StringBuilder("[");
             for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + Num(r[0]) + ",\"count\":" + ((int)r[1]) + "}"); }
@@ -1355,7 +1407,7 @@ namespace IRDash
             return "{\"schema\":2,\"id\":" + Json_.S(s.Id) + ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") +
                    ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
                    ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"endMs\":" + (s.RecEndMs > 0 ? s.RecEndMs.ToString("0", Inv) : "null") + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"durationSource\":" + Json_.S(s.DurationSource) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
-                   ",\"state\":" + Json_.S(s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
+                   ",\"state\":" + Json_.S(s.State.Length > 0 ? s.State : s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
                    ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
                    ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
                    ",\"laps\":" + lb + ",\"incidents\":" + ib + "}";
@@ -1427,7 +1479,7 @@ namespace IRDash
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
-                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0 }); }
+                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs") }); }
                 System.Collections.IList inc = d.ContainsKey("incidents") ? d["incidents"] as System.Collections.IList : null;
                 if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DN(r, "offset"), DD(r, "count") }); }
                 System.Collections.IList gaps = d.ContainsKey("gaps") ? d["gaps"] as System.Collections.IList : null;
@@ -1457,6 +1509,13 @@ namespace IRDash
                                 if (s.Id.Length == 0 || !File.Exists(s.File)) continue;
                                 sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; });
                                 sessions.Add(s);
+                                // a SAVE pressed before a restart: the finished session keeps it, so retention never deletes it
+                                string wf = WishPath(s.Id);
+                                if (File.Exists(wf))
+                                {
+                                    if (!s.Saved) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " - a SAVE pressed before the restart is kept"); }
+                                    if (s.Saved || WriteSessJson(s)) { try { File.Delete(wf); } catch { } }   // gone only once the sidecar says so
+                                }
                             }
                             catch { }
                         }
@@ -1477,17 +1536,17 @@ namespace IRDash
             {
                 if (string.IsNullOrEmpty(id))
                 {
-                if (openSess != null) { openSess.SaveWhenDone = true; recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
+                if (openSess != null) { openSess.SaveWhenDone = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
                     foreach (RecSess x in finishing) if (x.StartMs >= (s == null ? 0 : s.StartMs)) s = x;
                     foreach (RecSess x in sessions) if (x.StartMs >= (s == null ? 0 : s.StartMs)) s = x;
                     if (s == null) { recState = "NOTHING"; return "NOTHING"; }
-                    if (finishing.Contains(s)) { s.SaveWhenDone = true; recState = "SAVING"; return "SAVING"; }
+                    if (finishing.Contains(s)) { s.SaveWhenDone = true; WriteWish(s.Id); recState = "SAVING"; return "SAVING"; }
                     if (s.Saved) { recState = "SAVED"; return "SAVED"; }
                 }
                 else
                 {
-                    if (openSess != null && id == openSess.Id) { openSess.SaveWhenDone = true; recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
-                    foreach (RecSess x in finishing) if (x.Id == id) { x.SaveWhenDone = true; recState = "SAVING"; return "SAVING"; }
+                    if (openSess != null && id == openSess.Id) { openSess.SaveWhenDone = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
+                    foreach (RecSess x in finishing) if (x.Id == id) { x.SaveWhenDone = true; WriteWish(x.Id); recState = "SAVING"; return "SAVING"; }
                     foreach (RecSess x in sessions) if (x.Id == id) { s = x; break; }
                     if (s == null) { recState = "NOTHING"; return "NOTHING"; }
                     if (s.Saved) { recState = "SAVED"; return "SAVED"; }
@@ -1523,7 +1582,7 @@ namespace IRDash
                     int laps = s.Open ? s.Laps.Count : s.LapRows.Count;
                     sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
                               ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + dur.ToString("0.000", Inv) + ",\"bytes\":" + bytes +
-                              ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone ? "true" : "false") + ",\"open\":" + (s.Open ? "true" : "false") + ",\"state\":" + Json_.S(s.Open ? "open" : (finishing.Contains(s) ? "finishing" : "finished")) +
+                              ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone ? "true" : "false") + ",\"open\":" + (s.Open ? "true" : "false") + ",\"state\":" + Json_.S(s.Open ? "open" : (finishing.Contains(s) ? (s.State == "finalize-stalled" ? s.State : "finishing") : "finished")) +
                               ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") + ",\"gaps\":" + s.Gaps.Count + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) + ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"laps\":" + laps + ",\"incidents\":" + s.Incidents.Count + "}");
                 }
                 sb.Append("]}");

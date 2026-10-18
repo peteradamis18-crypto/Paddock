@@ -1136,6 +1136,29 @@ Check 'the missing middle segment is named in the recorder log' (@($logNow | Whe
 $null = J '/vault/test/rec?cmd=off'
 }
 
+# =====================================================================================================
+if (Want 23) {
+Section '23. a SAVE survives a restart (.wish marker) and a lap sidecar row carries its wall start'
+# Offline: fake finished sessions + a marker, then the same "reload" irdash does at start. No recording, no ffmpeg.
+# (The 120 s finalisation deadline and the "finalize-stalled" state need a stuck ffmpeg; they are only compile-checked here.)
+New-Item -ItemType Directory -Force $sessDir,$recDir | Out-Null
+$wid = 'sess-wish'; $lap0 = (NowMs) - 60000
+foreach ($e in '.mp4','.json') { Remove-Item (Join-Path $sessDir ($wid + $e)) -Force -ErrorAction SilentlyContinue }
+[IO.File]::WriteAllBytes((Join-Path $sessDir ($wid + '.mp4')), (New-Object byte[] 200000))
+(@{ id = $wid; track = 'Test Track'; config = ''; car = 'Test Car'; sessionType = 'Practice'; startMs = [double]$lap0; durationSec = 30.0; bytes = 200000; encoder = 'libx264'; saved = $false; recovered = $false; created = [double]$lap0; laps = @(@{ n = 1; offset = 2.5; time = 20.0; clean = $true; pb = $false; startMs = [double]($lap0 + 2500) }, @{ n = 2; offset = 22.5; time = 8.0; clean = $true; pb = $false }); incidents = @() } | ConvertTo-Json -Compress -Depth 5) | Set-Content -Encoding UTF8 (Join-Path $sessDir ($wid + '.json'))
+$wish = Join-Path $recDir ('save-' + $wid + '.wish'); Set-Content -Encoding UTF8 $wish $wid
+$null = J '/vault/test/rec?cmd=reload'
+$row = @((J '/vault/test/rec?cmd=sessions').sessions | Where-Object { $_.id -eq $wid })
+Check 'a finished session with a .wish comes back as a wanted SAVE' ($row.Count -eq 1 -and $row[0].saveWhenDone -eq $true)
+Check 'the .wish is deleted once the sidecar says so' (-not (Test-Path $wish))
+$jj = Get-Content (Join-Path $sessDir ($wid + '.json')) -Raw | ConvertFrom-Json
+Check 'the sidecar keeps saveWhenDone' ($jj.saveWhenDone -eq $true)
+Check 'lap 1 keeps offset 2.5 and its wall start' ((Near $jj.laps[0].offset 2.5 0.001) -and (Near $jj.laps[0].startMs ($lap0 + 2500) 1))
+Check 'a lap without a start reads back as null (not a plausible 0)' ($jj.laps[1].startMs -eq $null -and (Near $jj.laps[1].offset 22.5 0.001))
+foreach ($e in '.mp4','.json') { Remove-Item (Join-Path $sessDir ($wid + $e)) -Force -ErrorAction SilentlyContinue }
+$null = J '/vault/test/rec?cmd=reload'
+}
+
 }
 finally {
   try { Cdp-Close } catch { }

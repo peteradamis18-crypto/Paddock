@@ -610,6 +610,7 @@ namespace IRDash
                         var dq = ParseQuery(query); string dc, da; dq.TryGetValue("c", out dc); dq.TryGetValue("a", out da);
                         // the flat data-drawn TV map was rejected; the real TV view is not built yet, so this one command is off (P0-03)
                         if (dc == "tvview") { Send(s, 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("TV view rebuild")); return; }
+                        if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
                         bool ok = TvView.Handles(dc ?? "") ? TvView.Do(dc, da) : Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : Guest.Do(dc ?? "", da);
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");

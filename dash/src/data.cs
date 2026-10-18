@@ -36,7 +36,7 @@ namespace IRDash
                 case "/nav": body = Utf8(Nav.Json()); return true;
                 case "/api/nav":
                     q.TryGetValue("to", out v);
-                    if (!Nav.Set(v == "sessions" ? "sessions" : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
+                    if (!Nav.Set(v == "sessions" ? "sessions" : v == "coach" ? "coach" : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
                     body = Utf8("{\"ok\":true}"); return true;
                 case "/api/sessions/open":
                     if (!Nav.Set("sessions")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
@@ -864,8 +864,8 @@ namespace IRDash
         static readonly object gate = new object();
         static string want = ""; static int seq; static DateTime since = DateTime.MinValue;
 
-        public static bool Handles(string c) { return c == "sessions" || c == "sessionsclose"; }
-        public static bool Do(string c, string a) { return Set(c == "sessions" ? "sessions" : ""); }
+        public static bool Handles(string c) { return c == "sessions" || c == "sessionsclose" || c == "debrief"; }   // debrief = the deck's DEBRIEF key: the coach for the last outing (it had no handler before 2026-10-18)
+        public static bool Do(string c, string a) { return Set(c == "sessions" ? "sessions" : c == "debrief" ? "coach" : ""); }
 
         public static bool Set(string to)
         {

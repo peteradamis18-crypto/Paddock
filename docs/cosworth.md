@@ -44,6 +44,13 @@ Live evidence: the copied workbook opened as `Paddock - Pi Toolbox`; forwarding 
 
 Do **not** pass the template or pass a lap while Pi is cold: Pi shows the New Workbook chooser and drops the path. Pi titles the window with the workbook, not the `.ibt` file name.
 
+**What Paddock can and cannot confirm (2026-10-18, details in `docs/cosworth-addin-findings.md`).** Pi Toolbox 5.193 Lite has
+no outside automation: no COM ProgIDs, its file-open pipe only takes paths, there is no command-line switch for datum or lap, and
+nothing on disk or in the registry records which outing or datum is loaded. So the `*` title change proves "a lap was
+imported into the Paddock workbook", not "this lap and the PB as reference". Paddock says exactly that and no more. Possible later
+hardening, untried: read Pi's outing list through Windows UI Automation (read-only), or a Pi add-in built against
+`Pi.Research.DataAnalysis.dll` (registration undocumented; Lite may refuse it).
+
 ## Paddock's ready workbook (W-19)
 
 W-19 wanted Paddock's own workbook (speed, throttle, brake, steering, gear, delta and the PB as the datum outing) to be the one

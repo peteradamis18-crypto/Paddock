@@ -172,7 +172,8 @@ async function openAnalysis(file) {
 }
 /* ---------------- start ---------------- */
 function init() {
-  if (!EMBED) $('closeBtn').hidden = true; else $('closeBtn').onclick = closeMe;
+  $('closeBtn').hidden = true;   // standalone: nothing to close; embedded: pagehost draws the one CLOSE above every page
+  $('closeBtn').onclick = closeMe;
   $('perfBtn').onclick = () => { location.href = 'perf.html' + (EMBED ? '?embed=1' : ''); };
   $('vaultBtn').onclick = () => { location.href = 'vault.html' + (EMBED ? '?embed=1' : ''); };
   $('backBtn').onclick = () => { location.hash = ''; };

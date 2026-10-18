@@ -422,6 +422,8 @@ try {
   $null = Cdp-Eval "window.__debrief4Src = '/v2/db4-right.json'; 1"
   $onR = Cdp-Wait "!!document.querySelector('#debrief4.on')" 12
   Check 'once the right session answers, its review goes up by itself' ($onR -and (Cdp-Eval "!Debrief4.waiting()") -eq $true)
+  $cf = Cdp-Eval "(function(){ var f = document.querySelector('#debrief4 iframe'); return f ? f.getAttribute('src') : ''; })()"
+  Check "the after-session screen is the session coach for that telemetry file ('$cf')" ($cf -match '^coach\.html\?id=.+\.ibt' -and (Cdp-Eval "!!document.querySelector('#debrief4 .pg-close')") -eq $true)
   $null = Cdp-Eval "Debrief4.hide(); window.__debrief4Src = '/v2/db4-right.json'; window.__db4Live = true; L.v.LapCompleted = 0; 1"
   Start-Sleep -Milliseconds 1500
   $null = Cdp-Eval "window.__db4Live = false; 1"

@@ -255,6 +255,7 @@ const Debrief4 = (function () {
   }
   function show(j) {
     hide();
+    if (typeof PageHost !== 'undefined') PageHost.closeOthers('db4', true);   // one page at a time over the dashboard
     window.__deb4Last = j;
     const root = document.createElement('div'); root.id = 'debrief4'; root.className = 'db4';
     root.appendChild(stage(j));
@@ -268,6 +269,28 @@ const Debrief4 = (function () {
     active(true); clearInterval(activeTimer); activeTimer = setInterval(() => { if (el) active(true); }, 5000);
     wireBar(root, j);
   }
+  // After a session the Coach is the screen (coach.html: what to fix, his video, all the data one press away). The old
+  // debrief stays the fallback when the reply names no telemetry file. Same lease and heartbeat, so the deck keys
+  // (SAVE, SHARE, COSWORTH, DEEP DIVE) keep acting on this session.
+  function coachId(j) { return (j && j.bar && j.bar.deepDive && j.bar.deepDive.id) || (j && j.meta && j.meta.file) || ''; }
+  function showCoach(j) {
+    const id = coachId(j); if (!id) { show(j); return; }
+    hide();
+    if (typeof PageHost !== 'undefined') PageHost.closeOthers('db4', true);   // one page at a time over the dashboard
+    window.__deb4Last = j;
+    const root = document.createElement('div'); root.id = 'debrief4'; root.className = 'db4 pg-host db4-coach'; root.style.zIndex = 949;
+    const f = document.createElement('iframe'); f.src = 'coach.html?id=' + encodeURIComponent(id) + (j.race ? '&race=' + encodeURIComponent(j.id) : ''); f.title = 'Coach';
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pg-close'; b.textContent = 'Close';
+    b.addEventListener('click', e => { e.stopPropagation(); hide(); });
+    root.appendChild(f); root.appendChild(b); document.body.appendChild(root);
+    el = root;
+    requestAnimationFrame(() => root.classList.add('on'));
+    timer = setTimeout(hide, 15 * 60 * 1000);
+    active(true); clearInterval(activeTimer); activeTimer = setInterval(() => { if (el) active(true); }, 5000);
+  }
+  window.addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.irdash === 'coach-close' && el && el.classList.contains('db4-coach')) hide(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && el && el.classList.contains('db4-coach')) hide(); });
+
   function hide() {
     clearTimeout(timer); timer = null;
     clearInterval(activeTimer); activeTimer = null; if (el) active(false);
@@ -352,7 +375,7 @@ const Debrief4 = (function () {
       fetch(src(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => {
         if (!wait || wait.want !== want) return;
         try { if (UI.live()) { wait = null; return; } } catch (e) { }
-        if (j && j.ok === true && !j.error && matches(j, want)) { wait = null; show(j); return; }
+        if (j && j.ok === true && !j.error && matches(j, want)) { wait = null; showCoach(j); return; }   // the coach for the session that ended
         wait.t = setTimeout(tick, 4000);
       }).catch(() => { if (wait && wait.want === want) wait.t = setTimeout(tick, 4000); });
     };
@@ -383,7 +406,7 @@ const Debrief4 = (function () {
     if (n && n.go && n.seq !== navSeq) { navSeq = n.seq; openDeepDive(el, window.__deb4Last); }
   }
 
-  return { show: show, hide: hide, load: load, onSessionEnd: load, init: init, matches: matches, awaitReview: awaitReview, waiting: function () { return !!wait; }, boxes: boxes, overlaps: overlaps, bands: bands, root: function () { return el; },
+  return { show: show, showCoach: showCoach, hide: hide, load: load, onSessionEnd: load, init: init, matches: matches, awaitReview: awaitReview, waiting: function () { return !!wait; }, boxes: boxes, overlaps: overlaps, bands: bands, root: function () { return el; },
     // D-04: the one-press bar and the incident player (also the test hooks)
     save: save, share: share, setCosworth: setCosworth, applyVaultList: applyVaultList, deepDiveUrl: deepDiveUrl, openDeepDive: openDeepDive,
     playIncident: playIncident, closePlayer: closePlayer,

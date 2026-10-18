@@ -306,6 +306,7 @@ const HomeHost = {
   },
   open(url, title) {
     if (this.el || (typeof UI !== 'undefined' && UI.live && UI.live())) return;
+    if (typeof PageHost !== 'undefined') PageHost.closeOthers('home', true);   // one page at a time over the dashboard
     const host = $('homeHost'); host.hidden = false;
     host.innerHTML = '<div class="bar"><button type="button">&lsaquo; Home</button><span>' + esc(title || '') + '</span></div>';
     const f = document.createElement('iframe'); f.src = url; f.title = title || 'page';

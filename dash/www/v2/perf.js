@@ -299,6 +299,7 @@ document.addEventListener('click', e => {
   if (t && t.dataset.tool) { fetch('/api/do?c=perfshow&a=' + encodeURIComponent(t.dataset.tool), { cache: 'no-store' }).catch(() => { }); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') pfClose(); });
+$('closeBtn').hidden = true;   // pagehost draws the one CLOSE above every page
 $('closeBtn').onclick = pfClose;
 $('sessBtn').onclick = () => { location.href = 'sessions.html' + (PF.EMBED ? '?embed=1' : ''); };
 $('plotBox').addEventListener('mousemove', pfHover);

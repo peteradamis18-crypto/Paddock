@@ -13,10 +13,13 @@ window.isNum = x => typeof x === 'number' && isFinite(x);
 // declared like core.js and ui.js do (const, so NOT window.UI / window.L): a lookup through window would fail here as in production
 const UI = { live: () => window.__live };
 const L = { v: {} };
+// the two other layers that can cover the dashboard (debrief-v4.js after a session, home.js REVIEW), as small mocks
+const Debrief4 = { _el: null, root() { return this._el; }, hide() { this._el = null; } };
+const HomeHost = { el: null, close() { this.el = null; } };
 window.__live = false;
 window.NAV = { '/nav': { to: '', seq: 1 }, '/vault/nav': { to: '', seq: 1, enabled: true }, '/perf/nav': { to: '', seq: 1 } };
 window.SENT = []; window.LOSE_CLOSE = false;
-const CMDS = { '/api/nav?to=sessions': ['/nav', 'sessions'], '/api/nav?to=home': ['/nav', ''], '/api/do?c=vkopen': ['/vault/nav', 'vault'], '/api/do?c=vkclose': ['/vault/nav', ''], '/api/do?c=perf': ['/perf/nav', 'perf'], '/api/do?c=perfclose': ['/perf/nav', ''] };
+const CMDS = { '/api/nav?to=sessions': ['/nav', 'sessions'], '/api/nav?to=coach': ['/nav', 'coach'], '/api/nav?to=home': ['/nav', ''], '/api/do?c=vkopen': ['/vault/nav', 'vault'], '/api/do?c=vkclose': ['/vault/nav', ''], '/api/do?c=perf': ['/perf/nav', 'perf'], '/api/do?c=perfclose': ['/perf/nav', ''] };
 window.fetch = url => {
   SENT.push(url);
   if (NAV[url]) return Promise.resolve({ json: () => Promise.resolve(Object.assign({}, NAV[url])) });
@@ -56,6 +59,16 @@ const deck = (nav, to) => { const n = NAV[nav]; n.to = to; n.seq++; };
     check('the closed page is gone from the screen after its fade', document.querySelectorAll('.pg-host').length === 1);
     window.dispatchEvent(new MessageEvent('message', { data: { irdash: 'vault-close' }, origin: location.origin })); await sleep(300);   // as the Vault page (same origin) sends it
     check('the page\'s own close message closes it', !open('vaultHost'));
+    deck('/nav', 'coach'); await sleep(1700);
+    check('the deck DEBRIEF key (irdash asks for coach) opens the coach page for the last outing', open('coachHost') && /coach\.html\?id=last/.test(document.querySelector('#coachHost iframe').getAttribute('src')));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(300);
+    check('Esc closes the coach page too', !open('coachHost'));
+    Debrief4._el = {}; deck('/vault/nav', 'vault'); await sleep(1700);
+    check('VAULT pressed while the after-session coach is up: the coach goes, the Vault is on top (not hidden under it)', open('vaultHost') && !Debrief4.root());
+    HomeHost.el = {}; deck('/nav', 'sessions'); await sleep(1700);
+    check('Sessions opened while HOME\'s review is up: the review goes', open('sessHost') && !HomeHost.el && !open('vaultHost'));
+    PageHost.closeOthers('db4', true); await sleep(300);
+    check('the after-session coach coming up closes the open page and tells irdash', !open('sessHost') && NAV['/nav'].to === '');
     deck('/perf/nav', 'perf'); await sleep(1700);
     check('a Performance request opens Performance', open('perfHost'));
     window.__live = true; L.v.IsOnTrack = 1; await sleep(1700);

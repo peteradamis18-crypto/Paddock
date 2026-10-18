@@ -220,6 +220,29 @@ namespace IRDash
             return ev;
         }
 
+        // which session a telemetry file holds, from its first record: for a session with no completed lap (an out-lap
+        // only) there is no lap to ask, but it still has a recording that must be found (debrief.cs ResolveRecording)
+        internal static bool ShareFirst(string spec, out int unique, out int sessNum)
+        {
+            unique = 0; sessNum = -1;
+            try
+            {
+                int hint; string file = ShareFile(spec, out hint);
+                if (file == null) return false;
+                TrackMaps.Ibt t = TrackMaps.OpenIbt(file, true);
+                if (t == null) return false;
+                using (t.fs)
+                {
+                    VarDef vSn = V(t, "SessionNum"), vUid = V(t, "SessionUniqueID");
+                    if (vUid == null || t.records < 1) return false;
+                    unique = (int)ShareRecord(t, 0, vUid);
+                    if (vSn != null) sessNum = (int)ShareRecord(t, 0, vSn);
+                    return unique > 0;
+                }
+            }
+            catch (Exception ex) { Log.W("share: reading the first record: " + ex.Message); return false; }
+        }
+
         static double ShareRecord(TrackMaps.Ibt t, long rec, VarDef v)
         {
             byte[] b = new byte[8]; int n = TypeSize(v.Type);

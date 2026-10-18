@@ -461,7 +461,10 @@ const Conn = {
       try {
         const v = await (await fetch('/version', { cache: 'no-store' })).text();
         if (version && v !== version) {
-          if (L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying) return;   // keep the old version; ask again in 15 s
+          // keep the old version while he drives; ask again in 15 s. Only a FRESH frame counts: the last frame of a session
+          // (or of a test's pretend race) keeps IsOnTrack set forever and blocked every update until the next drive.
+          const fresh = L.connected && performance.now() - (L.lastFrameAt || 0) < 3000;
+          if (fresh && L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying) return;
           location.reload();
         }
         version = v;

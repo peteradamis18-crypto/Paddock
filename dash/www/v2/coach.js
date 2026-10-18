@@ -10,10 +10,10 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const DOT = ' · ', DASH = '—';
-  const P = new URLSearchParams(location.search), ID = P.get('id') || '';
+  const P = new URLSearchParams(location.search); let ID = P.get('id') || '';
   const lap = t => { if (!(t > 0)) return DASH; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); };
   const stage = $('stage');
-  let C = null, R = null;
+  let C = null, R = null, RES = null;
 
   function fit() { const s = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = 'scale(' + s + ')'; stage.style.left = Math.max(0, (innerWidth - 1920 * s) / 2) + 'px'; }
   addEventListener('resize', fit); fit();
@@ -35,8 +35,9 @@
 
   function draw() {
     const where = [C.car, C.ref ? 'session best ' + lap(C.ref.time) : ''].filter(Boolean);
-    let h = '<div class="head"><div class="where"><b>' + esc(C.track || DASH) + (C.config && !/^(full|full course|grand prix)$/i.test(C.config) ? ' <small style="font-size:30px;color:var(--mute)">' + esc(C.config) + '</small>' : '') + '</b><span>' + esc(C.car || '') + '</span></div>' +
+    let h = '<div class="head"><div class="where"><b>' + esc(C.track || DASH) + (C.config && !/^(full|full course|grand prix)$/i.test(C.config) ? ' <small style="font-size:30px;color:var(--mute)">' + esc(C.config) + '</small>' : '') + '</b><span>' + esc([C.car, RES].filter(Boolean).join(DOT)) + '</span></div>' +
       '<div class="ref">' + (C.ref ? 'Compared with the best clean lap: <b>lap ' + C.ref.lap + DOT + lap(C.ref.time) + '</b><br>' : '') + C.clean + ' clean laps</div>' +
+      (R && R.ok && R.id ? '<button class="btn" id="cKeep" type="button"' + (R.saved ? ' disabled' : '') + '>' + (R.saved ? 'Video kept' : 'Keep video') + '</button>' : '') +
       '<button class="btn" id="cAll" type="button">All laps and data</button></div>';
     if (!C.ready) {
       h += '<div class="empty"><b>' + esc(C.reason || 'Nothing to compare yet') + '</b><span>The coach needs three laps of one session that iRacing counted, at race pace, with no pit stop.</span></div>';
@@ -70,6 +71,14 @@
   }
 
   function wire() {
+    const keep = $('cKeep');
+    if (keep) keep.addEventListener('click', async () => {
+      // KEEP: this session's recording, by its own id (never the newest); the words say what really happened
+      keep.disabled = true; keep.textContent = 'Keeping…';
+      let st = ''; try { st = ((await (await fetch('/api/rec/save?id=' + encodeURIComponent(R.id), { cache: 'no-store' })).json()) || {}).state || ''; } catch (e) { }
+      keep.textContent = st === 'SAVED' ? 'Video kept' : st === 'SAVING' ? 'Keeping when done' : st === 'SAVED FULL' ? 'Saved space full' : 'Could not keep';
+      keep.disabled = st === 'SAVED' || st === 'SAVING';
+    });
     const all = $('cAll'); if (all) all.addEventListener('click', () => openPage('sessionreview.html?id=' + encodeURIComponent(ID), 'All laps and data'));
     stage.querySelectorAll('[data-watch]').forEach(b => b.addEventListener('click', () => watch(C.focus[+b.dataset.watch])));
     stage.querySelectorAll('[data-show]').forEach(b => b.addEventListener('click', () => {
@@ -130,9 +139,18 @@
 
   async function load() {
     stage.innerHTML = '<div class="empty"><b>Reading the laps</b></div>';
+    // id=last (the deck's DEBRIEF key): the session HOME shows as his last outing
+    if (ID === 'last') { try { ID = ((await (await fetch('/home', { cache: 'no-store' })).json()).lastOuting || {}).file || ''; } catch (e) { ID = ''; } if (!ID) { stage.innerHTML = '<div class="empty"><b>No drive recorded yet</b></div>'; return; } }
     try { C = await (await fetch('/analysis/coach?id=' + encodeURIComponent(ID), { cache: 'no-store' })).json(); } catch (e) { C = null; }
     if (!C || C.error) { stage.innerHTML = '<div class="empty"><b>' + esc(C && C.error === 'Not while driving' ? 'Not while driving' : 'This session could not be read') + '</b><span>' + esc(ID) + '</span></div>'; return; }
     try { R = await (await fetch('/api/rec/for?id=' + encodeURIComponent(ID), { cache: 'no-store' })).json(); } catch (e) { R = null; }
+    // a race: the result in one line (the after-session screen passes the race log id)
+    if (P.get('race')) {
+      try {
+        const d = await (await fetch('/debrief?id=' + encodeURIComponent(P.get('race')), { cache: 'no-store' })).json(), r = d && d.result;
+        if (r && r.finishPosition > 0) RES = 'Finished P' + r.finishPosition + (r.startPosition > 0 ? ' from P' + r.startPosition : '') + (r.classPosition > 0 && r.classPosition !== r.finishPosition ? DOT + 'P' + r.classPosition + ' in class' : '') + (r.totalLaps > 0 ? DOT + r.cleanLaps + ' of ' + r.totalLaps + ' laps clean' : '');
+      } catch (e) { }
+    }
     draw();
     if (P.get('watch') != null && C.focus && C.focus[+P.get('watch')]) watch(C.focus[+P.get('watch')]);   // tests and the deck: open WATCH straight away
   }

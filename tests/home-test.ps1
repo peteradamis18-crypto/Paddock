@@ -220,7 +220,8 @@ public static class PitProbe {
   Check 'NEXT RACE has an earliest eligible owned series with absolute local and UTC starts' ($h.nextRace -and $earliestRows.Count -gt 0 -and @($earliestRows | Where-Object { $_.series -eq $h.nextRace.series -and $_.car -eq $h.nextRace.car -and $_.track -eq $h.nextRace.track }).Count -gt 0 -and $h.nextRace.localStart -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$' -and $h.nextRace.utcStart -match 'Z$' -and $h.nextRace.countdownSeconds -ge 0 -and $h.nextRace.ownedCar -and $h.nextRace.ownedTrack) "home=$($h.nextRace | ConvertTo-Json -Compress)"
   $barcelona = @($rw.events | Where-Object { $_.event -eq '6 Hours of Barcelona' -and $_.source -like '*fiawec.com*' -and ($_.localStart -or ($_.eventDate -eq '2026-10-16' -and $_.tbc)) })
   $timedReal = @($rw.events | Where-Object { $_.session -and $_.session -ne 'Event' })
-  Check 'real-world cache is fresh and includes all 15 published timed sessions' ($rw.fresh -and $rw.asOf -and $timedReal.Count -eq 15) "asOf=$($rw.asOf) sessions=$($timedReal.Count)"
+  # the count shrinks as the weekend's sessions pass (15 on Friday, 12 on Sunday), so check for timed rows, not a number
+  Check "real-world cache is fresh and has timed sessions ($($timedReal.Count))" ($rw.fresh -and $rw.asOf -and $timedReal.Count -ge 1) "asOf=$($rw.asOf) sessions=$($timedReal.Count)"
   $notShort = @($s | Where-Object { -not $_.short } | Sort-Object { [long]$_.ts } -Descending)
   Check "the last outing on the idle screen is the newest session that counts ($($notShort[0].car) at $($notShort[0].track)), not a session that sat in the box" ($c.lastTrack -eq $notShort[0].track -and $c.lastCar -eq $notShort[0].car) "career says '$($c.lastCar)' at '$($c.lastTrack)'"
   $wk = (Get-Date).Date.AddDays(-(([int](Get-Date).DayOfWeek + 6) % 7)); $weekS = @($notShort | Where-Object { [DateTimeOffset]::FromUnixTimeMilliseconds([long]$_.ts).LocalDateTime -ge $wk })
