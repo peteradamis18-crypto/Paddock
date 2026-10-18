@@ -155,7 +155,7 @@ $main = [ordered]@{
   '1,1' = K 'RESET CAR' '' 'ses' 'left'                        (L 'tow'             'tow')   # waits (up to 20 s) for the car to stop, then tows (C-26); the top screen says WAITING
   '2,1' = K 'KEEP LAP' '' 'ses' 'flag'                         (L 'keep-lap'        'dash vkkeep')   # irdash's Vault key (vault=1)
   '3,1' = K 'SAVE' '' 'ses' 'flag'                             (L 'save-rec'        'dash recsave')  # save the recorder's last minutes
-  '4,1' = K 'TV' '' 'nav' 'monitor'                            (L 'tv'              'dash tvview')   # live director on the top screen (C-22)
+  '4,1' = K 'TV' '' 'nav' 'monitor'                            (Later 'TV view rebuild: irdash answers 400 to tvview (irdash.cs /api/do, P0-03), so the key could only beep')   # was (L 'tv' 'dash tvview'); a dead key stays OFF the real deck until the view is rebuilt
   '5,1' = K 'SKIP SESSION' 'x2' 'stop' 'next'                  (L 'skip-session'    'confirm skip-session skip')
   '6,1' = K 'RESTART' 'x2' 'stop' 'restart'                    (L 'restart-race'    'confirm restart-race restartrace')
   '7,1' = K 'QUIT' 'x2' 'stop' 'home'                          (L 'quit-main'       'confirm quit-main quitmain')

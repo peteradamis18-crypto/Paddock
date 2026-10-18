@@ -584,8 +584,11 @@ namespace IRDeck
             DeckState current = CurrentDeckState();
             if (current.Primary != s.Primary || current.Action != s.Action) { Log("smart: state changed; wait"); return 3; }
             if (s.Action == "tow") return CmdTow();
-            if (s.Action == "confirm skip skip") return CmdConfirm(new string[] { "skip", "skip" });
-            if (s.Action == "drive-only") return GoDriveOnly();
+            // The deck key that runs `smart` is labelled GET IN and its picture never changes (the add-on has no smart key action), so it
+            // must never arm a SKIP: in a Test Drive or AI garage the resolver says SKIP, and the 2nd press used to end Peter's session.
+            // Out of the car in a Test/AI session the honest meaning of GET IN is the same verified Drive press.
+            if (s.Action == "confirm skip skip") return GoDriveOnly(true);
+            if (s.Action == "drive-only") return GoDriveOnly(false);
             if (s.Action == "rigon") return CmdRigOn(new string[0]);
             if (s.Action == "home") { Log("smart: HOME is already on the top screen"); return 0; }
             return 3;
@@ -705,11 +708,16 @@ namespace IRDeck
         }
 
         // SMART may press only the exact Drive control exposed by the sim UI automation tree.
-        static int GoDriveOnly()
+        static bool IsGetInState(DeckState d, bool garageOfTestOrAi)
+        {
+            return (d.Primary == "GETIN" && d.Action == "drive-only") || (garageOfTestOrAi && d.Primary == "SKIP");
+        }
+
+        static int GoDriveOnly(bool garageOfTestOrAi)
         {
             Snapshot before = CurrentDeckSnapshot();
             DeckState beforeState = DeckStateResolver.Resolve(before);
-            if (beforeState.Primary != "GETIN" || beforeState.Action != "drive-only" || before.Speed >= 1.0) { Log("smart GET IN: telemetry changed or unsafe; WAIT"); return 3; }
+            if (!IsGetInState(beforeState, garageOfTestOrAi) || before.Speed >= 1.0) { Log("smart GET IN: telemetry changed or unsafe; WAIT"); return 3; }
             IntPtr h = SimWindow();
             if (h == IntPtr.Zero) return 3;
             AutomationElement root;
@@ -730,7 +738,7 @@ namespace IRDeck
             { Log("smart GET IN: session page not verified; WAIT"); return 3; }
             Snapshot last = CurrentDeckSnapshot();
             DeckState lastState = DeckStateResolver.Resolve(last);
-            if (lastState.Primary != "GETIN" || lastState.Action != "drive-only" || last.Speed >= 1.0)
+            if (!IsGetInState(lastState, garageOfTestOrAi) || last.Speed >= 1.0)
             { Log("smart GET IN: telemetry changed before press; WAIT"); return 3; }
             if (!Press(drive)) return 3;
             Log("smart GET IN: pressed verified Drive control");
@@ -1449,6 +1457,9 @@ namespace IRDeck
         static int CmdRigOn(string[] a)
         {
             bool boot = Array.IndexOf(a, "--boot") >= 0;
+            // The HOME key is this command. With the rig up and a session running it used to maximise the iRacing UI over the
+            // sim on the middle screen and take the keyboard focus from the car. A press in a session now does nothing (short beep).
+            if (!boot && SessionActive()) { Log("rigon: a session is running - not moving the iRacing UI over the sim"); return 3; }
             StartApp("StreamDeck", @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe", false, "--runinbk");
             // At logon the Stream Deck app took 26-28 s to bring the deck up (3 boots on 2026-10-09; 3.5 s when started alone)
             // because five more programs were loading from a cold disk at the same time. So at boot it gets the machine to

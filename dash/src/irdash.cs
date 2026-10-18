@@ -794,7 +794,12 @@ namespace IRDash
                     if (method != "GET") { Send(s, 405, "text/plain", Encoding.ASCII.GetBytes("method not allowed")); return; }
 
                     string rel = path.EndsWith("/") ? path.TrimStart('/').Replace('/', '\\') + "index.html" : path.TrimStart('/').Replace('/', '\\');
-                    string full = Path.GetFullPath(Path.Combine(www, rel));
+                    // A path with a colon or other odd characters ("/v2/a:b") makes GetFullPath throw: the page used to get no answer at all
+                    // and the log filled with "http: The given path's format is not supported." (15 times in the 2026-10-18 17:22 drive). It is just "not found".
+                    string full;
+                    try { full = Path.GetFullPath(Path.Combine(www, rel)); }
+                    catch (ArgumentException) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
+                    catch (NotSupportedException) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
                     if (!full.StartsWith(www + "\\", StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
                     { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
                     string ct; if (!Types.TryGetValue(Path.GetExtension(full), out ct)) ct = "application/octet-stream";

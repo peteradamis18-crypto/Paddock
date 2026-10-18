@@ -31,7 +31,7 @@ namespace IRDash
         static readonly object gate = new object();
         static readonly Dictionary<string, TcpListener> listeners = new Dictionary<string, TcpListener>();   // ip -> listener
         static readonly List<Device> devices = new List<Device>();
-        static string code; static DateTime codeUntil = DateTime.MinValue; static bool codeUsed; static int codeUses;
+        static string code; static DateTime codeUntil = DateTime.MinValue; static bool codeUsed; static int codeUses, codeFails; const int MaxCodeFails = 8;
         static string lastPaired = ""; static DateTime lastPairedAt = DateTime.MinValue;
         static string healthCache = ""; static DateTime healthAt = DateTime.MinValue;
         static Dictionary<string, string> keyMap; static DateTime keyMapAt = DateTime.MinValue;
@@ -260,7 +260,15 @@ namespace IRDash
             finalName = ""; id = "";
             lock (gate)
             {
-                if (code == null || codeUsed || DateTime.UtcNow > codeUntil || c.Trim() != code) { Log.W("phone: pairing refused (code " + (c.Length > 0 ? "wrong" : "missing") + ")"); return null; }
+                if (code == null || codeUsed || DateTime.UtcNow > codeUntil || c.Trim() != code)
+                {
+                    // Anything on the home network could otherwise try all 900,000 six-digit codes inside the 10 minutes the code lives.
+                    // Eight wrong tries cancel the code; the top screen makes a fresh one on its next look (QrJson), so a real phone loses a few seconds.
+                    string why = c.Length > 0 ? "wrong" : "missing";
+                    if (code != null && !codeUsed && ++codeFails >= MaxCodeFails) { code = null; why += ", too many wrong tries: that code is cancelled"; }
+                    Log.W("phone: pairing refused (code " + why + ")");
+                    return null;
+                }
                 // Safari and the Home Screen app keep separate storage, so one code may pair up to 3 times in its 10 minutes
                 if (++codeUses >= 3) codeUsed = true;
                 string tok = RandomHex(24);
@@ -332,7 +340,7 @@ namespace IRDash
                 if (code == null || codeUsed || (codeUntil - DateTime.UtcNow).TotalSeconds < 60)
                 {
                     using (RNGCryptoServiceProvider r = new RNGCryptoServiceProvider()) { byte[] b = new byte[4]; r.GetBytes(b); code = (100000 + (int)(BitConverter.ToUInt32(b, 0) % 900000u)).ToString(CultureInfo.InvariantCulture); }
-                    codeUntil = DateTime.UtcNow.AddMinutes(10); codeUsed = false; codeUses = 0;
+                    codeUntil = DateTime.UtcNow.AddMinutes(10); codeUsed = false; codeUses = 0; codeFails = 0;
                 }
                 string text = url + "?pair=" + code;
                 bool[][] m = Qr.Encode(text);

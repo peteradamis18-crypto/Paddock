@@ -25,6 +25,9 @@ let ws = null, pluginUUID = '', deviceId = '', seq = null, playing = false;
 const tiles = {};               // intro profile: "col,row" -> context
 const docKeys = new Set();      // the RIG DOCTOR key(s), if you put one on a profile
 const stateKeys = { smart: new Set(), quit: new Set(), restart: new Set(), skip: new Set() };
+// Keys that FLIP something (on/off, play/pause). A press that reaches the add-on twice must not flip it back, so Screen.press() ignores a
+// second press of the same key within 0.7 s. Only a few keys carried "once: true"; the rest were missing (2026-10-18 audit).
+const ONCE_ACTS = new Set(['ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour']);
 let deckState = null;
 
 // MAIN's state keys use these action ids when the lead includes their images in an add-on batch.
@@ -87,6 +90,8 @@ class Screen {
     this.canvas = null; this.tileCv = null; this.dirty = true;
     this.pressedKey = null; this.fastUntil = 0; this.looping = false; this.interval = 700; this.sent = 0;
     this.keyShown = '';
+    this.keyPos = {};                 // opener key context -> "col,row" (two keys can open one screen: MY DRIVE and CAR TRACK)
+    this.offline = false;             // irdash stopped answering while this screen was open (run() / showOffline())
     this.onceAt = {};                 // key -> when it was last pressed, for keys marked once (toggles)
   }
   get live() { return Object.keys(this.tiles).length > 0; }
@@ -199,11 +204,16 @@ class Screen {
 
   // keep the state fresh while the screen is on the deck. A press makes it look faster for a few seconds.
   async run() {
-    this.looping = true;
-    const t0 = performance.now(), sent0 = this.sent; let polls = 0;
+    this.looping = true; this.offline = false;
+    const t0 = performance.now(), sent0 = this.sent; let polls = 0, bad = 0;
     while (this.live) {
       const t = performance.now();
-      try { await this.poll(); polls++; } catch (e) { }
+      // A poll that throws (irdash down) or leaves the screen with no state used to change nothing: the keys froze on the last picture,
+      // or stayed black from the start, and a press only wrote "irdash not reachable" to a log. After 4 in a row the keys say so.
+      try { await this.poll(); polls++; bad = this.hasState() ? 0 : bad + 1; } catch (e) { bad++; }
+      if (bad >= 4 && !this.offline) { this.offline = true; this.showOffline(); }
+      else if (bad === 0 && this.offline) { this.offline = false; this.relayout(); }
+      else if (bad >= 4 && this.offline) this.showOffline();    // new tiles may have appeared (shown[] was cleared by appear())
       await sleep(Math.max(40, (performance.now() < this.fastUntil ? 220 : this.interval) - (performance.now() - t)));
     }
     this.looping = false;
@@ -211,13 +221,38 @@ class Screen {
     log('perf ' + this.name + ' screen closed: ' + polls + ' refreshes in ' + secs.toFixed(1) + ' s (one every ' + (polls ? (secs / polls).toFixed(2) : '-') + ' s), ' + (this.sent - sent0) + ' key pictures sent');
   }
 
+  // irdash is not answering: one message across all 32 keys, EXIT on the bottom-right key (press() lets only that one through)
+  showOffline() {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#d98b2b';
+    x.font = '600 52px ' + FONT; x.fillText('DASHBOARD NOT ANSWERING', W / 2, 130, W - 40);
+    x.fillStyle = INK; x.font = '400 30px ' + FONT; x.fillText('Wait a moment, this clears on its own.', W / 2, 205, W - 40);
+    const ex = (COLS - 1) * PX + 3, ey = (ROWS - 1) * PX + 3;
+    x.fillStyle = '#c62f2f'; x.fillRect(ex, ey, PX - 6, PX - 6);
+    x.fillStyle = '#fff'; x.font = '600 24px ' + FONT; x.fillText('EXIT', ex + (PX - 6) / 2, ey + (PX - 6) / 2, PX - 16);
+    const t = document.createElement('canvas'); t.width = t.height = PX; const tg = t.getContext('2d');
+    for (const pos in this.tiles) {
+      if (this.shown[pos] === 'offline') continue;
+      const [col, row] = pos.split(',').map(Number);
+      tg.drawImage(c, col * PX, row * PX, PX, PX, 0, 0, PX, PX);
+      send({ event: 'setImage', context: this.tiles[pos], payload: { image: t.toDataURL('image/png'), target: 0 } });
+      this.shown[pos] = 'offline';
+    }
+  }
+
   regionAt(col, row) { return this.regions.find(x => col >= x.c && col < x.c + x.w && row >= x.r && row < x.r + x.h); }
 
   async press(col, row) {
+    // irdash is not answering (see run()): the keys say so; the bottom-right key still leaves the screen so nobody is stuck on it
+    if (this.offline) { if (col === COLS - 1 && row === ROWS - 1) this.exit(); return; }
     const r = this.regionAt(col, row);
     if (!r || !r.act) return;
-    // one press can reach the add-on two or three times within a fraction of a second: a toggle (mute, play, tile ...) must not flip back
-    if (r.once) { const k = r.c + ',' + r.r, now = performance.now(); if (this.onceAt[k] && now - this.onceAt[k] < 700) return; this.onceAt[k] = now; }
+    // one press can reach the add-on two or three times within a fraction of a second: a toggle (mute, play, tile ...) must not flip back.
+    // Only some keys were marked once; a doubled press on the others (OVERLAYS toggle, DELTA BAR, PLAY/PAUSE, SPEED, MAP COLOUR, VS ...)
+    // sent the command twice = no change, or two steps of a cycle. ONCE_ACTS lists every toggle and cycle (see the list at the top).
+    if (r.once || ONCE_ACTS.has(r.act)) { const k = r.c + ',' + r.r, now = performance.now(); if (this.onceAt[k] && now - this.onceAt[k] < 700) return; this.onceAt[k] = now; }
     this.pressedKey = r.c + ',' + r.r; this.relayout();                       // shows the press at once
     later(300, () => { this.pressedKey = null; this.relayout(); });
     this.fastUntil = performance.now() + 3000;
@@ -542,10 +577,12 @@ const MyDrive = new class extends Screen {
 
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('MY', 72, 66);
-    g.fillText('DRIVE', 72, 100);
-    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+    // Two keys open this screen: MY DRIVE and CAR TRACK (MAIN 6,2). setKeyImage() painted MY DRIVE on both, so CAR TRACK
+    // showed the wrong word. The CAR TRACK picture goes to the key at 6,2 only.
+    const pic = (a, b) => { const [c, g] = this.iconCanvas(); g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText(a, 72, 66); g.fillText(b, 72, 100); return c.toDataURL('image/png'); };
+    const mine = pic('MY', 'DRIVE'), carTrack = pic('CAR', 'TRACK');
+    this.keyShown = '1';
+    for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: this.keyPos[ctx] === '6,2' ? carTrack : mine, target: 0 } });
   }
 
   // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request
@@ -1417,14 +1454,14 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
     const isDocKey = e.action === UUID + '.doctor';
     const pos = e.payload && e.payload.coordinates ? e.payload.coordinates.column + ',' + e.payload.coordinates.row : '';
     if (e.event === 'willAppear') {
-      if (keyScreen) { keyScreen.keys.add(e.context); keyScreen.keyIcon(true); }
+      if (keyScreen) { keyScreen.keys.add(e.context); keyScreen.keyPos[e.context] = pos; keyScreen.keyIcon(true); }
       else if (stateKey) { stateKeys[stateKey].add(e.context); paintStateKey(e.context, stateKey); pollDeckState(); }
       else if (tileScreen) tileScreen.appear(pos, e.context);
       else if (isDocKey) { docKeys.add(e.context); RigDoctor.icon(true); }
       else if (pos) { tiles[pos] = e.context; send({ event: 'setImage', context: e.context, payload: { image: blank(), target: 0 } }); }
     }
     if (e.event === 'willDisappear') {
-      if (keyScreen) keyScreen.keys.delete(e.context);
+      if (keyScreen) { keyScreen.keys.delete(e.context); delete keyScreen.keyPos[e.context]; }
       else if (stateKey) stateKeys[stateKey].delete(e.context);
       else if (tileScreen) tileScreen.disappear(pos);
       else if (isDocKey) docKeys.delete(e.context);

@@ -621,26 +621,36 @@ namespace IRDash
                 if (step >= end) break;
             }
             m.HasMin = any; m.Min = best * 3.6; m.MinM = at;
-            // The braking point is the start of the last application that reaches the apex,
-            // not an earlier tap. Search the 250 m before the apex, and 80 m further if already on the brakes.
-            bool found = false; double brakeAt = 0;
+            // The braking point is the start of the MAIN brake application in the 250 m before the apex: the one with the most
+            // pedal (area). It used to be the LAST application, so a second press just before the apex moved the "braking point"
+            // 60 m later on the best lap and the coach told him to brake EARLIER than a lap on which he braked later than the best
+            // (2026-10-18, BMW at Road America T6: best lap 2486 m, this lap 2495 m, coach said "60 m earlier"). A press already
+            // on at the start of the window counts from where it really began (up to 80 m further back).
+            bool found = false; double brakeAt = 0, bestArea = 0, area = 0, curStart = 0; bool inApp = false;
             bool prev = ChAt(lap, lap.Brk, da - 250) > 0.10;
             if (prev)
             {
-                found = true; brakeAt = DistNorm(da - 250, L);
+                inApp = true; curStart = DistNorm(da - 250, L);
                 for (int k = 1; k <= 80; k++)
                 {
                     double x = DistNorm(da - 250 - k, L);
-                    if (ChAt(lap, lap.Brk, x) <= 0.10) { brakeAt = DistNorm(da - 250 - k + 1, L); break; }
-                    brakeAt = x;
+                    if (ChAt(lap, lap.Brk, x) <= 0.10) { curStart = DistNorm(da - 250 - k + 1, L); break; }
+                    curStart = x;
                 }
             }
-            for (int step = 1; step <= 250; step++)
+            for (int step = 1; step <= 251; step++)
             {
                 double x = DistNorm(da - 250 + step, L);
-                bool on = ChAt(lap, lap.Brk, x) > 0.10;
-                if (on && !prev) { found = true; brakeAt = x; }
-                prev = on;
+                double bv = step <= 250 ? ChAt(lap, lap.Brk, x) : 0;
+                bool on = bv > 0.10;
+                if (on && !inApp) { inApp = true; curStart = x; area = 0; }
+                if (on) area += bv;
+                if (!on && inApp)
+                {
+                    inApp = false;
+                    if (area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
+                }
+                if (on && inApp && step == 250 && area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
             }
             m.HasBrake = found; if (found) m.BrakeM = brakeAt;
             for (int k = 1; k <= 200; k++)

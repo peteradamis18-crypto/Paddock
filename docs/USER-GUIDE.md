@@ -1,53 +1,71 @@
 # Paddock — your keys, in plain English
 
 Paddock is the name on the top screen and on the Stream Deck. The main page has four rows, one per stage of a session:
-**get into a car → in a session → in the car → talk, sound, PC.**
-Keys that END something sit on the right. Keys marked **x2** need a second press within 3 seconds. The first press beeps twice, so a bump cannot fire them.
+**get into a car → in a session → pit and car → talk and sound.**
+Keys that END something sit on the right and are red. Keys marked **x2** need a second press within 3 seconds. The first press beeps twice, so a bump cannot fire them.
+A short low beep means the key was heard but nothing happened (for example, no session is running). The **MORE** key opens a second page. **BACK** on that page returns to the main page.
 
-## Row 1 — get into a car
+## Main page, row 1 — get into a car
 | Key | What it does |
 |---|---|
-| **RIG ON** | Starts everything the rig needs, in order: Stream Deck, the dashboard, wheel and haptics apps, then the iRacing app on the middle screen. Runs by itself when the PC starts, so you only need it if something did not come up. |
-| **AI RACE · LAST SETTINGS** | One press: an AI race with the same settings as last time. It loads and puts you in the car. |
-| **TEST DRIVE · LAST SETTINGS** | One press: a practice session in the same car at the same track as last time. It loads and puts you in the car. |
-| **FRIENDS MODE** | Opens the friends screen on the deck. |
-| **OFFICIAL RACING** | Opens the iRacing app on its Official racing page. |
-| **SHOWCASE · INTRO** | Replays the gold startup animation on the top screen. It is only for show and does not change anything. |
-| **SKIP SESSION** | Moves to the next session (for example practice, then qualifying, then the race), including iRacing's second "are you sure". |
-| **DRIVE · CONTINUE** | Presses whatever iRacing's next green button is: Drive, Race, or the launch button. Use it to get back into the car. |
+| **HOME** | Starts anything the rig needs that is not running yet (Stream Deck, the dashboard, wheel and haptics apps, the iRacing app) and puts the iRacing app on the middle screen. The PC does this by itself at start-up, so you only need it if something did not come up. During a session it does nothing, so it cannot cover the sim. |
+| **AI RACE** | One press: an AI race with the car and track you chose last. It loads and puts you in the car. |
+| **TEST DRIVE** | One press: a Test Drive with the same car and track as last time. It loads and puts you in the car. It does nothing while a session is running. |
+| **MY DRIVE** | Opens the My Drive screen on the deck: pick a car and track, then START. |
+| **FRIENDS** | Opens the friends screen on the deck. |
+| **MORE** | Opens the second page of keys. |
+| **OFFICIAL** | Opens the iRacing app on its Official racing page. It does nothing while a session is running. |
+| **GET IN** | Out of the car in the garage: presses iRacing's Drive button, but only when it can see that exact button. It never skips or ends anything. |
 
-## Row 2 — in a session
+## Main page, row 2 — in a session
 | Key | What it does |
 |---|---|
 | **GET OUT** | Gets out of the car. The car must be stopped. |
-| **TOW TO PITS** | If the car is still moving, waits until it stops (about 20 seconds), then out and back in at your pit box. Instant in practice. In a race, iRacing adds its tow time. |
-| **SAVE · RESET POINT** | In Test Drive: remembers where you are on track. |
-| **BACK TO · RESET POINT** | In Test Drive: puts you back at the saved spot, so you can practise one corner again. |
-| **OVERLAYS SCREEN** | Opens the overlays screen on the deck. |
-| **REPLAY** | Opens the replay screen on the deck. |
-| **RESTART RACE x2** | Restarts the current session, including iRacing's own confirmation. |
-| **QUIT TO MAIN** | Leaves the whole session and takes you back to the iRacing app's home page. |
+| **RESET CAR** | If the car is still moving, waits until it stops (about 20 seconds), then tows you to the pits and back into the car. Instant in practice. In a race, iRacing adds its tow time. |
+| **KEEP LAP** | Marks this lap to keep in the Vault, with its video. A beep tells you it worked. |
+| **SAVE** | Saves the video recorder's last minutes so they are not wiped. |
+| **TV** | Not on the deck for now. The TV view is being rebuilt. |
+| **SKIP SESSION x2** | Moves to the next session (practice, then qualifying, then the race), including iRacing's own "are you sure". Only for AI races and Test Drive. |
+| **RESTART x2** | Restarts an AI race, including iRacing's own confirmation. In a Test Drive it tows you back to the pits instead. Official sessions cannot be restarted. |
+| **QUIT x2** | Leaves the whole session and takes you back to the iRacing app's home page. |
 
-## Row 3 — in the car (pit keys only work while you are in the car)
+## Main page, row 3 — pit and car (pit keys only work while you are in the car)
 | Key | What it does |
 |---|---|
-| **FUEL TO FINISH** | Tells iRacing to put in just enough fuel to finish at your next stop. |
-| **TIRES ON / OFF** | Switches the four-tyre change at your next stop on or off. |
-| **FAST REPAIR** | Switches using a fast repair at your next stop on or off. |
-| **TEAR OFF** | Switches a windscreen tear-off at your next stop on or off. |
-| **CLEAR PIT** | Clears everything from your pit stop request. |
-| **SEAT LOWER / HIGHER** | Moves your view down or up. |
+| **FUEL** | Asks iRacing for enough fuel to finish. |
+| **TIRES** | Switches the four-tyre change at your next stop on or off. The key does not show which; the pit screen in iRacing does. |
+| **CLEAR** | Clears everything from your pit stop request. |
+| **OVERLAYS** | Opens the overlays screen on the deck. |
+| **REVIEW** | Opens the review of your last outing on the top screen. |
+| **VAULT** | Opens the Vault on the top screen. |
+| **CAR TRACK** | Opens the car and track picker, the same screen as My Drive. It sets what AI RACE and TEST DRIVE use. |
 | **LAPS TO EMPTY** | Live: how many laps your fuel lasts. |
 
-## Row 4 — talk, sound, PC
+## Main page, row 4 — talk and sound
 | Key | What it does |
 |---|---|
 | **SORRY / THANKS** | Sends "Sorry!" or "Thanks!" in the race chat. |
-| **VOL − / VOL + / MUTE** | PC volume. |
+| **VOL − / VOL +** | Turns the sim, the iRacing app and the spotter down or up together. It does not touch the PC's main volume. |
+| **RELATIVE** | Shows iRacing's Relative box (the cars around you). |
 | **POSITION · CLASS** | Live: your position in your class, and how many cars. |
 | **INCIDENTS** | Live: your incident points this session. |
-| **SLEEP x2** | Puts the PC to sleep. |
 
+## Second page (MORE)
+| Key | What it does |
+|---|---|
+| **BACK** | Back to the main page. |
+| **GOOD RACE** | Sends "GG" in the race chat. |
+| **MUTE** | Mutes or un-mutes the PC's sound. |
+| **SHOWCASE** | Replays the gold start-up animation on the top screen. Only for show. |
+| **SOUND** | Opens the sound screen: game, spotter, music, speakers and ButtKicker levels, and presets. |
+| **SLEEP x2 / LOCK x2** | Puts the PC to sleep, or locks it. Sleep leaves iRacing first, and refuses if the car is moving. |
+| **MARK SPOT / BACK TO SPOT** | In Test Drive: remembers where you are on track, and puts you back there so you can practise one corner again. |
+| **REPLAY** | Opens the replay screen on the deck. |
+| **REPAIR** | Switches a fast repair at your next stop on or off. |
+| **WIPE** | Switches a windscreen tear-off at your next stop on or off. |
+| **SEAT LOWER** / **SEAT HIGHER** | Moves your view down or up. |
+| **TIMING, STANDINGS, FUEL BOX, TIRE BOX, IN-CAR, WEATHER** | Shows that iRacing box (F1, F2, F4, F5, F8, F11) while you are in the sim. |
+| **ANALYSIS** | Opens the analysis screen on the deck. |
 ## Screens on the deck
 
 **Friends.** A friend uses the deck: their name, a car, a track, and a wheel strength (Light, Medium or Full). START puts them in the car with damage off. Light and Medium are easier than your wheel. Full is your normal strength. The top screen names that feel. It does not show a live strength number, because the sim's number stays on your own wheel. EXIT FRIENDS puts your wheel back, even if the session closed first. While they drive, the top screen shows the track, their car as a gold dot, the current lap counting, the last lap, the best lap and the session clock. A best lap shows in purple. Being ahead of a best shows in green. COACH turns the track map on or off. It starts on. START sends the racing-line key when the line is set to Shown.
@@ -64,7 +82,7 @@ Before you get in the car, a short brief: the track, your best lap there, and ho
 
 While you drive: the live dashboard. A coloured edge when a flag is out. A small frame-rate number next to the track name. One quiet amber line only when the frame rate is clearly under your usual for this car and track, with the likely reason. In a race it also shows the strength of the field and a rough iRating change. The turns on the map are numbered from the start line. A turn with a real name shows that name.
 
-Afterwards: the debrief. When you set a personal best, a small comparison sits with it: your lap against other iRacing drivers (once enough of them have driven it) and against real IMSA times.
+Afterwards: the review (the **REVIEW** key opens it). When you set a personal best, a small comparison sits with it: your lap against other iRacing drivers (once enough of them have driven it) and against real IMSA times.
 
 When the rig is idle: **Home**. Your name and your number, with the name of the car you drove last (the number is that car's number), your personal best at each track (iRacing's own times only), your career numbers and your week, your last session with a **REVIEW** button (the Session Review opens over Home; **‹ HOME** at the top brings it back), and one big gold button that fits the moment: **RIG ON** when the rig is not up, **LAST DRIVE** when it is, **GET IN** when a session is open. Top right: the code to scan with your iPhone (below). Quiet links at the top: **Sessions & laps**, **Vault**, **Performance**. Home never shows while you drive.
 
@@ -103,7 +121,7 @@ Open a lap from **Sessions & laps**, the Vault or the session review (press **AN
 
 ## The video recorder
 
-Paddock films the middle race screen while you are in the car. It is on. It keeps the last three minutes. When a lap is your best, the clip of that lap is kept in the Vault. Press **KEEP** on any other lap you want to hold on to. It never films while you are out of the car. It costs about 1.5 frames per second. Clips play on the **VIDEO** page and on your iPhone under **LAPS › VIDEOS**. If you ever want it off, say so.
+Paddock films the middle race screen while you are in the car. It is on. It keeps the last three minutes. When a lap is your best, the clip of that lap is kept in the Vault. Press **KEEP LAP** on any other lap you want to hold on to. It never films while you are out of the car. It costs about 1.5 frames per second. Clips play on the **VIDEO** page and on your iPhone under **LAPS › VIDEOS**. If you ever want it off, say so.
 
 ## Your iPhone
 

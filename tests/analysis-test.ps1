@@ -141,7 +141,8 @@ try {
   $top = $a.corners | Sort-Object { [double]$_.dTime } -Descending | Select-Object -First 1
   Note "HAND CHECK lap 8 vs PB 79.549: biggest loss $($top.label), corner $($top.time) s, lost $($top.dTime) s, cause: $(if ($top.cause) { $top.cause } else { '(none)' })"
   Check 'the biggest loss is T1, 7.850 s, lost 0.236 s' ($top.label -eq 'T1' -and (Near $top.time 7.850 0.001) -and (Near $top.dTime 0.236 0.001))
-  Check 'T1 has no cause sentence (brake, throttle and exit all moved)' ($top.cause -eq '' -and $top.causeCode -eq 'ambiguous' -and (Near $top.dBrakeM 88 0.01) -and (Near $top.dPickupM 41 0.01) -and (Near $top.dExitKmh -9.67 0.01))
+  # 2026-10-18: braking point = the MAIN application (most pedal), as the deep dive reports it. The old 'last application' read a second press near the apex as the braking point: dBrake 88 m. The deep dive says T1 brakes at 284 m on lap 8 and 287 m on the PB lap = 3 m.
+  Check 'T1: brakes 3 m earlier than the PB lap (the deep dive says 284 against 287 m), throttle 41 m later, exit 9.67 km/h slower: several moved, so no single cause sentence' ($top.cause -eq '' -and $top.causeCode -eq 'ambiguous' -and (Near $top.dBrakeM -3 0.01) -and (Near $top.dPickupM 41 0.01) -and (Near $top.dExitKmh -9.67 0.01))
   $quiet = @($a.corners | Where-Object { -not $_.cause })
   Check 'at least one corner produces no sentence' ($quiet.Count -ge 1)
   $smallTalk = @($a.corners | Where-Object { [math]::Abs([double]$_.dTime) -lt 0.05 -and $_.cause })
@@ -263,13 +264,11 @@ try {
   $a = Invoke-Deep $d1 $vid 8 'pb' 'deepA'
   Check 'lap 8 against the PB lap 7: 79.878 s against 79.549 s, 14 corners' ($a.lap -eq 8 -and (Near $a.time 79.878 0.001) -and $a.ref.lap -eq 7 -and (Near $a.ref.time 79.549 0.001) -and $a.corners.Count -eq 14)
   $lk = @($a.events.me.lock)
-  Check 'lap 8 has 6 lock-ups and 3 wheelspin events; the PB lap has 2 lock-ups and 8 wheelspin events' ($lk.Count -eq 6 -and @($a.events.me.spin).Count -eq 3 -and @($a.events.ref.lock).Count -eq 2 -and @($a.events.ref.spin).Count -eq 8)
-  # raw: right-front 812.2 to 816.6 m, 0.133 s, 8.7 % slower than the car, brake 29 %; the grid counts one more cell (0.160 s)
-  Check 'the first lock-up is the right front at 812 m in T3: 8.7 % under the car, about 0.15 s' ($lk[0].wheel -eq 'RF' -and (Near $lk[0].m 812.0 3) -and (Near $lk[0].secs 0.160 0.04) -and (Near $lk[0].worstPct 8.7 0.7) -and $lk[0].label -eq 'T3')
-  Check 'every lock-up has a wheel, a distance and a duration' (@($lk | Where-Object { $_.wheel -and $_.secs -ge 0.05 -and $_.m -gt 0 }).Count -eq 6)
-  $c = Corner $a 'T3'; Check 'T3 counts its 2 lock-ups' ($c.me.lock.n -eq 2 -and (Near $c.me.lock.secs 0.240 0.05))
-  $c = Corner $a 'T7'
-  Check 'T7 (braking from 2052 m) has 4 lock-ups and 1 wheelspin, the rear right' ($c.me.lock.n -eq 4 -and $c.me.spin.n -eq 1 -and $c.me.spin.wheel -eq 'RR')
+  # 2026-10-18: this was '6 lock-ups ... the first at 812 m, 8.7 % under the car'. Those were wheels 8-9 % slow while the
+  # ABS was cutting in (the Corvette brakes with ABS all lap): the brake working, not a lock-up. A lock-up now needs a slow wheel with
+  # no ABS within 15 m (lockup-test.ps1 checks that against the ABS events). This lap has none; the wheelspin counts are unchanged.
+  Check 'lap 8 has no lock-up (every slow wheel was under ABS), 3 wheelspin events and 6 ABS zones; the PB lap has no lock-up and 8 wheelspin events' (@($a.events.me.lock).Count -eq 0 -and @($a.events.me.spin).Count -eq 3 -and @($a.events.me.abs).Count -eq 6 -and @($a.events.ref.lock).Count -eq 0 -and @($a.events.ref.spin).Count -eq 8)
+  Check 'no corner counts a lock-up, T7 has 1 wheelspin, the rear right' ((@($a.corners | Where-Object { $_.me.lock.n -gt 0 }).Count -eq 0) -and (Corner $a 'T7').me.spin.n -eq 1 -and (Corner $a 'T7').me.spin.wheel -eq 'RR')
   $c = Corner $a 'T5'; Check 'T5 has 2 left-rear wheelspin events of about 22 % (raw 20.6 and 22.4 %)' ($c.me.spin.n -eq 2 -and $c.me.spin.wheel -eq 'LR' -and (Near $c.me.spin.worstPct 22.0 2.5))
   Check 'T1 and T2 have none' ((Corner $a 'T1').me.lock.n -eq 0 -and (Corner $a 'T2').me.lock.n -eq 0 -and (Corner $a 'T1').me.spin.n -eq 0)
   # raw: ABS on for 45 of 85 braking samples = 0.529, deepest cut 41.6 %

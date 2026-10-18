@@ -50,8 +50,14 @@ namespace IRDeck
 
         static int CmdOfficial(string[] a)
         {
-            if (a.Length == 0) { Log("official: list | fav <id|name> | scan owned | map | register --dry <id>"); return 1; }
             if (!OfSwitchOn()) { Log("official: switched off (official=0 in dash\\irdash.ini)"); return 1; }
+            // The OFFICIAL key on the deck runs plain `official` (keys.map). It used to print this usage line and return 1 = a beep and
+            // nothing else, so the key was dead. Plain `official` now opens iRacing's Official page (same press OfMap uses), never in a session.
+            if (a.Length == 0)
+            {
+                if (SessionActive()) { Log("official: a session is running - not touching iRacing"); return 3; }
+                return CmdNav(new string[] { "--button", "Official" });
+            }
             switch (a[0].ToLowerInvariant())
             {
                 case "list": return OfList();

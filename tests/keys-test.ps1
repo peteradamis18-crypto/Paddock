@@ -243,7 +243,7 @@ foreach ($k in $deck) {
 }
 Check 'every key on MAIN and MORE resolves to a real irdeck command, add-on screen, page switch or live mode' ($bad.Count -eq 0) ($bad -join '; ')
 $later = @($deck | Where-Object { $_.kind -eq 'later' })
-Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" (@($later | Where-Object { $_.label -like 'ANALYSIS*' }).Count -eq $later.Count -and $later.Count -le 1)
+Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" (@($later | Where-Object { $_.label -like 'ANALYSIS*' -or $_.label -like 'TV*' }).Count -eq $later.Count -and $later.Count -le 2)
 $bp = (ReadText 'build-deck.ps1')
 Check 'build-deck.ps1 leaves a not-built key out of the profile when it is not a preview' ($bp -match 'if \(-not \$Preview\) \{ continue \}')
 
@@ -257,13 +257,17 @@ $sl = Get-Body $irSrc 'static int CmdStartLast(string[] a)'
 Check 'TEST DRIVE (startlast td) no longer quits a running session: it does nothing and says so' ((Cmd-Of 'TEST DRIVE*') -eq 'startlast td' -and $sl -notmatch 'Armed\(' -and $sl -notmatch 'CmdQuitMain' -and $sl -match 'nothing was done' -and $irSrc -notmatch 'static bool Armed\(')
 $ini = ReadText 'dash\irdash.ini'
 Check 'KEEP LAP is dash vkkeep, irdash accepts vkkeep, and the Vault is on (vault=1)' ((Cmd-Of 'KEEP LAP*') -eq 'dash vkkeep' -and $handled['vkkeep'] -eq 'vault' -and $ini -match '(?m)^\s*vault\s*=\s*1')
-Check 'TV is dash tvview and irdash accepts tvview' ((Cmd-Of 'TV*') -eq 'dash tvview' -and $handled.ContainsKey('tvview'))
+# 2026-10-18 audit: irdash answers 400 to tvview (P0-03), so a TV key on the deck can only beep. TV stays Later (off the deck) until the view is rebuilt.
+Check 'TV is a Later key while irdash refuses tvview (no dead key on the deck)' (@($deck | Where-Object { $_.label -like 'TV*' -and $_.kind -eq 'later' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.label -like 'TV*' }).Count -eq 0)
 Check 'HOME is a real command and sits at 0,0 (the up key on every screen)' ((Cmd-Of 'HOME*') -eq 'rigon' -and @($main | Where-Object { $_.col -eq 0 -and $_.row -eq 0 -and $_.label -like 'HOME*' }).Count -eq 1)
 Check 'AI RACE is the airace command the sim tree has' ((Cmd-Of 'AI RACE*') -eq 'airace start' -and $irSrc -match 'case "airace"')
 # DK-2b (Peter): OFFICIAL and CAR TRACK. OFFICIAL runs the `official` command irdeck already has (K-03 builds the on-deck
 # screen later; not PENDING, the command exists). CAR TRACK reuses the MY DRIVE key, whose home screen IS the car/track step
 # (plugin.html MyDrive.open resets to it; there is no deeper step to open), so it changes the car & track AI RACE / TEST DRIVE use.
 Check 'OFFICIAL (DK-2b) runs the official command irdeck has' ((Cmd-Of 'OFFICIAL*') -eq 'official' -and $irSrc -match 'case "official"')
+# 2026-10-18 audit: plain `official` (no arguments, which is what the key sends) printed a usage line and returned 1 = a dead key. It must open the Official page.
+$ofBody = Get-Body (ReadText 'src\official.cs') 'static int CmdOfficial(string[] a)'
+Check 'OFFICIAL with no arguments opens the Official page (CmdNav), it does not just print usage' ($ofBody -match '(?s)a\.Length == 0\)\s*\{.*?CmdNav\(new string\[\] \{ "--button", "Official" \}\)' -and $ofBody -notmatch 'if \(a\.Length == 0\) \{ Log\("official: list')
 Check 'CAR TRACK (DK-2b) opens the MY DRIVE add-on screen (its home IS the car/track step)' (@($deck | Where-Object { $_.label -like 'CAR TRACK*' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1)
 Check 'SAVE is dash recsave and irdash accepts recsave (the recorder saves the last minutes)' ((Cmd-Of 'SAVE*') -eq 'dash recsave' -and $handled['recsave'] -eq 'vault')
 Check 'REVIEW is dash debrief and irdash accepts it (opens the coach for the last outing)' ((Cmd-Of 'REVIEW*') -eq 'dash debrief' -and $handled.ContainsKey('debrief'))
@@ -505,6 +509,37 @@ else {
   }
 }
 
+# ================= 9. defects found by reading the code (2026-10-18 audit); each of these was wrong before =================
+Section '9. regressions: dead keys, lying labels, doubled presses, frozen screens, the guide'
+# 9a. no deck key sends irdash a command that irdash always answers with an error (the key could only beep)
+$refused = @([regex]::Matches($irdash, 'if \(dc == "(\w+)"\) \{ Send\(s, 4\d\d') | ForEach-Object { $_.Groups[1].Value })
+$badDash = @($deckKeys | Where-Object { $c = ($_.what -split '=', 2)[1]; $c -match '^dash\s+(\w+)' -and $refused -contains $Matches[1] })
+Check "no deck key sends irdash a command it always refuses ($($refused -join ', '))" ($refused.Count -ge 1 -and $badDash.Count -eq 0) (($badDash | ForEach-Object { $_.label }) -join ', ')
+# 9b. GET IN (`smart`) must never arm a SKIP. Its picture is fixed (the add-on has no smart key action), but the resolver says SKIP in a Test Drive / AI garage.
+$smart = Get-Body $irSrc 'static int CmdSmart(string[] args)'
+$realPath = $smart.Substring($smart.IndexOf('if (isFake) return 3;'))
+Check 'GET IN (smart) does not arm a skip-session confirm outside the fake test path' ($smart.Contains('if (isFake) return 3;') -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'GoDriveOnly\(true\)')
+Check 'the add-on has no smart / skip key action, so GET IN is a fixed picture' ($inst -notmatch 'UUID = "\$uuid\.(smart|skip|quit|restart)"')
+# 9c. HOME (rigon) with a session running must not maximise the iRacing UI over the sim
+$rig = Get-Body $irSrc 'static int CmdRigOn(string[] a)'
+Check 'HOME (rigon without --boot) does nothing while a session runs' ($rig -match '!boot && SessionActive\(\)' -and $rig.IndexOf('SessionActive()') -lt $rig.IndexOf('StartApp("StreamDeck"'))
+# 9d. add-on: doubled presses, a frozen screen, the CAR TRACK picture
+$onceM = [regex]::Match($plug, 'const ONCE_ACTS = new Set\(\[([^\]]*)\]\)')
+$onceActs = @([regex]::Matches($onceM.Groups[1].Value, "'([\w-]+)'") | ForEach-Object { $_.Groups[1].Value })
+$flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour'
+$missingOnce = @($flip | Where-Object { $onceActs -notcontains $_ })
+Check 'every on/off key of the add-on screens ignores a doubled press (ONCE_ACTS)' ($onceM.Success -and $missingOnce.Count -eq 0 -and $plug -match 'r\.once \|\| ONCE_ACTS\.has\(r\.act\)') ($missingOnce -join ', ')
+Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'bad >= 4 && !this\.offline' -and $plug -match 'if \(this\.offline\) \{ if \(col === COLS - 1 && row === ROWS - 1\) this\.exit\(\)')
+$ct = @($main | Where-Object { $_.label -like 'CAR TRACK*' } | Select-Object -First 1)
+$myd = $plug.Substring($plug.IndexOf('const MyDrive = new class extends Screen'))
+$myd = $myd.Substring(0, $myd.IndexOf('async keyTick()'))
+Check 'CAR TRACK (same add-on screen as MY DRIVE) gets its own picture, chosen by its place on the deck' ($ct.Count -eq 1 -and $myd -match "keyPos\[ctx\] === '$($ct[0].col),$($ct[0].row)'" -and $myd -match "'CAR', 'TRACK'" -and $plug -match 'keyScreen\.keyPos\[e\.context\] = pos')
+# 9e. docs\USER-GUIDE.md names every key on the deck, and none of the old names
+$guide = Ascii (ReadText 'docs\USER-GUIDE.md')
+$noGuide = @($deck | Where-Object { $_.kind -in 'key', 'plugin', 'later' } | ForEach-Object { ($_.label -replace '\s+x2$', '').ToUpperInvariant() } | Where-Object { $guide.ToUpperInvariant().IndexOf($_) -lt 0 })
+Check 'the user guide names every key on MAIN and MORE' ($noGuide.Count -eq 0) ($noGuide -join ', ')
+$stale = @('DRIVE . CONTINUE', 'TOW TO PITS', 'QUIT TO MAIN', '**DEBRIEF**', 'FAST REPAIR**', 'OFFICIAL RACING**', 'SAVE . RESET POINT', 'TEAR OFF**', 'FRIENDS MODE**', 'SHOWCASE . INTRO', 'OVERLAYS SCREEN**') | Where-Object { $guide.ToUpperInvariant().Contains($_.ToUpperInvariant()) }
+Check 'the user guide has none of the old key names' (@($stale).Count -eq 0) (@($stale) -join ', ')
 Say ''
 Say ("$pass passed, $fail failed" + $(if ($warns) { "   ($warns warnings)" } else { '' }))
 Save-Out
