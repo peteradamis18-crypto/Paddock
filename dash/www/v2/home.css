@@ -118,7 +118,12 @@
 .home-weekend > .lbl { display: flex; align-items: baseline; }
 .home-weekend > .lbl .src { margin-left: auto; }
 .home-weekend .cols { position: absolute; left: 0; right: 0; top: 44px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 48px; }
-.home-weekend .ev { min-width: 0; }
+.home-weekend .ev { min-width: 0; cursor: pointer; border-radius: 6px; }
+.home-weekend .ev:hover, .home-weekend .ev:focus-visible { background: rgba(244, 241, 234, .04); outline: none; }
+.home-weekend .ev[aria-disabled] { cursor: default; background: transparent; }
+.home-weekend .ev .h .svc { font-size: 22px; letter-spacing: .02em; text-transform: none; color: var(--h-ink); overflow: hidden; text-overflow: ellipsis; }
+.home-weekend .ev .h .svc.maybe { color: var(--h-mute); }
+.home-weekend .ev .h .svc.none { color: var(--h-dim); }
 .home-weekend .ev .h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: var(--label); letter-spacing: .24em; text-transform: uppercase; color: var(--h-mute); line-height: 24px; white-space: nowrap; }
 .home-weekend .ev .h span { color: var(--h-dim); letter-spacing: .12em; }
 .home-weekend .ev .n { margin-top: 6px; font-size: var(--read); font-weight: 500; line-height: 36px; color: var(--h-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

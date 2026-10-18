@@ -670,6 +670,11 @@ namespace IRDash
                         if (!Vault.Serving && !vaultTest) { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"enabled\":false}"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         if (Vault.Handle(s, path, ParseQuery(query), hdr)) return;
                     }
+                    if (method == "GET" && (path == "/watch/coverage" || path == "/api/watch/open"))      // where to watch in the U.S. (coverage.cs)
+                    {
+                        int wc; string wj = Coverage.Route(path, ParseQuery(query), out wc);
+                        Send(s, wc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(wj)); return;
+                    }
                     if (method == "GET" && path == "/realworld")
                     {
                         int rc; string rj = RealWorld.Route(path, ParseQuery(query), out rc);
@@ -2538,6 +2543,7 @@ namespace IRDash
             try { Tv.Start(); } catch (Exception ex) { Log.W("tv: could not start: " + ex.Message); }
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
             try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); }
+            Coverage.Init(RootDir);   // where to watch in the U.S. (dash\coverage.json, coverage.cs)
             Doctor.Init(RootDir, Dir);
             Phone.Init(RootDir, Dir); Home.Init(RootDir, cfg.Port);   // P1: the phone app's pairing + HOME's hero picture
             Career.ScanLater(File.Exists(Career.CacheFile) ? 120000 : 5000);

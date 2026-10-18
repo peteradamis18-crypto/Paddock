@@ -38,6 +38,7 @@ const Home = {
     try { this.home = await (await fetch('/home', { cache: 'no-store' })).json(); } catch (e) { return; }
     try { this.career = await (await fetch('/career', { cache: 'no-store' })).json(); } catch (e) { this.career = null; }
     try { this.realworld = await (await fetch('/realworld', { cache: 'no-store' })).json(); } catch (e) { this.realworld = null; }
+    try { this.coverage = await (await fetch('/watch/coverage', { cache: 'no-store' })).json(); } catch (e) { this.coverage = null; }
     this.draw();
   },
 
@@ -182,7 +183,11 @@ const Home = {
         range = ad === bd && am === bm ? ad + ' ' + bm : am === bm ? ad + '–' + bd + ' ' + bm : ad + ' ' + am + '–' + bd + ' ' + bm;
       }
       const name = g.event.indexOf(' - ') >= 0 ? g.event.slice(g.event.lastIndexOf(' - ') + 3) : g.event;
-      return '<div class="ev"><div class="h">' + esc(g.series) + '<span>' + esc(range) + '</span></div><div class="n">' + esc(name) + '</div>' +
+      // where to watch (dash\coverage.json via /watch/coverage): the row for the race of this event; unknown says so
+      const key = (keep.find(x => /^race$/i.test(x.session)) || keep[keep.length - 1] || {}).session || '';
+      const cov = this.watchFor(g.series, key);
+      const where = cov ? '<span class="svc' + (cov.confidence === 'verified' ? '' : ' maybe') + '">' + esc(cov.service) + (cov.confidence === 'verified' ? '' : cov.confidence === 'typical' ? ' (usually)' : ' (unconfirmed)') + '</span>' : '<span class="svc none">Coverage unknown</span>';
+      return '<div class="ev"' + (cov ? ' role="button" tabindex="0" data-series="' + esc(g.series) + '" data-session="' + esc(key) + '"' : ' aria-disabled="true"') + '><div class="h">' + esc(g.series) + where + '</div><div class="n">' + esc(name) + '</div>' +
         keep.map(x => {
           const d = day(x);
           const t = (x.tbc || !x.localStart) ? '<span class="tbc">' + (d ? this.nyWd(d) + DOT : '') + 'time TBC</span>' : '<span>' + this.nyWd(d) + ' ' + this.nyTime(d) + '</span>';
@@ -190,6 +195,27 @@ const Home = {
         }).join('') + '</div>';
     }).join('');
     el.innerHTML = label + '<div class="cols">' + cols + '</div>';
+    el.querySelectorAll('.ev[data-series]').forEach(b => { b.addEventListener('click', () => this.openWatch(b)); b.addEventListener('keydown', e => { if (e.key === 'Enter') this.openWatch(b); }); });
+  },
+
+  // a coverage row for this series and session (the same rule irdash applies when it opens the page)
+  watchKind(s) { s = String(s || '').toLowerCase(); return /qualif|hyperpole|shootout/.test(s) ? 'qualifying' : /sprint/.test(s) ? 'sprint' : /practice|\bfp\d|warm/.test(s) ? 'practice' : /race|\bhours?\b/.test(s) ? 'race' : 'other'; },
+  watchFor(series, session) {
+    const rows = (this.coverage && this.coverage.rows) || [], kind = this.watchKind(session);
+    let whole = null;
+    for (const r of rows) {
+      if (String(r.series).toLowerCase() !== String(series).toLowerCase()) continue;
+      if (r.scope === 'session') { if ((r.sessions || []).some(k => k === kind || (kind === 'sprint' && k === 'race'))) return r; }
+      else if (!whole) whole = r;
+    }
+    return whole;
+  },
+  // WATCH: irdash opens the provider page in the browser (only a URL from its own list; never while the sim runs)
+  async openWatch(b) {
+    const svc = b.querySelector('.svc'), was = svc ? svc.textContent : '';
+    if (svc) svc.textContent = 'Opening…';
+    let ok = false; try { const r = await fetch('/api/watch/open?series=' + encodeURIComponent(b.dataset.series) + '&session=' + encodeURIComponent(b.dataset.session), { cache: 'no-store' }); ok = r.ok; } catch (e) { }
+    if (svc) { svc.textContent = ok ? 'Opened in the browser' : 'Could not open'; setTimeout(() => { svc.textContent = was; }, 4000); }
   },
 
   // the same id irdeck and irdash give a recent drive (MY DRIVE: FNV-1a of the lower-case "car|track", prefixed r)

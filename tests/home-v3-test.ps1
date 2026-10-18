@@ -10,6 +10,9 @@ $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:Pro
 if (-not $chrome) { '  FAIL  Chrome not found'; exit 1 }
 $data = Join-Path $root 'docs\design\home-v3\data'
 $J = @{}; foreach ($n in 'home', 'career', 'realworld', 'health', 'vault-recorder') { $J[$n] = [IO.File]::ReadAllText((Join-Path $data "$n.json"), [Text.Encoding]::UTF8) }
+# where to watch: the real curated list, shaped as irdash serves it (/watch/coverage)
+$covRows = [IO.File]::ReadAllText((Join-Path $root 'dash\coverage.json'), [Text.Encoding]::UTF8)
+$J['coverage'] = '{"rows":' + $covRows + ',"asOf":""}'
 $www = Join-Path $root 'dash\www\v2'
 $markup = [regex]::Match([IO.File]::ReadAllText((Join-Path $www 'index.html')), '(?s)<div id="overlay" class="show">.*?<div id="homeHost" hidden></div>\s*</div>').Value
 if (-not $markup) { '  FAIL  could not find the HOME markup in index.html'; exit 1 }
@@ -46,7 +49,7 @@ $measure = @'
   var gold=[].slice.call(ov.querySelectorAll('*')).filter(function(e){ if(e.closest('[hidden]')) return false; var bg=getComputedStyle(e).backgroundImage+getComputedStyle(e).backgroundColor; return /242, 194, 48|246, 205, 76|226, 180, 42/.test(bg); }).length;
   var cols=[].slice.call(ov.querySelectorAll('#homeWeekend .ev')), racerows=cols.filter(function(c){return c.querySelector('.s.key');}).length;
   var text=ov.innerText;
-  return JSON.stringify({small:small,off:off,clip:clip,overlap:bad,gold:gold,cols:cols.length,raceRows:racerows,mojibake:/Ã|â€|Â·/.test(text),head:(document.querySelector('#idleRig .head b')||{}).textContent||'',button:(document.querySelector('#homeNext b')||{}).textContent||'',car:(document.getElementById('homeCar')||{}).outerHTML||'',text:text.slice(0,4000)});
+  return JSON.stringify({small:small,off:off,clip:clip,overlap:bad,gold:gold,cols:cols.length,raceRows:racerows,mojibake:/Ã|â€|Â·/.test(text),head:(document.querySelector('#idleRig .head b')||{}).textContent||'',watch:(document.getElementById('homeWeekend')||{}).innerText||'',button:(document.querySelector('#homeNext b')||{}).textContent||'',car:(document.getElementById('homeCar')||{}).outerHTML||'',text:text.slice(0,4000)});
 })()
 '@
 
@@ -57,7 +60,7 @@ foreach ($st in $states.Keys) {
 $markup
 <script>
 // saved data, edited for the state "$st"; irdash is a mock here (no network)
-var D=$($J['home']), C=$($J['career']), W=$($J['realworld']), H=$($J['health']), R=$($J['vault-recorder']), P={allowed:true,rows:[], paired:true};
+var CV=$($J['coverage']), D=$($J['home']), C=$($J['career']), W=$($J['realworld']), H=$($J['health']), R=$($J['vault-recorder']), P={allowed:true,rows:[], paired:true};
 $($states[$st])
 D.nextRace && (D.nextRace.localStart = '2026-10-15 13:15');
 window.__NOW = new Date('2026-10-15T16:55:00Z');
@@ -69,7 +72,7 @@ window.setHTML = function(el, s){ if (typeof el === 'string') el = `$(el); if (e
 window.UI = { live: function(){ return false; } };
 window.PCarPic = { known: function(){ var o={}; o[D.me && D.me.path ? D.me.path : '_']=1; return o; }, key: function(p){ return p; }, ready: function(){ return Promise.resolve(); }, refresh: function(){},
   html: function(o){ return '<div class="cpic"><img alt="" src="../paddock/cars/' + o.path + '.jpg"></div>'; } };
-var BODY = { '/home': D, '/career': C, '/realworld': W, '/health': H, '/vault/recorder': R, '/phone/qr': P, '/mydrive': {} };
+var BODY = { '/home': D, '/career': C, '/realworld': W, '/health': H, '/vault/recorder': R, '/phone/qr': P, '/mydrive': {}, '/watch/coverage': CV };
 window.fetch = function(u){ var k = String(u).split('?')[0]; return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(JSON.parse(JSON.stringify(BODY[k] || {}))); } }); };
 </script>
 <script src="../dash/www/v2/home.js"></script>
@@ -97,6 +100,7 @@ window.fetch = function(u){ var k = String(u).split('?')[0]; return Promise.reso
   Check "$st : everything is on the 1920 x 1080 screen ($(@($m.off) -join '; '))" (@($m.off).Count -eq 0)
   Check "$st : no hard-clipped text ($(@($m.clip) -join '; '))" (@($m.clip).Count -eq 0)
   Check "$st : no broken characters" (-not $m.mojibake)
+  Check "$st : every watch column says where to watch, or 'Coverage unknown', and F1 says Apple TV" ($m.watch -match 'Apple TV' -and $m.watch -notmatch '\bLive\b')
   if ($st -ne 'first') { Check "$st : three watch columns, each with its Race row ($($m.cols) / $($m.raceRows))" ($m.cols -eq 3 -and $m.raceRows -eq 3) }
   Check "$st : picture tests\shots\home-v3-$st.png" (Test-Path (Join-Path $shots "home-v3-$st.png"))
   switch ($st) {
