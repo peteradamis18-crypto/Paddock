@@ -216,6 +216,7 @@ function blank(id) { const cv = $(id); if (cv && cv.width) cv.getContext('2d').c
 
 async function openItem(id, cmp, lap) {
   const seq = ++V.seq;
+  closeRace();                                       // the previous moment's workbench must not stay over this one
   // refInfo too: it names the comparison of the PREVIOUS lap page, and stayed on show until /vault/laps came back
   V.id = id; V.cur = null; V.laps = null; V.trace = null; V.ref = null; V.refInfo = null; V.cmp = null; V.cmpId = cmp; V.g = -1; V.pts = null; V.corners = null; V.discs = []; V.stats = new Map(); V.tr = new Map(); V.ask = 0; V.videoId = ''; V.showDelta = false; V.race = '';
   $('viewGrid').hidden = true; $('viewDetail').hidden = false;
@@ -237,9 +238,10 @@ async function openItem(id, cmp, lap) {
       V.laps = lr.j;
       const clean = lr.j.laps.filter(l => l.time > 15);
       V.lap = lap || (m.lap && lr.j.laps.some(l => l.n === m.lap) ? m.lap : (lr.j.best != null ? lr.j.best : (clean[0] || {}).n)) || 0;
-      if (V.lap) { openWorkbench(id, V.lap); return; }
+      // A clip stays on the Vault's own player: it has the SYNC nudge (remembered by irdash), the workbench does not.
+      if (V.lap) checkRace(id, seq);                 // not awaited: the RACE button appears by itself when there is a race log
+      if (V.lap && !m.video) { openWorkbench(id, V.lap); return; }
     }
-    if (V.lap) checkRace(id, seq);                   // not awaited: the RACE button appears by itself when there is a race log
   }
   await prepareVideo(m, seq);
   if (seq !== V.seq) return;
@@ -296,7 +298,8 @@ async function checkRace(id, seq) {
 
 // RACE: the analysis workbench on its RACE page, over the Vault (an iframe with a back bar, the same as ANALYSIS on the Session Review)
 function openRace() {
-  if ($('wbHost') || !V.lap) return;
+  if (!V.lap) return;
+  closeRace();                                       // a lap's workbench may already be up: the race page replaces it
   const host = document.createElement('div'); host.id = 'wbHost';
   host.innerHTML = '<div class="back" id="wbBack">‹ Back to the Vault</div><iframe title="Paddock Analysis"></iframe>';
   host.querySelector('iframe').src = 'workbench.html?id=' + encodeURIComponent(V.id) + '&lap=' + V.lap + '&page=race';

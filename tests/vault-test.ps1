@@ -404,34 +404,22 @@ $expectKeep = Count-Cards @($lg.moments | Where-Object { $_.keeper })
 Check "filters work: ★ Keepers shows $nk, searching 'podium' shows $np" ($nk -eq $expectKeep -and $np -eq 1)
 $null = Cdp-Eval "document.getElementById('q').value = ''; document.getElementById('q').dispatchEvent(new Event('input')); document.querySelector('#fKind .chip').click()"
 
-# the detail of the best lap: labelled map, traces on one cursor, corner table
+# the detail of the best lap: a lap with telemetry opens straight into the analysis workbench (vault.js openWorkbench),
+# which has the labelled map, the corner table and the traces on one cursor (their own checks are in workbench-test)
 $null = Cdp-Eval "location.hash = 'm=l20261010-041318-7'"
-$ok = Wait-Page "!!(V.trace && V.pts && V.corners && V.discs.length > 0 && V.ref)" 40
+$ok = Wait-Page "(function () { var f = document.querySelector('#wbHost iframe'); try { return !!(f && f.contentWindow.WB && f.contentWindow.WB.data() && f.contentWindow.WB.data().corners.length); } catch (e) { return false; } })()" 40
 Start-Sleep -Milliseconds 1500
-$d = (Cdp-Eval "JSON.stringify({ discs: V.discs.length, turns: V.corners ? V.corners.turns.length : 0, lap: V.lap, ref: V.refInfo ? V.refInfo.label : '', rows: document.querySelectorAll('.ct[data-i]').length, errs: (window.__errs || []).length, g: V.g })") | ConvertFrom-Json
-Check "detail: the labelled map has all $($d.turns) corner discs ($($d.discs) drawn) and the corner table has $($d.rows) rows" ($ok -and $d.discs -eq 14 -and $d.turns -eq 14 -and $d.rows -eq 14)
-Check "detail: the lap is compared with a quicker or personal-best lap from the Vault ('$($d.ref)'), no script errors" ($d.lap -eq 7 -and $d.errs -eq 0)
-# a click on a turn puts the shared cursor at its apex; a click on the plot moves it too
-$null = Cdp-Eval "document.querySelector('.ct[data-i=\""4\""]').click()"
-$g5 = Cdp-Eval "V.g"; $ap5 = Cdp-Eval "Math.round(V.corners.turns[4].pctApex * 1000)"
-Check "clicking T5 in the corner table moves the cursor to its apex (grid $g5 = $ap5)" ($g5 -eq $ap5)
-$mc = (Cdp-Eval "(function () { var r = document.getElementById('mapc').getBoundingClientRect(); var d = V.discs[7]; return JSON.stringify([r.left + d.x, r.top + d.y, d.turn.pctApex]); })()") | ConvertFrom-Json
-$null = Cdp 'Input.dispatchMouseEvent' @{ type = 'mousePressed'; x = $mc[0]; y = $mc[1]; button = 'left'; clickCount = 1 }
-$null = Cdp 'Input.dispatchMouseEvent' @{ type = 'mouseReleased'; x = $mc[0]; y = $mc[1]; button = 'left'; clickCount = 1 }
-Start-Sleep -Milliseconds 300
-$g8 = Cdp-Eval "V.g"
-Check "clicking the 8th disc on the map moves the cursor to that turn (grid $g8 = $([math]::Round($mc[2] * 1000)))" (Near $g8 ($mc[2] * 1000) 1.5)
+$d = (Cdp-Eval "(function () { var f = document.querySelector('#wbHost iframe'), w = f ? f.contentWindow : null, dd = w && w.WB ? w.WB.data() : null; return JSON.stringify({ src: f ? f.getAttribute('src') : '', corners: dd ? dd.corners.length : 0, back: !!document.getElementById('wbBack'), errs: (window.__errs || []).length }); })()") | ConvertFrom-Json
+Check "detail: lap 7 opens in the analysis workbench ($($d.src)) with all $($d.corners) corners of Road Atlanta" ($ok -and $d.src -match 'lap=7' -and $d.corners -eq 14)
+Check "detail: a 'Back to the Vault' button is on it, no script errors" ($d.back -and $d.errs -eq 0)
 Cdp-Shot (Join-Path $shots 'v-detail.png') 0 0 1920 1080
 $png = Join-Path $shots 'v-detail.png'
-Check "v-detail.png saved: the map and the traces carry gold ($(Gold-Pixels $png) gold pixels)" ((Gold-Pixels $png) -gt 1500)
+Check "v-detail.png saved: the workbench carries gold ($(Gold-Pixels $png) gold pixels)" ((Gold-Pixels $png) -gt 1500)
 # compare two laps with a delta trace
-$null = Cdp-Eval "location.hash = 'm=l20261010-041318-7&c=l20261009-185837-2'"
-$ok = Wait-Page "!!(V.trace && V.ref && V.refInfo && V.refInfo.id === 'l20261009-185837-2' && V.trace.delta)" 40
-Start-Sleep -Milliseconds 1200
-$cmpI = (Cdp-Eval "JSON.stringify({ end: V.trace.delta[1000], label: V.refInfo.label, rows: document.querySelectorAll('.ct[data-i]').length })") | ConvertFrom-Json
-Check "compare: lap 7 (79.549) against 79.600: the difference trace ends at $([math]::Round($cmpI.end, 3)) s (lap times differ by -0.051)" ($ok -and (Near $cmpI.end (79.549 - 79.600) 0.01))
-Cdp-Shot (Join-Path $shots 'v-compare.png') 0 0 1920 1080
-Check 'v-compare.png saved' (Test-Path (Join-Path $shots 'v-compare.png'))
+# (the lap-against-lap difference trace of a plain lap now lives in the workbench, tested in workbench-test; here: the Vault serves both laps' traces)
+$tA = J '/vault/lap?id=l20261010-041318-7&lap=7'; $tB = J '/vault/lap?id=l20261009-185837-2&lap=2'
+Check "compare: the Vault serves the traces of both laps; the end times differ by $([math]::Round($tA.t[1000] - $tB.t[1000], 3)) s (lap times differ by -0.051)" ($tA.t -and $tB.t -and (Near ($tA.t[1000] - $tB.t[1000]) (79.549 - 79.600) 0.01))
+$null = Cdp-Eval "document.getElementById('wbBack').click(); 1"; $null = Wait-Page "!document.getElementById('wbHost')" 4
 
 # the clip: video and telemetry on one cursor
 $null = Cdp-Eval "location.hash = 'm=$cid'"
@@ -478,7 +466,7 @@ $null = Cdp-Eval "document.getElementById('askNo').click()"
 # here (the scratch vault has no race log; the endpoint itself is tested in tests\race-field-test.ps1); everything else is the real page and the real irdash.
 $null = Cdp-Eval "window.__raceAnswer = 404; window.__raceAsked = []; if (!window.__realFetch) { window.__realFetch = window.fetch; window.fetch = function (u) { if (/\/analysis\/race/.test(String(u))) { window.__raceAsked.push(String(u)); return Promise.resolve(new Response(window.__raceAnswer === 200 ? '{`"ok`":1}' : '{`"error`":`"none`"}', { status: window.__raceAnswer })); } return window.__realFetch.apply(this, arguments); }; } 1"
 $null = Cdp-Eval "location.hash = 'm=l20261010-041318-7'"
-$ok = Wait-Page "V.id === 'l20261010-041318-7' && !!V.trace && window.__raceAsked.length >= 1" 40
+$ok = Wait-Page "V.id === 'l20261010-041318-7' && !!V.laps && window.__raceAsked.length >= 1" 40
 Start-Sleep -Milliseconds 700
 $noR = (Cdp-Eval "JSON.stringify({ btn: !!document.getElementById('bRace'), acts: document.getElementById('dActs').innerText, asked: window.__raceAsked })") | ConvertFrom-Json
 Check "a lap with no race log: irdash is asked (/analysis/race?id=l20261010-041318-7, answer 404) and there is no RACE button (buttons: $($noR.acts -replace '\s+', ' '))" ($ok -and -not $noR.btn -and @($noR.asked | Where-Object { $_ -match '^/analysis/race\?id=l20261010-041318-7$' }).Count -ge 1)
@@ -572,50 +560,15 @@ $vi7 = J '/vault/videoinfo?id=l20261010-041318-7'
 Check "a Vault lap finds its recorder clip and sidecar from its own id (not the lap id): $($vi7.id), lap $($vi7.lap), lapStartOffset $($vi7.lapStartOffset) s" ($vi7.id -eq 'rec-20261010-042000-l7' -and $vi7.lap -eq 7 -and (Near $vi7.lapStartOffset 1.0 0.0001) -and (Near $vi7.lapEndOffset (1.0 + $lap7.time) 0.001))
 Check 'the recorder clip serves from /vault/video with byte ranges (206)' ((Get-Raw "/vault/video?id=rec-20261010-042000-l7").code -eq 200 -and (Get-Raw "/vault/video?id=rec-20261010-042000-l7" @{ Range = 'bytes=0-99' }).code -eq 206)
 
+# A plain lap opens in the analysis workbench; its recorder clip players (cursor-video sync, two-up, position lock) are tested in video-page-test.
 Cdp-Open "$api/v2/vault.html#m=l20261010-041318-7"
-$okR = Wait-Page "V.id === 'l20261010-041318-7' && V.rec && V.vid && V.vid.readyState >= 1 && V.trace && V.trace.t && V.corners && V.corners.turns.length >= 12" 60
-Check 'the lap page plays its recorder clip through /vault/video (the recorder path, not the lap id)' ($okR -and (Cdp-Eval "V.vid.src") -match '/vault/video\?id=rec-20261010-042000-l7$')
-# cursor-video sync: at 10 points the video lands on the frame the cursor names (the mapping is off + t + nudge)
-$syncJs = @'
-(async function () {
-  var D = V.trace, ls = lapSync(V.lap), out = [];
-  for (var i = 0; i < 10; i++) {
-    var g = Math.round(i * 999 / 9), E = ls.v0 + D.t[g] + V.sync.nudge, want = Math.max(0, Math.min(E, V.vid.duration - 0.03));
-    V.vid.currentTime = want;
-    await new Promise(function (r) { var done = false; var h = function () { if (done) return; done = true; V.vid.removeEventListener('seeked', h); r(); }; V.vid.addEventListener('seeked', h); setTimeout(h, 4000); });
-    out.push({ g: g, t: D.t[g], E: E, cur: V.vid.currentTime, err: Math.abs(V.vid.currentTime - want) });
-  }
-  return JSON.stringify({ off: ls.v0, nudge: V.sync.nudge, dur: V.vid.duration, pts: out });
-})()
-'@
-$sy = (Cdp-Eval $syncJs) | ConvertFrom-Json
-$maxErr = ($sy.pts | Measure-Object -Property err -Maximum).Maximum
-$mono = $true; for ($i = 1; $i -lt $sy.pts.Count; $i++) { if ($sy.pts[$i].E -lt $sy.pts[$i - 1].E) { $mono = $false } }
-Check "cursor-video sync at 10 points: worst error $([math]::Round($maxErr*1000,1)) ms (<= 1 frame, 16.7 ms), video time = lapStartOffset + t + nudge" ($maxErr -le 0.0167 -and $mono -and (Near $sy.pts[5].E ($sy.off + $sy.pts[5].t + $sy.nudge) 0.0001))
-# the picture itself is at that time (the test clip's red level is its own second x 2.8)
-$pic = (Cdp-Eval "(async function () { var D = V.trace, ls = lapSync(V.lap); var E = Math.min(ls.v0 + D.t[500] + V.sync.nudge, V.vid.duration - 0.03); V.vid.currentTime = E; await new Promise(function (r) { V.vid.onseeked = r; setTimeout(r, 4000); }); var c = document.createElement('canvas'); c.width = 8; c.height = 8; var g = c.getContext('2d'); g.drawImage(V.vid, 0, 0, 8, 8); return JSON.stringify({ E: E, red: g.getImageData(4, 4, 1, 1).data[0] }); })()") | ConvertFrom-Json
-Check "the frame at the lap's midpoint is the clip's own time ($([math]::Round($pic.red/2.8,2)) s vs $([math]::Round($pic.E,2)) s)" (Near ($pic.red / 2.8) $pic.E 0.6)
-Cdp-Shot (Join-Path $shots 'v-player-sync.png') 0 0 1920 1080
-Check 'v-player-sync.png saved' (Test-Path (Join-Path $shots 'v-player-sync.png'))
-# two-up: a second lap of the SAME car+track, both clips locked by track position
-$null = Cdp-Eval "location.hash = 'm=l20261010-041318-7&c=l20261010-041318-8'"
-$ok2 = Wait-Page "V.id === 'l20261010-041318-7' && V.refInfo && V.refInfo.id === 'l20261010-041318-8' && V.rcRef && V.vid2 && V.vid2.src.indexOf('/vault/video?id=rec-20261010-042000-l8') >= 0" 60
-Check 'the reference lap shows its own recorder clip beside this lap (two /vault/video players)' ($ok2)
-# Exercise the page's cursor handler, not a direct media seek: this must move the main clip to the selected telemetry point.
-$cursorSeek = (Cdp-Eval "(function(){ setCursor(321, true); return JSON.stringify({ g: V.g, actual: V.vid.currentTime, expected: videoTimeAt(321) }); })()") | ConvertFrom-Json
-Check "moving the page cursor seeks the main video to its telemetry time ($([math]::Round([math]::Abs($cursorSeek.actual - $cursorSeek.expected)*1000,1)) ms error)" ($cursorSeek.g -eq 321 -and (Near $cursorSeek.actual $cursorSeek.expected 0.04))
-# Exercise both real play-event handlers with different starting positions; each player must align its partner by lap position.
-$alignMain = (Cdp-Eval "(function(){ V.vid.currentTime = videoTimeAt(420); V.vid.dispatchEvent(new Event('play')); return JSON.stringify({ main: V.vid.currentTime, ref: V.vid2.currentTime, want: V.rcRef.lapStartOffset + V.ref.t[420] }); })()") | ConvertFrom-Json
-Check "starting the main clip aligns the reference clip at the same telemetry point ($([math]::Round([math]::Abs($alignMain.ref - $alignMain.want)*1000,1)) ms error)" ((Near $alignMain.main (Cdp-Eval "videoTimeAt(420)") 0.04) -and (Near $alignMain.ref $alignMain.want 0.04))
-$alignRef = (Cdp-Eval "(function(){ V.vid2.currentTime = V.rcRef.lapStartOffset + V.ref.t[610]; V.vid2.dispatchEvent(new Event('play')); return JSON.stringify({ main: V.vid.currentTime, refGrid: lockGrid(refSide(), V.vid2.currentTime), mainGrid: videoToGrid(V.vid.currentTime) }); })()") | ConvertFrom-Json
-Check "starting the reference clip aligns the main clip at its telemetry point (grid delta $([math]::Abs($alignRef.refGrid - $alignRef.mainGrid)) of 1000)" ([math]::Abs($alignRef.refGrid - $alignRef.mainGrid) -le 1.5)
-Cdp-Shot (Join-Path $shots 'v-player-2up.png') 0 0 1920 1080
-Check 'v-player-2up.png saved' (Test-Path (Join-Path $shots 'v-player-2up.png'))
+$okR = Wait-Page "(function () { var f = document.querySelector('#wbHost iframe'); return !!(f && V.laps && V.cur); })()" 60
+Check 'the lap page opens the workbench on lap 7 (the Vault''s own player is for clips)' ($okR -and (Cdp-Eval "document.querySelector('#wbHost iframe').getAttribute('src')") -match 'lap=7')
+$cg = @(200, 500, 800)
 # the lock: both clips kept at the same LapDistPct; the one ahead waits (> 0.2 % gap) and they resume within 0.1 %
 $tA = (J '/vault/lap?id=l20261010-041318-7&lap=7').t
 $tB = (J '/vault/lap?id=l20261010-041318-8&lap=8').t
 Check 'the two laps'' telemetry grids were read for the lock (1001 points each)' ($tA.Count -eq 1001 -and $tB.Count -eq 1001)
-$cg = (Cdp-Eval "JSON.stringify([Math.round(V.corners.turns[2].pctApex*1000), Math.round(V.corners.turns[6].pctApex*1000), Math.round(V.corners.turns[10].pctApex*1000)])") | ConvertFrom-Json
 $jA = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tA } | ConvertTo-Json -Compress -Depth 4
 $jB = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tB } | ConvertTo-Json -Compress -Depth 4
 $lr = (Cdp-Eval "JSON.stringify(V.lockRun($jA, $jB, 0.0166667, 90, [$($cg -join ',')]))") | ConvertFrom-Json
@@ -626,8 +579,8 @@ $ir7 = J '/vault/item?id=l20261010-041318-7'
 Check 'the comparison list excludes the lap itself (same session file + lap number)' (@($ir7.others | Where-Object { $_.session -eq $ir7.m.session -and $_.lap -eq $ir7.m.lap }).Count -eq 0 -and @($ir7.others).Count -ge 1)
 $null = Cdp-Eval "location.hash = 'm=l20261010-041318-7&c=l20261010-041318-7'"
 Start-Sleep -Milliseconds 1600
-$self = (Cdp-Eval "JSON.stringify({ ref: V.refInfo ? V.refInfo.id : '', self: V.refInfo ? V.sameLap(V.refInfo, V.cur.m, V.lap) : false, isSame: V.sameLap({ id: 'l20261010-041318-7', lap: 7, session: V.cur.m.session }, V.cur.m, 7) })") | ConvertFrom-Json
-Check "choosing the lap itself as the comparison is refused (sameLap=$($self.isSame)) and another lap is used ($($self.ref))" ($self.isSame -eq $true -and $self.self -eq $false -and $self.ref -ne 'l20261010-041318-7')
+$self = (Cdp-Eval "JSON.stringify({ isSame: V.sameLap({ id: 'l20261010-041318-7', lap: 7, session: V.cur.m.session }, V.cur.m, 7), other: V.sameLap({ id: 'l20261010-041318-8', lap: 8, session: V.cur.m.session }, V.cur.m, 7) })") | ConvertFrom-Json
+Check "choosing the lap itself as the comparison is refused (sameLap=$($self.isSame)), another lap is not ($($self.other))" ($self.isSame -eq $true -and $self.other -eq $false)
 Check 'no script errors on the recorder player' ((Cdp-Eval "(window.__errs || []).length") -eq 0)
 Cdp-Close
 Remove-Item (Join-Path $recDir 'rec-20261010-042000-l7.mp4'), (Join-Path $recDir 'rec-20261010-042000-l7.json'), (Join-Path $recDir 'rec-20261010-042000-l8.mp4'), (Join-Path $recDir 'rec-20261010-042000-l8.json') -Force -ErrorAction SilentlyContinue
