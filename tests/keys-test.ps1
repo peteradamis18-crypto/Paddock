@@ -110,7 +110,7 @@ Check 'every key sits inside the 8 x 4 grid, one key per cell' (@($deck | Where-
 $approved = [ordered]@{
   '0,0' = 'HOME*'; '1,0' = 'AI RACE*'; '2,0' = 'TEST DRIVE*'; '3,0' = 'MY DRIVE*'; '4,0' = 'FRIENDS*'; '5,0' = 'MORE*'; '6,0' = 'OFFICIAL*'; '7,0' = 'GET IN*'
   '0,1' = 'GET OUT*'; '1,1' = 'RESET CAR*'; '2,1' = 'KEEP LAP*'; '3,1' = 'SAVE*'; '4,1' = 'TV*'; '5,1' = 'SKIP SESSION*'; '6,1' = 'RESTART*'; '7,1' = 'QUIT*'
-  '0,2' = 'FUEL*'; '1,2' = 'TIRES*'; '2,2' = 'CLEAR*'; '3,2' = 'OVERLAYS*'; '4,2' = 'DEBRIEF*'; '5,2' = 'VAULT*'; '6,2' = 'CAR TRACK*'; '7,2' = 'live:laps-to-empty'
+  '0,2' = 'FUEL*'; '1,2' = 'TIRES*'; '2,2' = 'CLEAR*'; '3,2' = 'OVERLAYS*'; '4,2' = 'REVIEW*'; '5,2' = 'VAULT*'; '6,2' = 'CAR TRACK*'; '7,2' = 'live:laps-to-empty'
   '0,3' = 'SORRY*'; '1,3' = 'THANKS*'; '2,3' = 'VOL -*'; '3,3' = 'VOL +*'; '4,3' = 'RELATIVE*'; '5,3' = 'live:position'; '6,3' = 'live:incidents' }
 $bad = @()
 foreach ($pos in $approved.Keys) {
@@ -166,9 +166,10 @@ $guestCmds = @(); if ($gi -gt 0 -and $gj -gt $gi) { $guestCmds = Case-Labels $ir
 foreach ($g in $guestCmds) { if (-not $handled.ContainsKey($g)) { $handled[$g] = 'guest' } }
 Check "irdash's accepted deck commands were read ($($handled.Count) of them, $($guestCmds.Count) from the friends switch)" ($handled.Count -gt 60 -and $guestCmds.Count -ge 15 -and $handled.ContainsKey('tvview') -and $handled.ContainsKey('vkkeep'))
 
-# DK-2: DEBRIEF and VAULT are top-screen pages DK-5 wires; irdash does not answer those deck commands yet, so keys-test
-# marks them PENDING, not dead. Nothing is lost: the keys stay on the deck and the lead wires the commands.
-$pending = @{ 'debrief' = 'dash debrief is not in irdash Commands yet (DK-5 wires the top-screen debrief)'; 'vault' = 'dash vault is not in irdash Commands yet (dash\src\vault.cs; DK-5 wires the top-screen Vault)' }
+# Deck aliases irdash rewrites before dispatch in /api/do (2026-10-18: `if (dc == "vault") dc = "vkopen";`).
+foreach ($x in [regex]::Matches($irdash, 'if \(dc == "(\w+)"\) dc = "(\w+)";')) { if ($handled.ContainsKey($x.Groups[2].Value)) { $handled[$x.Groups[1].Value] = 'alias of ' + $x.Groups[2].Value } }
+# Commands a key may name before irdash wires them (marked PENDING, not dead). None left: REVIEW and VAULT were wired 2026-10-18.
+$pending = @{}
 
 function Split-Cmd([string]$s) { @([regex]::Matches($s, '"[^"]*"|\S+') | ForEach-Object { $_.Value.Trim('"') }) }
 # $null = fine, else the reason. The same forms the real commands take (src\irdeck.cs).
@@ -265,7 +266,8 @@ Check 'AI RACE is the airace command the sim tree has' ((Cmd-Of 'AI RACE*') -eq 
 Check 'OFFICIAL (DK-2b) runs the official command irdeck has' ((Cmd-Of 'OFFICIAL*') -eq 'official' -and $irSrc -match 'case "official"')
 Check 'CAR TRACK (DK-2b) opens the MY DRIVE add-on screen (its home IS the car/track step)' (@($deck | Where-Object { $_.label -like 'CAR TRACK*' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1)
 Check 'SAVE is dash recsave and irdash accepts recsave (the recorder saves the last minutes)' ((Cmd-Of 'SAVE*') -eq 'dash recsave' -and $handled['recsave'] -eq 'vault')
-Check 'DEBRIEF and VAULT are on MAIN and marked PENDING until DK-5 wires the top-screen commands' (@($deck | Where-Object { $_.label -like 'DEBRIEF*' -and $_.status -like 'PENDING*' }).Count -eq 1 -and @($deck | Where-Object { $_.label -like 'VAULT*' -and $_.status -like 'PENDING*' }).Count -eq 1)
+Check 'REVIEW is dash debrief and irdash accepts it (opens the coach for the last outing)' ((Cmd-Of 'REVIEW*') -eq 'dash debrief' -and $handled.ContainsKey('debrief'))
+Check 'VAULT is dash vault and irdash accepts it (alias of vkopen, opens the Vault)' ((Cmd-Of 'VAULT*') -eq 'dash vault' -and $handled['vault'] -eq 'alias of vkopen')
 Check 'no MAIN or MORE key carries a static on / off subtitle (live state is drawn by the add-on, DK-4)' (@($deck | Where-Object { $_.t2 -match '(?i)\bon\s*/\s*off\b' }).Count -eq 0)
 
 # ================= 3. the old keys.map still works =================

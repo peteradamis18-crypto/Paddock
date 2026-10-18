@@ -164,8 +164,8 @@ $main = [ordered]@{
   '1,2' = K 'TIRES' '' 'car' $null                             (L 'pit-tires'       'pittoggle tires')
   '2,2' = K 'CLEAR' '' 'ses' 'clear'                           (L 'pit-clear'       'pit clear')   # its own colour: "add" (teal) is not "undo" (amber)
   '3,2' = K 'OVERLAYS' '' 'nav' 'eye'                          @{ plugin = 'com.peter.rigintro.overlays'; name = 'Overlays' }
-  '4,2' = K 'DEBRIEF' '' 'nav' 'info'                          (L 'debrief'         'dash debrief')   # top-screen debrief of the last session (DK-5 wires it)
-  '5,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')     # top-screen Vault (DK-5 wires it)
+  '4,2' = K 'REVIEW' '' 'nav' 'info'                           (L 'debrief'         'dash debrief')   # the coach for the last outing on the top screen (irdash: debrief -> coach page)
+  '5,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')     # top-screen Vault (irdash: vault -> vkopen)
   '6,2' = K 'CAR TRACK' '' 'nav' 'folder'                      @{ plugin = 'com.peter.rigintro.mydrive'; name = 'Car Track' }   # DK-2b (Peter): change the car & track AI RACE / TEST DRIVE use. Reuses the MY DRIVE key; its home screen IS the car/track step (MyDrive.open() resets to it, no deeper step exists).
   '7,2' = K 'LAPS TO' 'EMPTY' 'car' $null                      (Live 'laps-to-empty' @{} '12' 'laps left')
   # row 4 - talk, sound and live numbers
