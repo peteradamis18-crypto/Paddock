@@ -20,9 +20,14 @@ var PAGES = [{ id: 'driver', name: 'DRIVER' }, { id: 'grip', name: 'GRIP & BALAN
   { id: 'suspension', name: 'SUSPENSION' }, { id: 'splits', name: 'SPLITS' }];
 var WHEELS = ['LF', 'RF', 'LR', 'RR'], WHEEL_NAME = { LF: 'FRONT LEFT', RF: 'FRONT RIGHT', LR: 'REAR LEFT', RR: 'REAR RIGHT' };
 
+// speed in the units iRacing last reported to the dashboard (same rule as the Vault and Sessions pages). The channel key stays
+// 'kmh' (saved layouts and maths channels name it); only its numbers and labels follow the unit.
+var SPD_MPH = (function () { try { return JSON.parse(localStorage.getItem('irdash-units')) === false; } catch (e) { return false; } })();
+var SPD_F = SPD_MPH ? 2.236936 : 3.6, SPD_U = SPD_MPH ? 'mph' : 'km/h', SPD_LO = SPD_MPH ? 40 : 60, SPD_HI = SPD_MPH ? 170 : 270;
+
 // what each channel is called on screen, its unit and how many decimals (plain English, DESIGN-workbench 2.10)
 var CAT = {
-  kmh: { label: 'Speed km/h', dec: 0 }, Gear: { label: 'Gear', dec: 0 }, RPM: { label: 'RPM', dec: 0 }, thrPct: { label: 'Throttle %', dec: 0 },
+  kmh: { label: 'Speed ' + SPD_U, dec: 0 }, Gear: { label: 'Gear', dec: 0 }, RPM: { label: 'RPM', dec: 0 }, thrPct: { label: 'Throttle %', dec: 0 },
   brkPct: { label: 'Brake %', dec: 0 }, steerDeg: { label: 'Steering °', dec: 0 }, latG: { label: 'Lateral g', dec: 2 }, longG: { label: 'Long g', dec: 2 },
   beta: { label: 'Slip angle °', dec: 1 }, wfPct: { label: 'Wheel force %', dec: 0 }, gTot: { label: 'Total g', dec: 2 },
   slipLF: { label: 'Slip LF %', dec: 0 }, slipRF: { label: 'Slip RF %', dec: 0 }, slipLR: { label: 'Slip LR %', dec: 0 }, slipRR: { label: 'Slip RR %', dec: 0 },
@@ -94,7 +99,7 @@ function derive(Lp) {
   var c = Lp.c, n = Lp.n, i;
   function f(fn) { var o = new Float32Array(n); for (i = 0; i < n; i++) o[i] = fn(i); return o; }
   var has = function (k) { return !!c[k] && Lp.ok[k] !== false; };
-  if (has('Speed')) c.kmh = f(function (i) { return c.Speed[i] * 3.6; });
+  if (has('Speed')) c.kmh = f(function (i) { return c.Speed[i] * SPD_F; });
   if (has('Throttle')) c.thrPct = f(function (i) { return c.Throttle[i] * 100; });
   if (has('Brake')) c.brkPct = f(function (i) { return c.Brake[i] * 100; });
   if (has('SteeringWheelAngle')) c.steerDeg = f(function (i) { return c.SteeringWheelAngle[i] * 57.2958; });
@@ -521,7 +526,7 @@ GG.prototype.drawOverlay = function () {
 function CornerTable(box) {
   Display.call(this, box, 'Corners · this lap <span class="r">reference</span> · sorted by time lost'); this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'corners';
   var t = el('table', 'ct'), self = this; this.rows = [];
-  t.innerHTML = '<tr><th>TURN</th><th>GAP s</th><th>MIN km/h</th><th>PEAK LAT g</th><th>PEAK SLIP °</th><th>ABS</th></tr>';
+  t.innerHTML = '<tr><th>TURN</th><th>GAP s</th><th>MIN ' + SPD_U.toUpperCase() + '</th><th>PEAK LAT g</th><th>PEAK SLIP °</th><th>ABS</th></tr>';
   D.cstat.slice().sort(function (x, y) { return y.dt - x.dt; }).forEach(function (k) {
     var tr = el('tr'), r = k.r, sm = function (v) { return r ? '<small>' + v + '</small>' : ''; };
     tr.innerHTML = '<td class="gold">' + k.c.label + '</td><td class="' + (!r ? 'mute' : k.dt > 0.005 ? 'loss' : k.dt < -0.005 ? 'gain' : 'mute') + '">' + (r ? sgn(k.dt, 2) : '–') + '</td>' +
@@ -935,7 +940,7 @@ function scaleRows(rows, boxH) {
   while (tot() > avail) { var big = out.reduce(function (m, r) { return r.h > m.h ? r : m; }, out[0]); if (big.h <= 44) break; big.h -= 2; }
   return out;
 }
-var DERIVED = [['latG', 'Lateral G', 'g', 2, 'LatAccel ÷ 9.81'], ['longG', 'Longitudinal G', 'g', 2, 'LongAccel ÷ 9.81'], ['gTot', 'G total', 'g', 2, '√(lateral² + long²)'], ['kmh', 'Speed', 'km/h', 0, 'Speed × 3.6'],
+var DERIVED = [['latG', 'Lateral G', 'g', 2, 'LatAccel ÷ 9.81'], ['longG', 'Longitudinal G', 'g', 2, 'LongAccel ÷ 9.81'], ['gTot', 'G total', 'g', 2, '√(lateral² + long²)'], ['kmh', 'Speed', SPD_U, 0, 'Speed × ' + SPD_F.toFixed(SPD_MPH ? 3 : 1)],
   ['thrPct', 'Throttle', '%', 0, 'Throttle × 100'], ['brkPct', 'Brake', '%', 0, 'Brake × 100'], ['steerDeg', 'Steering angle', '°', 0, 'wheel angle, rad to °'],
   ['beta', 'Chassis slip angle', '°', 1, 'atan(VelocityY ÷ VelocityX)'], ['wfPct', 'Wheel force', '%', 0, 'wheel torque × 100'],
   ['slipLF', 'Wheel slip LF', '%', 1, 'wheel speed vs car speed'], ['slipRF', 'Wheel slip RF', '%', 1, 'wheel speed vs car speed'], ['slipLR', 'Wheel slip LR', '%', 1, 'wheel speed vs car speed'], ['slipRR', 'Wheel slip RR', '%', 1, 'wheel speed vs car speed'],
@@ -1073,7 +1078,7 @@ function buildPage() {
   if (S.page === 'braking') {
     var bt = new BrakeTable({ x: 32, y: 126, w: 1060, h: 0 });
     new Traces({ x: 1124, y: 126, w: 764, h: 440 }, 'Brake · steering · speed · zoomed on the corner · both laps', scaleRows([
-      { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 120, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 96, lo: -90, hi: 90 }, { k: 'SPEED km/h', key: 'kmh', h: 96, lo: 60, hi: 270 }].concat(xr), 440));
+      { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 120, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 96, lo: -90, hi: 90 }, { k: 'SPEED ' + SPD_U.toUpperCase(), key: 'kmh', h: 96, lo: SPD_LO, hi: SPD_HI }].concat(xr), 440));
     var cy = Math.max(bt.el.getBoundingClientRect().bottom, 126 + 20 + 440) + 16;
     new BrakeCells({ x: 32, y: cy, w: 1856, h: 1056 - (cy + 20) });
   } else if (S.page === 'tyres') {
@@ -1116,7 +1121,7 @@ function buildPage() {
     new Pedals({ x: 32, y: 884, w: 540, h: 48 });
     new Traces({ x: 600, y: 126, w: 1288, h: 726 }, '', scaleRows([
       { k: 'GAP s', kind: 'gap', h: 84, lo: -0.6, hi: 0.6 },
-      { k: 'SPEED', key: 'kmh', h: 156, lo: 60, hi: 270 },
+      { k: 'SPEED', key: 'kmh', h: 156, lo: SPD_LO, hi: SPD_HI },
       { k: 'THROTTLE %', key: 'thrPct', h: 62, lo: 0, hi: 100 },
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 76, lo: 0, hi: 100 },
       { k: 'STEERING °', key: 'steerDeg', h: 84, lo: -90, hi: 90 },
@@ -1428,7 +1433,7 @@ function load() {
   }).catch(function (e) { empty(String(e.message || e)); WB.error = String(e.message || e); });
 }
 // what workbench-video.js (and any later page file) may use; loaded right after this file, before the first reply arrives
-X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT,
+X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
   data: function () { return D; }, hook: function (f) { hooks.push(f); }, rIdx: rIdx, setCursor: setCursor, setZoom: setZoom, zoomed: zoomed, scaleRows: scaleRows, modeLine: modeLine,
   header: header, fetchJson: fetchJson, Display: Display, Traces: Traces, MapView: MapView,
   // for workbench-pro.js: the channel list and picker, loading any channel, the binary reply reader, a page rebuild

@@ -139,7 +139,7 @@ VideoView.prototype.update = function () {
 };
 
 // the six numbers a driver reads at the cursor, big (the video is the thing he looks at)
-var TILES = [['SPEED km/h', 'kmh', 0], ['GEAR', 'Gear', 0], ['THROTTLE %', 'thrPct', 0], ['BRAKE %', 'brkPct', 0], ['STEERING °', 'steerDeg', 0], ['GAP s', 'gap', 3]];
+var TILES = [['SPEED ' + A.SPD.u.toUpperCase(), 'kmh', 0], ['GEAR', 'Gear', 0], ['THROTTLE %', 'thrPct', 0], ['BRAKE %', 'brkPct', 0], ['STEERING °', 'steerDeg', 0], ['GAP s', 'gap', 3]];
 function gearTxt(g) { g = Math.round(g); return g < 0 ? 'R' : g === 0 ? 'N' : String(g); }
 function VidTiles(box, strip) {
   A.Display.call(this, box, 'At the cursor'); this.kind = 'vtiles'; this.cs.canvas.remove(); this.co.canvas.remove();
@@ -186,7 +186,7 @@ function build() {
     var map = new A.MapView({ x: 1120, y: 126, w: 768, h: 300 }, mt()); map.mapTitle = mt;
     new VidTiles({ x: 1120, y: 462, w: 768, h: 258 }, false);
     new A.Traces({ x: 32, y: 762, w: 1856, h: 294 }, '', A.scaleRows([
-      { k: 'SPEED', key: 'kmh', h: 70, lo: 60, hi: 270 }, { k: 'THROTTLE %', key: 'thrPct', h: 50, lo: 0, hi: 100 },
+      { k: 'SPEED', key: 'kmh', h: 70, lo: A.SPD.lo, hi: A.SPD.hi }, { k: 'THROTTLE %', key: 'thrPct', h: 50, lo: 0, hi: 100 },
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 50, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 50, lo: -90, hi: 90 }], 294));
   } else {                                     // two-up: this lap and the reference side by side (kept together by distance), the numbers in a strip, the gap row too
     var g = fit(672, 378, asp);
@@ -195,7 +195,7 @@ function build() {
     var map2 = new A.MapView({ x: 1424, y: 126, w: 464, h: 378 }, mt()); map2.mapTitle = mt;
     new VidTiles({ x: 32, y: 540, w: 1856, h: 100 }, true);
     new A.Traces({ x: 32, y: 676, w: 1856, h: 380 }, '', A.scaleRows([
-      { k: 'GAP s', kind: 'gap', h: 56, lo: -0.6, hi: 0.6 }, { k: 'SPEED', key: 'kmh', h: 70, lo: 60, hi: 270 }, { k: 'THROTTLE %', key: 'thrPct', h: 50, lo: 0, hi: 100 },
+      { k: 'GAP s', kind: 'gap', h: 56, lo: -0.6, hi: 0.6 }, { k: 'SPEED', key: 'kmh', h: 70, lo: A.SPD.lo, hi: A.SPD.hi }, { k: 'THROTTLE %', key: 'thrPct', h: 50, lo: 0, hi: 100 },
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 50, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 50, lo: -90, hi: 90 }], 380));
   }
 }

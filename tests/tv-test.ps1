@@ -187,7 +187,12 @@ DriverInfo:
   $battle.SessionTime = 210.2; $battle.CarIdxF2Time_2 = 1.1; Send-Frame $battle; Start-Sleep -Milliseconds 250
   Check 'separation clears battle' ((Read-TV).battles.Count -eq 0)
   Check 'BATTLE label holds for at least eight seconds after separation' ((Read-TV).director -eq 'BATTLE')
-  $battle.CarIdxF2Time_2 = 1.1; $battle.SessionTime = 218.0; $dChase = Send-Frame-AtTick $battle 218.0
+  # BATTLE was declared at 210.1 (the class change at 205.1 reset the director), so its eight-second hold ends at 218.1:
+  # 218.0 is still inside it. 218.2 = eight seconds after the separation at 210.2.
+  $battle.SessionTime = 218.0; $dHold = Send-Frame-AtTick $battle 218.0
+  Check 'still BATTLE 7.9 seconds after it was declared' ($dHold.director -eq 'BATTLE')
+  $battle.CarIdxF2Time_2 = 1.1; $battle.SessionTime = 218.2; $dChase = Send-Frame-AtTick $battle 218.2
+  if ($dChase.director -ne 'CHASE') { '  info  chase sample: ' + ($dChase | ConvertTo-Json -Depth 6 -Compress) }
   Check 'CHASE replaces BATTLE only after its eight-second hold and verified 1.1-second gap' ($dChase.director -eq 'CHASE')
   Section '6. missing arrays and disconnected state'
   $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 10; Start-Sleep -Milliseconds 300

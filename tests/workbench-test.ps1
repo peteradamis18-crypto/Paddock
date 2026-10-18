@@ -364,7 +364,8 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check 'a cursor frame with the full DRIVER page takes under 8 ms (60 fps needs 16.7)' ($ms.overlay -lt 8)
   Check 'a full redraw of every display (zoom change) takes under 16 ms' ($ms.full -lt 16)
   # keyboard like Pi: T tile, ] next corner, [ previous, space play/pause, S rate, Shift+S reverse, Backspace zoom out, R reference cursor, O offset
-  $null = Cdp-Eval 'WB.cmd("cursor", 100)'
+  # stop the playback the frame-time check started: a moving cursor fails "] lands on the apex", and space would pause, not play
+  $null = Cdp-Eval 'WB.cmd("pause"); WB.cmd("cursor", 100)'
   Cdp-Key 't' 'KeyT' 't'; Start-Sleep -Milliseconds 80
   Check 'T toggles tile / overlay' ((Cdp-Json 'WB.state').tile -eq $true)
   Cdp-Key 't' 'KeyT' 't'
@@ -1015,6 +1016,7 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
     $wbReady = $false; for ($i = 0; $i -lt 40 -and -not $wbReady; $i++) { Start-Sleep -Milliseconds 250; $wbReady = (Cdp-Eval 'window.WB && WB.data() ? 1 : 0') -eq 1 }
     if ($wbReady) {
       $null = Cdp-Eval 'window.__deckSeen="";var deckCmd=WB.cmd;WB.cmd=function(c,a){window.__deckSeen=c;return deckCmd(c,a)}'
+      Start-Sleep -Milliseconds 900   # the page's first poll (every 0.3 s) only learns the current seq, so a press before it is not replayed
       $deckPost = (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/api/do?c=wb-offset-auto' -TimeoutSec 5).Content
       for ($i = 0; $i -lt 20 -and (Cdp-Eval 'window.__deckSeen') -ne 'offset-auto'; $i++) { Start-Sleep -Milliseconds 250 }
       Check 'wb-offset-auto is queued by the deck API and polled into WB.cmd("offset-auto")' ($deckPost -eq 'ok' -and (Cdp-Eval 'window.__deckSeen') -eq 'offset-auto')
@@ -1056,19 +1058,8 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
     $reviewLap = [int]$reviewData.shown.lap
     Check 'ANALYSIS on the real Session Review opens the same file and its shown best lap in Workbench' ($reviewReady -and $rsrc -match ('workbench\.html\?id=' + [regex]::Escape([uri]::EscapeDataString($sessionRow.file)) + '&lap=' + $reviewLap))
 
-    Section '5c. six real laps on eight traces, cursor readouts and frame rate'
-    $null = Cdp-Eval 'WB.cmd("page","driver"); S.extra.push("latG"); WB.rebuild()'; Start-Sleep -Milliseconds 400
-    $traceN = [int](Cdp-Eval 'WB.displays().filter(function(d){return d.kind==="traces"})[0].rows.length')
-    Check 'DRIVER displays eight channels with all six laps in its legend' ($traceN -eq 8 -and (Cdp-Eval 'document.getElementById("vs").textContent') -match 'L8' -and (Cdp-Eval 'document.getElementById("vs").textContent') -match 'L12')
-    $null = Cdp-Eval 'WB.cmd("cursor",1500)'; Start-Sleep -Milliseconds 200
-    $idx = [int](Cdp-Eval 'Math.round(WB.state.cur)'); $mv = [double](Cdp-Eval 'WB.data().M[0].c.kmh[' + $idx + '].toFixed(2)')
-    $shown = Cdp-Eval ('WB.textBoxes().some(function(b){return b.s==="L8 " + WB.fmt(WB.data().M[0].info.time) + " " + WB.num(WB.data().M[0].c.kmh[' + $idx + '],0)})')
-    Check "lap 8 readout at the shared cursor shows its actual speed value ($mv km/h)" ($shown -eq $true)
-    $frame = Cdp-Json '(function(){return new Promise(function(resolve){var n=0,t=performance.now(),f=function(){n++;WB.cmd("cursor",(n*17)%WB.data().n);if(performance.now()-t>=1000)resolve({fps:n*1000/(performance.now()-t),layout:WB.overlaps()});else requestAnimationFrame(f)};requestAnimationFrame(f)})})()'
-    Note ("six-lap cursor motion: {0:N1} fps; layout text boxes {1}, overlaps {2}" -f $frame.fps, $frame.layout.boxes, $frame.layout.bad.Count)
-    Check 'six laps across eight traces hold at least 50 fps and have no overlapping text' ($frame.fps -ge 50 -and $frame.layout.bad.Count -eq 0)
-    Cdp-Shot (Join-Path $shots 'wb-multilap.png')
-    Check 'picture tests\shots\wb-multilap.png written' ((Get-Item (Join-Path $shots 'wb-multilap.png')).Length -gt 50000)
+    # 5c (six laps on eight traces, readout, frame rate) is section 4k: it ran on whatever page 5b left open (Session Review)
+    # and stopped the test with an error before section 6, so its checks never ran here.
   }
   }
 
