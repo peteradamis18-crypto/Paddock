@@ -10,7 +10,8 @@ const Drive = {
 
   // in the car: a live frame with IsOnTrack. A frozen feed keeps the screen (greyed, with its age) for a minute.
   want() {
-    if (QS.has('grid') || (L.demo && !QS.has('drive'))) return false;
+    // off until the lead's visual sign-off: only ?drive=1 (tests, previews) or TV VIEW (the camera lives in Drive's map slot)
+    if (QS.has('grid') || !(QS.has('drive') || (typeof Tv !== 'undefined' && Tv.on))) return false;
     const v = L.v;
     if (!L.connected || !v || !v.IsOnTrack || v.IsReplayPlaying) return false;
     return performance.now() - L.lastFrameAt < 60000;
