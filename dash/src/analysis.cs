@@ -581,7 +581,7 @@ namespace IRDash
             lap.Corners = new List<Met>();
             lap.Straights = new List<double>();
             if (!lap.Clean || cs == null || cs.Turns == null) return;
-            foreach (CornerTurn t in cs.Turns) lap.Corners.Add(MeasureOne(lap, t));
+            for (int ti = 0; ti < cs.Turns.Count; ti++) lap.Corners.Add(MeasureOne(lap, cs.Turns[ti], ti > 0 ? cs.Turns[ti - 1].Pa : cs.Turns[cs.Turns.Count - 1].Pa));
             List<double[]> iv = new List<double[]>();
             foreach (Met m in lap.Corners)
             {
@@ -598,7 +598,7 @@ namespace IRDash
             if (cursor < 1 - 1e-6) lap.Straights.Add(Span(lap, cursor * lap.LengthM, lap.LengthM));
         }
 
-        static Met MeasureOne(LapTrace lap, CornerTurn t)
+        static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa)
         {
             double L = lap.LengthM;
             Met m = new Met();
@@ -626,9 +626,11 @@ namespace IRDash
             // 60 m later on the best lap and the coach told him to brake EARLIER than a lap on which he braked later than the best
             // (2026-10-18, BMW at Road America T6: best lap 2486 m, this lap 2495 m, coach said "60 m earlier"). A press already
             // on at the start of the window counts from where it really began (up to 80 m further back).
+            // (A press that runs on from the previous corner is shared with it: the deep dive then looks for a separate press after that
+            // corner's apex, deepdive.cs ZoneStarts. Cutting the window at the previous apex here broke linked corners: T4 with T3.)
+            int minStep = 0;
             bool found = false; double brakeAt = 0, bestArea = 0, area = 0, curStart = 0; bool inApp = false;
-            bool prev = ChAt(lap, lap.Brk, da - 250) > 0.10;
-            if (prev)
+            if (minStep == 0 && ChAt(lap, lap.Brk, da - 250) > 0.10)
             {
                 inApp = true; curStart = DistNorm(da - 250, L);
                 for (int k = 1; k <= 80; k++)
@@ -638,7 +640,7 @@ namespace IRDash
                     curStart = x;
                 }
             }
-            for (int step = 1; step <= 251; step++)
+            for (int step = Math.Max(1, minStep); step <= 251; step++)
             {
                 double x = DistNorm(da - 250 + step, L);
                 double bv = step <= 250 ? ChAt(lap, lap.Brk, x) : 0;
@@ -650,9 +652,7 @@ namespace IRDash
                     inApp = false;
                     if (area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
                 }
-                if (on && inApp && step == 250 && area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
-            }
-            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
+            }            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
             for (int k = 1; k <= 200; k++)
             {
                 double x = DistNorm(da + k, L);
@@ -804,6 +804,9 @@ namespace IRDash
             d.HasEx = a.HasExit && b.HasExit; if (d.HasEx) d.DEx = a.Exit - b.Exit;
             d.HasMn = a.HasMin && b.HasMin; if (d.HasMn) d.DMn = a.Min - b.Min;
             d.HasBr = a.HasBrake && b.HasBrake; if (d.HasBr) d.DBr = DeltaM(a.BrakeM, b.BrakeM, L);
+            // DATA TRUTH: 150 m or more apart is not the same stop (one lap held the brake through the previous corner, the other released
+            // and braked again: BMW Road America T7 lap 2 vs lap 4 read "193 m later"). Say nothing instead of a nonsense distance.
+            if (d.HasBr && Math.Abs(d.DBr) > 150) d.HasBr = false;
             d.HasPk = a.HasPickup && b.HasPickup; if (d.HasPk) d.DPk = DeltaM(a.Pickup, b.Pickup, L);
             int sTime = Sgn(d.DTime);
             bool inBig = Math.Abs(d.DIn) >= 0.05 && Sgn(d.DIn) == sTime;

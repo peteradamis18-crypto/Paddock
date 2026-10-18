@@ -489,8 +489,8 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $t10 = $dpj.corners | Where-Object { $_.label -eq 'T10a' }
   $c10 = Row-Cells 'T10A'
   Check 'T10A: 100 % pedal and the reference brakes 11 m earlier is said in plain words' ($c10[3] -like '100*' -and $c10[2] -like '*later*' -and [math]::Abs(($t10.me.brake.startM - $t10.ref.brake.startM) - 11) -lt 1.5)
-  $c10b = Row-Cells 'T10B'
-  Check 'T10B: this lap did not brake there, the reference did: dashes for the lap, the reference small' ($c10b[1] -like '–*' -and $c10b[3] -like '–*')
+  # 2026-10-18: T10B used to show 'brake 8 m, 10 %' for a tap after T10A's stop (the pedal brushed 10-16 % on the way past): not a braking zone. Neither lap has a real application there now, so there is no T10B row at all.
+  Check 'T10B: a tap after T10A is not a braking zone, so the table has no T10B row' (((Row-Cells 'T10B') -join '').Length -eq 0)
   # 2026-10-18: this was '2 RF' at T7, but the wheel was slow only while ABS cut in 4 m from the brake point (ABS 2043-2046 m): that is the brake working, not a lock-up. A lock-up needs a slow wheel with no ABS within 15 m.
   Check 'T7: a wheel slow only under ABS is not shown as a lock-up (dash), and neither is T1' ((Row-Cells 'T7')[9] -like '–*' -and ((Row-Cells 'T1')[9] -like '–*'))
   $null = Cdp-Eval '[].filter.call(document.querySelectorAll("table.ct tr"),function(r){return r.children[0].textContent==="T6"})[0].click()'; Start-Sleep -Milliseconds 250

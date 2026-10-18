@@ -100,7 +100,8 @@ const Intro = {
       '<label>' + label + '</label><b data-to="' + (+val || 0) + '" data-dec="' + dec + '">0' + (unit ? '<small>' + unit + '</small>' : '') + '</b>'));
     stat('Seat time', c.hours, (c.hours || 0) < 100 ? 1 : 0, 'h');
     stat('Laps', c.laps, 0, '');
-    stat('Distance', c.km, 0, 'km');
+    // why: Peter's iRacing is imperial (DisplayUnits 0); the distance was the one number here always in km
+    stat('Distance', Units.metric ? c.km : c.km * 0.621371, 0, Units.metric ? 'km' : 'mi');
     stat('Races', c.races, 0, '');
     root.append(car);
     const most = [];

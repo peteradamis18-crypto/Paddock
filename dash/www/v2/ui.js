@@ -112,7 +112,7 @@ const UI = {
   strip(f) {
     const v = L.v;
     setText('trackName', S.track.name || '–');
-    setText('trackSub', [S.track.config, isNum(S.track.lengthKm) ? S.track.lengthKm.toFixed(2) + ' km' : ''].filter(Boolean).join('  ·  '));
+    setText('trackSub', [S.track.config, isNum(S.track.lengthKm) ? (Units.metric ? S.track.lengthKm.toFixed(2) + ' km' : (S.track.lengthKm * 0.621371).toFixed(2) + ' mi') : ''].filter(Boolean).join('  ·  '));
     const sess = currentSession(), race = isRace();
     setText('sessType', sessionType());
     const lapsTotal = sess ? num(sess.SessionLaps) : NaN;

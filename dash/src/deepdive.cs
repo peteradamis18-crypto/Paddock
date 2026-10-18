@@ -150,32 +150,44 @@ namespace IRDash
             return s;
         }
 
-        // Where the braking for each corner starts: the last pedal application (over 10 %) in the 250 m before the corner's apex, joined with
-        // earlier ones less than 40 m before it (a lift or an ABS release does not end a braking zone). When that start lies before the PREVIOUS
+        // Where the braking for each corner starts: the lap table's braking point (the main pedal application over 10 % in the 250 m before the
+        // corner's apex, analysis.cs MeasureOne), so the deep-dive and the table can never disagree. When that start lies before the PREVIOUS
         // corner's apex the braking belongs to that corner: this one gets its own corner start and ownBrake false. No braking found: corner start.
         static double[] ZoneStarts(DpLap g, List<Met> mets, bool[] ownBrake)
         {
-            double L = g.L; int M = g.M;
+            double L = g.L;
             double[] zs = new double[mets.Count];
-            int back = (int)Math.Ceiling(250.0 * M / L), gap = (int)Math.Ceiling(40.0 * M / L), maxBack = (int)Math.Ceiling(450.0 * M / L);
             for (int k = 0; k < mets.Count; k++)
             {
                 Met m = mets[k];
                 zs[k] = m.P0 * L; ownBrake[k] = false;
                 if (!g.Has[cBrk]) continue;
-                float[] brk = g.C[cBrk];
-                int ia = Ix(g, m.Pa * L), found = -1;
-                for (int s = 0; s <= back; s++) if (brk[(ia - s + M) % M] > 0.10f) { found = s; break; }
-                if (found < 0) continue;
-                int start = found, quiet = 0;
-                for (int s = found + 1; s <= maxBack; s++)
-                {
-                    if (brk[(ia - s + M) % M] > 0.10f) { start = s; quiet = 0; }
-                    else if (++quiet > gap) break;
-                }
-                double sd = DistNorm(DistOf(g, (ia - start + M) % M), L);
+                // DATA TRUTH (2026-10-18): the zone starts where the lap table's braking point is (analysis.cs MeasureOne: the MAIN
+                // application, most pedal area). It used to take the LAST press and chain earlier ones <40 m apart, so Braking() below
+                // measured a light first tap or a late blip: BMW Road America T3 lap 4 showed "brake 12 m, peak 10 %" for a 100 % stop
+                // that started at 981 m, and T5/T14 likewise, while the lap table said 981 / 2079 / 5587.
+                if (!m.HasBrake) continue;
+                double sd = DistNorm(m.BrakeM, L);
                 bool shared = k > 0 && Fwd(sd, mets[k - 1].Pa * L, L) < Fwd(sd, m.Pa * L, L);
-                if (shared) continue;
+                if (shared)
+                {
+                    // The main press began before the previous corner's apex. If the pedal was released after that apex and pressed again
+                    // (a separate press: Corvette Road Atlanta T7 after T6, 2052 m), that second press is this corner's braking; a press that
+                    // simply runs on (linked corners, T3 and T4) stays shared and this corner has none of its own.
+                    int ia = Ix(g, m.Pa * L), ip = Ix(g, mets[k - 1].Pa * L), M = g.M, span = (ia - ip + M) % M, s0 = -1;
+                    float[] brk2 = g.C[cBrk]; double bestA = 0, a2 = 0; int bestS = -1; bool released = false; float pk2 = 0;
+                    for (int j = 0; j <= span; j++)
+                    {
+                        float v = brk2[(ip + j) % M]; bool on = v > 0.10f;
+                        if (!on) released = true;
+                        if (on && s0 < 0 && released) { s0 = j; a2 = 0; pk2 = 0; }
+                        if (on && s0 >= 0) { a2 += v; if (v > pk2) pk2 = v; }
+                        // a real application (30 % pedal or more), not a tap on the way past: T10b after T10a showed 'brake 8 m, 10 %'
+                        if ((!on || j == span) && s0 >= 0) { if (a2 > bestA && pk2 >= 0.30f) { bestA = a2; bestS = s0; } s0 = -1; }
+                    }
+                    if (bestS < 0) continue;
+                    sd = DistNorm(DistOf(g, (ip + bestS) % M), L);
+                }
                 zs[k] = sd; ownBrake[k] = true;
             }
             return zs;
