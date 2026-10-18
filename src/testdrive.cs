@@ -187,20 +187,23 @@ namespace IRDeck
             return false;
         }
         static string AiMismatch(bool car, bool track) { return !car ? "CAR NOT FOUND" : (!track ? "TRACK NOT FOUND" : ""); }
-        static UEl AiPickRow(AutomationElement modal, string name, bool car)
+        static UEl AiPickRow(AutomationElement modal, string name, bool car, string search = null, Func<List<UEl>, UEl> choose = null)
         {
+            if (search == null) search = name;
+            if (choose == null) choose = rs => BestRow(rs, u => AiRowName(u.Name), name) ?? BestRow(rs, u => AiRowName(u.Name), name + " button");
             UEl edit = null;
             if (!WaitFor(delegate { edit = null; List<UEl> ms = AiElements(modal); UEl panel = Find(ms, u => u.Id.StartsWith(car ? "select-car-id-" : "select-track-id-", StringComparison.Ordinal)); if (panel == null) return false; foreach (UEl x in ms) if (x.Type == ControlType.Edit && x.Name == "Search" && panel.R.Contains(x.R)) { edit = x; break; } return edit != null; /* three Search boxes exist (page behind, sidebar, this panel): only the one inside the car/track select panel */ }, 8000, 250, "UI CHANGED", car ? "car search" : "track search")) return null;
             // ValuePattern needs no focus or click (the background page has a search box too)
             // iRacing's list only filters on real key presses (a programmatic value is ignored; live 2026-10-12): focus this box and type
             if (!TdFront()) return null; try { edit.E.SetFocus(); } catch { return null; } Thread.Sleep(300);
-            SendCombo("ctrl+a", 0); SendCombo("backspace", 0); TypeText(name);
+            SendCombo("ctrl+a", 0); SendCombo("backspace", 0); TypeText(search);
             UEl selected = null;
             bool found = WaitFor(delegate
             {
                 List<UEl> current = AiElements(modal);
                 // wizard rows: "<icon> Car Name" (Clean strips the icon); a row you can use has a Select link (no Owned flag in this list)
-                UEl row = Find(current, u => u.Type == ControlType.DataItem && (Same(AiRowName(u.Name), name) || Same(AiRowName(u.Name), name + " button")) && u.R.Y > edit.R.Y && u.R.Y < edit.R.Y + 600);
+                List<UEl> rows = current.FindAll(u => u.Type == ControlType.DataItem && !Same(u.Name, "Select") && u.R.Y > edit.R.Y && u.R.Y < edit.R.Y + 600);
+                UEl row = choose(rows);
                 if (row == null) return false;
                 // cars have a "Select" link; tracks only a "Select" cell with a layout arrow (live 2026-10-12)
                 UEl cell = Find(current, u => u.Type == ControlType.Hyperlink && Same(u.Name, "Select") && Math.Abs(u.R.Y - row.R.Y) < 12)
@@ -380,6 +383,7 @@ namespace IRDeck
                 UEl carStep = AiById(els, "wizard-sidebar-link-set-car");
                 if (carStep == null || !AiPress(carStep)) return AiStop("UI CHANGED", "Your Car step missing", window);
                 modal = AiModal(window); UEl pickedCar = AiPickRow(modal, combo.Car, true);
+                if (pickedCar == null && LastWord(combo.Car).Length > 0) { modal = AiModal(window); pickedCar = AiPickRow(modal, combo.Car, true, LastWord(combo.Car), rs => SameMakeAndEnd(rs, u => AiRowName(u.Name), combo.Car)); }
                 if (pickedCar == null) return AiStop("CAR NOT FOUND", combo.Car + " is unavailable or not owned", window);
                 if (combo.Layout.Length > 0)
                 {
@@ -515,6 +519,31 @@ namespace IRDeck
 
         static bool Same(string a, string b) { return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase); }
 
+        // The row for a name in iRacing's pickers. The session info and iRacing's own lists do not always agree: the
+        // telemetry says "Porsche 718 Cayman GT4", the list says "Porsche 718 Cayman GT4 Clubsport MR" (2026-10-18:
+        // LAST DRIVE stopped with "not in the list"). Exact name first; otherwise the ONE row that starts with the name
+        // and a space. Two such rows = stop rather than guess (never the wrong car).
+        internal static T BestRow<T>(List<T> rows, Func<T, string> name, string want) where T : class
+        {
+            T exact = rows.Find(u => Same(name(u), want));
+            if (exact != null) return exact;
+            string w = (want ?? "").Trim() + " ";
+            List<T> longer = rows.FindAll(u => (name(u) ?? "").Trim().StartsWith(w, StringComparison.OrdinalIgnoreCase));
+            return longer.Count == 1 ? longer[0] : default(T);
+        }
+        // Second try when the name finds nothing at all: the telemetry says "Porsche 991 RSR", iRacing "Porsche 911 RSR".
+        // Search the last word; take the ONE row with the same make (first word) and the same last word.
+        internal static string LastWord(string want) { string[] w = (want ?? "").Trim().Split(' '); return w.Length >= 3 ? w[w.Length - 1] : ""; }
+        internal static T SameMakeAndEnd<T>(List<T> rows, Func<T, string> name, string want) where T : class
+        {
+            string[] w = (want ?? "").Trim().Split(' ');
+            if (w.Length < 3) return null;
+            string make = w[0] + " ", end = " " + w[w.Length - 1];
+            List<T> hit = rows.FindAll(u => { string n = (name(u) ?? "").Trim(); return n.StartsWith(make, StringComparison.OrdinalIgnoreCase) && n.EndsWith(end, StringComparison.OrdinalIgnoreCase); });
+            return hit.Count == 1 ? hit[0] : null;
+        }
+        static string PickedName = "";   // the exact name of the row PickRow clicked, to check the card against
+
         // The cards: the three unnamed "button"s just under the pictures (Car Info, Paint Car, Track Info) anchor
         // everything; the car and track names are the Text elements about 50 px below them.
         sealed class Cards { public UEl CarInfo, TrackInfo, CarName, TrackName, Layout; }
@@ -576,8 +605,9 @@ namespace IRDeck
         }
 
         // Search a picker (Set Car / Set Track) and click the Select cell of the row whose name matches.
-        static UEl PickRow(AutomationElement root, string search, string rowName, int tries = 20)
+        static UEl PickRow(AutomationElement root, string search, string rowName, int tries = 20, Func<List<UEl>, UEl> choose = null)
         {
+            if (choose == null) choose = rs => BestRow(rs, u => u.Name, rowName);
             List<UEl> els = null; UEl edit = null;
             for (int i = 0; i < 20 && edit == null; i++) { els = UiAll(root); edit = Find(els, u => u.Type == ControlType.Edit && u.Name == "Search"); if (edit == null) Thread.Sleep(300); }
             if (edit == null) { TdWhy = "iRacing's search box didn't appear."; Log("tdsetup: the search box did not appear"); return null; }
@@ -592,8 +622,10 @@ namespace IRDeck
                 els = UiAll(root);
                 // the list is virtual: rows far below exist off-screen until the search has filtered it, so only a
                 // row just under the search box counts (clicking an off-screen row does nothing)
-                UEl row = Find(els, u => u.Owned && u.Type == ControlType.DataItem && Same(u.Name, rowName) && u.R.Y > edit.R.Y && u.R.Y < edit.R.Y + 400);
+                UEl row = choose(els.FindAll(u => u.Owned && u.Type == ControlType.DataItem && !u.Name.StartsWith("Select") && u.R.Y > edit.R.Y && u.R.Y < edit.R.Y + 400));
                 if (row == null) continue;
+                PickedName = row.Name;
+                if (!Same(row.Name, rowName)) Log("tdsetup: '" + rowName + "' is '" + row.Name + "' in iRacing's list");
                 UEl sel = Find(els, u => u.Type == ControlType.DataItem && u.Name.StartsWith("Select") && Math.Abs(u.R.Y - row.R.Y) < 4);
                 if (sel == null) continue;
                 if (!ClickEl(sel)) return null;
@@ -793,9 +825,14 @@ namespace IRDeck
             if (!Same(cards.CarName.Name, car))
             {
                 if (EnsurePanel(root, true) == null) return 1;
-                if (PickRow(root, car, car) == null) return 1;
+                if (PickRow(root, car, car, 12) == null)
+                {
+                    string last = LastWord(car);
+                    if (last.Length == 0 || PickRow(root, last, car, 8, rs => SameMakeAndEnd(rs, u => u.Name, car)) == null) return 1;
+                }
+                string want = PickedName.Length > 0 ? PickedName : car;   // iRacing's own name for it, as clicked
                 bool changed = false;
-                for (int i = 0; i < 10 && !changed; i++) { Thread.Sleep(400); els = UiAll(root); cards = ReadCards(els); changed = cards != null && cards.CarName != null && Same(cards.CarName.Name, car); }
+                for (int i = 0; i < 10 && !changed; i++) { Thread.Sleep(400); els = UiAll(root); cards = ReadCards(els); changed = cards != null && cards.CarName != null && (Same(cards.CarName.Name, want) || Same(cards.CarName.Name, car)); }
                 if (!changed) { TdWhy = "iRacing didn't switch to " + car + "."; Log("tdsetup: the car did not change to " + car); return 1; }
             }
             // 3. damage off / on (the switch lives in the Set Car panel; green = damage is disabled)
