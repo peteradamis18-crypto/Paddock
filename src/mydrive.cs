@@ -280,9 +280,10 @@ namespace IRDeck
                     foreach (string line in File.ReadAllLines(cf))
                     {
                         string[] p = line.Split('\t');
-                        if (p.Length >= 16 && string.Equals(p[7], chosen.Track, StringComparison.OrdinalIgnoreCase) && MdId('l', p[7] + "|" + p[15]) == id)
+                        // column 16 is the layout (TrackConfigName); 15 is the fuel-laps count - this read the wrong one and offered layouts "0", "2", "10"
+                        if (p.Length >= 17 && p[16].Length > 0 && string.Equals(p[7], chosen.Track, StringComparison.OrdinalIgnoreCase) && MdId('l', p[7] + "|" + p[16]) == id)
                         {
-                            string layout = p[15]; MdUpdate(delegate (Dictionary<string, string> st) { st["layout"] = layout; });
+                            string layout = p[16]; MdUpdate(delegate (Dictionary<string, string> st) { st["layout"] = layout; });
                             MdClearResults(); MdClearAiStatus(); Log("mydrive: chose layout " + layout); return 0;
                         }
                     }
@@ -406,7 +407,7 @@ namespace IRDeck
             MdCombo c = MdChosen();
             if (c.Car.Length == 0 || c.Track.Length == 0)
             {
-                MdPhase("failed", "CHOOSE TRACK"); Log("mydrive start: choose a car and track first"); return 1;
+                MdPhase("failed", "Pick a car and a track first."); Log("mydrive start: choose a car and track first"); return 1;
             }
             if (SessionActive())
             {

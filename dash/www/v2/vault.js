@@ -20,8 +20,11 @@ function fmtLap(t) { if (!isNum(t) || t <= 0) return '–:––.–––'; con
 function fmtDelta(d, digits) { if (!isNum(d)) return '–'; return (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(digits == null ? 2 : digits); }
 function fmtDur(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
 const store = { get(k) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : null; } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } } };
-const dayTxt = ts => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-const dateTxt = ts => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+// New York time, 12-hour, same style as HOME (these were en-GB 24-hour in the PC's own zone).
+const NYZ = { timeZone: 'America/New_York' };
+const nyPart = (ts, o) => new Date(ts).toLocaleDateString('en-US', Object.assign({}, o, NYZ));
+const dayTxt = ts => nyPart(ts, { weekday: 'short' }) + ' ' + nyPart(ts, { day: 'numeric' }) + ' ' + nyPart(ts, { month: 'short' });
+const dateTxt = ts => dayTxt(ts) + ' ' + nyPart(ts, { year: 'numeric' }) + ' ' + new Date(ts).toLocaleTimeString('en-US', Object.assign({ hour: 'numeric', minute: '2-digit' }, NYZ));
 const typeTxt = t => /offline testing/i.test(t || '') ? 'Test' : /open qualify/i.test(t || '') ? 'Qualify' : (t || '');
 
 const V = {
@@ -687,8 +690,18 @@ function videoToGrid(v) {
 // ---- Paddock's own recorder clip (P0-10): a lap names its clip through /vault/videoinfo, played from /vault/video (Range). ----
 // The sidecar's lapStartOffset / lapEndOffset are seconds on the clip's own clock, exactly as workbench-video.js uses them:
 // video time at lap time t = lapStartOffset + t. One clip covers one lap, so the shape matches the old sync object.
+// Why the check: with no recorder clip at all /vault/videoinfo can only answer 404, and that red line showed in the console on
+// every lap and race card. Ask the server for the clip count first (kept 10 s) and do not ask for a clip that cannot exist.
+let recSeen = { at: 0, any: true };
+async function recAnyClips() {
+  if (Date.now() - recSeen.at < 10000) return recSeen.any;
+  const r = await J('/vault/recorder');
+  recSeen = { at: Date.now(), any: !(r.ok && r.j && typeof r.j.clips === 'number' && r.j.clips === 0) };
+  return recSeen.any;
+}
 async function recInfo(id) {
   if (!id) return null;
+  if (!(await recAnyClips())) return null;
   const r = await J('/vault/videoinfo?id=' + encodeURIComponent(id));
   if (!r.ok || !r.j || !r.j.id || r.j.error) return null;
   return r.j;

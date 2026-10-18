@@ -218,13 +218,14 @@ namespace IRDash
         static string lastCutArgs = "", lastRunArgs = "";
 
         // S1 whole-session video: one file per iRacing session, kept by rules, SAVE keeps one forever
-        const double RecentBudgetGb = 30, SavedBudgetGb = 150, MinFreeGbSession = 50;
+        // the last 8 sessions / 60 GB: 3 / 30 GB threw away the video of his last outing within a day (2026-10-18: the 08:36 qualifying, the HOME REVIEW session, was gone by evening) with 340 GB free
+        const double RecentBudgetGb = 60, SavedBudgetGb = 150, MinFreeGbSession = 50;
         static readonly List<RecSess> sessions = new List<RecSess>();     // finished sessions (on disk), newest last
         static RecSess openSess;                                          // the session being recorded now
         static readonly List<RecSess> finishing = new List<RecSess>();
         static long savedReserved;
         static readonly List<RecInc> incCuts = new List<RecInc>();
-        static int keepSessions = 3; static long recentBudgetBytes = -1, savedBudgetBytes = -1;
+        static int keepSessions = 8; static long recentBudgetBytes = -1, savedBudgetBytes = -1;
         static bool diskPaused; static double lastSessHk; static string recState = "";
 
         // the laps
@@ -470,7 +471,7 @@ namespace IRDash
                 string pic = testBlack ? "color=c=black:size=1280x720:rate=60" : "testsrc2=size=1280x720:rate=60";
                 fc = pic + ",realtime," + stamp;
                 if (!testBlack)
-                    fc += ",split=2[a][b];[b]crop=640:32:0:0,format=yuv420p,geq=lum='255*mod(floor(floor(T*1000)/pow(2,floor(X/20))),2)':cb=128:cr=128[c];[a][c]overlay=0:0,drawtext=text='%{pts\\:hms}':x=10:y=60:fontsize=48:fontcolor=white:box=1:boxcolor=black@0.7";
+                    fc += ",split=2[a][b];[b]crop=640:32:0:0,format=yuv420p,geq=lum='255*mod(floor(floor(T*1000)/pow(2,floor(X/20))),2)':cb=128:cr=128[c];[a][c]overlay=0:0,drawtext=fontfile='C\\:/Windows/Fonts/arial.ttf':text='%{pts\\:hms}':x=10:y=60:fontsize=48:fontcolor=white:box=1:boxcolor=black@0.7";
                 fc += ",hflip,vflip";
             }
             else
@@ -1597,6 +1598,31 @@ namespace IRDash
             return Vault.ServeMp4(s, file, hdr);
         }
 
+        // A session file is only ours to delete when it lives under the vault that is active NOW. The tests switch the vault to a scratch
+        // copy (vault-test\); the in-memory list used to keep Peter's real sessions, so a pretend session's retention deleted his real videos
+        // (2026-10-15 and 2026-10-18: four real race videos gone).
+        static bool InActiveVault(string file)
+        {
+            if (string.IsNullOrEmpty(file)) return false;
+            try
+            {
+                string root = Path.GetFullPath(VaultRoot).TrimEnd('\\') + "\\";
+                return Path.GetFullPath(file).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // The Vault moved to (or back from) the scratch folder: re-read the sessions of the vault that is active now, so the list never mixes the two.
+        public static void VaultRootChanged()
+        {
+            try
+            {
+                lock (gate) { foreach (RecSess s in sessions) if (s.Open || s.Saving) return; }      // never drop a session that is being written
+                LoadSessions();
+            }
+            catch (Exception ex) { Log.W("recorder: could not re-read sessions after the vault changed (" + ex.Message + ")"); }
+        }
+
         // Retention: keep the last few unsaved sessions and inside the disk budgets; saved ones are never removed here.
         static void RetainSessions()
         {
@@ -1606,11 +1632,18 @@ namespace IRDash
                 List<RecSess> del = new List<RecSess>();
                 lock (gate)
                 {
-                    List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving && !s.SaveWhenDone) un.Add(s);
+                    List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving && !s.SaveWhenDone && InActiveVault(s.File)) un.Add(s);
                     un.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); });
-                    long total = 0; foreach (RecSess s in un) total += s.Bytes;
-                    int n = un.Count;
+                    // A blip (under 90 s and no lap) is not a session worth a slot: on 2026-10-17 three of them pushed a 6-lap race and an
+                    // 837 MB race out of the last-3. Blips go first (after 10 minutes), and do not count toward the last few.
+                    List<RecSess> real = new List<RecSess>();
                     foreach (RecSess s in un)
+                    {
+                        if (!s.Open && s.Duration > 0 && s.Duration < 90 && s.LapRows.Count == 0 && WallMs() - s.Created > 600000) del.Add(s); else real.Add(s);
+                    }
+                    long total = 0; foreach (RecSess s in real) total += s.Bytes;
+                    int n = real.Count;
+                    foreach (RecSess s in real)
                     {
                         if (n <= keepSessions && total <= recentBudget) break;
                         del.Add(s); n--; total -= s.Bytes;
@@ -1637,7 +1670,7 @@ namespace IRDash
                             lock (gate)
                             {
                                 foreach (RecSess s in sessions)
-                                    if (!s.Saved && !s.Saving && !s.SaveWhenDone && WallMs() - s.Created > 600000 && (victim == null || s.StartMs < victim.StartMs)) victim = s;
+                                    if (!s.Saved && !s.Saving && !s.SaveWhenDone && InActiveVault(s.File) && WallMs() - s.Created > 600000 && (victim == null || s.StartMs < victim.StartMs)) victim = s;
                             }
                             if (victim == null) break;
                             long before = FreeBytes(VaultRoot);

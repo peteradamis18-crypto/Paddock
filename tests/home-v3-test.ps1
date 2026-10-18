@@ -28,6 +28,7 @@ $states = [ordered]@{
   offline = "H.apps.forEach(a=>{ if(a.id==='ui'||a.id==='overlays') a.state='off'; if(a.id==='sim') a.state='off'; }); R.capture={state:'idle'};"
   recfail = "H.apps.forEach(a=>{ if(a.id==='sim') a.state='off'; }); R.gaveUp=true; R.capture={state:'failed'}; R.freeGb=41.3; P.paired=false;"
   first   = "H.apps.forEach(a=>{ if(a.id==='sim') a.state='off'; }); R.capture={state:'idle'}; D.last=null; D.lastOuting=null; D.week=null; D.me={name:'Peter Adamis',num:'64'}; C={}; R.enabled=false;"
+  late    = "H.apps.forEach(a=>{ if(a.id==='sim') a.state='off'; }); R.capture={state:'idle'}; W.events=[{series:'WEC',event:'6 Hours of Oldtown',session:'Race',localStart:'2026-10-15T06:00:00-04:00',source:'https://x.test'},{series:'F1',event:'Future Grand Prix',session:'Qualifying',localStart:'2026-10-24T17:00:00-04:00',source:'https://x.test'},{series:'F1',event:'Future Grand Prix',session:'Race',localStart:'2026-10-25T16:00:00-04:00',source:'https://x.test'},{series:'IMSA',event:'Tonight Cup',session:'Race',localStart:'2026-10-15T19:00:00-04:00',source:'https://x.test'}];"
   long    = "H.apps.forEach(a=>{ if(a.id==='sim') a.state='off'; }); R.capture={state:'idle'}; if(D.nextRace){D.nextRace.series='iRacing GT3 Regional Tour by SENSIT! - Americas'; D.nextRace.car='Mercedes-AMG GT3 2020'; D.nextRace.track='Circuit des 24 Heures du Mans'; D.nextRace.ownedTrack=false; D.nextRace.countdownSeconds=4380;} [D.last,D.lastOuting].forEach(l=>{ if(l){ l.track='Circuit des 24 Heures du Mans'; l.car='Chevrolet Corvette Z06 GT3.R'; l.laps=1; l.best=229.251; } }); D.me.path='chevyvettez06rgt3'; D.me.car='Chevrolet Corvette Z06 GT3.R';"
 }
 
@@ -101,7 +102,7 @@ window.fetch = function(u){ var k = String(u).split('?')[0]; return Promise.reso
   Check "$st : no hard-clipped text ($(@($m.clip) -join '; '))" (@($m.clip).Count -eq 0)
   Check "$st : no broken characters" (-not $m.mojibake)
   Check "$st : every watch column says where to watch, or 'Coverage unknown', and F1 says Apple TV" ($m.watch -match 'Apple TV' -and $m.watch -notmatch '\bLive\b')
-  if ($st -ne 'first') { Check "$st : three watch columns, each with its Race row ($($m.cols) / $($m.raceRows))" ($m.cols -eq 3 -and $m.raceRows -eq 3) }
+  if ($st -notin 'first', 'late') { Check "$st : three watch columns, each with its Race row ($($m.cols) / $($m.raceRows))" ($m.cols -eq 3 -and $m.raceRows -eq 3) }
   Check "$st : picture tests\shots\home-v3-$st.png" (Test-Path (Join-Path $shots "home-v3-$st.png"))
   switch ($st) {
     'normal'  { Check 'normal: READY, LAST DRIVE, 12-hour New York clock with ET' ($m.head -eq 'Ready' -and $m.button -eq 'Last drive' -and $m.text -match '\d{1,2}:\d{2} (AM|PM) ET') }
@@ -111,6 +112,7 @@ window.fetch = function(u){ var k = String(u).split('?')[0]; return Promise.reso
     'offline' { Check 'offline: RIG ON, and the head names the first app that is off' ($m.button -eq 'Rig on' -and $m.head -match 'off') }
     'recfail' { Check 'recording failed: the head says so in red words, the row says Failed' ($m.head -eq 'Recording failed' -and $m.text -match 'Failed') }
     'first'   { Check 'first run: START, no lap time invented (a dash), no drive yet' ($m.button -eq 'Start' -and $m.text -match 'No drive recorded yet') }
+    'late'    { Check 'a finished race is not listed (6 AM race, 12:55 PM now), a session a week out names its date, tonight says Today' ($m.watch -notmatch 'Oldtown' -and $m.watch -match 'Future Grand Prix' -and $m.watch -match 'Sat 24 Oct' -and $m.watch -match 'Sun 25 Oct' -and $m.watch -match 'Today 7:00 PM') }
     'long'    { Check 'long names: the series and track are there in full or with an ellipsis, not cut mid-glyph' ($m.text -match 'SENSIT' -and $m.text -match 'Heures du Mans') }
   }
 }

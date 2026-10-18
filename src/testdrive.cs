@@ -388,7 +388,7 @@ namespace IRDeck
                 if (combo.Layout.Length > 0)
                 {
                     UEl trackStep = AiById(AiElements(modal), "wizard-sidebar-link-set-track"); if (trackStep == null || !AiPress(trackStep)) return AiStop("UI CHANGED", "Tracks step missing", window);
-                    modal = AiModal(window); UEl row = AiPickRow(modal, combo.Track, false);
+                    modal = AiModal(window); UEl row = AiPickRow(modal, combo.Track, false, null, rs => BestTrackRow(rs, u => AiRowName(u.Name), combo.Track));   // same track-name rule as START
                     if (row == null) row = AiPickRow(modal, combo.Track + " - " + combo.Layout, false);
                     if (row == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
                     UEl layout = null;
@@ -401,7 +401,7 @@ namespace IRDeck
                 else
                 {
                     UEl trackStep = AiById(AiElements(modal), "wizard-sidebar-link-set-track"); if (trackStep == null || !AiPress(trackStep)) return AiStop("UI CHANGED", "Tracks step missing", window);
-                    modal = AiModal(window); if (AiPickRow(modal, combo.Track, false) == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
+                    modal = AiModal(window); if (AiPickRow(modal, combo.Track, false, null, rs => BestTrackRow(rs, u => AiRowName(u.Name), combo.Track)) == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
                 }
                 // Car and track are set: press Continue until the wizard closes (each press moves one step; the last starts the race).
                 // The step's elements are replaced after every press, so read them fresh each time and treat a vanished element as "not yet".
@@ -542,6 +542,36 @@ namespace IRDeck
             List<T> hit = rows.FindAll(u => { string n = (name(u) ?? "").Trim(); return n.StartsWith(make, StringComparison.OrdinalIgnoreCase) && n.EndsWith(end, StringComparison.OrdinalIgnoreCase); });
             return hit.Count == 1 ? hit[0] : null;
         }
+        // Tracks: iRacing's rows are named "<track> button" and its names differ from the session info's ("Nordschleife
+        // Industriefahrten" is iRacing's "Nürburgring Nordschleife"; "Road America" may be "Road America - Full Course").
+        // Same safe rule as the cars: exact name (accents ignored) first, else the ONE row that starts with the name and a
+        // space, else the ONE row that ends with a space and the name; two or none = stop.
+        internal static string TrackKey(string n)
+        {
+            string s = (n ?? "").Trim();
+            if (s.EndsWith(" button", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 7);
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in s.Normalize(System.Text.NormalizationForm.FormD))
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(c);
+            return sb.ToString().Trim().ToLowerInvariant();
+        }
+        internal static T BestTrackRow<T>(List<T> rows, Func<T, string> name, string want) where T : class
+        {
+            string w = TrackKey(want);
+            T exact = rows.Find(u => TrackKey(name(u)) == w);
+            if (exact != null) return exact;
+            List<T> longer = rows.FindAll(u => TrackKey(name(u)).StartsWith(w + " ", StringComparison.Ordinal));
+            if (longer.Count == 1) return longer[0];
+            if (longer.Count > 1) return default(T);
+            List<T> tail = rows.FindAll(u => TrackKey(name(u)).EndsWith(" " + w, StringComparison.Ordinal));
+            return tail.Count == 1 ? tail[0] : default(T);
+        }
+        internal static string TrackKeyName(string picked, string fallback)
+        {
+            string s = (picked ?? "").Trim();
+            if (s.EndsWith(" button", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 7).Trim();
+            return s.Length > 0 ? s : fallback;
+        }
         static string PickedName = "";   // the exact name of the row PickRow clicked, to check the card against
 
         // The cards: the three unnamed "button"s just under the pictures (Car Info, Paint Car, Track Info) anchor
@@ -631,7 +661,7 @@ namespace IRDeck
                 if (!ClickEl(sel)) return null;
                 return sel;
             }
-            TdWhy = "iRacing has no \"" + search + "\" in its list (do you own it?).";
+            TdWhy = "iRacing's list has no \"" + TrackKeyName(rowName, search) + "\". Do you own it? Pick it by hand once.";
             Log("tdsetup: '" + rowName + "' is not in the list (owned? spelt as in iRacing?)");
             return null;
         }
@@ -745,7 +775,7 @@ namespace IRDeck
             if (root == null) { TdWhy = "The iRacing screen isn't open (press RIG ON)."; Log("tdfind: iRacing UI is not running"); return null; }
             List<UEl> els = TdOpenDialog(root, "tdfind"); if (els == null) return null;
             if (EnsurePanel(root, false) == null) return null;
-            UEl tsel = PickRow(root, track, track + " button");
+            UEl tsel = PickRow(root, track, track + " button", 20, rs => BestTrackRow(rs, u => u.Name, track));
             if (tsel == null) return null;
             List<UEl> items = TdLayoutMenu(root, tsel, 12);
             var names = new List<string>();
@@ -822,6 +852,7 @@ namespace IRDeck
             if (cards == null || cards.CarName == null || cards.TrackName == null) { TdWhy = "The Test Drive window isn't open in iRacing."; return 1; }
 
             // 2. car
+            string carShown = car;   // iRacing's own name for it once picked (the final check compares against this, not the session info's name)
             if (!Same(cards.CarName.Name, car))
             {
                 if (EnsurePanel(root, true) == null) return 1;
@@ -831,6 +862,7 @@ namespace IRDeck
                     if (last.Length == 0 || PickRow(root, last, car, 8, rs => SameMakeAndEnd(rs, u => u.Name, car)) == null) return 1;
                 }
                 string want = PickedName.Length > 0 ? PickedName : car;   // iRacing's own name for it, as clicked
+                carShown = want;
                 bool changed = false;
                 for (int i = 0; i < 10 && !changed; i++) { Thread.Sleep(400); els = UiAll(root); cards = ReadCards(els); changed = cards != null && cards.CarName != null && (Same(cards.CarName.Name, want) || Same(cards.CarName.Name, car)); }
                 if (!changed) { TdWhy = "iRacing didn't switch to " + car + "."; Log("tdsetup: the car did not change to " + car); return 1; }
@@ -854,10 +886,13 @@ namespace IRDeck
             // 4. track and layout
             els = UiAll(root); cards = ReadCards(els);
             bool trackOk = cards != null && Same(cards.TrackName.Name, track) && (layout == "" || (cards.Layout != null && Same(cards.Layout.Name, layout)));
+            string trackShown = track;   // iRacing's own name for the track once picked
             if (!trackOk && cards != null)
             {
                 if (EnsurePanel(root, false) == null) return 1;
-                UEl tsel = PickRow(root, track, track + " button", 8);
+                string trackAsked = track;
+                UEl tsel = PickRow(root, track, track + " button", 8, rs => BestTrackRow(rs, u => u.Name, trackAsked));
+                if (tsel != null) trackShown = TrackKeyName(PickedName, track);
                 if (tsel == null)
                 {
                     // iRacing's session info can carry the layout in the track's name ("Tsukuba Circuit 2k Full"): try the
@@ -866,9 +901,11 @@ namespace IRDeck
                     for (int cut = 1; cut < w.Length && tsel == null; cut++)
                     {
                         string shorter = string.Join(" ", w, 0, w.Length - cut);
-                        tsel = PickRow(root, shorter, shorter + " button", 5);
+                        string shortAsked = shorter;
+                        tsel = PickRow(root, shorter, shorter + " button", 5, rs => BestTrackRow(rs, u => u.Name, shortAsked));
                         if (tsel != null)
                         {
+                            trackShown = TrackKeyName(PickedName, shorter);
                             string rest = Regex.Replace(string.Join(" ", w, w.Length - cut, cut), @"(\d+)k\b", "${1}000", RegexOptions.IgnoreCase);
                             Log("tdsetup: '" + track + "' is track '" + shorter + "' with layout '" + rest + "'");
                             track = shorter; if (layout == "") layout = rest;
@@ -893,7 +930,8 @@ namespace IRDeck
                 {
                     // a track with a single layout may have been chosen by the Select press itself
                     els = UiAll(root); cards = ReadCards(els);
-                    if (cards == null || !Same(cards.TrackName.Name, track) || layout != "")
+                    // (no layout list at all = the track has just one layout, so the one asked for is the one it has)
+                    if (cards == null || !(Same(cards.TrackName.Name, trackShown) || Same(cards.TrackName.Name, track)) || (layout != "" && offered.Count > 0))
                     {
                         TdWhy = layout != "" ? "iRacing doesn't offer the " + layout + " layout at " + track + "." : "iRacing didn't show the layouts for " + track + ".";
                         Log("tdsetup: layout '" + layout + "' not offered for " + track + (offered.Count > 0 ? " (offered: " + string.Join(", ", offered.ToArray()) + ")" : ""));
@@ -909,7 +947,7 @@ namespace IRDeck
             }
             // 5. check
             els = UiAll(root); cards = ReadCards(els);
-            if (cards == null || !Same(cards.CarName.Name, car) || !Same(cards.TrackName.Name, track))
+            if (cards == null || !(Same(cards.CarName.Name, carShown) || Same(cards.CarName.Name, car)) || !(Same(cards.TrackName.Name, trackShown) || Same(cards.TrackName.Name, track)))
             { TdWhy = "iRacing shows " + (cards == null ? "nothing" : cards.CarName.Name + " at " + cards.TrackName.Name) + " instead of what was asked."; Log("tdsetup: the cards show " + (cards == null ? "nothing" : cards.CarName.Name + " / " + cards.TrackName.Name) + " - not what was asked"); return 1; }
             Log("tdsetup: " + cards.CarName.Name + " at " + cards.TrackName.Name + (cards.Layout != null ? " (" + cards.Layout.Name + ")" : ""));
             if (!launch) return 0;

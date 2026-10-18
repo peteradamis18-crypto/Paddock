@@ -285,8 +285,46 @@ const Debrief4 = (function () {
     root.appendChild(f); root.appendChild(b); document.body.appendChild(root);
     el = root;
     requestAnimationFrame(() => root.classList.add('on'));
+    armKeeper(root);
     timer = setTimeout(hide, 15 * 60 * 1000);
     active(true); clearInterval(activeTimer); activeTimer = setInterval(() => { if (el) active(true); }, 5000);
+  }
+  // The calm 'laps saved' strip after a session (the keeper review: KEEP ALL by itself after 60 s, CHOOSE opens the Vault).
+  // The old debrief carried it (debrief.js armReview); when the coach became the after-session screen nothing armed it any more,
+  // so the server's 60 s keep-all never started and nobody could CHOOSE (found 2026-10-18 by review-test). The server owns the
+  // timer (a wheel button does the same); this only starts it (?open=1) and shows it.
+  let keepToken = null;
+  function armKeeper(root) {
+    if (typeof UI !== 'undefined' && UI.live && UI.live() && typeof L !== 'undefined' && L.v && L.v.IsOnTrack) return;   // never while he drives
+    const token = {}; keepToken = token; let opened = false;
+    const pull = async () => {
+      if (keepToken !== token || el !== root) return;
+      let r; try { r = await (await fetch('/vault/review' + (opened ? '' : '?open=1'), { cache: 'no-store' })).json(); } catch (e) { setTimeout(pull, 600); return; }
+      opened = true;
+      if (keepToken !== token || el !== root) return;
+      let box = root.querySelector('#db4Keep');
+      if (!r || r.enabled === false || r.driving || (!r.up && !r.kept && !r.pending)) { if (box) box.remove(); return; }
+      if (!box) {
+        box = document.createElement('div'); box.id = 'db4Keep';
+        box.innerHTML = '<p><span class="line"></span><span class="sub"></span></p><button type="button" class="def" id="db4KeepAll">KEEP ALL</button><button type="button" id="db4Choose">CHOOSE</button>';
+        box.querySelector('#db4KeepAll').addEventListener('click', e => { e.stopPropagation(); fetch('/api/do?c=vkkeepall', { cache: 'no-store' }).catch(() => { }); });
+        box.querySelector('#db4Choose').addEventListener('click', e => {
+          e.stopPropagation(); fetch('/api/do?c=vkchoose', { cache: 'no-store' }).catch(() => { });
+          hide(); if (typeof VaultLive !== 'undefined' && VaultLive.openPage) VaultLive.openPage(true);     // const VaultLive is not window.VaultLive
+        });
+        root.appendChild(box);
+      }
+      const line = box.querySelector('.line'), sub = box.querySelector('.sub'), keep = box.querySelector('#db4KeepAll'), choose = box.querySelector('#db4Choose');
+      box.setAttribute('data-default', String(r.defaultMs || 60000)); box.setAttribute('data-wait', String(r.waitMs || 60000));
+      if (r.kept) { line.textContent = r.line || 'Kept'; sub.textContent = 'Kept'; keep.hidden = true; choose.hidden = true; }
+      else {
+        line.textContent = r.n > 0 ? r.line : 'Checking laps';
+        const left = Math.max(0, Math.ceil((r.leftMs || 0) / 1000));
+        sub.textContent = (r.pending && left === 0) ? 'Saving' : ('Keeping all in ' + left + ' s'); keep.hidden = false; choose.hidden = false;
+      }
+      if (!r.kept) setTimeout(pull, 400);
+    };
+    pull();
   }
   window.addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.irdash === 'coach-close' && el && el.classList.contains('db4-coach')) hide(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && el && el.classList.contains('db4-coach')) hide(); });
@@ -295,6 +333,7 @@ const Debrief4 = (function () {
     clearTimeout(timer); timer = null;
     clearInterval(activeTimer); activeTimer = null; if (el) active(false);
     try { closePlayer(); const wb = document.getElementById('db4WbHost'); if (wb) wb.remove(); } catch (e) { }
+    keepToken = null;
     const old = el; el = null;
     if (!old) return;
     if (old._db4r) window.removeEventListener('resize', old._db4r);

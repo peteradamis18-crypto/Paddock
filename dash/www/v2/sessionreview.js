@@ -9,7 +9,8 @@
 // D-03: the automatic after-session screen is debrief-v4.js now. This page keeps its data logic and its direct page;
 // its auto-show after a session is off (debrief.js no longer puts it up by itself). It stays the DEEP DIVE target.
 const SessionReview = (function () {
-  const MY = { name: 'PETER', team: 'PRATT MILLER MOTORSPORTS', number: '4' };   // typed text (design 3A); the number comes from the session when it has one
+  // typed text (design 3A). No made-up team: it said PRATT MILLER MOTORSPORTS on a BMW and a Porsche when the file had no team name.
+const MY = { name: 'PETER', team: '', number: '4' };   // the number and team come from the session when it has them
   const GOLD = '#f2c230', GAIN = '#3ccf7e', LOSS = '#e5534b', MUTE = '#8b877d', DIM = '#5d5a54', INK = '#ece8df';
   const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'], MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const EPS = 1e-6, MAXROWS = 19;
@@ -398,16 +399,16 @@ const SessionReview = (function () {
     wireSave(root, M) {
       const b = root.querySelector('#srSave'); if (!b) return;
       if (!M || !M.file || M.live) { b.hidden = true; return; }
-      const show = txt => { b.textContent = txt; b.hidden = false; b.disabled = txt === 'SAVED' || txt === 'SAVED FULL'; };
+      const show = txt => { b.textContent = txt; b.hidden = false; b.disabled = txt === 'SAVED' || txt === 'NO SPACE TO SAVE'; };
       fetch('/api/rec/for?id=' + encodeURIComponent(M.file), { cache: 'no-store' }).then(r => r.json()).then(hit => {
         if (!hit || !hit.ok || !hit.id) { b.hidden = true; return; }
-        show(hit.saved ? 'SAVED' : hit.saveBlocked === 'full' ? 'SAVED FULL' : 'SAVE');
+        show(hit.saved ? 'SAVED' : hit.saveBlocked === 'full' ? 'NO SPACE TO SAVE' : 'SAVE');
         if (hit.saved) return;
         b.onclick = e => {
           e.stopPropagation(); e.preventDefault();
           fetch('/api/rec/save?id=' + encodeURIComponent(hit.id), { method: 'POST', cache: 'no-store' }).then(r => r.json()).then(x => {
             const st = x && x.state;
-            show(st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE');
+            show(st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'NO SPACE TO SAVE' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE');
           }).catch(() => show('SAVE FAILED'));
         };
       }).catch(() => { b.hidden = true; });

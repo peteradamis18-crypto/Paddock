@@ -231,8 +231,18 @@ function headChip() {
 
 // ---------- finding the clip ----------
 // the server finds a lap's clip by the Vault's lap id, or by "<telemetry file>.ibt:<lap>" (dash\src\recorder.cs ClipFor)
+// Why the clip count first: with no recorder clip at all /vault/videoinfo can only answer 404 (a red console line on every open).
+var recSeen = { at: 0, any: true };
+function recAnyClips() {
+  if (Date.now() - recSeen.at < 10000) return Promise.resolve(recSeen.any);
+  return A.fetchJson('/vault/recorder').then(function (j) { return !(j && typeof j.clips === 'number' && j.clips === 0); }, function () { return true; })
+    .then(function (any) { recSeen = { at: Date.now(), any: any }; return any; });
+}
 function clipFor(key, role, lapNo, lapTime) {
   if (!key) return Promise.resolve(null);
+  return recAnyClips().then(function (any) { if (!any) return null; return clipInfo(key, role, lapNo, lapTime); });
+}
+function clipInfo(key, role, lapNo, lapTime) {
   return A.fetchJson('/vault/videoinfo?id=' + encodeURIComponent(key)).then(function (info) {
     if (!info || !info.id || info.error) return null;
     var len = (+info.lapEndOffset) - (+info.lapStartOffset);

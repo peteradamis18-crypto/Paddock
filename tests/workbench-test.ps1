@@ -296,7 +296,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check 'the deck auto-align action runs through the same command and changes measured offset' ($offsetChecks.action -and $offsetChecks.auto)
   $hdr = Cdp-Eval 'document.getElementById("vs").textContent'
   Check 'the header shows this lap 1:19.549, the reference 1:19.575 and the gap' ($hdr -like '*1:19.549*' -and $hdr -like '*1:19.575*' -and $hdr -like '*GAP*')
-  Check 'the Workbench header shows the conditions from the selected lap, including wind direction' ((Cdp-Eval 'document.getElementById("mode").textContent') -like '*Air*°C*Track*°C*Wind*m/s*°*Skies*Wet*')
+  Check 'the Workbench header shows the conditions from the selected lap, including wind direction' ((Cdp-Eval 'document.getElementById("mode").textContent') -match 'Air.*°C.*Track.*°C.*Wind.*(m/s|mph).*°.*(Clear|cloudy|Overcast).*(Dry|wet|Soaked)')
   Check 'the conditions line fits above the lap navigator without clipping or overlap' (Cdp-Eval '(function(){var m=document.getElementById("mode"),n=document.getElementById("nav"),a=m.getBoundingClientRect(),b=n.getBoundingClientRect();return m.scrollWidth<=m.clientWidth&&a.bottom<=b.top})()')
   $st = Cdp-Json 'WB.state'
   Check 'the page opens on the apex of the corner that cost the most (the cursor is inside a corner)' ($st.cur -gt 0 -and (Cdp-Eval 'document.querySelector(".ph b") ? document.querySelector(".ph b").textContent : ""') -match '^T\d|Esses')
@@ -491,7 +491,8 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check 'T10A: 100 % pedal and the reference brakes 11 m earlier is said in plain words' ($c10[3] -like '100*' -and $c10[2] -like '*later*' -and [math]::Abs(($t10.me.brake.startM - $t10.ref.brake.startM) - 11) -lt 1.5)
   $c10b = Row-Cells 'T10B'
   Check 'T10B: this lap did not brake there, the reference did: dashes for the lap, the reference small' ($c10b[1] -like '–*' -and $c10b[3] -like '–*')
-  Check 'a lock-up is shown with its wheel (T7: 2 RF) and nowhere else' ((Row-Cells 'T7')[9] -like '2 RF*' -and ((Row-Cells 'T1')[9] -like '–*'))
+  # 2026-10-18: this was '2 RF' at T7, but the wheel was slow only while ABS cut in 4 m from the brake point (ABS 2043-2046 m): that is the brake working, not a lock-up. A lock-up needs a slow wheel with no ABS within 15 m.
+  Check 'T7: a wheel slow only under ABS is not shown as a lock-up (dash), and neither is T1' ((Row-Cells 'T7')[9] -like '–*' -and ((Row-Cells 'T1')[9] -like '–*'))
   $null = Cdp-Eval '[].filter.call(document.querySelectorAll("table.ct tr"),function(r){return r.children[0].textContent==="T6"})[0].click()'; Start-Sleep -Milliseconds 250
   $st = Cdp-Json 'WB.state'; $t6 = Cdp-Json 'WB.data().corners.filter(function(c){return c.label==="T6"})[0].ia'
   Check 'a click on the T6 row zooms the linked traces there and puts the cursor on its apex' ($st.cur -eq $t6 -and $st.z0 -le $t6 -and $st.z1 -ge $t6 -and ($st.z1 - $st.z0) -lt ($n / 4))

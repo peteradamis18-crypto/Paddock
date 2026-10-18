@@ -2088,6 +2088,7 @@ namespace IRDash
                         {
                             sandbox = false; Root = realRoot; SrcDir = realSrc; NvDirOverride = null; budgetOverride = -1; pretendCw = false; pretendNoCw = false; pretendSim = false; pretendDisconnected = false; cwCache = null; ReadIni(); Wheel.ResetTransient(); thumbTried.Clear(); clipPending.Clear(); Load();
                         }
+                        Recorder.VaultRootChanged();       // its session list must follow the vault, or retention deletes the other vault's videos
                         return "{\"ok\":true,\"sandbox\":" + (sandbox ? "true" : "false") + ",\"root\":" + Json_.S(Root) + ",\"src\":" + Json_.S(SrcDir) + ",\"nvidia\":" + Json_.S(NvDirOverride ?? "") + "}";
                     }
             }

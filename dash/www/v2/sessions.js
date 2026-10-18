@@ -17,8 +17,10 @@ const SX = {
 
 const $$ = sel => document.querySelector(sel);
 const secsTxt = s => s < 90 ? Math.round(s) + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + String(Math.round((s % 3600) / 60)).padStart(2, '0');
-const dayTxt = ts => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-const clockTxt = ts => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+// New York time, 12-hour, "Sun 18 Oct" / "5:24 PM": the same style HOME uses (these were en-GB 24-hour in the PC's own zone).
+const NY = { timeZone: 'America/New_York' };
+const dayTxt = ts => { const d = new Date(ts); return d.toLocaleDateString('en-US', Object.assign({ weekday: 'short' }, NY)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ day: 'numeric' }, NY)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ month: 'short' }, NY)); };
+const clockTxt = ts => new Date(ts).toLocaleTimeString('en-US', Object.assign({ hour: 'numeric', minute: '2-digit' }, NY));
 const typeTxt = t => /offline testing/i.test(t || '') ? 'Test' : /open qualify/i.test(t || '') ? 'Qualify' : (t || '');
 const isPb = (s, pbs) => s.best != null && pbs.has(s.car + '|' + s.track + '|' + s.config) && Math.abs(pbs.get(s.car + '|' + s.track + '|' + s.config) - s.best) < 0.0005;
 
@@ -83,7 +85,7 @@ function renderList() {
     h += '<div class="row' + (s.short ? ' short' : '') + (s.gone ? ' gone' : '') + '" tabindex="0" data-file="' + esc(s.file) + '"' + (s.gone ? ' title="The telemetry file was deleted"' : '') + '>' +
       '<span class="when"><b>' + esc(dayTxt(s.ts)) + '</b>' + esc(clockTxt(s.ts)) + '</span>' +
       '<span class="c">' + esc(s.car || '–') + '</span>' +
-      '<span class="t">' + esc(s.track || '–') + (s.config ? '<small>' + esc(s.config) + '</small>' : '') + '</span>' +
+      '<span class="t">' + esc(s.track || '–') + (s.config && s.config !== 'Full Course' ? '<small>' + esc(s.config) + '</small>' : '')   /* "Full Course" is the normal case and was cut to "Full Cou…" in every row */ + '</span>' +
       '<span class="ty">' + esc(typeTxt(s.type)) + '</span><span class="r">' + s.laps + '</span>' +
       '<span class="best' + (pb ? ' pb' : '') + (s.best == null ? ' none' : '') + '">' + (s.best != null ? fmtLap(s.best) : '–') + '</span>' +
       '<span class="r">' + esc(secsTxt(s.secs)) + '</span><span class="go">' + (s.gone ? '' : '›') + '</span></div>';

@@ -22,7 +22,8 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function 
 function t1(v) { var m = Math.floor(v / 60), s = Math.round((v - m * 60) * 10) / 10; if (s >= 60) { m++; s -= 60; } return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }       // axis labels: 1:19.5
 function dur(sec) { var h = Math.floor(sec / 3600), m = Math.round((sec - h * 3600) / 60); if (m === 60) { h++; m = 0; } return h > 0 ? h + 'h ' + m + 'm' : m + 'm'; }
 function day(ms) { return A.dateWord(new Date(ms).toISOString()); }
-function clock(ms) { var d = new Date(ms); return (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes(); }
+// New York time, 12-hour (HOME's style); was the PC's 24-hour clock.
+function clock(ms) { return new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }); }
 function niceStep(range, maxTicks) { var st = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60]; for (var i = 0; i < st.length; i++) if (range / st[i] <= maxTicks) return st[i]; return 120; }
 function sgn3(d) { return Math.abs(d) < 0.0005 ? '±0.000' : (d > 0 ? '+' : '−') + Math.abs(d).toFixed(3); }
 function cornerLabel(t) { return t.official ? 'T' + String(t.official).toUpperCase() : (t.name || '').replace(/^The /, '') || 'T' + t.n; }     // the same words the other pages use

@@ -44,7 +44,7 @@ h1 small { font-size: 22px; letter-spacing: .06em; color: var(--mute); margin-le
 .th, .row { display: grid; align-items: center; gap: 14px; padding: 0 12px; }
 .th { height: 30px; font-size: 12px; letter-spacing: .24em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #0a0a09; z-index: 1; }
 .th span.r, .row span.r { text-align: right; }
-#sessList .th, #sessList .row { grid-template-columns: 170px minmax(0, 1.5fr) minmax(0, 1.15fr) 104px 52px 124px 92px 16px; }
+#sessList .th, #sessList .row { grid-template-columns: 196px minmax(0, 1.5fr) minmax(0, 1.15fr) 104px 52px 124px 92px 16px; }   /* WHEN is 26 px wider: "Sat 17 Oct 9:19 PM" */
 .row { height: 46px; border-bottom: 1px solid var(--hair); font-size: 19px; cursor: pointer; color: #d8d4ca; }
 .row:hover { background: rgba(242, 194, 48, .07); }
 .row .when { color: var(--mute); font-size: 17px; white-space: nowrap; }
@@ -62,12 +62,12 @@ h1 small { font-size: 22px; letter-spacing: .06em; color: var(--mute); margin-le
 .row.gone { opacity: .4; cursor: default; }
 .empty { padding: 36px 12px; font-size: 20px; color: var(--mute); line-height: 1.5; }
 
-#pbList .row { grid-template-columns: minmax(0, 1fr) 150px; height: 70px; gap: 6px 14px; align-content: center; }
+#pbList .row { grid-template-columns: minmax(0, 1fr) 214px; height: 70px; gap: 6px 14px; align-content: center; }
 #pbList .row .a { overflow: hidden; }
 #pbList .row .a b { display: block; font-weight: 400; font-size: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 #pbList .row .a span { display: block; font-size: 15px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 #pbList .row .tm { font-size: 30px; font-weight: 300; color: var(--gold); text-align: right; font-variant-numeric: tabular-nums; }
-#pbList .row .tm small { display: block; font-size: 13px; color: var(--mute); letter-spacing: .06em; margin-top: 1px; font-weight: 400; }
+#pbList .row .tm small { display: block; white-space: nowrap; font-size: 15px;   /* one line: "Sat 17 Oct · 22 sessions" wrapped at 13 px / 150 px */ color: var(--mute); letter-spacing: .06em; margin-top: 1px; font-weight: 400; }
 
 /* right column: the benchmark card (bench.css), then the personal-best list */
 #benchBox { margin-bottom: 22px; }

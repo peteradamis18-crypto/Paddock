@@ -27,7 +27,7 @@
   const offsetOf = n => { const l = R && R.laps && R.laps.find(x => x.n === n); return l && typeof l.offset === 'number' ? l.offset : null; };
   // can WATCH play this card? the reason in plain words when not
   function video(f) {
-    if (!R || !R.ok || !R.id) return { ok: false, why: 'No video of this session' };
+    if (!R || !R.ok || !R.id) return { ok: false, why: 'No video kept of this drive' };   // the recorder keeps only the last 8 unsaved sessions; KEEP VIDEO right after a drive saves one
     const a = f.example ? offsetOf(f.example.lap) : null, b = f.best ? offsetOf(f.best.lap) : null;
     if (a == null && b == null) return { ok: false, why: 'These laps are not in the recording' };
     return { ok: true, a: a == null ? null : Math.max(0, a + f.example.at), b: b == null ? null : Math.max(0, b + f.best.at), src: '/api/rec/session-video?id=' + encodeURIComponent(R.id) };
@@ -36,7 +36,7 @@
   function draw() {
     const where = [C.car, C.ref ? 'session best ' + lap(C.ref.time) : ''].filter(Boolean);
     let h = '<div class="head"><div class="where"><b>' + esc(C.track || DASH) + (C.config && !/^(full|full course|grand prix)$/i.test(C.config) ? ' <small style="font-size:30px;color:var(--mute)">' + esc(C.config) + '</small>' : '') + '</b><span>' + esc([C.car, RES].filter(Boolean).join(DOT)) + '</span></div>' +
-      '<div class="ref">' + (C.ref ? 'Compared with the best clean lap: <b>lap ' + C.ref.lap + DOT + lap(C.ref.time) + '</b><br>' : '') + C.clean + ' clean laps</div>' +
+      '<div class="ref">' + (C.ref ? 'Compared with the best clean lap: <b>lap ' + C.ref.lap + DOT + lap(C.ref.time) + '</b><br>' : '') + C.clean + ' laps at race pace compared</div>' +
       (R && R.ok && R.id ? '<button class="btn" id="cKeep" type="button"' + (R.saved ? ' disabled' : '') + '>' + (R.saved ? 'Video kept' : 'Keep video') + '</button>' : '') +
       '<button class="btn" id="cAll" type="button">All laps and data</button></div>';
     if (!C.ready) {

@@ -45,7 +45,8 @@
 .home-next b { display: block; font-size: var(--glance); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; line-height: 1; }
 .home-next span { display: block; margin-top: 14px; font-size: var(--read); line-height: 36px; color: rgba(13, 11, 5, .74); max-width: 560px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-next svg { width: 44px; height: 44px; flex: none; fill: none; stroke: #0d0b05; stroke-width: 2.4; stroke-linecap: square; }
-.home-next.busy { background: #3a3324; color: #b9ad8a; box-shadow: none; cursor: default; }
+.home-next.failed span { white-space: normal; max-height: 72px; }   /* the reason START failed is a sentence: two lines, not one clipped */
+.home-next.busy {background: #3a3324; color: #b9ad8a; box-shadow: none; cursor: default; }
 .home-next.busy span { color: #8d8468; } .home-next.busy svg { stroke: #8d8468; }
 
 /* band A: who he is, quietly, under the button */

@@ -354,13 +354,14 @@ namespace IRDash
                         while ((line = sr.ReadLine()) != null)
                         {
                             string[] p = line.Split('\t');
-                            if (p.Length < 16 || p[7].Length == 0 || p[15].Length == 0) continue;
+                            // column 16 = layout (TrackConfigName); 15 is the fuel-laps count (this used to read 15: layouts "0", "2", "10")
+                            if (p.Length < 17 || p[7].Length == 0 || p[16].Length == 0) continue;
                             HashSet<string> set;
                             if (!layouts.TryGetValue(p[7], out set)) { set = new HashSet<string>(StringComparer.OrdinalIgnoreCase); layouts[p[7]] = set; }
-                            set.Add(p[15]);
+                            set.Add(p[16]);
                             long ticks; long.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out ticks);
                             string combo = p[6].Trim() + "|" + p[7].Trim(); long oldTicks;
-                            if (p[15].Trim().Length > 0 && (!recentLayoutTicks.TryGetValue(combo, out oldTicks) || ticks > oldTicks)) { recentLayoutTicks[combo] = ticks; recentLayouts[combo] = p[15].Trim(); }
+                            if (p[16].Trim().Length > 0 && (!recentLayoutTicks.TryGetValue(combo, out oldTicks) || ticks > oldTicks)) { recentLayoutTicks[combo] = ticks; recentLayouts[combo] = p[16].Trim(); }
                         }
                     }
                 }

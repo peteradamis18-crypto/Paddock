@@ -300,13 +300,24 @@ namespace IRDash
                 if (!g.Has[cLF + w]) continue;
                 float[] wh = g.C[cLF + w], v = g.C[cSpd], brk = g.C[cBrk], thr = g.C[cThr];
                 int start = -1, last = -1; double depth = 0, aux = 0;
+                // ABS holds a wheel 8-15 % slow on purpose: that is the brake working, not a lock-up. A lock-up is a wheel stuck slow
+                // with no ABS working within 15 m (2026-10-18: a clean lap showed 32 'lock-ups' that were ABS pulses).
+                // (looked at both ways: the wheel slows first and the ABS cuts in a few metres later)
+                bool[] nearAbs = null;
+                if (lockUps && g.Has[cAbs])
+                {
+                    nearAbs = new bool[g.M + 1]; int gapM = (int)Math.Ceiling(15.0 * g.M / g.L), run = -1000000;
+                    for (int i = 0; i < g.M; i++) { if (g.C[cAbs][i] >= 0.5f) run = i; if (i - run <= gapM) nearAbs[i] = true; }
+                    run = 1000000;
+                    for (int i = g.M - 1; i >= 0; i--) { if (g.C[cAbs][i] >= 0.5f) run = i; if (run - i <= gapM) nearAbs[i] = true; }
+                }
                 for (int i = 0; i <= g.M; i++)
                 {
                     bool on = false; double slip = 0;
                     if (i < g.M && v[i] > 5)
                     {
                         slip = wh[i] / v[i] - 1.0;
-                        on = lockUps ? (brk[i] > 0.10 && slip <= -0.08) : (thr[i] > 0.10 && brk[i] < 0.02 && slip >= 0.08);
+                        on = lockUps ? (brk[i] > 0.10 && slip <= -0.08 && (nearAbs == null || !nearAbs[i])) : (thr[i] > 0.10 && brk[i] < 0.02 && slip >= 0.08);
                     }
                     if (on)
                     {

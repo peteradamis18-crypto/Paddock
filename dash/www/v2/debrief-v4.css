@@ -85,3 +85,13 @@
 .db4-wbhost iframe { position: absolute; inset: 46px 0 0 0; width: 100%; height: calc(100% - 46px); border: 0; }
 .db4-wbback { height: 46px; line-height: 46px; padding: 0 96px; color: var(--gold); font-size: 20px; letter-spacing: .1em;
   text-transform: uppercase; cursor: pointer; border-bottom: 1px solid var(--line); }
+
+/* the laps-saved strip on the after-session coach (debrief-v4.js armKeeper): bottom of the screen, clear of the cards */
+#debrief4.db4-coach #db4Keep { position: absolute; left: 96px; right: 96px; bottom: 22px; z-index: 3; display: flex; align-items: center; gap: 22px; padding: 12px 22px; cursor: default;
+  background: rgba(6, 6, 6, .96); border: 1px solid rgba(242, 194, 48, .45); }
+#db4Keep p { flex: 1; margin: 0; min-width: 0; }
+#db4Keep .line { display: block; font-size: 26px; line-height: 1.25; overflow: hidden; }
+#db4Keep .sub { display: block; margin-top: 4px; font-size: 20px; letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+#db4Keep button { flex: none; font-family: inherit; font-size: 20px; letter-spacing: .12em; text-transform: uppercase; cursor: pointer;
+  background: transparent; color: var(--gold); border: 1px solid rgba(242, 194, 48, .55); padding: 12px 18px; min-width: 168px; min-height: 56px; }
+#db4Keep button.def { background: var(--gold); color: #14110a; border-color: var(--gold); }

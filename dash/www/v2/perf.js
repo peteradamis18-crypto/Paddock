@@ -9,8 +9,13 @@ const PF = {
   d: null, check: null, sig: '', checkSig: '', track: null, car: null, field: null, pts: [], marks: [], hover: null, geo: null, corners: -1, sel: null, selData: null,
 };
 
-const pfDay = ts => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-const pfClock = ts => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+// New York time, 12-hour, same style as HOME (were en-GB 24-hour in the PC's own zone).
+const pfNy = (ts, o) => new Date(ts).toLocaleDateString('en-US', Object.assign({}, o, { timeZone: 'America/New_York' }));
+const pfDay = ts => pfNy(ts, { weekday: 'short' }) + ' ' + pfNy(ts, { day: 'numeric' }) + ' ' + pfNy(ts, { month: 'short' });
+// Peter reads plain words: iRacing's raw setting names, "settled" and "Ask Claude" are the developer's words. (The wording is made in perf.cs;
+// the next irdash build should say it there. Until then this rewrites it on the way to the screen.)
+const pfPlain = s => String(s == null ? '' : s).replace(/DriverHands/g, 'Driver hands').replace(/SteeringWheel/g, 'Steering wheel').replace(/\(settled: /g, '(usual: ').replace(/the settled setup/gi, 'the usual setup').replace(/Ask Claude to put them back\./, 'They can be put back.').replace(/Ask Claude to check iRacing's graphics\./, 'It can be checked.');
+const pfClock = ts => new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 const pfFieldClass = f => f <= 1.5 ? 0 : f <= 8 ? 1 : f <= 20 ? 2 : 3;
 const pfFieldWord = c => ['Driving alone', 'A few cars', 'A normal grid', 'A big field'][c];
 const pfTypeTxt = t => /offline testing/i.test(t || '') ? 'Test' : /open qualify/i.test(t || '') ? 'Qualify' : (t || '');
@@ -153,7 +158,12 @@ function pfRenderRun() {
 function pfRenderFilters() {
   const d = PF.d, el = $('filters');
   const all = d.sessions.filter(s => s.counts);
-  if (PF.track === null && d.last) { PF.track = d.last.key; PF.car = d.last.car; PF.field = pfFieldClass(d.last.field); }
+  // Why the count: starting on the last session's field size ("A few cars") left ONE dot and an empty chart when his last drive was a
+  // test with 2 cars. Start on that field size only when it still gives a line to look at (5+ sessions); otherwise start on Any.
+  if (PF.track === null && d.last) {
+    PF.track = d.last.key; PF.car = d.last.car; PF.field = pfFieldClass(d.last.field);
+    if (all.filter(s => s.key === PF.track && s.car === PF.car && pfFieldClass(s.field) === PF.field).length < 5) PF.field = -1;
+  }
   if (PF.track === null) { PF.track = ''; PF.car = ''; PF.field = -1; }
   const chip = (txt, on, n, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (on ? ' on' : ''); b.textContent = txt; if (n != null) { const i = document.createElement('i'); i.textContent = n; b.appendChild(i); } b.onclick = fn; return b; };
   const group = (label, items) => { const g = document.createElement('div'); g.className = 'fgroup'; const lb = document.createElement('label'); lb.textContent = label; g.appendChild(lb); items.forEach(i => g.appendChild(i)); return g; };
@@ -244,7 +254,7 @@ function pfHover(e) {
   let h = '';
   if (best && my < geo.T0 + geo.H) {
     PF.hover = null;
-    const ep = best.ep; h = '<div class="at">' + esc(pfDay(ep.ts) + ', ' + pfClock(ep.ts)) + '</div><div class="chg"><b>' + esc(ep.title) + '</b><br>' + esc(ep.detail) + '</div>';
+    const ep = best.ep; h = '<div class="at">' + esc(pfDay(ep.ts) + ', ' + pfClock(ep.ts)) + '</div><div class="chg"><b>' + esc(pfPlain(ep.title)) + '</b><br>' + esc(pfPlain(ep.detail)) + '</div>';
   } else {
     const i = Math.max(0, Math.min(geo.n - 1, Math.floor((mx - geo.L0) / geo.W * geo.n)));
     if (mx < geo.L0 - 4 || mx > geo.L0 + geo.W + 4) { PF.hover = null; tip.hidden = true; pfDraw(); return; }
@@ -267,8 +277,8 @@ function pfRenderHelp() {
   let h = '';
   for (const ep of d.changes) {
     const r = ep.result, cls = r.state === 'ok' ? r.verdict : 'few';
-    h += '<div class="ep"><div class="h"><b>' + esc(ep.title) + '</b><span>' + esc(pfDay(ep.ts)) + ', ' + esc(pfClock(ep.ts)) + '</span></div>' +
-      (ep.detail ? '<div class="d">' + esc(ep.detail) + '</div>' : '') +
+    h += '<div class="ep"><div class="h"><b>' + esc(pfPlain(ep.title)) + '</b><span>' + esc(pfDay(ep.ts)) + ', ' + esc(pfClock(ep.ts)) + '</span></div>' +
+      (ep.detail ? '<div class="d">' + esc(pfPlain(ep.detail)) + '</div>' : '') +
       '<div class="r ' + cls + '">' + (r.state === 'ok' ? '' : r.state === 'few' ? '' : '') + esc(r.text || 'Not enough sessions yet.') + '</div>' +
       (r.where && r.state === 'ok' ? '<div class="w">' + esc(r.where) + ' · ' + r.before.n + ' sessions before, ' + r.after.n + ' after</div>' : '') + '</div>';
   }
@@ -283,7 +293,7 @@ function pfRenderCheck() {
   const items = c.items.slice().sort((a, b) => order[a.state] - order[b.state]);
   for (const it of items) {
     h += '<div class="it ' + esc(it.state) + '"><i class="dot"></i><div><div class="t">' + esc(it.title) + (it.auto ? '<em>Auto</em>' : '') + '</div>' +
-      '<div class="e">' + esc(it.evidence) + '</div>' + (it.say ? '<div class="s">' + esc(it.say) + '</div>' : '') +
+      '<div class="e">' + esc(pfPlain(it.evidence)) + '</div>' + (it.say ? '<div class="s">' + esc(pfPlain(it.say)) + '</div>' : '') +
       (it.tool ? '<button class="tool" type="button" data-tool="' + esc(it.tool) + '">Show ' + esc(it.tool) + '</button> <button class="tool" type="button" data-tool="' + esc(it.undo) + '">Show undo</button>' : '') + '</div></div>';
   }
   el.innerHTML = h || '<div class="none">Nothing to check yet.</div>';

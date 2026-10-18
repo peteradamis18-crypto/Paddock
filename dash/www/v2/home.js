@@ -29,6 +29,9 @@ const Home = {
   NY: 'America/New_York',
   nyDay(d) { const o = { timeZone: this.NY }; return d.toLocaleDateString('en-US', Object.assign({ weekday: 'short' }, o)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ day: 'numeric' }, o)) + ' ' + d.toLocaleDateString('en-US', Object.assign({ month: 'short' }, o)); },
   nyTime(d) { return d.toLocaleTimeString('en-US', { timeZone: this.NY, hour: 'numeric', minute: '2-digit' }); },
+  nyKey(d) { return d.toLocaleDateString('en-CA', { timeZone: this.NY }); },                    // 2026-10-18: sorts and compares as a New York calendar day
+  // when a session starts: Today / Tomorrow / 'Sat 24 Oct' (a weekday alone reads as yesterday for a session a week away)
+  nyWhen(d) { const k = this.nyKey(d), n = new Date(); return k === this.nyKey(n) ? 'Today' : k === this.nyKey(new Date(n.getTime() + 86400000)) ? 'Tomorrow' : this.nyDay(d); },
   nyWd(d) { return d.toLocaleDateString('en-US', { timeZone: this.NY, weekday: 'short' }); },
   nyDate(d, part) { return d.toLocaleDateString('en-US', { timeZone: this.NY, [part]: part === 'month' ? 'short' : 'numeric' }); },
   clock() { const d = new Date(); setText('idleDate', this.nyDay(d)); setText('idleClock', this.nyTime(d) + ' ET'); },
@@ -142,7 +145,7 @@ const Home = {
       const dt = l.ago || (wd && !isNaN(wd) ? this.nyDay(wd) : '');
       const bits = [l.track, l.type, l.laps ? l.laps + (l.laps === 1 ? ' lap' : ' laps') : ''].filter(Boolean).join(DOT);
       out = '<div class="lbl">Last outing' + (dt ? '<span class="sep">·</span>' + esc(dt) : '') + '</div>' +
-        '<div class="val"><b>' + (l.best ? this.lap(l.best) + '<small>best lap</small>' : DASH) + '</b>' + (l.file ? '<button type="button" id="homeReview">Review</button>' : '') + '</div>' +
+        '<div class="val"><b>' + (l.best ? this.lap(l.best) + '<small>best lap</small>' : '<small class="nolap">No timed lap</small>') + '</b>' + (l.file ? '<button type="button" id="homeReview">Review</button>' : '') + '</div>' +
         '<div class="det">' + esc(bits) + '</div><div class="det2">' + esc(this.short(l.car)) + '</div>';
     }
     const n = x => (x == null || isNaN(x)) ? DASH : Math.round(x).toLocaleString('en-US');
@@ -157,8 +160,18 @@ const Home = {
   // ---- band C: what to watch. Grouped by event; the Race and the two sessions before it; never "Live" ----
   drawWatch() {
     const el = $('homeWeekend'); if (!el) return;
-    const rw = this.realworld || {}, list = (rw.events || []).filter(e => e && e.session && e.session.toLowerCase() !== 'event');
+    const rw = this.realworld || {}, all = (rw.events || []).filter(e => e && e.session && e.session.toLowerCase() !== 'event');
     const when = e => { const t = !e.tbc && e.localStart ? Date.parse(e.localStart) : NaN; if (!isNaN(t)) return t; const d = e.eventDate ? Date.parse(e.eventDate + 'T12:00:00') : NaN; return isNaN(d) ? Infinity : d; };
+    // what has already finished is not 'to watch' (2026-10-18 5 PM: HOME still listed a 6 AM race and Sat/Sun F1 sessions that were
+    // days away or hours old, shown by weekday alone). A session counts as over its start plus a typical length.
+    const now = Date.now();
+    const over = e => {
+      const t = when(e); if (t === Infinity) return false;
+      if (e.tbc || !e.localStart) return this.nyKey(new Date(t)) < this.nyKey(new Date(now));           // date only: over once that day has passed
+      const hrs = /^race$/i.test(e.session) ? (parseInt((String(e.event || '').match(/(\d+)\s*hours?/i) || [])[1], 10) || 2.5) + 0.5 : /qualif|hyperpole|shootout/i.test(e.session) ? 1.5 : 2;
+      return t + hrs * 3600000 < now;
+    };
+    const list = all.filter(e => !over(e));
     const groups = [];
     list.slice().sort((a, b) => when(a) - when(b)).forEach(e => {
       let g = groups.find(x => x.series === e.series && x.event === e.event);
@@ -190,7 +203,7 @@ const Home = {
       return '<div class="ev"' + (cov ? ' role="button" tabindex="0" data-series="' + esc(g.series) + '" data-session="' + esc(key) + '"' : ' aria-disabled="true"') + '><div class="h">' + esc(g.series) + where + '</div><div class="n">' + esc(name) + '</div>' +
         keep.map(x => {
           const d = day(x);
-          const t = (x.tbc || !x.localStart) ? '<span class="tbc">' + (d ? this.nyWd(d) + DOT : '') + 'time TBC</span>' : '<span>' + this.nyWd(d) + ' ' + this.nyTime(d) + '</span>';
+          const t = (x.tbc || !x.localStart) ? '<span class="tbc">' + (d ? this.nyWhen(d) + DOT : '') + 'time TBC</span>' : '<span>' + this.nyWhen(d) + ' ' + this.nyTime(d) + '</span>';
           return '<div class="s' + (/^race$/i.test(x.session) ? ' key' : '') + '"><em>' + esc(x.session) + '</em>' + t + '</div>';
         }).join('') + '</div>';
     }).join('');
@@ -243,9 +256,9 @@ const Home = {
     this.act = act;
     b.homeAct = act; // keep the command paired with the label shown on this button
     const busy = Date.now() < this.busyUntil, failed = !busy && Date.now() < this.failUntil;
-    b.hidden = false; b.className = 'home-next' + (busy ? ' busy' : '');
+    b.hidden = false; b.className = 'home-next' + (busy ? ' busy' : failed ? ' failed' : '');
     b.setAttribute('data-car', act.car || ''); b.setAttribute('data-track', act.track || '');
-    const sub = busy ? '' : failed ? 'Car not chosen' : (act.sub || '');
+    const sub = busy ? '' : failed ? esc(this.failMsg || 'Could not start') : (act.sub || '');
     setHTML(b, '<div><b>' + (busy ? 'Starting' : esc(act.label)) + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</div>' +
       '<svg viewBox="0 0 44 44" aria-hidden="true"><path d="M6 22h31M24 9l13 13-13 13"/></svg>');
     this.drawReady();
@@ -271,8 +284,22 @@ const Home = {
       await new Promise(r => setTimeout(r, 250));
       try { const m = await (await fetch('/mydrive', { cache: 'no-store' })).json(); chosen = !!(m.choice && m.choice.has && m.choice.car === act.car && m.choice.track === act.track); } catch (e) { }
     }
-    if (!chosen) { this.busyUntil = 0; this.failUntil = Date.now() + 6000; this.next(); return; }
+    if (!chosen) { this.busyUntil = 0; this.failMsg = "Couldn't pick that car and track. Pick it in MY DRIVE."; this.failUntil = Date.now() + 8000; this.next(); return; }
+    // an old "failed" from a few seconds ago must not count as this press's result
+    let stale = null;
+    if (!this.dry) { try { const m0 = await (await fetch('/mydrive', { cache: 'no-store' })).json(); if (m0.phase === 'failed') stale = m0.msg || ''; } catch (e) { } }
     await this.send('mdstart', '');
+    if (this.dry) return;
+    // Peter cannot see the log: when START fails, MY DRIVE's own plain-words reason ("iRacing's list has no ...") goes on the button
+    let ran = false;
+    for (let i = 0; i < 300; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      let m; try { m = await (await fetch('/mydrive', { cache: 'no-store' })).json(); } catch (e) { continue; }
+      if (m.driving || m.phase === 'joining' && !m.busy) break;
+      if (m.busy === 'start' || m.phase === 'setup' || m.phase === 'loading' || m.phase === 'joining') ran = true;
+      if (m.phase === 'failed' && m.msg && (ran || m.msg !== stale)) { this.busyUntil = 0; this.failMsg = m.msg; this.failUntil = Date.now() + 12000; this.next(); return; }
+      if (ran && !m.busy && m.phase !== 'failed') break;   // finished without a failure
+    }
   },
 
   // the phone: the pairing square only while no phone is paired (it borrows the car slot); otherwise one row in READY

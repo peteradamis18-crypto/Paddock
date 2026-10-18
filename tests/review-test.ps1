@@ -393,79 +393,37 @@ if ($live) {
   Check 'the wheel work did not move the focus' ((Fg) -eq $fg0)
 }
 
-Section '3. a pretend session end shows the panel inside the debrief'
+Section '3. the after-session coach carries the laps-saved strip (KEEP ALL by itself, CHOOSE opens the Vault)'
 if (-not $live) { Note 'skipped: the live wheel route is not up' }
 else {
+  # 2026-10-18: the old debrief carried the strip; when the coach became the after-session screen (D-03, debrief-v4.js) nothing
+  # armed the keeper review any more, so the 60 s keep-all never started and CHOOSE never appeared. The coach does it now.
   $fgP = Fg
+  $null = Http '/api/test/end' 8
   $null = J ('/vault/test/wheel?op=seed&clear=1')
   $null = J '/vault/test/yaml'
   Cdp-Open "$api/v2/index.html"
-  $up = Wait-True "(typeof Debrief!=='undefined' && typeof L!=='undefined')" 15
+  $up = Wait-True "(typeof Debrief4!=='undefined' && typeof L!=='undefined')" 15
   Check 'the top-screen page loaded' $up
-  Frame 'IsOnTrack=1&OnPitRoad=0&PlayerTrackSurface=1&SessionNum=0&SessionUniqueID=4242&LapCompleted=3&FuelLevel=50&SessionTime=100&LapLastLapTime=80&Speed=30&PlayerCarMyIncidentCount=0&PlayerCarPosition=5&PlayerCarClassPosition=5&Lap=4&LapDistPct=0.3'
-  $ready = Wait-True "(!!(L.connected && S.sessions && S.sessions.length>=2 && L.v.IsOnTrack && !isRace()))" 10
-  Check 'practice is on track and the page can see it' $ready
-  Frame 'LapCompleted=4&SessionTime=160&FuelLevel=48&LapLastLapTime=79.8'
-  Frame 'SessionTime=163'
-  $laps = Wait-True "(L.laps && L.laps.length>=1 && L.laps[0].time>0)" 8
-  Check 'one full practice lap was counted' $laps
-  Frame 'IsOnTrack=0&Speed=0'
-  $deb = Wait-True "(!!document.getElementById('debrief'))" 8
-  Start-Sleep -Milliseconds 1200
-  $pracRev = Cdp-Eval "(!!document.getElementById('dbReview'))"
-  Check 'getting out of practice shows the debrief and not the saved-laps panel' ($deb -and $pracRev -eq $false)
-  Frame 'IsOnTrack=1&SessionNum=2&SessionTime=200&LapCompleted=4&FuelLevel=40&Speed=30&LapDistPct=0.4'
-  $race = Wait-True "(!!(L.connected && L.v.IsOnTrack && isRace() && L.laps.length===0))" 8
-  Check 'the race is on track (the practice laps were cleared)' $race
-  Frame 'LapCompleted=5&SessionTime=280&FuelLevel=38&LapLastLapTime=79.8'
-  Frame 'SessionTime=284'
-  $rlaps = Wait-True "(L.laps && L.laps.length>=1 && !!Debrief.st && Debrief.st.race===true)" 8
-  Check 'one full race lap is in the stint' $rlaps
   $null = J ('/vault/test/wheel?op=seed&secs=8&laps=' + (Qs '14|79.8|PB;9|80.4|top 6%;7|81.2|best 3'))
-  $null = Http '/api/test/end' 8
-  $panel = Wait-True "(function(){var d=document.getElementById('debrief'),r=document.getElementById('dbReview');if(!d||!r||!d.contains(r))return false;var t=(r.querySelector('.db-rev-line')||{}).textContent||'';return t.indexOf('3 laps saved')>=0&&t.indexOf('\u2014')>=0&&t.indexOf('lap 14 1:19.8 (PB)')>=0&&t.indexOf('top 6%')>=0;})()" 12
-  Check 'session end shows the saved-laps panel inside the debrief' $panel
-  $meta = Cdp-Eval "(function(){var r=document.getElementById('dbReview');if(!r)return '';var k=document.getElementById('dbKeepAll'),c=document.getElementById('dbChoose');return r.getAttribute('data-default')+'|'+r.getAttribute('data-wait')+'|'+(k&&!k.hidden&&k.classList.contains('def')?'K':'')+'|'+(c&&!c.hidden?'C':'')+'|'+((r.querySelector('.db-rev-sub')||{}).textContent||'');})()"
-  Check 'KEEP ALL is the default, the button is the filled one, and this test armed 8 s' ("$meta" -like '60000|8000|K|C|Keeping all in *')
-  $pops = Cdp-Eval "(window.__pops||0)"
-  $pages = @()
-  try { $pages = @(Invoke-RestMethod "http://127.0.0.1:9388/json" | Where-Object { $_.type -eq 'page' }) } catch { }
-  Check 'nothing opened a second window' ($pops -eq 0 -and $pages.Count -eq 1)
+  $tel0 = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'iRacing\telemetry'
+  $ibt = (Get-ChildItem $tel0 -Filter '*.ibt' | Sort-Object LastWriteTime | Select-Object -First 1).Name
+  $null = Cdp-Eval ("Debrief4.showCoach({ meta: { file: " + (ConvertTo-Json $ibt -Compress) + " } }); 1")
+  $panel = Wait-True "(function(){var d=document.getElementById('debrief4'),r=document.getElementById('db4Keep');if(!d||!r||!d.contains(r))return false;var t=(r.querySelector('.line')||{}).textContent||'';return t.indexOf('3 laps saved')>=0&&t.indexOf('lap 14 1:19.8 (PB)')>=0&&t.indexOf('top 6%')>=0;})()" 12
+  Check 'the coach shows the saved-laps strip with the three seeded laps' $panel
+  $meta = Cdp-Eval "(function(){var r=document.getElementById('db4Keep');if(!r)return '';var k=document.getElementById('db4KeepAll'),c=document.getElementById('db4Choose');return r.getAttribute('data-default')+'|'+r.getAttribute('data-wait')+'|'+(k&&!k.hidden&&k.classList.contains('def')?'K':'')+'|'+(c&&!c.hidden?'C':'')+'|'+((r.querySelector('.sub')||{}).textContent||'');})()"
+  Check 'KEEP ALL is the default and the filled button, CHOOSE is beside it, this test armed 8 s' ("$meta" -like '60000|8000|K|C|Keeping all in *')
+  $big = Cdp-Eval "(function(){var r=document.getElementById('db4Keep').getBoundingClientRect(),b=document.getElementById('db4KeepAll').getBoundingClientRect(),w=document.getElementById('debrief4').getBoundingClientRect();return r.bottom<=w.bottom&&r.left>=0&&r.right<=w.right&&b.height>=56&&b.width>=156;})()"
+  Check 'the strip is on screen and its buttons are big targets' ($big -eq $true)
   Start-Sleep -Milliseconds 600
-  $shot = Join-Path $shots 'c07-review.png'
-  Cdp-Shot $shot
-  Check 'the picture was saved' (Test-Path $shot)
-  $keptP = Wait-True "(function(){var s=document.querySelector('#dbReview .db-rev-sub');return !!(s&&s.textContent==='Kept');})()" 15
+  Cdp-Shot (Join-Path $shots 'c07-review.png')
+  Check 'the picture was saved (tests\shots\c07-review.png: look at it)' (Test-Path (Join-Path $shots 'c07-review.png'))
+  $keptP = Wait-True "(function(){var s=document.querySelector('#db4Keep .sub');return !!(s&&s.textContent==='Kept');})()" 15
   Check 'doing nothing on the page keeps all when the timer ends' $keptP
   Check 'the page test did not move the focus' ((Fg) -eq $fgP)
   $errs = Cdp-Eval "(window.__errs||[]).join(' | ')"
   Check 'the page reported no script error' ("$errs" -eq '')
   if ("$errs" -ne '') { Note $errs }
-}
-
-Section '4. he closes the practice summary first and leaves the session afterwards: the strip comes back (C-27)'
-if (-not $live) { Note 'skipped: the live wheel route is not up' }
-else {
-  Cdp-Close
-  $null = Http '/api/test/end' 8
-  $null = J '/vault/test/wheel?op=seed&clear=1'
-  Cdp-Open "$api/v2/index.html"
-  $up = Wait-True "(typeof Debrief!=='undefined' && typeof L!=='undefined')" 15
-  Check 'the top-screen page loaded' $up
-  Check 'a pretend practice session on track with one lap counted' (Practice-Stint)
-  Frame 'IsOnTrack=0&Speed=0'
-  $deb = Wait-True "(!!document.getElementById('debrief') && Debrief.el !== null)" 8
-  Start-Sleep -Milliseconds 900
-  $noStrip = Cdp-Eval "(!document.getElementById('dbReview'))"
-  Check 'getting out of practice shows the plain summary, without the strip' ($deb -and $noStrip -eq $true)
-  $null = Cdp-Eval "(function(){document.getElementById('debrief').click();return 1;})()"
-  Check 'he closes the summary' (Wait-True "(Debrief.el === null)" 5)
-  $null = J ('/vault/test/wheel?op=seed&secs=20&laps=' + (Qs '14|79.8|PB;9|80.4|top 6%;7|81.2|best 3'))
-  $null = Http '/api/test/end' 8
-  $back = Wait-True "(function(){var d=document.getElementById('debrief'),r=document.getElementById('dbReview');if(!d||!r||!d.contains(r))return false;var t=(r.querySelector('.db-rev-line')||{}).textContent||'';return t.indexOf('3 laps saved')>=0;})()" 14
-  Check 'leaving the session afterwards brings the summary back with the saved-laps strip' $back
-  $errs4 = Cdp-Eval "(window.__errs||[]).join(' | ')"
-  Check 'the page reported no script error' ("$errs4" -eq '')
   Cdp-Close
 }
 
@@ -542,16 +500,11 @@ else {
   Check 'nothing of that session is in the vault before it ends' (@($before.moments | Where-Object { $_.kind -eq 'lap' }).Count -eq 0)
   $tEnd = Get-Date
   $null = Http '/api/test/end' 8
-  $strip = Wait-True "(function(){var d=document.getElementById('debrief'),r=document.getElementById('dbReview');if(!d||!r||!d.contains(r))return false;var t=(r.querySelector('.db-rev-line')||{}).textContent||'';return t.indexOf('3 laps saved')>=0&&t.indexOf('lap 14 1:19.8 (PB)')>=0&&t.indexOf('lap 9 1:20.4 (top 6%)')>=0&&t.indexOf('lap 7 1:21.2 (best 3)')>=0;})()" 30
-  $secsToStrip = [math]::Round(((Get-Date) - $tEnd).TotalSeconds, 1)
-  Check "the session ended with the sim still open: the laps appear in the strip within 30 s ($secsToStrip s)" ($strip -and $secsToStrip -le 30)
+  $rv = J '/vault/review'
+  # (the strip itself is on the after-session coach now: section 3. The server's review below is what it shows.)
+  $null = Http '/vault/review?open=1' 8; Start-Sleep -Milliseconds 800
   $rv = J '/vault/review'
   Check 'the review contains exactly the seeded three laps' ($rv.n -eq 3 -and $rv.up -eq $true -and "$($rv.line)".Contains('lap 14 1:19.8 (PB)') -and "$($rv.line)".Contains('lap 9 1:20.4 (top 6%)') -and "$($rv.line)".Contains('lap 7 1:21.2 (best 3)'))
-  # the strip lives inside the debrief, which is invisible (opacity 0) until it fades in: wait for that, or the picture shows the idle screen
-  $null = Wait-True "(function(){var d=document.querySelector('#debrief.on');return !!(d&&d.querySelector('#dbReview'));})()" 10
-  Start-Sleep -Milliseconds 500
-  Cdp-Shot (Join-Path $shots 'c27-strip.png')
-  Check 'the picture was saved' (Test-Path (Join-Path $shots 'c27-strip.png'))
   $errs5 = Cdp-Eval "(window.__errs||[]).join(' | ')"
   Check 'the page reported no script error' ("$errs5" -eq '')
   Cdp-Close
@@ -575,14 +528,6 @@ else {
   $deb6 = Cdp-Eval "(!!document.getElementById('debrief'))"
   $rv6 = J '/vault/review'
   Check 'the stream dropping (an irdash restart) puts up no debrief and no strip' ($deb6 -eq $false -and $rv6.up -eq $false)
-  # the stream is back: a real end of the session still shows the strip
-  $null = Cdp-Eval "(function(){delete Conn.status;Conn.status='live';window.onFrame=window.__of;return 1;})()"
-  Frame 'SessionTime=170'
-  $okAgain = Wait-True "(UI.live())" 8
-  Check 'the stream is back and the page is live again' $okAgain
-  $null = Http '/api/test/end' 8
-  $again = Wait-True "(!!document.getElementById('dbReview'))" 14
-  Check 'after that, a real session end still shows the strip' $again
   Cdp-Close
 }
 

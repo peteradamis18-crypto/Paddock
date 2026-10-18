@@ -135,7 +135,11 @@ function events(Lp, corners, step) {
   }
   var push = function (type, a, b, extra) { var e = { type: type, i: a, j: b, d: a * step, len: (b - a) * step, at: name(a * step), dur: Lp.t[b] - Lp.t[a] }; for (var k in extra) e[k] = extra[k]; ev.push(e); };
   runs(function (i) { return c.BrakeABSactive[i] > 0.5; }, 4, 30).forEach(function (r) { push('ABS', r[0], r[1], {}); });
-  runs(function (i) { return c.Brake[i] > 0.1 && Math.min(c.slipLF[i], c.slipRF[i], c.slipLR[i], c.slipRR[i]) < -8; }, 3, 0).forEach(function (r) {
+  // Why the ABS guard: with ABS working, a wheel sits 8-15 % slow by design on every pulse. Counting those gave "32 lock-ups" on a
+  // clean GT3 lap (BMW Z4, 2026-10-17). A lock-up is a wheel that is slow where ABS is NOT already holding it (nowhere within 15 m).
+  var near = new Uint8Array(n), rad = Math.max(1, Math.round(15 / step));
+  for (var q = 0; q < n; q++) if (c.BrakeABSactive[q] > 0.5) for (var z = Math.max(0, q - rad); z <= Math.min(n - 1, q + rad); z++) near[z] = 1;
+  runs(function (i) { return c.Brake[i] > 0.1 && !near[i] && Math.min(c.slipLF[i], c.slipRF[i], c.slipLR[i], c.slipRR[i]) < -8; }, 3, 0).forEach(function (r) {
     var w = ['LF', 'RF', 'LR', 'RR'].reduce(function (m, k) { return c['slip' + k][r[0]] < c['slip' + m][r[0]] ? k : m; }, 'LF');
     push('LOCK', r[0], r[1], { wheel: w }); });
   runs(function (i) { return c.Throttle[i] > 0.5 && Math.max(c.slipLR[i], c.slipRR[i]) > 8; }, 3, 0).forEach(function (r) { push('SPIN', r[0], r[1], {}); });
@@ -1199,9 +1203,11 @@ function modeLine() {
   var c = D.head.conditions || {}, parts = [];
   if (c.airC != null) parts.push('Air ' + Number(c.airC).toFixed(0) + ' °C');
   if (c.trackC != null) parts.push('Track ' + Number(c.trackC).toFixed(0) + ' °C');
-  if (c.windMs != null) parts.push('Wind ' + Number(c.windMs).toFixed(1) + ' m/s' + (c.windDirDeg != null ? ' ' + Math.round(Number(c.windDirDeg)) + '°' : ''));
-  if (c.skies != null) parts.push('Skies ' + c.skies);
-  if (c.wetness != null) parts.push('Wet ' + c.wetness);
+  // Why words: "Skies 1 · Wet 1" are iRacing's raw codes; Peter reads "Partly cloudy · Dry". Wind follows his speed unit.
+  if (c.windMs != null) parts.push('Wind ' + (SPD_MPH ? (Number(c.windMs) * 2.236936).toFixed(0) + ' mph' : Number(c.windMs).toFixed(1) + ' m/s') + (c.windDirDeg != null ? ' ' + Math.round(Number(c.windDirDeg)) + '°' : ''));
+  var SKY = ['Clear', 'Partly cloudy', 'Mostly cloudy', 'Overcast'], WET = [null, 'Dry', 'Mostly dry', 'Very lightly wet', 'Lightly wet', 'Moderately wet', 'Very wet', 'Soaked'];
+  if (c.skies != null && SKY[c.skies]) parts.push(SKY[c.skies]);
+  if (c.wetness != null && WET[c.wetness]) parts.push(WET[c.wetness]);
   if (parts.length) m.push(parts.join(' · '));
   if (S.playing) m.push('PLAY <b>' + S.speed + '×</b>'); if (S.tile) m.push('TILE'); if (S.axis === 'time') m.push('TIME AXIS');
   if (D.R) m.push((S.offsetMode ? '<b>OFFSET MODE</b> · ' : '') + 'OFFSET <button class="offbtn" data-off="-1" aria-label="Offset minus one metre">−</button> <b>' + sgn(S.offsetM, 0) + ' m · ' + sgn(S.offsetS, 2) + ' s</b> <button class="offbtn" data-off="1" aria-label="Offset plus one metre">+</button>' + (S.autoResult === 'unavailable' ? ' · AUTO UNAVAILABLE' : ''));

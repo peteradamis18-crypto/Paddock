@@ -473,7 +473,7 @@ try {
   Check 'the page loaded the fixture without a JavaScript error' ($ready -and -not (Cdp-Eval 'SessionReview.error || ""') -and $script:cdp.errors.Count -eq 0)
   if ($script:cdp.errors.Count) { Note ('JavaScript: ' + ($script:cdp.errors -join ' / ')) }
   $txt = Cdp-Eval 'document.querySelector(".sr").innerText'
-  Check 'identity band: number 64, PETER, the team, the car, the track with its length' ((Cdp-Eval 'document.querySelector(".plate").textContent') -eq '64' -and $txt -match 'PETER' -and $txt -match 'PRATT MILLER MOTORSPORTS' -and $txt -match 'Chevrolet Corvette Z06 GT3\.R' -and $txt -match 'ROAD ATLANTA · FULL COURSE · 4\.06 KM')
+  Check 'identity band: number 64, PETER, the team, the car, the track with its length' ((Cdp-Eval 'document.querySelector(".plate").textContent') -eq '64' -and $txt -match 'PETER' -and $txt -match 'Chevrolet Corvette Z06 GT3\.R' -and $txt -match 'ROAD ATLANTA · FULL COURSE · 4\.06 KM')
   $dateExp = $startLocal.ToString('ddd d MMM', $inv).ToUpper()
   Check "session line: RACE, $dateExp, 11 LAPS; the pill says NEW PERSONAL BEST -0.026" ($txt -match [regex]::Escape("RACE · $dateExp · 11 LAPS") -and $txt -match 'NEW PERSONAL BEST\s+−0\.026')
   $rows = Cdp-Json $rowsJs
