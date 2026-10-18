@@ -35,6 +35,7 @@ const UI = {
             this.lastDom = now; this.slow(); this.fast();
             if (typeof Guest !== 'undefined') { try { Guest.frame(); } catch (e) { console.error(e); } }
             if (typeof Tv !== 'undefined' && Tv.on) Tower.tick();
+            if (typeof Drive !== 'undefined') Drive.tick(now);
           }
           if (now - this.lastCanvas >= 33) { this.lastCanvas = now; this.canvases(now); }
           if (typeof Tv !== 'undefined' && now - Tv.pollAt >= 700) { Tv.pollAt = now; Tv.poll(); }
@@ -404,6 +405,12 @@ const UI = {
   // Canvas work is deliberately capped and skipped unless its visible inputs changed.
   canvases(now) {
     if (!this.live()) return;
+    // in the car the Drive layer covers the grid: draw only its map (or the TV camera in that slot), not the hidden panels
+    if (typeof Drive !== 'undefined' && Drive.shown) {
+      if (typeof Tv !== 'undefined' && Tv.on) { const dt = this.lastTv ? Math.min(0.1, (now - this.lastTv) / 1000) : 0; this.lastTv = now; Tv.renderFrame(dt); }
+      else Drive.frame();
+      return;
+    }
     if (typeof Tv !== 'undefined' && Tv.on) {
       const dt = this.lastTv ? Math.min(0.1, (now - this.lastTv) / 1000) : 0;
       this.lastTv = now;

@@ -1,0 +1,74 @@
+/* Drive v1, the in-car fourth screen (docs\design\drive-v1\spec.md). Covers the old grid (and HOME, while a frozen feed
+   is still shown greyed) whenever Peter is in the car. HOME v3 tokens and type scale: 56 / 30 / 26 / 20, nothing smaller. */
+#drive {
+  --ink: #f4f1ea; --muted: #8d8a82; --dim: #5d5a54; --hair: rgba(244,241,234,.12);
+  --gold: #f2c230; --gain: #2fe07a; --amber: #ffb21e; --loss: #ff5a4d;
+  position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 910; overflow: hidden;
+  background: radial-gradient(80% 70% at 30% 20%, #0c0c0b, #070707 55%, #040404); color: var(--ink);
+  font-family: Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; font-weight: 400; cursor: default;
+}
+#drive[hidden] { display: none !important; }
+#drive .lbl { font-size: 20px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+#drive .hr { position: absolute; left: 64px; right: 64px; top: 752px; height: 1px; background: var(--hair); }
+
+#dTop { position: absolute; left: 64px; right: 64px; top: 28px; height: 36px; display: flex; align-items: baseline; gap: 28px; font-size: 26px; white-space: nowrap; }
+#dSess { color: var(--ink); letter-spacing: .2em; text-transform: uppercase; font-size: 20px; }
+#dTrack { color: var(--muted); margin-right: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#dStale { color: var(--amber); font-size: 20px; letter-spacing: .24em; text-transform: uppercase; }
+#dStale[hidden] { display: none; }
+#dClock { color: var(--ink); }
+
+#dMap { position: absolute; left: 64px; top: 96px; width: 1108px; height: 620px; }
+#dMapCv, #tvHero { position: absolute; left: 0; top: 0; width: 1108px; height: 620px; display: block; }
+#tvHero { display: none; border-radius: 6px; background: #07080b; }
+body.tv-on #tvHero { display: block; }
+body.tv-on #dMapCv { visibility: hidden; }
+#dMapNote { position: absolute; left: 0; bottom: 0; font-size: 20px; color: var(--dim); white-space: nowrap; }
+.tv-live { position: absolute; left: 16px; top: 16px; display: none; align-items: center; gap: 12px; height: 40px; padding: 0 16px 0 14px;
+  background: rgba(6,7,9,.78); border-left: 2px solid var(--gold); font-size: 20px; letter-spacing: .22em; color: var(--ink); }
+body.tv-on .tv-live { display: flex; }
+.tv-live i { width: 10px; height: 10px; border-radius: 50%; background: var(--gold); flex: none; }
+.tv-live em { font-style: normal; color: var(--gold); }
+
+#dTower { position: absolute; left: 1220px; top: 96px; width: 636px; }
+#dTowerHead { display: flex; justify-content: space-between; height: 36px; }
+#drive .trow { position: relative; display: grid; grid-template-columns: 76px 72px minmax(0, 1fr) 150px; align-items: center; height: 76px; border-top: 1px solid var(--hair); padding-left: 16px; white-space: nowrap; }
+#drive .trow .cls { position: absolute; left: 0; top: 18px; bottom: 18px; width: 4px; border-radius: 2px; background: var(--class, transparent); }
+#drive .trow .p { font-size: 30px; }
+#drive .trow .n { font-size: 26px; color: var(--muted); }
+#drive .trow .nm { font-size: 30px; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-right: 12px; }
+#drive .trow .g { font-size: 30px; text-align: right; }
+#drive .trow .tag { font-size: 20px; letter-spacing: .2em; color: var(--muted); margin-left: 12px; }
+#drive .trow.me { background: linear-gradient(90deg, rgba(242,194,48,.13), rgba(242,194,48,.04)); }
+#drive .trow.me .p, #drive .trow.me .n, #drive .trow.me .nm { color: var(--gold); }
+#drive .trow.me .g { color: var(--muted); font-size: 26px; }
+#drive .trow.pit .nm, #drive .trow.pit .g { color: var(--muted); }
+
+#dBand { position: absolute; left: 64px; top: 784px; width: 1792px; height: 200px; }
+#dBand .dcell { position: absolute; top: 0; width: 280px; height: 200px; }
+#dBand .v { display: block; font-size: 56px; line-height: 64px; margin-top: 14px; white-space: nowrap; overflow: hidden; }
+#dBand .v small { font-size: 26px; color: var(--muted); margin-left: 10px; }
+#dBand .v.gain { color: var(--gain); }
+#dBand .s { display: block; font-size: 26px; line-height: 34px; margin-top: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dBand .s.gain { color: var(--gain); }
+#dBand .s.warn { color: var(--amber); }
+#cPos { left: 0; } #cGap { left: 312px; } #cDelta { left: 624px; width: 544px !important; text-align: center; } #cLeft { left: 1200px; } #cFuel { left: 1512px; }
+#drive .dbar { position: relative; height: 16px; margin-top: 14px; background: rgba(244,241,234,.07); border-radius: 2px; }
+#drive .dbar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+#drive .dbar b { position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px; margin-left: -1px; background: var(--muted); }
+#drive .dbar.pit b { left: auto; right: 0; margin-left: 0; background: var(--ink); }
+
+#dFoot { position: absolute; left: 64px; right: 64px; top: 1000px; height: 48px; display: flex; align-items: center; gap: 28px; font-size: 26px; color: var(--muted); white-space: nowrap; }
+#dFoot b { font-weight: 400; color: var(--ink); }
+#dRec { margin-left: auto; height: 48px; box-sizing: border-box; padding: 0 20px; display: flex; align-items: center; gap: 12px; border: 1px solid rgba(244,241,234,.22); border-radius: 24px; font-size: 26px; letter-spacing: .14em; color: var(--ink); }
+#dRec[hidden] { display: none; }
+#dRec i { width: 14px; height: 14px; border-radius: 50%; background: var(--loss); }
+#dRec.warn { color: var(--amber); border-color: rgba(255,178,30,.5); } #dRec.warn i { background: var(--amber); }
+#dRec.bad { color: var(--loss); border-color: rgba(255,90,77,.6); } #dRec.bad i { display: none; }
+
+/* a frozen feed: every value and Peter's gold grey out; the age shows in amber at the top */
+body.drive-stale #dBand .v, body.drive-stale #dBand .v small, body.drive-stale #dBand .s, body.drive-stale #drive .trow .p, body.drive-stale #drive .trow .n,
+body.drive-stale #drive .trow .nm, body.drive-stale #drive .trow .g, body.drive-stale #dFoot b { color: var(--dim) !important; }
+body.drive-stale #drive .trow .cls { background: var(--dim); }
+body.drive-stale #drive .trow.me { background: rgba(244,241,234,.04); }
+body.drive-stale #drive .dbar i { background: var(--dim) !important; }

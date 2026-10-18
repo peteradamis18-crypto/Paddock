@@ -47,10 +47,8 @@ const Tv = {
     on = !!on;
     if (on === this.on) return;
     this.on = on;
+    // Drive v1: the camera takes the map slot only (drive.css body.tv-on); the band and the tower stay
     document.body.classList.toggle('tv-on', on);
-    const el = $('pTv');
-    if (el) el.hidden = !on;
-    const lower = $('tvLower'); if (lower) lower.hidden = !on;
     if (!on) {
       this.running = false;
       return;
@@ -72,18 +70,6 @@ const Tv = {
 
   frame() {
     this.running = !!(this.on && this.driving());
-    if (this.on) this.inputs(L.v);
-  },
-
-  inputs(v) {
-    const gear = $('tvGear'), speed = $('tvSpeed'), throttle = $('tvThrottle'), brake = $('tvBrake'), last = $('tvLast'), driver = $('tvDriver');
-    if (!gear || !v) return;
-    const width = n => Math.max(0, Math.min(1, Number(n) || 0)) * 100;
-    gear.textContent = 'GEAR ' + (Number.isFinite(v.Gear) ? Math.round(v.Gear) : '\u2013');
-    speed.textContent = Number.isFinite(v.Speed) ? Math.round(v.Speed * 3.6) + ' km/h' : '\u2013 km/h';
-    throttle.style.width = width(v.Throttle) + '%'; brake.style.width = width(v.Brake) + '%';
-    last.textContent = Number.isFinite(v.LapLastLapTime) && v.LapLastLapTime > 0 ? 'LAST ' + Tower.fmtTime(v.LapLastLapTime) : 'LAST \u2013';
-    const d = S.drivers.get(v.PlayerCarIdx); if (d && d.name) driver.textContent = d.name;
   },
 
   // The dashboard's shared animation scheduler calls this at no more than 30 fps.
@@ -315,29 +301,14 @@ const Tv = {
     return { x: w / 2 + (cx / cz) * focal, y: h / 2 - (cy / cz) * focal, z: cz };
   },
 
+  // the camera fills Drive's map slot (#dMap, 1108 x 620); its CSS sizes it, the canvas only matches the pixels
   place() {
-    const main = document.querySelector('main');
-    const map = $('pMap'), time = $('pTime'), box = $('pTv');
-    if (!main || !map || !time || !box) return false;
-    const mr = main.getBoundingClientRect();
-    const a = map.getBoundingClientRect();
-    const b = time.getBoundingClientRect();
-    const hero = $('tvHero'), dock = $('tvDock'), live = $('tvLive');
-    hero.style.left = (a.left - mr.left) + 'px';
-    hero.style.top = (a.top - mr.top) + 'px';
-    hero.style.width = a.width + 'px';
-    hero.style.height = a.height + 'px';
-    dock.style.left = (b.left - mr.left) + 'px';
-    dock.style.top = (b.top - mr.top) + 'px';
-    dock.style.width = b.width + 'px';
-    dock.style.height = b.height + 'px';
-    live.style.left = (a.left - mr.left + 16) + 'px';
-    live.style.top = (a.bottom - mr.top - 46) + 'px';
-    this.fitCanvas(hero, a.width, a.height);
-    this.fitCanvas(dock, b.width, b.height);
-    this.heroW = a.width; this.heroH = a.height;
-    this.dockW = b.width; this.dockH = b.height;
-    return a.width > 20 && b.width > 20;
+    const box = $('dMap'), hero = $('tvHero');
+    if (!box || !hero) return false;
+    const w = box.clientWidth, h = box.clientHeight;
+    this.fitCanvas(hero, w, h);
+    this.heroW = w; this.heroH = h;
+    return w > 20 && h > 20;
   },
 
   fitCanvas(cv, w, h) {
@@ -547,7 +518,7 @@ const Tv = {
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.font = '600 12px Bahnschrift, "Segoe UI", sans-serif';
+    ctx.font = '600 20px Bahnschrift, "Segoe UI", sans-serif';
     for (let i = 0; i < show.length; i++) {
       const d = show[i];
       if (d.x < 8 || d.x > w - 8 || d.y < 16 || d.y > h - 8) continue;
@@ -555,9 +526,9 @@ const Tv = {
       if (me && d.c.idx !== me.idx) text += '  ' + this.gapText(this.gapOf(me, d.c));
       ctx.fillStyle = 'rgba(6,7,9,.72)';
       const tw = ctx.measureText(text).width;
-      ctx.fillRect(d.x - tw / 2 - 5, d.y - 28, tw + 10, 16);
+      ctx.fillRect(d.x - tw / 2 - 6, d.y - 38, tw + 12, 26);
       ctx.fillStyle = d.c.me ? '#f2c230' : '#f4f1ea';
-      ctx.fillText(text, d.x, d.y - 14);
+      ctx.fillText(text, d.x, d.y - 15);
     }
   },
 
@@ -586,79 +557,20 @@ const Tv = {
     return dots;
   },
 
-  card(ctx, w, h, cars) {
-    const x0 = Math.round(w * 0.58);
-    const dpr = ctx.canvas._dpr || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#0c0e12';
-    ctx.fillRect(x0, 0, w - x0, h);
-    ctx.fillStyle = '#f2c230';
-    ctx.fillRect(x0, 0, 1, h);
-    const me = this.byIdx(cars, this.meIdx());
-    const pad = x0 + 18;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#8d8a82';
-    ctx.font = '600 11px Bahnschrift, "Segoe UI", sans-serif';
-    ctx.fillText('FOCUS', pad, 36);
-    ctx.fillStyle = '#f4f1ea';
-    ctx.font = '600 22px Bahnschrift, "Segoe UI", sans-serif';
-    const name = me ? (me.d.name || 'You') : 'You';
-    ctx.fillText(name.length > 22 ? this.tagName(name) : name, pad, 66);
-    ctx.fillStyle = '#f2c230';
-    ctx.font = '600 28px Bahnschrift, "Segoe UI", sans-serif';
-    ctx.fillText(me && me.pos > 0 ? ('P' + me.pos) : 'P–', pad, 102);
-    let ahead = null, behind = null;
-    if (me) {
-      for (let i = 0; i < cars.length; i++) {
-        if (cars[i].idx === me.idx) continue;
-        const g = this.gapOf(me, cars[i]);
-        if (g > 0 && (!ahead || g < ahead.g)) ahead = { c: cars[i], g: g };
-        if (g < 0 && (!behind || g > behind.g)) behind = { c: cars[i], g: g };
-      }
-    }
-    this.cardRow(ctx, pad, 148, 'AHEAD', ahead);
-    this.cardRow(ctx, pad, 210, 'BEHIND', behind);
-    ctx.fillStyle = '#8d8a82';
-    ctx.font = '600 11px Bahnschrift, "Segoe UI", sans-serif';
-    ctx.fillText(this.shot ? this.shot.name : '', pad, h - 18);
-    ctx.fillStyle = '#f2c230';
-    ctx.fillRect(0, 0, w, 2);
-  },
-
-  cardRow(ctx, x, y, label, row) {
-    ctx.fillStyle = '#8d8a82';
-    ctx.font = '600 11px Bahnschrift, "Segoe UI", sans-serif';
-    ctx.fillText(label, x, y);
-    ctx.fillStyle = '#f4f1ea';
-    ctx.font = '600 16px Bahnschrift, "Segoe UI", sans-serif';
-    if (!row) { ctx.fillText('Clear', x, y + 22); return; }
-    ctx.fillText(this.tagName(row.c.d.name), x, y + 22);
-    ctx.fillStyle = '#f2c230';
-    ctx.fillText(this.gapText(row.g), x, y + 42);
-  },
-
   draw(dt) {
     if (!this.place()) return;
     const hero = $('tvHero').getContext('2d');
-    this.drawFieldMap(hero, Tower.data, this.heroW, this.heroH);
-    if (!TrackMap.pts || TrackMap.pts.length < 50) return;
+    // no outline yet: the same one status line as the map, no invented car positions
+    if (!TrackMap.pts || TrackMap.pts.length < 50) { this.drawFieldMap(hero, Tower.data, this.heroW, this.heroH); return; }
     const k = dt > 0 ? (1 - Math.exp(-dt / 0.08)) : 1;
     let cars;
     try { cars = this.cars(k); } catch (e) { return; }
     if (!cars.length) return;
     this.direct(dt, cars, this.heroW, this.heroH);
-    const dock = $('tvDock').getContext('2d');
-    const showCorners = this.shot && this.shot.name === 'TRACK';
+    // corner names stay off the camera: Corners.draw paints numbered discs, which Drive's map rules do not allow
     this.dots = this.paint(hero, this.heroW, this.heroH, this.eye, this.look, this.fov, {
-      cars: cars, tags: true, corners: showCorners, viewW: this.heroW, viewH: this.heroH,
+      cars: cars, tags: true, corners: false, viewW: this.heroW, viewH: this.heroH,
     });
-    const vw = this.dockW * 0.58;
-    const wide = this.trackCam(vw, this.dockH);
-    this.field = this.paint(dock, this.dockW, this.dockH, wide.eye, wide.look, wide.fov, {
-      cars: cars, tags: false, corners: true, clip: true, viewW: vw, viewH: this.dockH,
-    });
-    this.card(dock, this.dockW, this.dockH, cars);
   },
 
   // The TV map uses the same sampled response as the tower, and the shared GPS-map fit.
@@ -699,15 +611,15 @@ const Tv = {
         ctx.beginPath(); ctx.arc(p[0], p[1], mine ? 10 : 8, 0, Math.PI * 2);
         ctx.lineWidth = mine ? 2 : 1.5; ctx.strokeStyle = mine ? '#f2c230' : (battle ? '#f4f1ea' : '#c7cfd8'); ctx.stroke();
       }
-      if (mine && c.num) { ctx.fillStyle = '#f2c230'; ctx.font = '600 13px Bahnschrift, "Segoe UI", sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('#' + c.num, p[0] + 13, p[1]); }
+      if (mine && c.num) { ctx.fillStyle = '#f2c230'; ctx.font = '600 20px Bahnschrift, "Segoe UI", sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('#' + c.num, p[0] + 14, p[1]); }
     }
   },
 };
 
-// The tower uses the frozen server snapshot. It never infers timing from map distance.
+// /tv/data is irdash's frozen snapshot (director label, the no-outline status map). Drive v1 builds its own 7-row battle
+// tower from the frames in the page; this object keeps the snapshot and the truthful REC pill.
 const Tower = {
   data: null,
-  lastPaint: 0,
   timer: 0,
   busy: false,
   recAt: 0,
@@ -715,60 +627,37 @@ const Tower = {
 
   start() { this.lastTick = 0; },
   tick() {
-    if (!Tv.on) { this.data = null; this.render(); return; }
+    if (!Tv.on) { this.data = null; return; }
     this.recorder();
     if (this.busy) return;
     this.busy = true;
     fetch('/tv/data', { cache: 'no-store' }).then(r => r.json()).then(d => {
       this.data = d;
       const label = $('tvCam'); if (label && d && d.director) label.textContent = d.director;
-      if (!d || d.tick === null) Tv.inputs({});
-      const now = performance.now();
-      if (now - this.lastPaint >= 33) { this.lastPaint = now; this.render(); }
-    }).catch(() => { this.data = null; const label = $('tvCam'); if (label) label.textContent = 'LEADER'; Tv.inputs({}); this.render(); }).then(() => { this.busy = false; });
+    }).catch(() => { this.data = null; const label = $('tvCam'); if (label) label.textContent = 'LEADER'; }).then(() => { this.busy = false; });
   },
   recorder() {
     const now = Date.now(); if (this.recBusy || now - this.recAt < 2000) return;
     this.recBusy = true; this.recAt = now;
-    fetch('/vault/recorder', { cache: 'no-store' }).then(r => r.json()).then(d => {
-      // irdash's one verdict (recorder.cs CaptureJson): REC only while video is really landing on disk
-      const el = $('tvRec'); if (!el) return;
-      const c = d && d.capture, st = c && c.state;
-      const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
-      const words = { recording: 'REC ' + mmss(c && c.secs), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
-      el.hidden = !words[st]; el.textContent = words[st] || '';
-      el.className = st === 'recording' ? 'rec-on' : st === 'stalled' || st === 'failed' ? 'rec-bad' : 'rec-warn';
-    }).catch(() => { const el = $('tvRec'); if (el) { el.hidden = false; el.textContent = 'RECORDING UNKNOWN'; el.className = 'rec-warn'; } }).then(() => { this.recBusy = false; });
+    fetch('/vault/recorder', { cache: 'no-store' }).then(r => r.json()).then(d => this.showRec(d))
+      .catch(() => this.showRec(null)).then(() => { this.recBusy = false; });
+  },
+  // irdash's one verdict (recorder.cs CaptureJson): REC only while video is really landing on disk. null = irdash did not answer.
+  showRec(d) {
+    const el = $('dRec'); if (!el) return;
+    const c = d && d.capture, st = c && c.state;
+    const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+    const words = { recording: 'REC ' + mmss(c && c.secs), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
+    const text = d ? words[st] || '' : 'RECORDING UNKNOWN';
+    el.hidden = !text;
+    el.querySelector('span').textContent = text;
+    el.className = !text ? '' : !d ? 'warn' : st === 'recording' ? '' : st === 'stalled' || st === 'failed' ? 'bad' : 'warn';
   },
   fmtTime(n) {
-    if (typeof n !== 'number' || !isFinite(n) || n <= 0) return '\u2013';
+    if (typeof n !== 'number' || !isFinite(n) || n <= 0) return '–';
     const m = Math.floor(n / 60), s = (n - m * 60).toFixed(1);
     return m + ':' + (s < 10 ? '0' : '') + s;
   },
-  fmtGap(n) {
-    if (typeof n !== 'number' || !isFinite(n)) return '\u2013';
-    return (n > 0 ? '+' : '') + n.toFixed(1) + ' s';
-  },
-  render() {
-    const root = $('tvTowerRows'), panel = $('tvTower');
-    if (!root || !panel) return;
-    const d = this.data;
-    const cars = d && d.tick !== null && Array.isArray(d.cars) ? d.cars.filter(c => c && c.pos > 0) : [];
-    cars.sort((a, b) => a.pos - b.pos || (a.classPos || 0) - (b.classPos || 0) || a.idx - b.idx);
-    const multi = cars.some(c => c.classId !== cars[0].classId);
-    panel.hidden = !Tv.on || !cars.length;
-    if (panel.hidden) { root.innerHTML = ''; return; }
-    const rows = [];
-    for (let i = 0; i < cars.length; i++) {
-      const c = cars[i], me = c.idx === d.playerIdx;
-      const color = /^([0-9a-f]{6})$/i.test(c.classColor || '') ? '#' + c.classColor : '#77736a';
-      const style = multi ? ' style="--class:' + color + '"' : '';
-      rows.push('<div class="tv-tower-row' + (me ? ' tv-me' : '') + (multi ? ' tv-multi' : '') + '" data-idx="' + c.idx + '"' + style + '>' +
-        '<span class="tv-pos">' + c.pos + '</span><span class="tv-num">' + esc(c.num || '\u2013') + '</span><span class="tv-name">' + esc(c.name || '\u2013') + '</span>' +
-        '<span>' + this.fmtGap(c.gap) + '</span><span>' + this.fmtGap(c.interval) + '</span><span>' + this.fmtTime(c.last) + '</span><span class="tv-pit">' + (c.pit ? 'PIT' : '') + '</span></div>');
-    }
-    root.innerHTML = rows.join('');
-  }
 };
 
 window.Tv = Tv;

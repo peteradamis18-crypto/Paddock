@@ -202,6 +202,7 @@ function onFrame(v) {
   pushTrace(v);
   TrackMap.feed(v);
   if (typeof Tv !== 'undefined') Tv.frame();
+  if (typeof Drive !== 'undefined') Drive.onFrame(v);
   if (typeof Debrief !== 'undefined') Debrief.frame(v);   // debrief.js: stint summary when you get out
 }
 

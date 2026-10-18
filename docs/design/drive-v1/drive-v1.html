@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drive v1 mockup</title>
+<!-- Drive v1, the in-car fourth screen ("eye-line pit wall"). Static mockup: states via ?state=practice|race|pit|stale|norec.
+     The screen sits above the middle race screen, so the cheapest glance lands on the bottom band. -->
+<style>
+:root {
+  --bg: #060606; --ink: #f4f1ea; --muted: #8d8a82; --dim: #5d5a54; --hair: rgba(244,241,234,.12);
+  --gold: #f2c230; --gain: #2fe07a; --amber: #ffb21e; --loss: #ff5a4d;
+  --font: "Bahnschrift", "DIN Alternate", "Segoe UI", sans-serif;
+}
+html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+body { background: radial-gradient(80% 70% at 30% 20%, #0c0c0b, #070707 55%, #040404); color: var(--ink); font-family: var(--font); font-variant-numeric: tabular-nums; }
+.lbl { font-size: 20px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.hr { position: absolute; left: 64px; right: 64px; height: 1px; background: var(--hair); }
+
+/* top line */
+#dTop { position: absolute; left: 64px; right: 64px; top: 28px; height: 36px; display: flex; align-items: baseline; gap: 28px; font-size: 26px; white-space: nowrap; }
+#dSess { color: var(--ink); letter-spacing: .2em; text-transform: uppercase; font-size: 20px; }
+#dTrack { color: var(--muted); margin-right: auto; overflow: hidden; text-overflow: ellipsis; }
+#dStale { color: var(--amber); font-size: 20px; letter-spacing: .24em; text-transform: uppercase; }
+#dClock { color: var(--ink); }
+
+/* map, upper left */
+#dMap { position: absolute; left: 64px; top: 96px; width: 1108px; height: 620px; }
+#dMapCv { width: 1108px; height: 620px; display: block; }
+#dMapNote { position: absolute; left: 0; bottom: 0; font-size: 20px; color: var(--dim); }
+
+/* battle tower, upper right */
+#dTower { position: absolute; left: 1220px; top: 96px; width: 636px; }
+#dTowerHead { display: flex; justify-content: space-between; height: 36px; }
+.trow { position: relative; display: grid; grid-template-columns: 76px 72px 1fr 150px; align-items: center; height: 76px; border-top: 1px solid var(--hair); padding-left: 16px; white-space: nowrap; }
+.trow .cls { position: absolute; left: 0; top: 18px; bottom: 18px; width: 4px; border-radius: 2px; background: var(--class, transparent); }
+.trow .p { font-size: 30px; }
+.trow .n { font-size: 26px; color: var(--muted); }
+.trow .nm { font-size: 30px; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-right: 12px; }
+.trow .g { font-size: 30px; text-align: right; }
+.trow .tag { font-size: 20px; letter-spacing: .2em; color: var(--muted); margin-left: 12px; }
+.trow.me { background: linear-gradient(90deg, rgba(242,194,48,.13), rgba(242,194,48,.04)); }
+.trow.me .p, .trow.me .n, .trow.me .nm { color: var(--gold); }
+.trow.me .g { color: var(--muted); font-size: 26px; }
+.trow.pit .nm, .trow.pit .g { color: var(--muted); }
+
+/* the glance band: y 760 to 1080 */
+#dBand { position: absolute; left: 64px; top: 784px; width: 1792px; height: 200px; }
+.cell { position: absolute; top: 0; width: 280px; height: 200px; }
+.cell .v { display: block; font-size: 56px; line-height: 64px; margin-top: 14px; white-space: nowrap; }
+.cell .v small { font-size: 26px; color: var(--muted); margin-left: 10px; }
+.cell .s { display: block; font-size: 26px; line-height: 34px; margin-top: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell .s.gain { color: var(--gain); }
+.cell .s.warn { color: var(--amber); }
+#cPos { left: 0; } #cGap { left: 312px; } #cDelta { left: 624px; width: 544px; text-align: center; } #cLeft { left: 1200px; } #cFuel { left: 1512px; }
+#cDelta .v { font-size: 56px; }
+#cDelta .v.gain { color: var(--gain); }
+.dbar { position: relative; height: 16px; margin-top: 14px; background: rgba(244,241,234,.07); border-radius: 2px; }
+.dbar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.dbar b { position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px; margin-left: -1px; background: var(--muted); }
+.dbar.pit b { left: auto; right: 0; margin-left: 0; background: var(--ink); }
+
+/* footer row of the band */
+#dFoot { position: absolute; left: 64px; right: 64px; top: 1000px; height: 48px; display: flex; align-items: center; gap: 28px; font-size: 26px; color: var(--muted); white-space: nowrap; }
+#dFoot b { font-weight: 400; color: var(--ink); }
+#dRec { margin-left: auto; height: 48px; box-sizing: border-box; padding: 0 20px; display: flex; align-items: center; gap: 12px; border: 1px solid rgba(244,241,234,.22); border-radius: 24px; font-size: 26px; letter-spacing: .14em; color: var(--ink); }
+#dRec i { width: 14px; height: 14px; border-radius: 50%; background: var(--loss); }
+#dRec.warn { color: var(--amber); border-color: rgba(255,178,30,.5); } #dRec.warn i { background: var(--amber); }
+#dRec.bad { color: var(--loss); border-color: rgba(255,90,77,.6); } #dRec.bad i { display: none; }
+
+/* stale: everything greys, the age shows in amber at the top */
+body.stale #dBand .v, body.stale #dBand .v small, body.stale #dBand .s, body.stale .trow .p, body.stale .trow .n, body.stale .trow .nm, body.stale .trow .g, body.stale #dFoot b { color: var(--dim) !important; }
+body.stale .trow .cls { background: var(--dim); } body.stale .trow.me { background: rgba(244,241,234,.04); }
+body.stale .dbar i { background: var(--dim) !important; }
+</style>
+</head>
+<body>
+<div id="dTop"><span id="dSess"></span><span id="dTrack"></span><span id="dStale" hidden></span><span id="dClock"></span></div>
+<div id="dMap"><canvas id="dMapCv" width="1108" height="620"></canvas><div id="dMapNote"></div></div>
+<section id="dTower"><div id="dTowerHead" class="lbl"><span id="dTowerT"></span><span id="dTowerG"></span></div><div id="dRows"></div></section>
+<div class="hr" style="top:752px"></div>
+<div id="dBand">
+  <div class="cell" id="cPos"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+  <div class="cell" id="cGap"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+  <div class="cell" id="cDelta"><span class="lbl"></span><span class="v"></span><div class="dbar"><i></i><b></b></div><span class="s"></span></div>
+  <div class="cell" id="cLeft"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+  <div class="cell" id="cFuel"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+</div>
+<div id="dFoot"><span id="dLaps"></span><span id="dRec"><i></i><span></span></span></div>
+
+<script src="data/track.js"></script>
+<script>
+'use strict';
+const DASH = '—', DOT = ' · ';
+const $ = id => document.getElementById(id);
+const isNum = x => typeof x === 'number' && isFinite(x);
+
+// ---------- fixtures: five states ----------
+const NAMES = ['Marco Rossi', 'Jonas Keller', 'Sam Okafor', 'Lena Brandt', 'Tom Hughes', 'Ana Ruiz', 'Kai Tanaka', 'Ben Carter', 'Iris Novak', 'Luca Bianchi', 'Noah Dubois', 'Eva Lindqvist', 'Omar Haddad', 'Mia Schultz', 'Ravi Patel', 'Zoe Martin', 'Felix Wagner', 'Nina Kowalski', 'Hugo Laurent', 'Aiden Murphy', 'Sofia Greco', 'Jack Turner', 'Elena Petrova'];
+const NUMS = ['17', '3', '88', '21', '9', '55', '12', '71', '5', '44', '30', '2', '66', '19', '8', '27', '14', '91', '33', '6', '77', '40', '11'];
+const CLS = { GTP: { id: 1, name: 'GTP', color: '#ff5888' }, LMP2: { id: 2, name: 'LMP2', color: '#33ceff' }, GT3: { id: 3, name: 'GT3', color: '#ae6bff' } };
+
+function field(multi) {
+  // Peter is #64. Practice: one class ordered by best lap. Race: three classes, Peter fifth in GT3.
+  const cars = [];
+  const me = { idx: 0, num: '64', name: 'Peter Adamis', me: true };
+  if (!multi) {
+    const bests = [84.311, 84.522, 84.700, 84.902, 85.020, 85.144, 85.390, 85.611, 85.804, 86.112, 86.400, 86.902, 87.300, 87.811, 88.420, null, null, null];
+    const pcts = [0.62, 0.08, 0.31, 0.50, 0.53, 0.47, 0.71, 0.92, 0.18, 0.40, 0.84, 0.26, 0.97, 0.66, 0.12, 0.76, 0.35, 0.02];
+    let k = 0;
+    for (let i = 0; i < 18; i++) {
+      const c = i === 3 ? Object.assign({}, me) : { idx: i + 1, num: NUMS[k], name: NAMES[k++] };
+      Object.assign(c, { cls: CLS.GT3, best: bests[i], last: bests[i] ? bests[i] + 0.4 + (i % 3) * 0.21 : null, pct: pcts[i], pit: i === 16 || i === 17, pos: bests[i] ? i + 1 : 0 });
+      cars.push(c);
+    }
+    return cars;
+  }
+  const plan = [['GTP', 6], ['LMP2', 5], ['GT3', 12]];
+  let pos = 0, k = 0, gap = 0;
+  for (const [cn, n] of plan) {
+    for (let j = 0; j < n; j++) {
+      pos++;
+      const isMe = cn === 'GT3' && j === 4;
+      const c = isMe ? Object.assign({}, me) : { idx: 100 + pos, num: NUMS[k % NUMS.length], name: NAMES[k++ % NAMES.length] };
+      gap += cn === 'GT3' ? [0, 2.1, 1.6, 3.0, 1.4, 0.8, 4.2, 2.6, 0.6, 5.0, 3.3, 7.1][j] : 3.1 + j * 0.7;
+      Object.assign(c, { cls: CLS[cn], pos: pos, cpos: j + 1, f2: gap, best: cn === 'GT3' ? 84.902 : null, last: (cn === 'GT3' ? 85.1 : cn === 'LMP2' ? 77.6 : 72.3) + (j % 4) * 0.23, pit: false });
+      cars.push(c);
+    }
+  }
+  // track positions: Peter at 0.52, the GT3 cars around him spread by their gaps
+  const pctOf = { GT3: g => 0.52 + (cars.find(c => c.me).f2 - g) / 90.4 };
+  for (const c of cars) c.pct = c.cls.name === 'GT3' ? (((pctOf.GT3(c.f2)) % 1) + 1) % 1 : ((c.pos * 0.137 + 0.21) % 1);
+  return cars;
+}
+
+const BASE = {
+  practice: {
+    type: 'Practice', race: false, multi: false, clock: '7:42 PM ET', stale: 0,
+    secsLeft: 2530, lapsLeft: null, lap: 12, totalLaps: null,
+    delta: { ok: true, v: -0.27 }, onPit: false,
+    fuel: { level: 11.8, per: 1.25, add: null },
+    rec: { state: 'recording', secs: 1932 },
+  },
+  race: {
+    type: 'Race', race: true, multi: true, clock: '8:21 PM ET', stale: 0,
+    secsLeft: null, lapsLeft: 12, lap: 9, totalLaps: 20,
+    gapTrend: -0.31,
+    delta: { ok: true, v: 0.18 }, onPit: false,
+    fuel: { level: 9.6, per: 1.24, add: 6.4 },
+    rec: { state: 'recording', secs: 2472 },
+  },
+};
+const STATES = {
+  practice: () => Object.assign({}, BASE.practice, { cars: field(false) }),
+  race: () => Object.assign({}, BASE.race, { cars: field(true) }),
+  pit: () => {
+    const m = Object.assign({}, BASE.race, { cars: field(true), onPit: true, delta: { ok: false, v: null }, speed: 19.3, pitLimit: 20.1, limiter: true, fuel: { level: 9.6, per: 1.24, add: 6.4 } });
+    const me = m.cars.find(c => c.me); me.pct = 0.955; me.pit = true;
+    return m;
+  },
+  stale: () => Object.assign({}, BASE.race, { cars: field(true), stale: 9 }),
+  norec: () => Object.assign({}, BASE.race, { cars: field(true), rec: { state: 'failed' } }),
+};
+
+// ---------- units: one system, iRacing's own (imperial here) ----------
+const metric = false;
+const fuelU = l => metric ? l : l / 3.785412, fuelUnit = metric ? 'L' : 'gal';
+const speedU = ms => metric ? ms * 3.6 : ms * 2.236936, speedUnit = metric ? 'km/h' : 'mph';
+
+// ---------- formatting ----------
+function lap(t) { if (!isNum(t) || t <= 0) return DASH; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); }
+function clock(s) { if (!isNum(s) || s < 0) return DASH; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60, p = n => (n < 10 ? '0' : '') + n; return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x); }
+function signed(d, n) { return (d < 0 ? '−' : '+') + Math.abs(d).toFixed(n); }
+
+// ---------- the model the view draws (implementation builds the same shape from live telemetry) ----------
+function model(st) {
+  const cars = st.cars, me = cars.find(c => c.me);
+  const field = st.multi && st.race ? cars.filter(c => c.cls.id === me.cls.id) : cars;
+  let order;
+  if (st.race) order = field.slice().sort((a, b) => (st.multi ? a.cpos - b.cpos : a.pos - b.pos));
+  else order = field.slice().sort((a, b) => (a.best || 9e9) - (b.best || 9e9));
+  const k = order.indexOf(me);
+  const ahead = k > 0 ? order[k - 1] : null, behind = order[k + 1] || null;
+  return { st, me, order, k, ahead, behind, classBest: Math.min.apply(null, field.map(c => c.best || 9e9)) };
+}
+
+function set(el, sel, text, cls) { const e = el.querySelector(sel); e.textContent = text; if (cls != null) e.className = sel.slice(1) + (cls ? ' ' + cls : ''); }
+function setH(el, sel, html) { el.querySelector(sel).innerHTML = html; }
+
+function render(m) {
+  const st = m.st, me = m.me;
+  document.body.classList.toggle('stale', st.stale > 0);
+  // top line
+  $('dSess').textContent = st.type;
+  $('dTrack').textContent = TRACK.name + DOT + TRACK.config;
+  $('dStale').hidden = !(st.stale > 0);
+  $('dStale').textContent = 'No data for ' + st.stale + ' s';
+  $('dClock').textContent = st.clock;
+
+  // position
+  const cp = $('cPos');
+  if (st.race && st.multi) {
+    set(cp, '.lbl', 'Class position');
+    setH(cp, '.v', me.cpos > 0 ? 'P' + me.cpos + '<small>' + me.cls.name + '</small>' : DASH);
+    set(cp, '.s', 'P' + me.pos + ' overall' + DOT + st.cars.length + ' cars');
+  } else {
+    set(cp, '.lbl', st.race ? 'Position' : 'Position');
+    setH(cp, '.v', me.pos > 0 ? 'P' + me.pos : DASH);
+    set(cp, '.s', 'of ' + m.order.length + (st.race ? '' : DOT + 'best lap'));
+  }
+
+  // gap ahead (race) or best lap (practice)
+  const cg = $('cGap');
+  if (st.race) {
+    if (m.ahead) {
+      const g = me.f2 - m.ahead.f2;
+      set(cg, '.lbl', 'Gap ahead');
+      setH(cg, '.v', g.toFixed(1) + '<small>s</small>');
+      const t = st.gapTrend;
+      // trend over the last lap, in words: closing (green), losing, steady; no trend yet = who it is
+      const trend = !isNum(t) ? m.ahead.name.split(' ').pop() : t < -0.05 ? 'closing ' + Math.abs(t).toFixed(1) + ' a lap' : t > 0.05 ? 'losing ' + t.toFixed(1) + ' a lap' : 'steady';
+      set(cg, '.s', '#' + m.ahead.num + DOT + trend, isNum(t) && t < -0.05 ? 'gain' : '');
+    } else {
+      set(cg, '.lbl', 'Gap behind');
+      setH(cg, '.v', m.behind ? (m.behind.f2 - me.f2).toFixed(1) + '<small>s</small>' : DASH);
+      set(cg, '.s', 'leading', '');
+    }
+  } else {
+    set(cg, '.lbl', 'Best lap');
+    setH(cg, '.v', lap(me.best));
+    const d = isNum(me.best) && m.classBest < 9e9 ? me.best - m.classBest : null;
+    set(cg, '.s', d === null ? DASH : d < 0.0005 ? 'fastest here' : signed(d, 3) + ' to fastest', '');
+  }
+
+  // delta to best, or pit lane speed
+  const cd = $('cDelta'), bar = cd.querySelector('.dbar'), fill = bar.querySelector('i');
+  bar.className = 'dbar';
+  if (st.onPit) {
+    set(cd, '.lbl', 'Pit lane');
+    setH(cd, '.v', Math.round(speedU(st.speed)) + '<small>' + speedUnit + '</small>');
+    cd.querySelector('.v').className = 'v';
+    bar.className = 'dbar pit';
+    const f = Math.max(0, Math.min(1, st.speed / st.pitLimit));
+    fill.style.cssText = 'left:0;width:' + (f * 100) + '%;background:' + (f > 1.0 ? 'var(--amber)' : 'rgba(244,241,234,.55)');
+    set(cd, '.s', 'limit ' + Math.round(speedU(st.pitLimit)) + ' ' + speedUnit + DOT + (st.limiter ? 'limiter on' : 'limiter off'), st.limiter ? '' : 'warn');
+  } else if (st.delta.ok && isNum(st.delta.v)) {
+    const d = st.delta.v;
+    set(cd, '.lbl', 'Delta to best');
+    set(cd, '.v', signed(d, 2), d < 0 ? 'gain' : '');
+    const f = Math.min(1, Math.abs(d)) * 50;
+    fill.style.cssText = (d < 0 ? 'right:50%;' : 'left:50%;') + 'width:' + f + '%;background:' + (d < 0 ? 'var(--gain)' : 'rgba(244,241,234,.55)');
+    set(cd, '.s', '', '');
+  } else {
+    set(cd, '.lbl', 'Delta to best');
+    set(cd, '.v', DASH, '');
+    fill.style.cssText = 'width:0';
+    set(cd, '.s', 'out lap' + DOT + 'no delta', '');
+  }
+
+  // time or laps left
+  const cl = $('cLeft');
+  if (isNum(st.lapsLeft)) {
+    set(cl, '.lbl', 'Laps left');
+    setH(cl, '.v', st.lapsLeft + '');
+    set(cl, '.s', 'lap ' + st.lap + ' of ' + st.totalLaps);
+  } else {
+    set(cl, '.lbl', 'Time left');
+    setH(cl, '.v', clock(st.secsLeft));
+    set(cl, '.s', 'lap ' + st.lap);
+  }
+
+  // fuel
+  const cf = $('cFuel'), f = st.fuel, laps = f.per > 0 ? f.level / f.per : null;
+  set(cf, '.lbl', 'Fuel');
+  setH(cf, '.v', laps === null ? DASH : laps.toFixed(1) + '<small>laps</small>');
+  if (st.race && isNum(f.add)) set(cf, '.s', f.add > 0 ? '+' + fuelU(f.add).toFixed(1) + ' ' + fuelUnit + ' to finish' : 'enough to finish', f.add > 0 ? 'warn' : '');
+  else set(cf, '.s', fuelU(f.level).toFixed(1) + ' ' + fuelUnit + DOT + fuelU(f.per).toFixed(2) + ' a lap', '');
+
+  // footer: last lap, and the honest REC pill
+  $('dLaps').innerHTML = 'Last <b>' + lap(me.last) + '</b>' + DOT + 'Best <b>' + lap(me.best || 84.902) + '</b>';
+  const rec = $('dRec'), r = st.rec, mmss = s => clock(s);
+  const words = { recording: ['REC ' + mmss(r.secs), ''], starting: ['REC STARTING', 'warn'], 'paused-disk': ['REC PAUSED: DISK FULL', 'warn'], stalled: ['NOT RECORDING', 'bad'], failed: ['NOT RECORDING', 'bad'] };
+  const w = words[r.state];
+  rec.hidden = !w; if (w) { rec.querySelector('span').textContent = w[0]; rec.className = w[1]; }
+
+  tower(m);
+  drawMap(m);
+}
+
+function tower(m) {
+  const st = m.st, me = m.me, n = m.order.length;
+  let a = Math.max(0, Math.min(m.k - 3, n - 7)); const rows = m.order.slice(a, a + 7);
+  $('dTowerT').textContent = st.race ? (st.multi ? 'Battle' + DOT + me.cls.name : 'Battle') : 'Best laps';
+  $('dTowerG').textContent = st.race ? 'Gap' : '';
+  $('dRows').innerHTML = rows.map(c => {
+    const pos = st.race ? (st.multi ? c.cpos : c.pos) : (c.pos || 0);
+    let g;
+    if (c.me) g = st.race ? (st.onPit ? '' : lap(c.last)) : lap(c.best);
+    else if (st.race) g = Math.abs(c.f2 - me.f2).toFixed(1);
+    else g = lap(c.best);
+    const pit = c.pit || (c.me && st.onPit);
+    return '<div class="trow' + (c.me ? ' me' : '') + (pit ? ' pit' : '') + '" style="--class:' + (st.multi ? c.cls.color : 'transparent') + '"><i class="cls"></i>' +
+      '<span class="p">' + (pos > 0 ? pos : DASH) + '</span><span class="n">' + c.num + '</span>' +
+      '<span class="nm">' + c.name + (pit ? '<span class="tag">PIT</span>' : '') + '</span><span class="g">' + g + '</span></div>';
+  }).join('');
+}
+
+// ---------- the map: complete outline, corners as small text, cars as dots, the six nearest numbered ----------
+function fit(pts, w, h, pad) {
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const tw = x1 - x0 || 1, th = y1 - y0 || 1;
+  const sA = Math.min((w - 2 * pad) / tw, (h - 2 * pad) / th), sB = Math.min((w - 2 * pad) / th, (h - 2 * pad) / tw);
+  const rot = sB > sA * 1.08;
+  return { w, h, s: rot ? sB : sA, rot, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+}
+function scr(p, v) { let x = (p[0] - v.cx) * v.s, y = -(p[1] - v.cy) * v.s; if (v.rot) { const t = x; x = -y; y = t; } return [v.w / 2 + x, v.h / 2 + y]; }
+function at(pts, pct) { const N = pts.length, f = ((pct % 1) + 1) % 1 * N, i = Math.floor(f) % N, t = f - Math.floor(f), a = pts[i], b = pts[(i + 1) % N]; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+
+function drawMap(m) {
+  const cv = $('dMapCv'), g = cv.getContext('2d'), W = 1108, H = 620, st = m.st;
+  g.clearRect(0, 0, W, H);
+  const pts = TRACK.pts, v = fit(pts, W, H, 44), sp = pct => scr(at(pts, pct), v);
+  const line = () => { g.beginPath(); for (let i = 0; i <= pts.length; i++) { const q = scr(pts[i % pts.length], v); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); } };
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  line(); g.strokeStyle = '#0b0d10'; g.lineWidth = 22; g.stroke();
+  line(); g.strokeStyle = 'rgba(244,241,234,.42)'; g.lineWidth = 13; g.stroke();
+  line(); g.strokeStyle = '#1b1f25'; g.lineWidth = 10; g.stroke();
+  const tick = (pct, len, col, wd) => { const a = sp(pct), b = sp(pct + 0.002), dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l; g.beginPath(); g.moveTo(a[0] - nx * len, a[1] - ny * len); g.lineTo(a[0] + nx * len, a[1] + ny * len); g.strokeStyle = col; g.lineWidth = wd; g.stroke(); };
+  tick(0, 14, '#f4f1ea', 4);
+  // corner labels: plain text on the outside of the bend, never a numbered disc
+  const cen = scr([v.cx, v.cy], v), placed = [];
+  g.font = '20px ' + getComputedStyle(document.body).fontFamily; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const t of TRACK.turns) {
+    const a = sp(t.pct - 0.006), p = sp(t.pct), b = sp(t.pct + 0.006);
+    const tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
+    let nx = -ty / l, ny = tx / l;
+    const turn = (p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]);   // which way the road bends
+    if (Math.abs(turn) < 1) { if ((p[0] - cen[0]) * nx + (p[1] - cen[1]) * ny < 0) { nx = -nx; ny = -ny; } }
+    else if (turn < 0) { nx = -nx; ny = -ny; }
+    const text = t.name || 'T' + t.n, w = g.measureText(text).width;
+    let x = p[0] + nx * 30, y = p[1] + ny * 30;
+    x += nx * w * 0.35;
+    const box = { x: x - w / 2 - 4, y: y - 13, w: w + 8, h: 26 };
+    if (placed.some(o => o.x < box.x + box.w && box.x < o.x + o.w && o.y < box.y + box.h && box.y < o.y + o.h)) continue;
+    if (box.x < 0 || box.y < 0 || box.x + box.w > W || box.y + box.h > H - 30) continue;
+    placed.push(box);
+    g.fillStyle = '#8d8a82'; g.fillText(text, x, y);
+  }
+  // cars: class colour (one class: soft grey), pit cars faded; the three ahead and three behind on track get their number
+  const me = m.me, rel = c => { let d = c.pct - me.pct; if (d > 0.5) d -= 1; if (d < -0.5) d += 1; return d; };
+  const others = st.cars.filter(c => !c.me);
+  const ahead = others.filter(c => rel(c) > 0).sort((a, b) => rel(a) - rel(b)).slice(0, 3);
+  const behind = others.filter(c => rel(c) <= 0).sort((a, b) => rel(b) - rel(a)).slice(0, 3);
+  const near = new Set(ahead.concat(behind));
+  const dim = st.stale > 0;
+  for (const c of others) {
+    const p = sp(c.pct);
+    g.globalAlpha = c.pit ? 0.35 : 1;
+    g.beginPath(); g.arc(p[0], p[1], 8, 0, Math.PI * 2);
+    g.fillStyle = dim ? '#5d5a54' : st.multi ? c.cls.color : '#c9ccd1'; g.fill();
+    g.lineWidth = 2; g.strokeStyle = '#060606'; g.stroke();
+  }
+  g.globalAlpha = 1;
+  // numbers for the nearby six, in a dark chip so they read over the road
+  const tags = [];
+  for (const c of near) {
+    const p = sp(c.pct), text = c.num;
+    g.font = '600 20px ' + getComputedStyle(document.body).fontFamily;
+    const w = g.measureText(text).width + 12;
+    // first free spot of four around the dot, clear of corner names and other numbers
+    const hit = (x, y) => placed.concat(tags).some(o => x < o.x + o.w && o.x < x + w && y < o.y + (o.h || 26) && o.y < y + 26);
+    const spots = [[12, -32], [-12 - w, -32], [12, 6], [-12 - w, 6]];
+    let bx = p[0] + 12, by = p[1] - 32;
+    for (const q of spots) if (!hit(p[0] + q[0], p[1] + q[1])) { bx = p[0] + q[0]; by = p[1] + q[1]; break; }
+    tags.push({ x: bx, y: by, w, h: 26 });
+    g.fillStyle = 'rgba(6,6,6,.82)'; g.fillRect(bx, by, w, 26);
+    g.fillStyle = dim ? '#5d5a54' : '#f4f1ea'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(text, bx + 6, by + 14);
+  }
+  // Peter last, on top: gold dot and ring
+  const p = sp(me.pct);
+  g.beginPath(); g.arc(p[0], p[1], 18, 0, Math.PI * 2); g.lineWidth = 2.5; g.strokeStyle = dim ? '#5d5a54' : '#f2c230'; g.stroke();
+  g.beginPath(); g.arc(p[0], p[1], 11, 0, Math.PI * 2); g.fillStyle = dim ? '#5d5a54' : '#f2c230'; g.fill();
+  g.lineWidth = 2; g.strokeStyle = '#060606'; g.stroke();
+  $('dMapNote').textContent = 'Corner names: ' + TRACK.credit;
+}
+
+const state = new URLSearchParams(location.search).get('state') || 'race';
+render(model((STATES[state] || STATES.race)()));
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="mydrive.css">
 <link rel="stylesheet" href="home.css">
 <link rel="stylesheet" href="tv.css">
+<link rel="stylesheet" href="drive.css">
 </head>
 <body>
 <header id="strip">
@@ -101,22 +102,25 @@
       </div>
     </section>
   </div>
-  <section id="pTv" hidden>
-    <canvas id="tvHero"></canvas>
-    <canvas id="tvDock"></canvas>
-    <div class="tv-live" id="tvLive"><i></i><em>LIVE</em><b id="tvCam">HELICOPTER</b></div>
-    <div class="tv-lower" id="tvLower" aria-label="Driver inputs">
-      <b id="tvDriver">PETER</b><span id="tvGear">GEAR –</span><span id="tvSpeed">– km/h</span>
-      <label>THROTTLE<i><b id="tvThrottle"></b></i></label><label>BRAKE<i><b id="tvBrake"></b></i></label>
-      <span id="tvLast">LAST –</span><span id="tvRec" hidden>REC</span>
-    </div>
-    <section class="tv-tower" id="tvTower" aria-label="Timing tower">
-      <div class="tv-tower-head"><span>POS</span><span>NO.</span><span>DRIVER</span><span>GAP</span><span>INT</span><span>LAST</span><span>PIT</span></div>
-      <div id="tvTowerRows"></div>
-    </section>
-  </section>
 </main>
 
+<!-- Drive v1 (drive.js; design docs\design\drive-v1\spec.md): the in-car "eye-line pit wall". Glance band at the bottom, the complete
+     map upper left (TV VIEW swaps in the broadcast camera there), a 7-row battle tower centred on Peter upper right. -->
+<section id="drive" hidden>
+  <div id="dTop"><span id="dSess"></span><span id="dTrack"></span><span id="dStale" hidden></span><span id="dClock"></span></div>
+  <div id="dMap"><canvas id="dMapCv"></canvas><canvas id="tvHero"></canvas>
+    <div class="tv-live" id="tvLive"><i></i><em>LIVE</em><b id="tvCam">HELICOPTER</b></div><div id="dMapNote"></div></div>
+  <section id="dTower" aria-label="Battle tower"><div id="dTowerHead" class="lbl"><span id="dTowerT"></span><span id="dTowerG"></span></div><div id="dRows"></div></section>
+  <div class="hr"></div>
+  <div id="dBand">
+    <div class="dcell" id="cPos"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+    <div class="dcell" id="cGap"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+    <div class="dcell" id="cDelta"><span class="lbl"></span><span class="v"></span><div class="dbar"><i></i><b></b></div><span class="s"></span></div>
+    <div class="dcell" id="cLeft"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+    <div class="dcell" id="cFuel"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
+  </div>
+  <div id="dFoot"><span id="dLaps"></span><span id="dRec" hidden><i></i><span></span></span></div>
+</section>
 <div id="toast" role="status" hidden></div>
 
 <!-- shown whenever no session is live: covers the whole screen, so no empty race boxes -->
@@ -162,5 +166,6 @@
 <script src="mydrive.js"></script>
 <script src="intro.js"></script>
 <script src="tv.js"></script>
+<script src="drive.js"></script>
 </body>
 </html>
