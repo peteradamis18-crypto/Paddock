@@ -280,6 +280,8 @@ powershell -ExecutionPolicy Bypass -File C:\Users\peter\iRacingDeck\deck-intro\i
 
 It opens the `.streamDeckPlugin` through Explorer. Stream Deck asks once. Peter clicks Install. Do not copy the plugin folder into `%APPDATA%\Elgato` by hand. A hand-copied folder never gets the bundled profiles.
 
+**Order matters (2026-10-18):** when the add-on version changed, click Install FIRST, then run the MAIN page steps below. Stream Deck's install rewrote the MAIN profile and its key pictures went missing (112 'custom image missing' lines, blank keys) after a build-deck done before the install. Run build-deck again after the install and the deck is whole.
+
 MAIN page, after `build-deck.ps1` or `keys\keys.map` changes. Stream Deck must be closed or the script throws `Close Stream Deck first`. When section 1 is clear:
 
 ```
