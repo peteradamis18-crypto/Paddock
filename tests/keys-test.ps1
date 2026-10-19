@@ -519,6 +519,9 @@ Check "no deck key sends irdash a command it always refuses ($($refused -join ',
 # 9b. GET IN (`smart`) must never arm a SKIP. Its picture is fixed (the add-on has no smart key action), but the resolver says SKIP in a Test Drive / AI garage.
 $smart = Get-Body $irSrc 'static int CmdSmart(string[] args)'
 $realPath = $smart.Substring($smart.IndexOf('if (isFake) return 3;'))
+# live 2026-10-19: SKIP SESSION in a Test Drive clicked the DRIVER Prev/Next buttons and did nothing; it now ends the drive like QUIT
+$skipSrc = [regex]::Match($irSrc, '(?s)static int CmdSkip\(\).*?\r?\n        \}').Value
+Check 'SKIP SESSION in a Test Drive ends it back to the menu (CmdQuitMain) instead of clicking the driver Prev/Next buttons' ($skipSrc -match 'testSession && !s0\.Ai' -and $skipSrc -match 'return CmdQuitMain\(\)')
 Check 'GET IN (smart) does not arm a skip-session confirm outside the fake test path' ($smart.Contains('if (isFake) return 3;') -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'GoDriveOnly\(true\)')
 Check 'the add-on has no smart / skip key action, so GET IN is a fixed picture' ($inst -notmatch 'UUID = "\$uuid\.(smart|skip|quit|restart)"')
 # 9c. HOME (rigon) with a session running must not maximise the iRacing UI over the sim

@@ -1138,6 +1138,10 @@ namespace IRDeck
             bool testSession = System.Text.RegularExpressions.Regex.IsMatch(s0.Info, @"EventType:\s*Test");
             if (!s0.Ai && !testSession) { Log("skip refused: official sessions cannot be skipped"); return 3; }
             if (s0.OnTrack && s0.Speed > 1.0) { Log("skip refused: the car is moving"); return 3; }
+            // A Test Drive is ONE session: the Prev / Next buttons on its screen pick the DRIVER (replay camera), so the old click did
+            // nothing and Peter's SKIP SESSION 'never worked' (live 2026-10-19). 'Skip' there means 'finish this and go back to the menu',
+            // the same as QUIT, which is what he wants next after a test drive.
+            if (testSession && !s0.Ai) { Log("skip: a Test Drive has no next session - ending it and going back to the menu (like QUIT)"); return CmdQuitMain(); }
             if (PrevNext() != null)
             {
                 int rc = ClickPrevNext(1, "skip");

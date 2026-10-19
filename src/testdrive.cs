@@ -572,7 +572,48 @@ namespace IRDeck
             if (s.EndsWith(" button", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 7).Trim();
             return s.Length > 0 ? s : fallback;
         }
-        static string PickedName = "";   // the exact name of the row PickRow clicked, to check the card against
+        static string PickedName = "";
+
+        // iRacing's own long names for the cars the telemetry names shorter. The Test Drive card already shows the last car, in iRacing's
+        // words ('Porsche 718 Cayman GT4 Clubsport MR'), so comparing it with the telemetry name made LAST DRIVE open the picker for a car
+        // that was already chosen, and the picker's search then found nothing (live 2026-10-19). Seeded from what iRacing showed; every
+        // verified pick whose row name differs is learned in irdeck.carnames.tsv. Only a known pair counts: 'BMW M4 GT3' must never
+        // pass for 'BMW M4 GT3 EVO'.
+        static readonly Dictionary<string, string> CarAlias = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "Porsche 718 Cayman GT4", "Porsche 718 Cayman GT4 Clubsport MR" } };
+        static bool aliasLoaded;
+        static void LoadAliases()
+        {
+            if (aliasLoaded) return; aliasLoaded = true;
+            try { string f = Path.Combine(Root, "irdeck.carnames.tsv"); if (File.Exists(f)) foreach (string l in File.ReadAllLines(f)) { string[] p = l.Split('\t'); if (p.Length == 2 && p[0].Length > 0 && p[1].Length > 0) CarAlias[p[0]] = p[1]; } } catch { }
+        }
+        static void LearnAlias(string want, string shown)
+        {
+            if (string.IsNullOrEmpty(want) || string.IsNullOrEmpty(shown) || Same(want, shown)) return;
+            LoadAliases(); string old; if (CarAlias.TryGetValue(want, out old) && Same(old, shown)) return;
+            CarAlias[want] = shown;
+            try { File.WriteAllText(Path.Combine(Root, "irdeck.carnames.tsv"), string.Join("\n", System.Linq.Enumerable.Select(CarAlias, kv => kv.Key + "\t" + kv.Value)) + "\n"); } catch { }
+        }
+        static bool CardIsCar(string card, string want)
+        {
+            if (Same(card, want)) return true;
+            LoadAliases(); string a; return CarAlias.TryGetValue((want ?? "").Trim(), out a) && Same(card, a);
+        }
+
+        // A pop-up on top of iRacing's menu (Latest News after a race, 2026-10-19 10:05) hides EVERY control from UI automation: the window
+        // then shows only its three title buttons and START fails with 'Test Drive not found'. Esc closes such a pop-up; it is only sent
+        // when the tree is that empty, with the iRacing UI window in front, once, and the tree is read again after it.
+        static bool ClearBlockingPopup(AutomationElement root)
+        {
+            List<UEl> els = UiAll(root);
+            if (els.Count >= 10) return true;
+            Log("popup: iRacing's screen shows only " + els.Count + " controls - a pop-up is in front; pressing Esc once");
+            if (!TdFront()) return false;
+            SendCombo("esc", 0);
+            for (int i = 0; i < 12; i++) { Thread.Sleep(400); els = UiAll(root); if (els.Count >= 10) { Log("popup: closed ("+ els.Count + " controls now)"); return true; } }
+            TdWhy = "iRacing is showing a pop-up on top of its menu. Close it once and press again.";
+            Log("popup: still only " + els.Count + " controls after Esc");
+            return false;
+        }   // the exact name of the row PickRow clicked, to check the card against
 
         // The cards: the three unnamed "button"s just under the pictures (Car Info, Paint Car, Track Info) anchor
         // everything; the car and track names are the Text elements about 50 px below them.
@@ -837,6 +878,7 @@ namespace IRDeck
             tdUi = uh;
             if (Native.IsIconic(uh)) Native.ShowWindow(uh, 9);
             FocusWindow(uh);
+            if (!ClearBlockingPopup(root)) return 1;
 
             // 1. the Test Drive dialog (the sidebar button toggles it, so only press it when the dialog is closed)
             List<UEl> els = UiAll(root);
@@ -853,7 +895,7 @@ namespace IRDeck
 
             // 2. car
             string carShown = car;   // iRacing's own name for it once picked (the final check compares against this, not the session info's name)
-            if (!Same(cards.CarName.Name, car))
+            if (!CardIsCar(cards.CarName.Name, car))
             {
                 if (EnsurePanel(root, true) == null) return 1;
                 if (PickRow(root, car, car, 12) == null)
@@ -861,10 +903,11 @@ namespace IRDeck
                     string last = LastWord(car);
                     if (last.Length == 0 || PickRow(root, last, car, 8, rs => SameMakeAndEnd(rs, u => u.Name, car)) == null) return 1;
                 }
-                string want = PickedName.Length > 0 ? PickedName : car;   // iRacing's own name for it, as clicked
+                string want = PickedName.Length > 0 ? PickedName : car;
+                LearnAlias(car, PickedName);   // iRacing's own name for it, as clicked
                 carShown = want;
                 bool changed = false;
-                for (int i = 0; i < 10 && !changed; i++) { Thread.Sleep(400); els = UiAll(root); cards = ReadCards(els); changed = cards != null && cards.CarName != null && (Same(cards.CarName.Name, want) || Same(cards.CarName.Name, car)); }
+                for (int i = 0; i < 10 && !changed; i++) { Thread.Sleep(400); els = UiAll(root); cards = ReadCards(els); changed = cards != null && cards.CarName != null && (Same(cards.CarName.Name, want) || CardIsCar(cards.CarName.Name, car)); }
                 if (!changed) { TdWhy = "iRacing didn't switch to " + car + "."; Log("tdsetup: the car did not change to " + car); return 1; }
             }
             // 3. damage off / on (the switch lives in the Set Car panel; green = damage is disabled)
@@ -947,7 +990,7 @@ namespace IRDeck
             }
             // 5. check
             els = UiAll(root); cards = ReadCards(els);
-            if (cards == null || !(Same(cards.CarName.Name, carShown) || Same(cards.CarName.Name, car)) || !(Same(cards.TrackName.Name, trackShown) || Same(cards.TrackName.Name, track)))
+            if (cards == null || !(Same(cards.CarName.Name, carShown) || CardIsCar(cards.CarName.Name, car)) || !(Same(cards.TrackName.Name, trackShown) || Same(cards.TrackName.Name, track)))
             { TdWhy = "iRacing shows " + (cards == null ? "nothing" : cards.CarName.Name + " at " + cards.TrackName.Name) + " instead of what was asked."; Log("tdsetup: the cards show " + (cards == null ? "nothing" : cards.CarName.Name + " / " + cards.TrackName.Name) + " - not what was asked"); return 1; }
             Log("tdsetup: " + cards.CarName.Name + " at " + cards.TrackName.Name + (cards.Layout != null ? " (" + cards.Layout.Name + ")" : ""));
             if (!launch) return 0;

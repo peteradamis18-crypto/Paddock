@@ -116,5 +116,9 @@ Check "all $($cases.Count) ids agree (js = c#)" (@(0..([Math]::Min($out.Count, $
 Remove-Item $wsh -ErrorAction SilentlyContinue
 
 ''
+'3. live findings 2026-10-19 (LAST DRIVE)'
+Check 'the Test Drive card shows iRacing''s long car name: a known pair (Porsche 718 Cayman GT4 -> ... Clubsport MR) counts as the chosen car, never a bare prefix' ($src -match 'CarAlias[^;]*Porsche 718 Cayman GT4[^;]*Clubsport MR' -and $src -match 'static bool CardIsCar' -and $src -match 'if \(!CardIsCar\(cards\.CarName\.Name, car\)\)')
+Check 'a pop-up over iRacing''s menu (Latest News) is cleared with one Esc before tdsetup looks for controls' ($src -match 'static bool ClearBlockingPopup' -and $src -match 'if \(!ClearBlockingPopup\(root\)\) return 1;')
+
 "$pass passed, $fail failed."
 if ($fail -gt 0) { exit 1 }
