@@ -1401,6 +1401,10 @@ namespace IRDeck
         static int CmdConfirm(string[] a)
         {
             if (a.Length < 2) { Log("confirm: need an id and a command"); return 1; }
+            // SKIP SESSION is ONE press (2026-10-18, Peter: 'skip session doesnt work'). The two-press arm only gave a double beep and
+            // a second press never came: every real use in the log (10-15, 10-18) stopped at 'armed'. The command itself already refuses
+            // everything risky (official sessions, a moving car) and the key ignores repeats within 0.7 s, so a bounce cannot skip twice.
+            if (a[0] == "skip-session") { Log("confirm skip-session: one press, no arming"); return Run(Slice(a, 1)); }
             string f = Path.Combine(Root, "armed-" + a[0] + ".txt");
             DateTime expiry = DateTime.MinValue;
             try { if (File.Exists(f)) expiry = DateTime.Parse(File.ReadAllText(f), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); } catch { }
