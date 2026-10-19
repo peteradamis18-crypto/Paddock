@@ -83,6 +83,7 @@ namespace IRDash
         public bool Official, Finished;
         public double BestValid, Secs, IrDelta;
         public int BestLap, ValidLaps, Pos, Field;
+        public int ResV;      // VaultIbt.ResultV: the race-result fix a row has been through (0 = made before the "of 22" field-count fix, re-read cheaply by Vault.FixResults)
         public int Rules;     // L-1: LapRules.Version the laps were judged under; a row made under the old rule (0 = no such column) is read again, see Vault.ScanSessions
         public List<double[]> Top = new List<double[]>();     // every clean lap, quickest first: {lap, time}
         public string Combo { get { return IRDash.Combo.Key(Car, Track, Config); } }
@@ -94,7 +95,7 @@ namespace IRDash
             StringBuilder t = new StringBuilder();
             foreach (double[] x in Top) { if (t.Length > 0) t.Append(';'); t.Append(((int)x[0]).ToString(inv)).Append(':').Append(x[1].ToString("0.000", inv)); }
             string[] f = { Name, Size.ToString(inv), StartMs.ToString(inv), EndMs.ToString(inv), Car, Track, Config, TrackId, TrackName, Type, Official ? "1" : "0", BestValid.ToString("0.000", inv), BestLap.ToString(inv),
-                           ValidLaps.ToString(inv), t.ToString(), Pos.ToString(inv), Field.ToString(inv), IrDelta.ToString("0.0", inv), Finished ? "1" : "0", Secs.ToString("0", inv), Rules.ToString(inv) };
+                           ValidLaps.ToString(inv), t.ToString(), Pos.ToString(inv), Field.ToString(inv), IrDelta.ToString("0.0", inv), Finished ? "1" : "0", Secs.ToString("0", inv), Rules.ToString(inv), ResV.ToString(inv) };
             for (int i = 0; i < f.Length; i++) f[i] = (f[i] ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
             return string.Join("\t", f);
         }
@@ -110,6 +111,7 @@ namespace IRDash
             { string[] kv = p.Split(':'); double lap, tm; if (kv.Length == 2 && double.TryParse(kv[0], NumberStyles.Float, inv, out lap) && double.TryParse(kv[1], NumberStyles.Float, inv, out tm)) s.Top.Add(new[] { lap, tm }); }
             int.TryParse(f[15], out s.Pos); int.TryParse(f[16], out s.Field); double.TryParse(f[17], NumberStyles.Float, inv, out s.IrDelta); s.Finished = f[18] == "1"; double.TryParse(f[19], NumberStyles.Float, inv, out s.Secs);
             if (f.Length >= 21) int.TryParse(f[20], out s.Rules);
+            if (f.Length >= 22) int.TryParse(f[21], out s.ResV);
             // a stub of a file that could not be read stays a stub; every other row made under an older rule is read again (the rule can add a lap as well as take one away)
             if (s.Rules < LapRules.Version && s.Car.Length == 0) s.Rules = LapRules.Version;
             return s;
@@ -142,7 +144,7 @@ namespace IRDash
             Dictionary<string, object> d = Parse(IbtLaps.LapsJson(path));
             if (d == null) return null;
             VSession s = new VSession();
-            s.Name = fi.Name; s.Size = fi.Length; s.Rules = LapRules.Version;
+            s.Name = fi.Name; s.Size = fi.Length; s.Rules = LapRules.Version; s.ResV = ResultV;
             s.Car = Str(d, "car"); s.Track = Str(d, "track"); s.Config = Str(d, "config"); s.TrackId = Str(d, "trackId"); s.TrackName = Str(d, "trackName"); s.Type = Str(d, "type");
             s.StartMs = (long)Num(d, "startMs"); st0 = Num(d, "st0"); s.Secs = Num(d, "seconds");
             if (s.StartMs <= 0) s.StartMs = (long)(fi.LastWriteTimeUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds - (long)(s.Secs * 1000);
@@ -169,7 +171,8 @@ namespace IRDash
         sealed class Drv { public int Idx, Cls, Ir; public bool Pace, Spec; }
 
         // how a race ended (last record of the file) and what that was worth in iRating; sets Finished / Pos / Field / IrDelta
-        static void Result(string path, VSession s)
+        public const int ResultV = 1;      // bump when Result() changes what it stores; Vault.FixResults then runs it again on the old rows
+        public static void Result(string path, VSession s)
         {
             if (!s.IsRace) return;
             TrackMaps.Ibt t = TrackMaps.OpenIbt(path, true);
@@ -193,8 +196,13 @@ namespace IRDash
                 s.Finished = true; s.Pos = place;
                 // the field: the drivers of my class (not the pace car, not spectators)
                 List<Drv> all = new List<Drv>();
-                foreach (Match m in Regex.Matches(t.yaml, @"- CarIdx: (\d+)[ \t]*\r?\n((?:   [^\r\n]*\r?\n?)*)"))
+                // Only the DriverInfo block, each CarIdx once: the whole-file scan also matched "- CarIdx: 8" and "- CarIdx: 255" in
+                // ResultsFastestLap (empty blocks, class 0, not pace, not spectator), so a 20-car race showed "P14 of 22" (2026-10-18 audit).
+                string yDrivers = t.yaml; Match dm = Regex.Match(t.yaml, @"(?m)^DriverInfo:[ \t]*\r?\n[\s\S]*?(?=^\S)"); if (dm.Success) yDrivers = dm.Value;
+                HashSet<int> seenIdx = new HashSet<int>();
+                foreach (Match m in Regex.Matches(yDrivers, @"- CarIdx: (\d+)[ \t]*\r?\n((?:   [^\r\n]*\r?\n?)*)"))
                 {
+                    if (!seenIdx.Add(int.Parse(m.Groups[1].Value))) continue;
                     string b = m.Groups[2].Value; Drv dv = new Drv(); dv.Idx = int.Parse(m.Groups[1].Value);
                     int.TryParse(TrackMaps.YamlValue(b, "CarClassID"), out dv.Cls); int.TryParse(TrackMaps.YamlValue(b, "IRating"), out dv.Ir);
                     dv.Pace = TrackMaps.YamlValue(b, "CarIsPaceCar") == "1"; dv.Spec = TrackMaps.YamlValue(b, "IsSpectator") == "1";
@@ -490,6 +498,7 @@ namespace IRDash
         static bool ScanSessions(bool test, int max, bool newestOnly)
         {
             if (SrcDir == null || !Directory.Exists(SrcDir)) return false;
+            if (!test && !Program.IsDriving) FixResults();
             List<FileInfo> files = new List<FileInfo>(new DirectoryInfo(SrcDir).GetFiles("*.ibt"));
             files.Sort(delegate (FileInfo a, FileInfo b) { return string.Compare(StampOf(a.Name), StampOf(b.Name), StringComparison.Ordinal); });
             bool sim = !test && SimRunning();
@@ -519,6 +528,86 @@ namespace IRDash
             if (!newestOnly) scanLeft = left;
             if (changed || done > 0) { Reconcile(); LinkClips(); SaveAll(); }
             return left > 0;
+        }
+
+        // His incident count at the end of the race that a field log (start time startMs) belongs to, read from the telemetry file (last record) - for logs from before
+        // the log kept it itself. The file is the one whose first record is nearest the log start (within 90 s); -1 = no file / not a race at its end / still being written.
+        static readonly Dictionary<string, int> incCache = new Dictionary<string, int>();
+        public static int IncidentsFor(long startMs, int sessNum)
+        {
+            if (SrcDir == null || !Directory.Exists(SrcDir) || startMs <= 0) return -1;
+            string name = null; long bestD = 90000;
+            lock (gate) foreach (VSession s in sessions) { long d = Math.Abs(s.StartMs - startMs); if (s.Name.Length > 0 && d <= bestD) { bestD = d; name = s.Name; } }
+            // The field log can start long BEFORE the telemetry file (it logs the grid and the pre-race; 2026-10-12: log 15:29:58, file 15:35:30,
+            // 5.5 min apart), so no file was found within 90 s and the incident count fell back to the sim's results text (5, really 13).
+            // Then: the file whose own span holds the log's start, or that begins within 15 min after it.
+            if (name == null) lock (gate) foreach (VSession s in sessions)
+            {
+                if (s.Name.Length == 0 || s.StartMs <= 0) continue;
+                bool inside = startMs >= s.StartMs && startMs <= (s.EndMs > 0 ? s.EndMs : s.StartMs + 14400000), shortlyBefore = s.StartMs >= startMs && s.StartMs - startMs <= 900000;
+                long d = Math.Abs(s.StartMs - startMs);
+                if ((inside || shortlyBefore) && d < bestD + 900000 && (name == null || d < bestD)) { bestD = d; name = s.Name; }
+            }
+            if (name == null) return -1;
+            return IncidentsOfFile(name, sessNum);
+        }
+
+        // His own incident counter at the end of one telemetry file's race session (cached). The debrief knows exactly which file it shows,
+        // so it asks by name instead of guessing from the field log's start time (2026-10-12: two files 5 minutes apart, the guess took the first).
+        public static int IncidentsOfFile(string name, int sessNum)
+        {
+            if (SrcDir == null || string.IsNullOrEmpty(name)) return -1;
+            lock (incCache) { int hit; if (incCache.TryGetValue(name + "|" + sessNum, out hit)) return hit; }
+            int res = -1;
+            try
+            {
+                string p = Path.Combine(SrcDir, name); FileInfo fi = new FileInfo(p);
+                if (!fi.Exists || (DateTime.Now - fi.LastWriteTime).TotalSeconds < 120 || Career.OnlineOnly(fi)) return -1;      // not cached: try again later
+                TrackMaps.Ibt t = TrackMaps.OpenIbt(p, true);
+                if (t != null)
+                    using (t.fs)
+                    {
+                        VarDef vInc, vNum;
+                        if (t.records >= 10 && t.vars.TryGetValue("PlayerCarMyIncidentCount", out vInc))
+                        {
+                            t.vars.TryGetValue("SessionNum", out vNum);
+                            byte[] buf = new byte[t.bufLen]; t.fs.Position = t.dataOff + (t.records - 1) * (long)t.bufLen;
+                            if (t.fs.Read(buf, 0, t.bufLen) == t.bufLen)
+                            {
+                                int num = vNum != null ? (int)TrackMaps.Read(buf, vNum) : -1;
+                                string ty = num >= 0 ? Career.SessionTypeOf(t.yaml, num) : "race";
+                                if ((num < 0 || num == sessNum) && Regex.IsMatch(ty, "race", RegexOptions.IgnoreCase)) res = (int)TrackMaps.Read(buf, vInc);
+                            }
+                        }
+                    }
+            }
+            catch (Exception ex) { Log.W("vault: incidents for " + name + ": " + ex.Message); return -1; }
+            Log.W("vault: incidents for " + name + " (session " + sessNum + ") = " + res);
+            lock (incCache) incCache[name + "|" + sessNum] = res;
+            return res;
+        }
+
+        // Rows read before VaultIbt.ResultV: run only the (cheap, yaml + last record) race result again so a stored "P14 of 22" becomes "P14 of 20" without re-reading every lap.
+        static void FixResults()
+        {
+            List<VSession> todo; lock (gate) todo = sessions.FindAll(delegate (VSession x) { return x.ResV < VaultIbt.ResultV; });
+            if (todo.Count == 0) return;
+            foreach (VSession s in todo)
+            {
+                try
+                {
+                    string p = s.Name.Length > 0 ? Path.Combine(SrcDir, s.Name) : "";
+                    if (s.IsRace && s.Finished && p.Length > 0 && File.Exists(p))
+                    {
+                        FileInfo fi = new FileInfo(p);
+                        if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 120 || Career.OnlineOnly(fi)) continue;      // still being written / would start a OneDrive download: try next time
+                        lock (gate) { VaultIbt.Result(p, s); s.ResV = VaultIbt.ResultV; }
+                    }
+                    else lock (gate) s.ResV = VaultIbt.ResultV;
+                }
+                catch (Exception ex) { Log.W("vault: result fix " + s.Name + ": " + ex.Message); lock (gate) s.ResV = VaultIbt.ResultV; }
+            }
+            Reconcile(); LinkClips(); SaveAll();
         }
 
         static string StampOf(string name) { Match m = Regex.Match(name, @"(\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2})\.ibt$"); return m.Success ? m.Groups[1].Value : name; }
@@ -799,6 +888,7 @@ namespace IRDash
             moments.Remove(id); dirty.Add(id);
             if (tombstone) deleted.Add(id);
             try { string th = P(@"thumbs\" + id + ".png"); if (File.Exists(th)) File.Delete(th); } catch { }
+            try { string fr = FramePath(id); if (File.Exists(fr)) File.Delete(fr); } catch { }
             if (m.Video.Length > 0) { try { string v = P(m.Video); if (File.Exists(v)) File.Delete(v); } catch { } }
             if (m.Ibt.Length > 0)
             {
@@ -1447,6 +1537,7 @@ namespace IRDash
                     case "/api/rec/save": j = "{\"state\":" + Json_.S(Recorder.Save(Q(q, "id"))) + "}"; break;
                     case "/api/rec/session-video": return Recorder.ServeSession(s, Q(q, "id"), hdr);
                     case "/vault/thumb": return ServeThumb(s, Q(q, "id"));
+                    case "/vault/frame": return ServeFrame(s, Q(q, "id"));                                   // a real picture from the lap's own recording (made in the background, 404 until then)
                 }
                 if (j == null && path.StartsWith("/vault/test/", StringComparison.Ordinal)) j = TestRoute(path, q, out code);
                 if (j == null) { Reply(s, 404, Err("not found")); return true; }
@@ -1469,6 +1560,8 @@ namespace IRDash
         // ---- status and the whole list ----
         static string StatusJson(bool withList)
         {
+            // which moments have a recording (outside the lock: the recorder's lookup takes the Vault's lock itself)
+            Dictionary<string, VFrameSrc> fr = withList ? FrameMap() : null;
             lock (gate)
             {
                 int keepers = 0, recent = 0, clips = 0, withVideo = 0; long clipBytes = 0, ibtBytes = 0;
@@ -1497,6 +1590,9 @@ namespace IRDash
                     foreach (VSession x in sessions) if (x.BestValid > 0) { double v; if (!pb.TryGetValue(x.Combo, out v) || x.BestValid < v) pb[x.Combo] = x.BestValid; }
                     List<VMoment> list = new List<VMoment>(moments.Values);
                     list.Sort(delegate (VMoment a, VMoment b) { return b.Ts.CompareTo(a.Ts); });
+                    int frames = 0, vids = 0;
+                    foreach (KeyValuePair<string, VFrameSrc> kv in fr) { if (kv.Value.Clip.Length > 0) vids++; if (File.Exists(FramePath(kv.Key))) frames++; }
+                    sb.Append(",\"frames\":").Append(frames).Append(",\"vids\":").Append(vids);
                     sb.Append(",\"moments\":[");
                     bool first = true;
                     foreach (VMoment m in list)
@@ -1504,7 +1600,10 @@ namespace IRDash
                         if (!first) sb.Append(','); first = false;
                         double best; bool has = pb.TryGetValue(m.Combo, out best);
                         string j = m.Json(File.Exists(P(@"thumbs\" + m.Id + ".png")));
-                        sb.Append(j.Substring(0, j.Length - 1)).Append(",\"pb\":").Append(has ? N3(best) : "null").Append(",\"gap\":").Append(has && m.LapTime > 0 ? N3(m.LapTime - best) : "null").Append('}');
+                        VFrameSrc src; fr.TryGetValue(m.Id, out src);
+                        sb.Append(j.Substring(0, j.Length - 1)).Append(",\"pb\":").Append(has ? N3(best) : "null").Append(",\"gap\":").Append(has && m.LapTime > 0 ? N3(m.LapTime - best) : "null")
+                          .Append(",\"vid\":").Append(Json_.S(src != null ? src.Clip : "")).Append(",\"vidDur\":").Append(src != null && src.Clip.Length > 0 ? src.ClipDur.ToString("0.0", Inv) : "0")
+                          .Append(",\"frame\":").Append(src != null && File.Exists(FramePath(m.Id)) ? "true" : "false").Append('}');
                     }
                     sb.Append(']');
                 }
@@ -1654,7 +1753,8 @@ namespace IRDash
         // Pi needs a workbook before it accepts a data file; keep its writable copy outside Program Files.
         sealed class CosworthInfo { public bool Installed; public string Exe = ""; public string Workbook = ""; public string Template = ""; }
         static CosworthInfo cwCache; static DateTime cwAt = DateTime.MinValue;
-        static bool pretendCw, pretendNoCw;   // sandbox only: the tests pretend Pi Toolbox is installed (on=1), is not (on=0; it IS installed on this PC since 2026-10-10), or look for real (on=auto)
+        static volatile bool cwOpening;       // a Pi launch thread is running (StartCosworth)
+        static bool pretendCw, pretendNoCw;  // sandbox only: the tests pretend Pi Toolbox is installed (on=1), is not (on=0; it IS installed on this PC since 2026-10-10), or look for real (on=auto)
 
         // Looks (read-only) for Cosworth Pi Toolbox: Program Files folders and the uninstall list in the registry.
         static CosworthInfo Cosworth()
@@ -1762,6 +1862,7 @@ namespace IRDash
         static void StartCosworth(CosworthInfo cw, string file)
         {
             if (cw.Exe.Length == 0) return;
+            cwOpening = true;
             ThreadStart work = delegate ()
             {
                 try
@@ -1795,6 +1896,7 @@ namespace IRDash
                     if (!title.EndsWith("*", StringComparison.Ordinal)) Log.W("vault: cosworth lap title did not become dirty");
                 }
                 catch (Exception ex) { Log.W("vault: cosworth open: " + ex.Message); }
+                finally { cwOpening = false; }
             };
             Thread t = new Thread(work); t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Name = "CosworthOpen"; t.Start();
         }
@@ -1839,6 +1941,15 @@ namespace IRDash
             }
             CosworthInfo cw = Cosworth();
             string action = how == "cosworth" && cw.Installed && cw.Exe.Length > 0 ? "cosworth" : "folder";
+            if (action == "cosworth" && !dry)
+            {
+                // A second press while Pi is still opening (it takes up to ~30 s) started a second launcher thread: two Pi windows or a
+                // "workbook already open" dialog. One open at a time; the later press just says so.
+                if (cwOpening) return "{\"ok\":true,\"action\":\"busy\",\"target\":" + Json_.S(file) + ",\"cosworthInstalled\":true,\"dry\":false}";
+                // The thread below only logs when Pi's template is missing, so the button said "opening" and nothing happened. Check that now.
+                if (PiMainTitle().Length == 0 || PiMainTitle().StartsWith("Untitled", StringComparison.OrdinalIgnoreCase))
+                    if (!EnsureCosworthWorkbook(cw)) { code = 424; return Err("Pi Toolbox has no iRacing template on this PC"); }
+            }
             if (!dry)
             {
                 try
@@ -1898,6 +2009,166 @@ namespace IRDash
             if (f == null || !File.Exists(f)) { Reply(s, 404, Err("no thumbnail yet")); return true; }
             Respond(s, 200, "image/png", File.ReadAllBytes(f), "");
             return true;
+        }
+
+        static bool ServeFrame(NetworkStream s, string id)
+        {
+            string f = ValidId(id) ? FramePath(id) : null;
+            if (f == null || !File.Exists(f)) { Reply(s, 404, Err("no picture yet")); return true; }
+            Respond(s, 200, "image/jpeg", File.ReadAllBytes(f), "");
+            return true;
+        }
+    }
+
+    // ---------------- real video frames for the grid cards ----------------
+    // 2026-10-18 Peter: "vault is a disaster ... hard to interpret" - every card showed the same track outline. Capture galleries (NVIDIA, Xbox,
+    // Steam, YouTube) show a real frame of each recording; a lap that was recorded gets one too. Source: the lap's own recorder clip, else the
+    // whole-session recording that holds the lap (vault\sessions, vault\saved; a race: 25 s after its first lap starts). One ffmpeg at a time,
+    // BelowNormal, never while he drives, cached in vault\thumbs\f-<id>.jpg (about 40 KB). Until it exists the card shows the map picture.
+    static partial class Vault
+    {
+        sealed class VFrameSrc { public string File = "", Clip = ""; public double At, ClipDur; }
+        static readonly object frameGate = new object();
+        static bool frameBusy;
+        static readonly Dictionary<string, DateTime> frameTried = new Dictionary<string, DateTime>();
+        static List<Dictionary<string, object>> sideCache; static DateTime sideAt;
+
+        static string FramePath(string id) { return P(@"thumbs\f-" + id + ".jpg"); }
+
+        // the whole-session sidecars (small JSON beside each recording), read at most every 30 s
+        static List<Dictionary<string, object>> SessionSidecars()
+        {
+            if (sideCache != null && (DateTime.Now - sideAt).TotalSeconds < 30) return sideCache;
+            List<Dictionary<string, object>> l = new List<Dictionary<string, object>>();
+            foreach (string dir in new[] { P("sessions"), P("saved") })
+            {
+                try
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (string f in Directory.GetFiles(dir, "*.json"))
+                    {
+                        try
+                        {
+                            string mp4 = Path.ChangeExtension(f, ".mp4"); if (!File.Exists(mp4)) continue;
+                            Dictionary<string, object> d = VaultIbt.Parse(File.ReadAllText(f, Encoding.UTF8)); if (d == null) continue;
+                            d["_file"] = mp4; l.Add(d);
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+            sideCache = l; sideAt = DateTime.Now; return l;
+        }
+
+        static string SS(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o != null ? Convert.ToString(o, Inv) : ""; }
+        static double SN(Dictionary<string, object> d, string k) { object o; double v; return d.TryGetValue(k, out o) && o != null && double.TryParse(Convert.ToString(o, Inv), NumberStyles.Float, Inv, out v) ? v : 0; }
+
+        static VFrameSrc FrameSource(VMoment m, long from, long to, List<Dictionary<string, object>> side)
+        {
+            VFrameSrc clip = null;
+            if (m.Lap > 0)
+            {
+                RecClip c = null; try { c = Recorder.ClipForShare(m.Id); } catch { }
+                if (c != null && File.Exists(c.File))
+                {
+                    clip = new VFrameSrc(); clip.File = c.File; clip.ClipDur = c.Duration;
+                    if (m.Kind != "race") clip.Clip = c.Id;                       // a race opens its RACE page, not one lap's clip
+                    double lt = c.LapTime > 0 ? c.LapTime : c.LapEndOffset - c.LapStartOffset;
+                    clip.At = Math.Max(0.5, Math.Min(Math.Max(0.5, c.Duration - 0.5), c.LapStartOffset + 0.3 * Math.Max(0, lt)));
+                }
+            }
+            if (clip != null && m.Kind != "race") return clip;
+            string combo = m.Combo;
+            foreach (Dictionary<string, object> d in side)
+            {
+                if (IRDash.Combo.Key(SS(d, "car"), SS(d, "track"), SS(d, "config")) != combo) continue;
+                double s0 = SN(d, "startMs"), s1 = SN(d, "endMs");
+                if (s0 <= 0 || s0 > to + 120000 || (s1 > 0 && s1 < from - 120000)) continue;
+                object lo; if (!d.TryGetValue("laps", out lo) || !(lo is IList)) continue;
+                double dur = SN(d, "durationSec");
+                foreach (object x in (IList)lo)
+                {
+                    Dictionary<string, object> L = x as Dictionary<string, object>; if (L == null) continue;
+                    int n = (int)SN(L, "n"); double off = SN(L, "offset"), t = SN(L, "time");
+                    bool hit = m.Kind == "race" ? n == 1 : (n == m.Lap && (m.LapTime <= 0 || t <= 0 || Math.Abs(t - m.LapTime) < 0.5));
+                    if (!hit) continue;
+                    VFrameSrc r = new VFrameSrc(); r.File = SS(d, "_file");
+                    r.At = off + (m.Kind == "race" ? Math.Min(25, Math.Max(1, t * 0.5)) : 0.3 * Math.Max(0, t));
+                    if (dur > 1) r.At = Math.Min(r.At, dur - 0.5);
+                    r.At = Math.Max(0.5, r.At);
+                    return r;
+                }
+            }
+            return clip;
+        }
+
+        // moment id -> its recording; starts the background maker for pictures that are missing
+        static Dictionary<string, VFrameSrc> FrameMap()
+        {
+            Dictionary<string, VFrameSrc> res = new Dictionary<string, VFrameSrc>();
+            List<VMoment> ms; Dictionary<string, long[]> win = new Dictionary<string, long[]>();
+            lock (gate)
+            {
+                ms = new List<VMoment>(moments.Values);
+                Dictionary<string, VSession> byName = new Dictionary<string, VSession>();
+                foreach (VSession s in sessions) if (!byName.ContainsKey(s.Name)) byName[s.Name] = s;
+                foreach (VMoment m in ms)
+                {
+                    long f = m.StartMs, t = m.StartMs + 6L * 3600 * 1000; VSession s;
+                    if (m.Session.Length > 0 && byName.TryGetValue(m.Session, out s)) { f = s.StartMs; t = s.EndMs; }
+                    win[m.Id] = new[] { f, t };
+                }
+            }
+            List<Dictionary<string, object>> side = SessionSidecars();
+            List<KeyValuePair<string, VFrameSrc>> todo = new List<KeyValuePair<string, VFrameSrc>>();
+            foreach (VMoment m in ms)
+            {
+                VFrameSrc src = null;
+                try { src = FrameSource(m, win[m.Id][0], win[m.Id][1], side); } catch { }
+                if (src == null) continue;
+                res[m.Id] = src;
+                if (!File.Exists(FramePath(m.Id))) { DateTime t; lock (frameGate) if (frameTried.TryGetValue(m.Id, out t) && (DateTime.Now - t).TotalMinutes < 10) continue; todo.Add(new KeyValuePair<string, VFrameSrc>(m.Id, src)); }
+            }
+            KickFrames(todo);
+            return res;
+        }
+
+        static void KickFrames(List<KeyValuePair<string, VFrameSrc>> todo)
+        {
+            if (todo.Count == 0 || Program.IsDriving) return;
+            lock (frameGate) { if (frameBusy) return; frameBusy = true; }
+            Thread th = new Thread(delegate ()
+            {
+                try { foreach (KeyValuePair<string, VFrameSrc> kv in todo) { if (Program.IsDriving) break; MakeFrame(kv.Key, kv.Value); } }
+                catch (Exception ex) { Log.W("vault: pictures: " + ex.Message); }
+                finally { lock (frameGate) frameBusy = false; }
+            });
+            th.IsBackground = true; th.Priority = ThreadPriority.BelowNormal; th.Start();
+        }
+
+        static void MakeFrame(string id, VFrameSrc src)
+        {
+            lock (frameGate) frameTried[id] = DateTime.Now;
+            string exe = Recorder.FfmpegExe; if (!File.Exists(exe) || !File.Exists(src.File)) return;
+            string dest = FramePath(id), tmp = dest + ".tmp.jpg";
+            Directory.CreateDirectory(Path.GetDirectoryName(dest));
+            // -ss before -i: a fast seek to the nearest key picture; ffmpeg's own autorotate turns the 180-degree recording upright
+            string args = "-hide_banner -loglevel error -y -ss " + src.At.ToString("0.000", Inv) + " -i \"" + src.File + "\" -frames:v 1 -vf scale=640:-2 -q:v 4 \"" + tmp + "\"";
+            ProcessStartInfo psi = new ProcessStartInfo(exe, args); psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardError = true; psi.RedirectStandardOutput = true;
+            try
+            {
+                using (Process p = Process.Start(psi))
+                {
+                    try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
+                    p.StandardOutput.ReadToEndAsync(); string err = p.StandardError.ReadToEnd();
+                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } Log.W("vault: picture of " + id + " timed out"); return; }
+                    if (p.ExitCode != 0 || !File.Exists(tmp) || new FileInfo(tmp).Length < 500) { Log.W("vault: no picture for " + id + " (" + err.Trim() + ")"); try { File.Delete(tmp); } catch { } return; }
+                }
+                if (File.Exists(dest)) File.Delete(dest);
+                File.Move(tmp, dest);
+            }
+            catch (Exception ex) { Log.W("vault: picture of " + id + ": " + ex.Message); }
         }
     }
 

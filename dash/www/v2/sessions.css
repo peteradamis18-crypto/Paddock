@@ -58,7 +58,7 @@ h1 small { font-size: 22px; letter-spacing: .06em; color: var(--mute); margin-le
 .row .none { color: var(--dim); }
 .row .go { color: var(--dim); text-align: right; }
 .row:hover .go { color: var(--gold); }
-.row.short { opacity: .55; }
+.row.short { opacity: .62; }   /* a short run is listed (never hidden), just quieter */
 .row.gone { opacity: .4; cursor: default; }
 .empty { padding: 36px 12px; font-size: 20px; color: var(--mute); line-height: 1.5; }
 

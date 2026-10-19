@@ -12,52 +12,61 @@
   <header class="idbar" id="idbar">
     <span class="idname">Vault</span>
     <span class="idnum" id="idNum"></span>
-  </header>
-  <div class="top">
-    <span></span>
-    <span class="tools">
+    <span class="idtools">
       <span class="meter" id="meter" title="Vault size"></span>
       <button class="btn" id="sessBtn" type="button">Sessions &rsaquo;</button>
       <button class="btn" id="closeBtn" type="button">Close</button>
     </span>
-  </div>
+  </header>
 
   <section id="viewGrid">
-    <div class="headblock">
-      <h1>Vault <small id="totals"></small></h1>
-      <div class="sub" id="status"></div>
-      <div id="setup"></div>
-      <div class="filters">
-        <div class="fgroup" id="fKind"></div>
-        <div class="fgroup" id="fCar"></div>
-        <div class="fgroup" id="fTrack"></div>
-        <div class="fgroup" id="fTag"></div>
-        <div class="fgroup" id="fYear"></div>
-        <div class="fgroup" id="fSort"></div>
-        <div class="fgroup"><input class="search" id="q" type="search" placeholder="Search" aria-label="Search"></div>
+    <div class="filters" id="filters">
+      <div class="tabs" id="fKind" role="tablist"></div>
+      <div class="drops">
+        <span class="fgroup" id="fCar"></span>
+        <span class="fgroup" id="fTrack"></span>
+        <span class="fgroup" id="fTag"></span>
+        <span class="fgroup" id="fYear"></span>
+        <input class="search" id="q" type="search" placeholder="Search" aria-label="Search">
       </div>
+      <div class="sizes" id="fSize" title="Card size"></div>
     </div>
-    <div class="scroll"><div id="grid"></div></div>
+    <div class="sub" id="status"><small id="totals"></small></div>
+    <div id="setup"></div>
+    <div class="scroll" id="gridScroll"><div id="grid"></div></div>
+    <div id="pop" hidden></div>
   </section>
 
   <section id="viewDetail" hidden>
     <div class="head">
-      <button class="btn" id="backBtn" type="button">&lsaquo; Vault</button>
+      <button class="btn big" id="backBtn" type="button">&lsaquo; Vault</button>
       <div class="ttl"><h1 id="dTitle"></h1><div class="sub" id="dSub"></div></div>
       <div class="acts" id="dActs"></div>
     </div>
-    <div class="col" id="cLeft"></div>
     <div class="col" id="cMid">
       <div id="vidWrap" hidden>
-        <div id="vidBox"><video id="vid" controls preload="metadata" playsinline></video></div>
+        <div id="vids"><div id="vidBox"><video id="vid" controls preload="metadata" playsinline></video></div></div>
+        <div class="pbar" id="pbar">
+          <button class="pb" id="pPlay" type="button">&#9654; Play</button>
+          <button class="pb" id="pBack" type="button">&minus;5 s</button>
+          <button class="pb" id="pFwd" type="button">+5 s</button>
+          <span class="ptime" id="pTime"></span>
+          <span class="pgap"></span>
+          <button class="pb" id="pMute" type="button">Sound on</button>
+          <input class="pvol" id="pVol" type="range" min="0" max="1" step="0.05" aria-label="Volume">
+          <button class="pb" id="pExpand" type="button">Expand</button>
+          <button class="pb" id="pFull" type="button">Full screen</button>
+        </div>
         <div class="sync" id="sync"></div>
       </div>
       <div class="legend" id="legend"></div>
       <div id="plotBox"><canvas id="plot"></canvas><div id="tip" hidden></div></div>
     </div>
-    <div class="col" id="cRight">
+    <div class="col" id="cSide">
+      <div id="cLeft"></div>
       <div id="mapBox"><canvas id="mapc"></canvas></div>
       <div id="cornerBox"></div>
+      <div id="cMore"></div>
     </div>
   </section>
 </div>

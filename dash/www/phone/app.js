@@ -106,14 +106,20 @@ const PhoneApp = {
     try { history.replaceState(null, '', '/phone/?t=' + t + (this.asPhone ? '&asphone=1' : '')); } catch (e) { }
   },
 
-  async api(url) {
+  // ms: give up after this long (default 10 s). Why: after the phone sleeps or leaves the Wi-Fi, iOS can hold a request for a minute or more,
+  // and poll() skips every beat while one is pending, so the screen would sit on stale data with no "PC not found". 0 = no limit (video downloads).
+  async api(url, ms) {
     const u = url + (this.asPhone ? (url.indexOf('?') >= 0 ? '&' : '?') + 'asphone=1' : '');
     if (this.mock) {
       const v = this.mock(url);
       if (v !== undefined) return { ok: v !== null, status: v === null ? 404 : 200, json: async () => v, blob: async () => new Blob(['x']) };
     }
     const h = {}; if (this.tok) h['X-Paddock-Token'] = this.tok;
-    const r = await fetch(u, { cache: 'no-store', headers: h });
+    const ac = (ms === 0 || typeof AbortController === 'undefined') ? null : new AbortController();
+    const tm = ac ? setTimeout(() => ac.abort(), ms || 10000) : 0;
+    let r;
+    try { r = await fetch(u, ac ? { cache: 'no-store', headers: h, signal: ac.signal } : { cache: 'no-store', headers: h }); }
+    finally { if (tm) clearTimeout(tm); }
     if (r.status === 401) { this.needPair(); throw new Error('pair'); }
     return r;
   },
@@ -125,7 +131,9 @@ const PhoneApp = {
     this.pairErr = '';
     try {
       const u = '/phone/pair?code=' + encodeURIComponent(code) + (this.asPhone ? '&asphone=1' : '');
-      const r = await fetch(u, { cache: 'no-store' }), j = await r.json();
+      const ac = typeof AbortController === 'undefined' ? null : new AbortController(), tm = ac ? setTimeout(() => ac.abort(), 10000) : 0;
+      let r; try { r = await fetch(u, ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' }); } finally { if (tm) clearTimeout(tm); }
+      const j = await r.json();
       if (!r.ok || !j.ok) { this.pairErr = j.why || 'Wrong code'; this.paired = 'need'; this.skelName = ''; this.render(); return false; }
       this.keep(j.token); this.devId = j.id; this.paired = true; this.skelName = ''; this.toast('Paired');
       this.render(); this.poll(); return true;
@@ -597,7 +605,8 @@ const PhoneApp = {
   dbRow(k, v, cls) { return '<div class="row static"><div><b>' + this.esc(k) + '</b></div><em class="' + (cls || '') + '">' + this.esc(v) + '</em></div>'; },
   debriefHtml() {
     const d = this.db; if (!d) return '';
-    if (d.failed) return '';
+    // never a blank page: say what happened (this used to return '' and leave only a Back button)
+    if (d.failed) return '<div class="empty">The last session is not ready yet. Go back and try again in a minute.</div>';
     if (d.loading || !d.data) return this.skeleton([120, 260, 200]);
     const j = d.data, m = j.meta || {}, e = x => this.esc(x);
     let h = '<div class="card"><span class="lbl">' + e(String(m.type || 'Session').toUpperCase()) + '</span><b class="big2">' + e(m.trackName || m.track || '') + (m.config ? ' \u00b7 ' + e(m.config) : '') + '</b><div class="sub">' + e(this.when(m.startMs)) + '</div></div>';
@@ -653,10 +662,23 @@ const PhoneApp = {
     this.sent.push(url);
     this.flash(el, true);
     if (this.dry) return true;
+    // The deck's db-* commands only work while the TOP SCREEN shows this same debrief (a 15 s lease, debrief.cs Do), so from the phone they
+    // answered "Not now" whenever the top screen was elsewhere. SAVE, SHARE and COSWORTH go to the plain routes the top screen itself calls.
+    const bar = (this.db && this.db.data && this.db.data.bar) || {}, dd = bar.deepDive || {};
+    let go = url;
+    if (what === 'save' && bar.recId) { await this.recSave(bar.recId, el); return true; }
+    if (what === 'share' && bar.shareId) go = '/share/make?id=' + encodeURIComponent(bar.shareId) + '&ref=&stripe=0';
+    if (what === 'cosworth' && dd.id) go = '/vault/open?how=cosworth&id=' + encodeURIComponent(dd.id);
     try {
-      const r = await this.api(url);
-      if (!r.ok) { this.flash(el, false); this.toast('Not now', true); return false; }
-      this.toast({ save: 'Saved', share: 'Queued', cosworth: 'Opening', deepdive: 'On the top screen' }[what] || 'Done');
+      const r = await this.api(go);
+      if (!r.ok) {
+        this.flash(el, false);
+        let msg = what === 'deepdive' ? 'Open this debrief on the top screen first' : 'Could not do that';
+        if (r.status === 409 || (this.st && this.st.driving)) msg = 'Not while driving';
+        else if (r.status === 404) msg = 'That file is gone';
+        this.toast(msg, true); return false;
+      }
+      this.toast({ save: 'Saved', share: 'Queued', cosworth: 'Opening in Cosworth', deepdive: 'On the top screen' }[what] || 'Done');
       return true;
     } catch (e) { if (e.message !== 'pair') { this.flash(el, false); this.toast('PC not reachable', true); } return false; }
   },
@@ -795,12 +817,15 @@ const PhoneApp = {
   // SAVE keeps this session's recording for good (S1, dash\src\recorder.cs). Words: SAVE, SAVED, SAVED FULL only.
   async recSave(id, el) {
     this.sent.push('/api/rec/save?id=' + id);
+    // GET, through api(): irdash hides every non-GET request from a phone (Phone.Hidden), so the old POST was always answered "not found" and SAVE never worked from the phone
     try {
-      const h = {}; if (this.tok) h['X-Paddock-Token'] = this.tok;
-      const r = await fetch('/api/rec/save?id=' + encodeURIComponent(id) + (this.asPhone ? '&asphone=1' : ''), { method: 'POST', cache: 'no-store', headers: h });
-      const x = await r.json(), st = x && x.state;
+      const r = await this.api('/api/rec/save?id=' + encodeURIComponent(id));
+      let x = null; try { x = await r.json(); } catch (e) { }
+      const st = x && x.state;
+      if (!r.ok || !st) { this.flash(el, false); this.toast('Could not save. Try on the PC.', true); return; }
       if (el) { el.textContent = st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE'; if (st === 'SAVED') el.disabled = true; }
       if (this.detail && this.detail.rec && this.detail.rec.id === id) this.detail.rec.saved = st === 'SAVED';
+      if (st === 'SAVE FAILED') this.toast('Could not save. Try on the PC.', true);
     } catch (e) { if (e.message !== 'pair') this.toast('PC not reachable', true); }
   },
   async makeShare(id) {
@@ -812,28 +837,32 @@ const PhoneApp = {
   async shareSend(src, name) {
     try {
       this.toast('Preparing');
-      const b = await (await this.api(src)).blob();
+      const b = await (await this.api(src, 0)).blob();
       const f = new File([b], name, { type: 'video/mp4' });
       if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: 'Lap' });
       else { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; a.click(); this.toast('Saved to Files'); }
-    } catch (e) { if (!/abort/i.test(String(e))) this.toast('Share failed', true); }
+    } catch (e) { if (!/abort/i.test(String(e))) this.toast('Sharing did not work. Try Save.', true); }
   },
   async share(src, name) {
     try {
       this.toast('Preparing');
-      const b = await (await this.api(src)).blob();
+      const b = await (await this.api(src, 0)).blob();
       const f = new File([b], name, { type: 'video/mp4' });
       if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: 'Lap' });
       else { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; a.click(); this.toast('Saved to Files'); }
-    } catch (e) { if (!/abort/i.test(String(e))) this.toast('Share failed', true); }
+    } catch (e) { if (!/abort/i.test(String(e))) this.toast('Sharing did not work. Try Save.', true); }
   },
 
   // ---------- helpers ----------
   esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
   lap(t) { t = Number(t); if (!(t > 0)) return '–'; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); },
   when(ms) {
+    // Peter reads 12-hour Eastern time (America/New_York), whatever zone the phone is set to; the old British format gave 24-hour "21:05"
     if (!ms) return ''; const d = new Date(Number(ms));
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const tz = { timeZone: 'America/New_York' };
+    try {
+      return d.toLocaleDateString('en-US', Object.assign({ month: 'short', day: 'numeric' }, tz)) + ' ' + d.toLocaleTimeString('en-US', Object.assign({ hour: 'numeric', minute: '2-digit', hour12: true }, tz));
+    } catch (e) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); }
   },
 
   // for tests: every command the app can send, and the ones a tap could send on the page as drawn now

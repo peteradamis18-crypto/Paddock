@@ -1,0 +1,49 @@
+/* Paddock ALL THE DATA (rawdata.html): 1920 x 1080 stage, scaled to fit. Same system as the Coach (coach.css):
+   96 / 64 px margins, glance 48, read 30, body 24, label 18; gold = the cursor and the window; nothing under 16 px.
+   Big targets: every button is 88 px tall. Throttle green, brake red (the workbench's colours). */
+:root {
+  --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --hair: rgba(244, 241, 234, .12); --hair2: rgba(244, 241, 234, .22);
+  --gold: #f2c230; --amber: #ffb21e; --red: #ff5a4d; --green: #3ccf7e; --steel: #7fa6c9;
+  --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+}
+html, body { margin: 0; height: 100%; background: #040404; overflow: hidden; }
+body { font-family: var(--font); color: var(--ink); font-variant-numeric: tabular-nums; user-select: none; }
+.stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; background: radial-gradient(80% 70% at 30% 20%, #0c0c0b 0%, #070707 55%, #040404 100%); }
+button { font-family: inherit; cursor: pointer; }
+.lbl { font-size: 18px; letter-spacing: .24em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+
+/* header */
+.head { position: absolute; left: 64px; right: 64px; top: 30px; height: 100px; display: flex; align-items: flex-end; gap: 28px; }
+.head .where { flex: 1; min-width: 0; }
+.head .where b { display: block; font-size: 48px; font-weight: 300; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head .where span { display: block; margin-top: 12px; font-size: 24px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head .tag { font-size: 18px; letter-spacing: .24em; text-transform: uppercase; color: var(--gold); white-space: nowrap; padding-bottom: 8px; }
+.btn { height: 64px; padding: 0 30px; border: 1px solid var(--hair2); border-radius: 6px; background: transparent; color: var(--ink); font-size: 20px; letter-spacing: .2em; text-transform: uppercase; white-space: nowrap; }
+.btn:hover, .btn:focus-visible { border-color: var(--ink); background: rgba(244, 241, 234, .06); outline: none; }
+.btn[disabled] { color: var(--dim); border-color: var(--hair); cursor: default; background: transparent; }
+
+/* the canvases: timeline, traces, map (drawn in rawdata.js) */
+canvas { position: absolute; display: block; }
+#tl { left: 64px; top: 150px; width: 1792px; height: 76px; cursor: pointer; }
+#tr { left: 64px; top: 246px; width: 1312px; height: 690px; cursor: crosshair; }
+#mp { left: 1408px; top: 246px; width: 448px; height: 300px; }
+
+/* values at the cursor */
+.ro { position: absolute; left: 1408px; top: 566px; width: 448px; }
+.ro table { width: 100%; border-collapse: collapse; }
+.ro td { font-size: 24px; height: 40px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+.ro td.n { font-size: 16px; letter-spacing: .18em; text-transform: uppercase; color: var(--mute); width: 180px; }
+.ro td.v { text-align: right; }
+.ro td.v small { font-size: 16px; color: var(--mute); margin-left: 6px; }
+
+/* the bar: big buttons, then what the drive held */
+.bar { position: absolute; left: 64px; right: 64px; top: 952px; height: 88px; display: flex; gap: 16px; align-items: center; }
+.bar .btn { height: 88px; min-width: 150px; padding: 0 28px; font-size: 22px; }
+.bar .btn.wide { min-width: 230px; }
+.bar .sum { margin-left: auto; text-align: right; font-size: 22px; color: var(--mute); line-height: 1.35; white-space: nowrap; }
+.bar .sum b { color: var(--ink); font-weight: 400; }
+
+/* a word in the middle while there is nothing to draw */
+.msg { position: absolute; left: 96px; right: 96px; top: 380px; }
+.msg b { display: block; font-size: 56px; font-weight: 300; line-height: 1.15; }
+.msg span { display: block; margin-top: 22px; font-size: 30px; color: var(--mute); }

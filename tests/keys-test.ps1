@@ -334,7 +334,8 @@ foreach ($k in $deck) {
   foreach ($n in $labelBanned.Keys) { if ([regex]::IsMatch($txt, $labelBanned[$n])) { $bad += "$($k.page) $($k.col),$($k.row) '$txt' ($n)" } }
 }
 Check 'every key label passes the copy rules (docs\COPY-RULES.md)' ($bad.Count -eq 0) ($bad -join '; ')
-$ends = @('quitmain', 'restartrace', 'skip', 'power sleep', 'power lock')
+# SKIP SESSION is one press on purpose (2026-10-18): the two-press arm never got its second press. The command itself refuses official sessions and a moving car.
+$ends = @('quitmain', 'restartrace', 'power sleep', 'power lock')
 $bad = @()
 foreach ($k in $deckKeys) {
   $c = ($k.what -split '=', 2)[1]; $x2 = ($k.t2 -match '\bx2\b') -or ($k.t1 -match '\bx2\b'); $conf = $c -match '^confirm '

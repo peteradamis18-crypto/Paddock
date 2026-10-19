@@ -50,7 +50,7 @@ var X = window.WBX = { pages: {}, ticks: [], before: [], after: [], head: [], ke
 
 // ---------- small helpers ----------
 function fmt(t) { if (t == null || !isFinite(t)) return '–'; var m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); }
-function num(x, d) { var s = x.toFixed(d); return s === (-0).toFixed(d) || /^-0\.?0*$/.test(s) ? Math.abs(x).toFixed(d) : s; }   // never "-0.0"
+function num(x, d) { if (x == null || !isFinite(x)) return '–'; var s = x.toFixed(d); return s === (-0).toFixed(d) || /^-0\.?0*$/.test(s) ? Math.abs(x).toFixed(d) : s; }   // never "-0.0"
 function sgn(x, d) { d = d == null ? 3 : d; var s = Math.abs(x).toFixed(d), zero = parseFloat(s) === 0; return (zero ? '±' : x > 0 ? '+' : '−') + s; }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -58,7 +58,7 @@ function at(arr, fi) { var i = Math.floor(fi); if (i < 0) return arr[0]; if (i >
 function dateWord(iso) { if (!iso) return ''; var d = new Date(iso); if (isNaN(d)) return ''; return d.getDate() + ' ' + ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][d.getMonth()]; }
 // index (fractional) where a rising array reaches v
 function idxOf(arr, v) { var lo = 0, hi = arr.length - 1; if (v <= arr[0]) return 0; if (v >= arr[hi]) return hi; while (lo + 1 < hi) { var m = (lo + hi) >> 1; if (arr[m] <= v) lo = m; else hi = m; } var s = arr[hi] - arr[lo]; return lo + (s > 0 ? (v - arr[lo]) / s : 0); }
-function gainColour(rate) { var a = Math.min(1, Math.abs(rate) / 0.04); if (a < 0.08) return '#4a4a50'; return rate < 0 ? 'rgba(60,207,126,' + (0.35 + 0.65 * a) + ')' : 'rgba(229,83,75,' + (0.35 + 0.65 * a) + ')'; }
+function gainColour(rate) { if (!isFinite(rate)) return '#4a4a50'; var a = Math.min(1, Math.abs(rate) / 0.04); if (a < 0.08) return '#4a4a50'; return rate < 0 ? 'rgba(60,207,126,' + (0.35 + 0.65 * a) + ')' : 'rgba(229,83,75,' + (0.35 + 0.65 * a) + ')'; }
 function speedColour(kmh, lo, hi) { var u = clamp((kmh - lo) / (hi - lo), 0, 1), st = [[70, 40, 140], [200, 70, 120], [240, 150, 60], [245, 225, 170]], f = u * 3, k = Math.min(2, Math.floor(f)), v = f - k; return 'rgb(' + st[k].map(function (x, q) { return Math.round(x + (st[k + 1][q] - x) * v); }).join(',') + ')'; }
 
 // ---------- data ----------
@@ -90,9 +90,23 @@ function parse(buf) {
   M.forEach(function (lap) { lap.gap = new Float32Array(n); for (var i = 0; i < n; i++) lap.gap[i] = A.t[i] - lap.t[i]; });
   if (R) { var g = new Float32Array(n); for (var i = 0; i < n; i++) g[i] = A.t[i] - R.t[i]; D.gap = g; }
   else if (M.length) D.gap = new Float32Array(n); // zero is the active lap's baseline for multi-lap gap overlays
+  partialMask(head, A, R);
   D.cstat = corners.map(function (c) { var a = cornerStats(A, c), r = R ? cornerStats(R, c) : null; return { c: c, a: a, r: r, dt: r ? a.time - r.time : 0 }; });
-  D.worst = D.cstat.slice().sort(function (x, y) { return y.dt - x.dt; })[0] || null;
+  D.worst = D.cstat.filter(function (x) { return isFinite(x.dt); }).sort(function (x, y) { return y.dt - x.dt; })[0] || null;   // a part-lap: corners it did not drive have no time
 }
+
+// A part-lap (an out-lap, an in-lap, a lap cut short: workbench.cs "partial", Peter 2026-10-18 "just show me the data"). The server sends
+// NaN where the lap was not driven, so every trace simply stops there. The gap is a hole there too, and the map borrows the reference's GPS
+// (or the nearest driven point) so the track outline stays whole. D.part = the driven samples [i0, i1].
+function partialMask(head, A, R) {
+  D.part = null;
+  if (!head.partial) return;
+  var i0 = Math.max(0, Math.ceil(head.partial.fromM / D.step)), i1 = Math.min(D.n - 1, Math.floor(head.partial.toM / D.step));
+  D.part = { i0: i0, i1: i1, text: head.partial.text, from: head.partial.fromPct, to: head.partial.toPct, time: head.partial.time, skip: head.partial.skip, refTime: R ? R.t[i1] - R.t[i0] : null };
+  if (D.gap) for (var i = 0; i < D.n; i++) D.gap[i] = i < i0 || i > i1 ? NaN : R ? (A.t[i] - A.t[i0]) - (R.t[i] - R.t[i0]) : D.gap[i];
+  ['Lat', 'Lon'].forEach(function (k) { var a = A.c[k]; if (!a) return; var r = R && R.c[k]; for (var j = 0; j < D.n; j++) if (!isFinite(a[j])) a[j] = r && isFinite(r[j]) ? r[j] : a[j < i0 ? i0 : i1]; });
+}
+function outsidePart(Lp, c) { return !!(D && D.part && Lp === D.A && (c.i0 < D.part.i0 || c.i1 > D.part.i1)); }
 
 // derived channels (Cosworth's formulas where the workbook states them, docs\research\pi-toolbox-features.md 5.1)
 function derive(Lp) {
@@ -110,7 +124,7 @@ function derive(Lp) {
   if (has('VelocityX') && has('VelocityY')) c.beta = f(function (i) { return Math.atan2(c.VelocityY[i], Math.max(1, c.VelocityX[i])) * 57.2958; });   // chassis slip angle
   ['LF', 'RF', 'LR', 'RR'].forEach(function (w) { if (has(w + 'speed') && has('Speed')) c['slip' + w] = f(function (i) { return c.Speed[i] > 8 ? (c[w + 'speed'][i] - c.Speed[i]) / c.Speed[i] * 100 : 0; }); });
   // Cosworth Lite pedal state: 0 coast, 1 part throttle, 2 throttle > 98 %, 3 part brake, 4 brake > 65 %
-  if (has('Throttle') && has('Brake')) c.pedal = f(function (i) { var b = c.Brake[i], th = c.Throttle[i]; return b > 0.65 ? 4 : b > 0.02 ? 3 : th > 0.98 ? 2 : th > 0.02 ? 1 : 0; });
+  if (has('Throttle') && has('Brake')) c.pedal = f(function (i) { var b = c.Brake[i], th = c.Throttle[i]; if (b !== b || th !== th) return NaN; return b > 0.65 ? 4 : b > 0.02 ? 3 : th > 0.98 ? 2 : th > 0.02 ? 1 : 0; });
   // suspension (m and m/s from the file -> mm and mm/s); rake = rear ride height minus front, the usual definition
   WHEELS.forEach(function (w) {
     if (has(w + 'rideHeight')) c['ride' + w] = f(function (i) { return c[w + 'rideHeight'][i] * 1000; });
@@ -161,9 +175,11 @@ function cornerStats(Lp, c) {
     if (ch.beta && Math.abs(ch.beta[i]) > Math.abs(beta)) beta = ch.beta[i];
     if (ch.BrakeABSactive && ch.BrakeABSactive[i] > 0.5) abs += D ? D.step : 1;
   }
-  return { time: Lp.t[c.i1] - Lp.t[c.i0], vmin: vmin, lat: lat, beta: beta, abs: abs, im: im };
+  return { time: outsidePart(Lp, c) ? NaN : Lp.t[c.i1] - Lp.t[c.i0], vmin: vmin, lat: lat, beta: beta, abs: abs, im: im };
 }
-function share(Lp, key, vals) { var cnt = vals.map(function () { return 0; }), a = Lp.c[key]; if (!a) return cnt; for (var i = 0; i < Lp.n; i++) { var k = vals.indexOf(Math.round(a[i])); if (k >= 0) cnt[k]++; } return cnt.map(function (x) { return x / Lp.n * 100; }); }
+// shares of the samples that HAVE a value (a part-lap is NaN where it was not driven: those are not 'coast')
+function share(Lp, key, vals) { var cnt = vals.map(function () { return 0; }), a = Lp.c[key], tot = 0; if (!a) return cnt; for (var i = 0; i < Lp.n; i++) { if (a[i] !== a[i]) continue; tot++; var k = vals.indexOf(Math.round(a[i])); if (k >= 0) cnt[k]++; } return cnt.map(function (x) { return tot ? x / tot * 100 : 0; }); }
+function maxFin(a) { var m = -Infinity; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
 
 // ---------- shared state ----------
 // the reference index that goes with lap index i: shifted by the offset; on the time axis the same moment of the reference
@@ -181,9 +197,15 @@ function shiftedRefLap() {
 function refreshCornerStats() {
   var ref = shiftedRefLap();
   D.cstat = D.corners.map(function (c) { var a = cornerStats(D.A, c), r = ref ? cornerStats(ref, c) : null; return { c: c, a: a, r: r, dt: r ? a.time - r.time : 0 }; });
-  D.worst = D.cstat.slice().sort(function (x, y) { return y.dt - x.dt; })[0] || null;
+  D.worst = D.cstat.filter(function (x) { return isFinite(x.dt); }).sort(function (x, y) { return y.dt - x.dt; })[0] || null;
 }
-function gapAt(i) { if (!D.R) return D.gap ? D.gap[i] : 0; var k = rIdx(i); return isFinite(k) ? D.A.t[i] - at(D.R.t, k) : NaN; }
+function gapAt(i) {
+  if (!D.R) return D.gap ? D.gap[i] : 0;
+  // a part-lap: nothing outside the stretch it drove, and inside it the gap counts from the stretch's start (both laps' clocks set to 0 there)
+  if (D.part && (i < D.part.i0 || i > D.part.i1)) return NaN;
+  var k = rIdx(i); if (!isFinite(k)) return NaN;
+  return D.part ? (D.A.t[i] - D.A.t[D.part.i0]) - (at(D.R.t, k) - at(D.R.t, rIdx(D.part.i0))) : D.A.t[i] - at(D.R.t, k);
+}
 function zoomed() { return S.z1 - S.z0 < D.n - 1.5; }
 function setCursor(i, keepWindow) {
   S.cur = clamp(i, 0, D.n - 1);
@@ -465,7 +487,7 @@ function EventList(box, rows) {
   if (this.compact) this.el.classList.add('compact');
   var ev = D.events, self = this, nAbs = ev.filter(function (e) { return e.type === 'ABS'; }).length, nLock = ev.filter(function (e) { return e.type === 'LOCK'; }).length, nSpin = ev.filter(function (e) { return e.type === 'SPIN'; }).length;
   this.keys.innerHTML = plural(ev.length, 'event') + ' this lap · <b>' + nAbs + '</b> ABS · <b>' + plural(nLock, 'lock-up') + '</b> · <b>' + nSpin + '</b> rear slip' +
-    (!this.compact && D.A.c.wfPct ? ' · wheel force peak <b>' + Math.max.apply(null, Array.prototype.slice.call(D.A.c.wfPct)).toFixed(0) + ' %</b>' : '');
+    (!this.compact && D.A.c.wfPct ? ' · wheel force peak <b>' + maxFin(D.A.c.wfPct).toFixed(0) + ' %</b>' : '');
   if (!ev.length) this.list.appendChild(el('div', 'keys', 'No events'));
   this.first = -1; hooks.push(function () { self.update(); });
 }
@@ -558,7 +580,7 @@ Gears.prototype.drawStatic = function () {
   });
   var absM = 0; if (D.A.c.BrakeABSactive) for (var i = 0; i < D.n; i++) if (D.A.c.BrakeABSactive[i] > 0.5) absM += D.step;
   var bb = D.A.c.dcBrakeBias ? D.A.c.dcBrakeBias[0] : null;
-  this.keys.innerHTML = (bb != null ? 'brake bias ' + bb.toFixed(1) + ' % · ' : '') + 'ABS working ' + absM.toFixed(0) + ' m of the lap' + (D.A.c.wfPct ? ' · wheel force peak ' + Math.max.apply(null, Array.prototype.slice.call(D.A.c.wfPct)).toFixed(0) + ' %' : '');
+  this.keys.innerHTML = (bb != null ? 'brake bias ' + bb.toFixed(1) + ' % · ' : '') + 'ABS working ' + absM.toFixed(0) + ' m of the lap' + (D.A.c.wfPct ? ' · wheel force peak ' + maxFin(D.A.c.wfPct).toFixed(0) + ' %' : '');
 };
 
 // ====================================================================================================================
@@ -1094,8 +1116,10 @@ function buildPage() {
     new SettingsList({ x: 32, y: sy, w: 1856, h: 0, rows: Math.max(1, Math.min(5, Math.floor((1056 - sy - 20 - 44) / 40))) });
   } else if (S.page === 'suspension') {
     var A = D.A.c, R2 = D.R ? D.R.c : null, loK = 1e9, hiK = -1e9, i, all = [];
-    for (i = 0; i < D.n; i += 2) WHEELS.forEach(function (w) { all.push(A['ride' + w][i]); if (R2) all.push(R2['ride' + w][i]); });
-    for (i = 0; i < D.n; i++) { loK = Math.min(loK, A.rake[i], R2 ? R2.rake[i] : 1e9); hiK = Math.max(hiK, A.rake[i], R2 ? R2.rake[i] : -1e9); }
+    var fin = function (v, d) { return isFinite(v) ? v : d; };      // a part-lap is NaN where it was not driven
+    for (i = 0; i < D.n; i += 2) WHEELS.forEach(function (w) { if (isFinite(A['ride' + w][i])) all.push(A['ride' + w][i]); if (R2 && isFinite(R2['ride' + w][i])) all.push(R2['ride' + w][i]); });
+    for (i = 0; i < D.n; i++) { loK = Math.min(loK, fin(A.rake[i], 1e9), R2 ? fin(R2.rake[i], 1e9) : 1e9); hiK = Math.max(hiK, fin(A.rake[i], -1e9), R2 ? fin(R2.rake[i], -1e9) : -1e9); }
+    if (!all.length) all.push(40);
     all.sort(function (a, b) { return a - b; });
     var hiR = Math.max(40, Math.ceil(all[Math.floor(all.length * 0.995)] / 10) * 10);          // a kerb throws the ride height to 150 mm: the scale follows the lap, not the spike
     new Traces({ x: 32, y: 126, w: 1856, h: 346 }, 'Ride height and rake · mm · both laps', scaleRows(WHEELS.map(function (w) { return { k: 'RIDE ' + w + ' mm', key: 'ride' + w, h: 44, lo: 0, hi: hiR, d: 1 }; }).concat([{ k: 'RAKE mm', key: 'rake', h: 56, lo: Math.floor(loK / 5) * 5 - 5, hi: Math.ceil(hiK / 5) * 5 + 5, d: 1 }]), 346));
@@ -1161,6 +1185,14 @@ function header() {
   if (!lp._on) { lp._on = true; lp.addEventListener('click', showLapPicker); }
   X.head.forEach(function (f) { f(); });
   var gap = R ? A.time - R.time : null;
+  if (D.part) {
+    // a part-lap: say what it covers, its time for that stretch and the reference's time for the same metres; ALL THE DATA one press away
+    var pg = D.part.refTime != null ? D.part.time - D.part.refTime : null, pw = D.part.skip === 'out' ? 'OUT-LAP' : D.part.skip === 'in' ? 'IN-LAP' : 'PART LAP ' + A.lap;
+    document.getElementById('vs').innerHTML = '<span><i class="sw"></i>' + pw + ' · ' + Math.round(D.part.from * 100) + '–' + Math.round(D.part.to * 100) + ' % OF THE LAP <b class="gold">' + fmt(D.part.time) + '</b></span>' +
+      (R ? '<span><i class="sw r"></i>SAME STRETCH · ' + dateWord(R.date) + ' LAP ' + R.lap + ' <b class="ref">' + fmt(D.part.refTime) + '</b></span><span>GAP <b class="' + (pg < 0 ? 'gain' : 'loss') + '">' + sgn(pg) + '</b></span>' : '<span class="mute">no reference yet</span>') +
+      '<span class="addch" id="rawlink" style="cursor:pointer">ALL THE DATA</span>';
+    var rl = document.getElementById('rawlink'); if (rl) rl.onclick = function () { location.href = 'rawdata.html?id=' + encodeURIComponent(P.get('id') || A.file) + '&lap=' + A.lap; };
+  } else
   document.getElementById('vs').innerHTML = '<span><i class="sw"></i>LAP ' + A.lap + ' · ' + dateWord(A.date) + ' <b class="gold">' + fmt(A.time) + '</b></span>' +
     (R ? '<span><i class="sw r"></i>' + dateWord(R.date) + ' LAP ' + R.lap + ' <b class="ref">' + fmt(R.time) + '</b></span><span>GAP <b class="' + (gap < 0 ? 'gain' : 'loss') + '">' + sgn(gap) + '</b></span>' : D.M && D.M.length ? '<span class="mute">' + (D.M.length + 1) + ' LAPS</span>' : '<span class="mute">no reference yet</span>');
   var nav = document.getElementById('nav'); nav.innerHTML = '';
@@ -1380,7 +1412,12 @@ function pollDeck() {
   }, 300);
 }
 
-function empty(msg) { document.getElementById('page').appendChild(el('div', 'empty', msg)); }
+// a lap that cannot be drawn here still has its data: one press to ALL THE DATA (rawdata.html), never a dead end
+function empty(msg) {
+  var e = el('div', 'empty', msg), id = P.get('id');
+  if (id) { var b = el('div', 'addch', 'SHOW ALL THE DATA'); b.id = 'rawbtn'; b.style.cssText = 'display:inline-block;margin-left:24px;padding:14px 26px;font-size:20px;cursor:pointer'; b.addEventListener('click', function () { location.href = 'rawdata.html?id=' + encodeURIComponent(id) + (P.get('lap') ? '&lap=' + encodeURIComponent(P.get('lap')) : ''); }); e.appendChild(b); }
+  document.getElementById('page').appendChild(e);
+}
 
 // fetch() refuses file: URLs, so a fixture on disk (the headless test) comes through XHR with --allow-file-access-from-files
 function fetchBuf(url) {
@@ -1404,9 +1441,9 @@ function enterPage() {
 // second; BRAKING, TYRES & STINT and SPLITS get their tabs when their data is in (a failed or refused reply = no tab).
 function loadExtras() {
   var enc = encodeURIComponent, id = P.get('id'), lap = P.get('lap'), ref = P.get('ref') || 'pb', du = P.get('deep'), su = P.get('session');
-  if (!du && LIVE && id) du = '/analysis/deep?id=' + enc(id) + '&lap=' + enc(lap) + '&ref=' + enc(ref);
+  if (!du && LIVE && id && !(D && D.part)) du = '/analysis/deep?id=' + enc(id) + '&lap=' + enc(lap) + '&ref=' + enc(ref);
   if (!su && LIVE && id) su = '/analysis/session?id=' + enc(id) + '&lap=' + enc(lap) + '&corners=1';
-  function one(url, set) { if (!url) return Promise.resolve(); return fetchJson(url).then(function (j) { if (j && !j.error) set(j); }).catch(function () {}); }
+  function one(url, set) { if (!url) return Promise.resolve(); return fetchJson(url).then(function (j) { if (j && !j.error && !j.partial) set(j); }).catch(function () {}); }   // partial: the deep dive needs a whole lap (deepdive.cs says so in words)
   return Promise.all([
     one(du, function (j) { D.deep = j; D.dc = {}; (j.corners || []).forEach(function (c) { D.dc[c.n] = c; }); }),
     one(su, function (j) { D.sess = j; })
@@ -1431,6 +1468,12 @@ function load() {
     var requestedCorner = parseInt(P.get('corner'), 10), requested = null;
     if (requestedCorner > 0) requested = D.corners.filter(function (c) { return c.n === requestedCorner; })[0] || null;
     S.cur = requested ? requested.ia : (D.worst ? D.worst.c.ia : 0); // DEEP DIVE may name a specific corner
+    if (D.part) {
+      // a part-lap opens on the stretch it covers (100 m either side), the cursor inside it
+      var pad = 100 / D.step; S.z0 = Math.max(0, D.part.i0 - pad); S.z1 = Math.min(D.n - 1, D.part.i1 + pad);
+      if (S.z1 - S.z0 < 40) S.z1 = Math.min(D.n - 1, S.z0 + 40);
+      if (!(S.cur >= D.part.i0 && S.cur <= D.part.i1)) S.cur = D.part.i0;
+    }
     if (!avail(S.page)) S.page = 'driver';                    // a page whose data is not in yet (BRAKING ...) opens when it arrives
     buildPage();
     WB.ready = true;
@@ -1454,8 +1497,19 @@ function addCosworth() {
     if (!(j && j.cosworth && j.cosworth.installed) || !top.isConnected) return;
     var b = el('div', 'addch', 'OPEN IN COSWORTH'); b.id = 'cwbtn'; b.title = 'Open this lap in Cosworth Pi Toolbox';
     b.addEventListener('click', function () {
-      b.textContent = 'OPENING';
-      fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(id), { cache: 'no-store' }).catch(function () { }).then(function () { b.textContent = 'OPEN IN COSWORTH'; });
+      if (b._busy) return;     // a second press while Pi is opening does nothing
+      b._busy = true; b.textContent = 'OPENING';
+      // say what happened (it used to put the label back at once, so a refusal looked like nothing happened)
+      var say = function (t, ms) { b.textContent = t; setTimeout(function () { b.textContent = 'OPEN IN COSWORTH'; b._busy = false; }, ms); };
+      fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(id), { cache: 'no-store' }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.status === 409) say('NOT WHILE DRIVING', 4000);
+          else if (r.status === 404) say('FILE IS GONE', 4000);
+          else if (!r.ok) say('COULD NOT OPEN', 4000);
+          else if (j && j.action === 'folder') say('PI NOT FOUND', 4000);
+          else say(j && j.action === 'busy' ? 'ALREADY OPENING' : 'OPENING IN PI', 4000);
+        });
+      }).catch(function () { say('COULD NOT OPEN', 4000); });
     });
     var ref = document.getElementById('sharebtn') || document.getElementById('pipbtn') || document.getElementById('addch');
     if (ref && ref.parentNode) ref.parentNode.insertBefore(b, ref); else top.appendChild(b);

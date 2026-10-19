@@ -77,6 +77,7 @@ namespace IRDash
         public long StartMs, EndMs;
         public double LengthM, GreenT = double.NaN, FlagT = double.NaN, T0, EndT;
         public int SessNum, Me = -1, Samples;
+        public int MeInc = -1;                                         // his own incident count (PlayerCarMyIncidentCount) at the end of the log; -1 = a log from before it was kept (the sim's results text often says 0)
         public bool Official, Complete;
         public bool IsRace { get { return Regex.IsMatch(SessType ?? "", "race", RegexOptions.IgnoreCase); } }
         public List<RfCorner> Corners = new List<RfCorner>();
@@ -102,7 +103,7 @@ namespace IRDash
               .Append(",\"sessLaps\":").Append(Json_.S(SessLaps)).Append(",\"official\":").Append(B(Official)).Append(",\"isRace\":").Append(B(IsRace))
               .Append(",\"me\":").Append(Me).Append(",\"t0\":").Append(N(T0, "0.000")).Append(",\"endT\":").Append(N(EndT, "0.000"))
               .Append(",\"greenT\":").Append(N(GreenT, "0.000")).Append(",\"flagT\":").Append(N(FlagT, "0.000")).Append(",\"samples\":").Append(Samples)
-              .Append(",\"complete\":").Append(B(Complete)).Append(",\"cornerSrc\":").Append(Json_.S(CornerSrc));
+              .Append(",\"mi\":").Append(MeInc).Append(",\"complete\":").Append(B(Complete)).Append(",\"cornerSrc\":").Append(Json_.S(CornerSrc));
             sb.Append(",\"corners\":[");
             for (int i = 0; i < Corners.Count; i++)
             {
@@ -169,7 +170,7 @@ namespace IRDash
             r.Id = Sn(G(d, "id")); r.StartMs = (long)Dn(G(d, "startMs")); r.EndMs = (long)Dn(G(d, "endMs")); r.Track = Sn(G(d, "track")); r.Config = Sn(G(d, "config")); r.TrackName = Sn(G(d, "trackName"));
             r.TrackId = Sn(G(d, "trackId")); r.Key = Sn(G(d, "key")); r.LengthM = Dn(G(d, "lengthM")); r.SessNum = In(G(d, "sessNum")); r.SessType = Sn(G(d, "sessType")); r.SessName = Sn(G(d, "sessName"));
             r.SessLaps = Sn(G(d, "sessLaps")); r.Official = In(G(d, "official")) != 0; r.Me = In(G(d, "me")); r.T0 = Dn(G(d, "t0")); r.EndT = Dn(G(d, "endT")); r.GreenT = Dn(G(d, "greenT")); r.FlagT = Dn(G(d, "flagT"));
-            r.Samples = In(G(d, "samples")); r.Complete = In(G(d, "complete")) != 0; r.CornerSrc = Sn(G(d, "cornerSrc"));
+            r.Samples = In(G(d, "samples")); r.MeInc = d.ContainsKey("mi") ? In(G(d, "mi")) : -1; r.Complete = In(G(d, "complete")) != 0; r.CornerSrc = Sn(G(d, "cornerSrc"));
             foreach (object o in A(G(d, "corners")))
             {
                 Dictionary<string, object> c = o as Dictionary<string, object>; if (c == null) continue;
@@ -274,9 +275,27 @@ namespace IRDash
                 foreach (RfPit p in c.Pits) { if (!double.IsNaN(p.TOut)) { r.Pits++; r.PitS += p.TOut - p.TIn; } r.StallS += p.Stall; }
                 rows.Add(r);
             }
+            // The sim's own results (ResultsPositions) are the finishing order when it published them for the whole field: our line-crossing log can miss a
+            // lap (2026-10-15 09-27: the winner's lap 5 was never logged, so he sorted LAST and Peter's real P11 showed as P10). Only when his own result agrees with his log.
+            bool useRes = false;
+            if (race)
+            {
+                int withRes = 0; Row meRow = null;
+                foreach (Row r in rows) { if (r.C.ResPos > 0) withRes++; if (r.C.Me) meRow = r; }
+                useRes = meRow != null && meRow.C.ResPos > 0 && meRow.C.ResLaps >= meRow.Laps && withRes >= rows.Count * 0.9;
+                if (useRes)
+                    foreach (Row r in rows)
+                        if (r.C.ResLaps > r.Laps) { r.Laps = r.C.ResLaps; r.LastE = double.NaN; r.Total = double.NaN; }      // the log missed its last lap(s): no time for it, never a made-up gap
+            }
             // order: a race is by laps, then by who crossed the line first; anything else by best lap
             rows.Sort(delegate (Row a, Row b)
             {
+                if (useRes)
+                {
+                    int pa = a.C.ResPos > 0 ? a.C.ResPos : 1000, pb = b.C.ResPos > 0 ? b.C.ResPos : 1000;
+                    if (pa != pb) return pa.CompareTo(pb);
+                    return a.C.Idx.CompareTo(b.C.Idx);
+                }
                 if (race)
                 {
                     if (a.Laps != b.Laps) return b.Laps.CompareTo(a.Laps);
@@ -334,6 +353,8 @@ namespace IRDash
             }
             // the final timing tower
             int mism = 0;
+            int meInc = -1;      // his incident count: the sim's results text is often 0 or late; his own counter (kept in the log, else read from the telemetry file) is what the dash showed
+            if (race && me != null) { meInc = d.MeInc; if (meInc < 0) { try { meInc = Vault.IncidentsFor(d.StartMs, d.SessNum); } catch { meInc = -1; } } }
             sb.Append("],\"tower\":[");
             for (int i = 0; i < rows.Count; i++)
             {
@@ -344,7 +365,7 @@ namespace IRDash
                   .Append(",\"ahead\":").Append(N(r.Ahead, "0.000")).Append(",\"aheadLaps\":").Append(r.AheadLaps)
                   .Append(",\"best\":").Append(r.Best > 0 ? N(r.Best, "0.000") : "null").Append(",\"bestLap\":").Append(r.BestLap).Append(",\"bestSrc\":").Append(Json_.S(r.BestSrc)).Append(",\"fastest\":").Append(r.Fastest ? "true" : "false")
                   .Append(",\"pits\":").Append(r.Pits).Append(",\"pitLane\":").Append(N(r.PitS, "0.0")).Append(",\"stall\":").Append(N(r.StallS, "0.0"))
-                  .Append(",\"inc\":").Append(c.ResInc).Append(",\"out\":").Append(c.Gone || (c.Reason.Length > 0 && !Regex.IsMatch(c.Reason, "^running$", RegexOptions.IgnoreCase)) ? "true" : "false")
+                  .Append(",\"inc\":").Append(c.Me && meInc > c.ResInc ? meInc : c.ResInc).Append(",\"out\":").Append(c.Gone || (c.Reason.Length > 0 && !Regex.IsMatch(c.Reason, "^running$", RegexOptions.IgnoreCase)) ? "true" : "false")
                   .Append(",\"reason\":").Append(Json_.S(c.Reason)).Append(",\"off\":").Append(c.Off).Append('}');
             }
             sb.Append("],\"posMismatch\":").Append(mism);
@@ -756,6 +777,7 @@ namespace IRDash
                     State = st;
                 }
                 bool race = D.IsRace;
+                if (race && D.Me >= 0 && State >= 3) { double mi = f.Num("PlayerCarMyIncidentCount"); if (!double.IsNaN(mi) && mi >= 0 && (int)mi > D.MeInc) D.MeInc = (int)mi; }      // his own counter: the results text can say 0 for a race that cost him 13
                 // one odd car must not stop the log of the others: a car that throws is skipped for this sample (logged three times at most)
                 foreach (LCar c in Order) { try { SampleCar(f, t, dt, discont, c, race); } catch (Exception ex) { c.PPct = -1; if (c.Errors++ < 3) Log.W("field: car " + c.Idx + ": " + ex.Message); } }
                 try { if (race && State == 4) Passes(t); else ClearPairs(); } catch (Exception ex) { ClearPairs(); if (passErrors++ < 3) Log.W("field: passes: " + ex.Message); }
@@ -910,7 +932,7 @@ namespace IRDash
                 RfData d = new RfData();
                 d.Id = D.Id; d.StartMs = D.StartMs; d.EndMs = D.EndMs; d.Track = D.Track; d.Config = D.Config; d.TrackName = D.TrackName; d.TrackId = D.TrackId; d.Key = D.Key; d.LengthM = D.LengthM;
                 d.SessNum = D.SessNum; d.SessType = D.SessType; d.SessName = D.SessName; d.SessLaps = D.SessLaps; d.Official = D.Official; d.Me = D.Me; d.T0 = D.T0; d.EndT = D.EndT; d.GreenT = D.GreenT; d.FlagT = D.FlagT;
-                d.Samples = D.Samples; d.Complete = complete; d.CornerSrc = D.CornerSrc; d.Corners = D.Corners; d.Passes = new List<RfPass>(D.Passes);
+                d.Samples = D.Samples; d.MeInc = D.MeInc; d.Complete = complete; d.CornerSrc = D.CornerSrc; d.Corners = D.Corners; d.Passes = new List<RfPass>(D.Passes);
                 int nb = bounds.Length;
                 foreach (LCar c in Order)
                 {

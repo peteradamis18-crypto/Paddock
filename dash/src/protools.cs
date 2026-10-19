@@ -489,7 +489,13 @@ namespace IRDash
             LapTrace me = null;
             foreach (LapTrace lap in mine.Laps) if (lap.Lap == lapNo && (me == null || lap.Clean)) me = lap;
             if (me == null) { code = 404; err = "no such lap in this file"; return null; }
-            if (!me.Clean || me.Tm == null) { code = 409; err = "lap " + lapNo.ToString(Inv) + " is not a full lap (" + me.Skip + ")"; return null; }
+            if (!me.Clean || me.Tm == null)
+            {
+                // maths channels and exports on the stretch a part-lap covers (partial.cs): NaN where it was not driven
+                LapTrace pv = PartialOf(me);
+                if (pv == null) { code = 409; err = "lap " + lapNo.ToString(Inv) + " has under 200 m of driving: ALL THE DATA shows it"; return null; }
+                me = pv;
+            }
             List<LapTrace> clean = CleanOf(sessions);
             string kind;
             LapTrace rf = FindRefLap(clean, me, spec, sessions, cs, out kind);

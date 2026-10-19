@@ -8,7 +8,9 @@
 //   where the lap starts inside the clip (lapStartOffset, seconds).
 //   The race screens are rotated 180 degrees in Windows and ddagrab hands out the raw, upside-down picture. The clip carries the mp4
 //   rotation flag instead of a CPU flip filter, so it plays upright in a browser at no cost.
-//   irdash.ini:  recorder=1 turns it on (anything else, or no line, is off). Nothing here touches iRacing's files.
+//   Sound (recaudio.cs, docs\design\audio-recording.md): iRacing's and CrewChief's sound is captured beside the picture on the same wall clock,
+//   in raw chunks next to the segments, and encoded (AAC) into every session file and clip as it is written; the picture is still never re-encoded.
+//   irdash.ini:  recorder=1 turns it on (anything else, or no line, is off); recorder_audio=0 turns only the sound off. Nothing here touches iRacing's files.
 //   Called from outside: Init / Start (irdash.cs), Keep (vault.cs KEEP key), ServeVideo / InfoJson / StatusJson / TestRoute (vault.cs routes).
 using System;
 using System.Collections.Generic;
@@ -143,6 +145,7 @@ namespace IRDash
         public string Id = "", File = "", Car = "", Track = "", Config = "", Why = "", Encoder = "";
         public int Lap, Rotation; public double LapTime, LapStartMs, LapEndMs, ClipStartMs, LapStartOffset, LapEndOffset, VideoStart, Duration, SessionTime;
         public bool Keep, Pb, Truncated; public long Created, Size;
+        public string Audio = "";      // ok | partial | none (no sound track), "" = a clip from before sound was recorded
         static string N(double d, string f) { return d.ToString(f, CultureInfo.InvariantCulture); }
 
         public string Json()
@@ -151,7 +154,7 @@ namespace IRDash
                    ",\"clipStartMs\":" + N(Math.Round(ClipStartMs), "0") + ",\"lapStartOffset\":" + N(LapStartOffset, "0.0000") + ",\"lapEndOffset\":" + N(LapEndOffset, "0.0000") + ",\"videoStart\":" + N(VideoStart, "0.0000") +
                    ",\"duration\":" + N(Duration, "0.000") + ",\"fps\":60,\"rotation\":" + Rotation + ",\"encoder\":" + Json_.S(Encoder) + ",\"car\":" + Json_.S(Car) + ",\"track\":" + Json_.S(Track) + ",\"config\":" + Json_.S(Config) +
                    ",\"sessionTime\":" + N(SessionTime, "0.000") + ",\"why\":" + Json_.S(Why) + ",\"keep\":" + (Keep ? "true" : "false") + ",\"pb\":" + (Pb ? "true" : "false") + ",\"truncated\":" + (Truncated ? "true" : "false") +
-                   ",\"created\":" + Created + ",\"size\":" + Size + "}";
+                   ",\"audio\":" + Json_.S(Audio) + ",\"created\":" + Created + ",\"size\":" + Size + "}";
         }
 
         static string S(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o != null ? Convert.ToString(o, CultureInfo.InvariantCulture) : ""; }
@@ -164,7 +167,7 @@ namespace IRDash
             c.Id = S(d, "id"); c.Lap = (int)D(d, "lap"); c.LapTime = D(d, "lapTime"); c.LapStartMs = D(d, "lapStartMs"); c.LapEndMs = D(d, "lapEndMs"); c.ClipStartMs = D(d, "clipStartMs");
             c.LapStartOffset = D(d, "lapStartOffset"); c.LapEndOffset = D(d, "lapEndOffset"); c.VideoStart = D(d, "videoStart"); c.Duration = D(d, "duration"); c.Rotation = (int)D(d, "rotation"); c.Encoder = S(d, "encoder");
             c.Car = S(d, "car"); c.Track = S(d, "track"); c.Config = S(d, "config"); c.SessionTime = D(d, "sessionTime"); c.Why = S(d, "why"); c.Keep = B(d, "keep"); c.Pb = B(d, "pb"); c.Truncated = B(d, "truncated");
-            c.Created = (long)D(d, "created"); c.Size = (long)D(d, "size");
+            c.Created = (long)D(d, "created"); c.Size = (long)D(d, "size"); c.Audio = S(d, "audio");
             return c;
         }
     }
@@ -187,6 +190,7 @@ namespace IRDash
         public string DurationSource = "", SaveBlocked = "";
         public string State = "";    // "finalize-stalled" while a finish timed out waiting (overrides ready/partial)
         public double RecEndMs;     // wall clock of the last recorded picture (the review asks "was this lap driven while it ran?")
+        public string Audio = "", AudioSource = "";   // ok | partial | none, and whose sound it is ("iRacing + CrewChief", "whole PC")
     }
 
     // S1: a clip cut around a rise in the player's incident count
@@ -211,6 +215,8 @@ namespace IRDash
         static int restarts; static bool gaveUp, fellBack; static string encoder = "hevc_nvenc";    // HEVC halves the file; h264_nvenc, then libx264, if the chip refuses
         static readonly List<string> errLines = new List<string>();
         static string note = "", lastErr = ""; static bool black, blackChecked; static int outIdx = -1, outAdapter, outRot; static string outRect = "";
+        // the sound (recaudio.cs): "auto" = iRacing + CrewChief; recorder_audio=0 in irdash.ini is the lead's off switch. A test picks its own (off by default).
+        static string audioMode = "auto", testAudio = "off";
 
         // what is on disk and what is wanted
         static readonly List<RecSeg> segs = new List<RecSeg>(); static readonly List<RecClip> clips = new List<RecClip>(); static readonly List<RecCut> cuts = new List<RecCut>();
@@ -294,9 +300,23 @@ namespace IRDash
             return on;
         }
 
+        // recorder_audio=0 switches the sound off (no line = on: nothing for Peter to set)
+        public static bool ParseAudioSwitch(string iniText)
+        {
+            bool on = true;
+            foreach (string raw in (iniText ?? "").Split('\n'))
+            {
+                string l = raw.Trim(); if (l.Length == 0 || l.StartsWith(";") || l.StartsWith("#")) continue;
+                int e = l.IndexOf('='); if (e <= 0) continue;
+                if (l.Substring(0, e).Trim().ToLowerInvariant() == "recorder_audio") on = l.Substring(e + 1).Trim() != "0";
+            }
+            return on;
+        }
+
         public static void Init(string rootDir)
         {
-            try { if (Program.IniFile != null && File.Exists(Program.IniFile)) enabled = ParseSwitch(File.ReadAllText(Program.IniFile)); } catch (Exception ex) { Log.W("recorder: irdash.ini: " + ex.Message); }
+            RecAudio.Say = delegate (string m) { Log.W(m); };
+            try { if (Program.IniFile != null && File.Exists(Program.IniFile)) { string t = File.ReadAllText(Program.IniFile); enabled = ParseSwitch(t); audioMode = ParseAudioSwitch(t) ? "auto" : "off"; } } catch (Exception ex) { Log.W("recorder: irdash.ini: " + ex.Message); }
             LoadClips();       // clips already made are served even while the recorder is off
             LoadSessions();
         }
@@ -307,7 +327,7 @@ namespace IRDash
             if (!File.Exists(FfmpegPath)) { note = "ffmpeg is missing (vault\\bin\\ffmpeg.exe)"; Log.W("recorder: " + note); return; }
             bool leftoversSaved = FinishLeftovers(); // Keep the only copy when recovery cannot finish.
             if (leftoversSaved) WipeRecDir();
-            Log.W("recorder: on - records the middle race screen while you are in the car (ffmpeg, " + encoder + ", 60 fps, one file per session)");
+            Log.W("recorder: on - records the middle race screen while you are in the car (ffmpeg, " + encoder + ", 60 fps, one file per session; sound " + (audioMode == "off" ? "off (recorder_audio=0)" : "from iRacing and CrewChief") + ")");
             EnsureLoop();
         }
 
@@ -326,6 +346,7 @@ namespace IRDash
         {
             // segments of an earlier irdash cannot be used (the index died with it)
             try { if (Directory.Exists(RecDir)) foreach (string f in Directory.GetFiles(RecDir)) { if (String.Equals(Path.GetExtension(f), ".ts", StringComparison.OrdinalIgnoreCase)) continue; try { File.Delete(f); } catch { } } } catch { }
+            RecAudio.ForgetMissing();
         }
 
         // ---------------- the loop: frames in, laps out, ffmpeg up and down ----------------
@@ -400,6 +421,7 @@ namespace IRDash
             int code = -1; try { code = ff.ExitCode; } catch { }
             string tail = "", all; lock (errLines) { all = string.Join(" | ", errLines.ToArray()); if (errLines.Count > 0) tail = errLines[errLines.Count - 1]; }
             double lived = now - run.StartMs; bool asked = expectStop;
+            RecAudio.Stop();                  // the sound ends with the picture (its last chunk is closed before anyone joins the session)
             try { ff.Dispose(); } catch { }
             ff = null; expectStop = false;
             ReadList(run);                    // the last segment is closed on a clean stop
@@ -454,6 +476,8 @@ namespace IRDash
             p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { };
             p.BeginErrorReadLine(); p.BeginOutputReadLine();
             ff = p; run = r; expectStop = false; blackChecked = false; black = false; note = "";
+            // the sound runs exactly while the picture does: same start, same stop (OnExit), same gaps
+            try { RecAudio.Start(RecDir, testOn ? testAudio : audioMode); } catch (Exception ex) { Log.W("recorder: sound: " + ex.Message); }
             Log.W("recorder: started ffmpeg #" + r.No + " (" + enc + (source == "screen" ? ", screen output " + idx + " at " + outRect + ", picture turned " + (rot == 3 ? "180" : rot == 2 ? "90" : rot == 4 ? "270" : "0") + " degrees by the video's rotation flag" : ", test picture") + ")");
         }
 
@@ -657,6 +681,7 @@ namespace IRDash
             ResolveCuts(now);
             ResolveIncidents(now);
             PruneSegs(now);
+            if (now - lastAudPrune > 2000) { lastAudPrune = now; PruneAudio(now); }
             if (ff == null) QueueFinishing();
             if (now - lastSessHk > 5000) { lastSessHk = now; try { RetainSessions(); } catch { } }
             if (r != null && ff != null && !r.FirstSeg && !r.StuckSaid && now - r.StartMs > 30000)
@@ -773,6 +798,24 @@ namespace IRDash
             foreach (RecSeg s in gone) { try { File.Delete(Path.Combine(RecDir, s.Name)); } catch { } }
         }
 
+        // Sound chunks live exactly as long as some video still needs that time: a segment on disk, the open run or session, a session being
+        // written, or a clip still to cut. Everything else goes (so a deleted segment takes its sound with it).
+        static double lastAudPrune;
+        static void PruneAudio(double now)
+        {
+            List<double[]> keep = new List<double[]>();
+            lock (gate)
+            {
+                foreach (RecSeg s in segs) keep.Add(new double[] { s.Start > 0 ? s.Start : s.End - 70000, s.End > 0 ? s.End : double.MaxValue });
+                if (run != null && ff != null) keep.Add(new double[] { run.StartMs - 1000, double.MaxValue });
+                if (openSess != null) keep.Add(new double[] { openSess.StartMs - 1000, double.MaxValue });
+                foreach (RecSess s in finishing) keep.Add(new double[] { s.StartMs - 1000, s.EndMs > 0 ? s.EndMs + 1000 : double.MaxValue });
+                foreach (RecCut c in cuts) if (!c.Done) keep.Add(new double[] { c.S - 2000, c.E + 2000 });
+                foreach (RecInc x in incCuts) if (!x.Done) keep.Add(new double[] { x.S - 2000, x.E + 2000 });
+            }
+            RecAudio.Prune(delegate (double a, double b) { foreach (double[] k in keep) if (a < k[1] && b > k[0]) return true; return false; }, now - 30000);
+        }
+
         // An open or finishing session owns its segments until its MP4 is written.
         static bool HasSessionOwner(RecSeg seg)
         {
@@ -859,11 +902,22 @@ namespace IRDash
                 try { Directory.CreateDirectory(ClipDir); } catch { }
                 string tmp = mp4 + ".tmp";
                 int rot = first.Rot == 3 ? 180 : first.Rot == 2 ? 90 : first.Rot == 4 ? 270 : 0;
-                string args = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-i \"" + cat + "\" -ss " + ss.ToString("0.000", Inv) + " -t " + dur.ToString("0.000", Inv) + " -c copy " +
-                    (first.Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                // the sound of the same stretch: the joined input's time 0 is first.Start, so the sound starts there too and -ss/-t cut both alike
+                string pcm, aud; SoundFor("cut-" + id, new double[] { first.Start }, new double[] { endWall }, out pcm, out aud);
+                string head = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-i \"" + cat + "\"";
+                string tail = " -ss " + ss.ToString("0.000", Inv) + " -t " + dur.ToString("0.000", Inv) + " ";
+                string fin = (first.Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                string args = pcm != null ? head + SoundIn(pcm) + tail + SoundOut() + fin : head + tail + "-c copy " + fin;
                 lastCutArgs = args;
                 Stopwatch sw = Stopwatch.StartNew(); string so, se;
                 int crc = RunTool(FfmpegPath, args, RecDir, 180000, out so, out se);
+                if (pcm != null && crc != 0 && crc != -1)
+                {
+                    Log.W("recorder: the clip of lap " + L.N + " could not take its sound (" + (se ?? "").Trim() + ") - cutting it without");
+                    aud = "none"; args = head + tail + "-c copy " + fin; lastCutArgs = args;
+                    crc = RunTool(FfmpegPath, args, RecDir, 180000, out so, out se);
+                }
+                if (pcm != null) { try { File.Delete(pcm); } catch { } }
                 if (crc != 0 || !File.Exists(tmp) || new FileInfo(tmp).Length < 1000) { if (crc == -1) { job.Result = "retry"; job.Started = false; try { File.Delete(tmp); } catch { } return; } job.Result = "cut failed"; try { File.Delete(tmp); } catch { } throw new IOException("ffmpeg could not cut the clip: " + (se ?? "").Trim()); }
                 // where the clip's own clock starts and how long it is
                 string po, pe; double vstart = 0, vdur = 0;
@@ -879,14 +933,14 @@ namespace IRDash
                 c2.Id = id; c2.File = mp4; c2.Lap = L.N; c2.LapTime = L.Time; c2.LapStartMs = L.Start; c2.LapEndMs = L.End; c2.ClipStartMs = k0; c2.VideoStart = vstart; c2.Duration = vdur;
                 c2.LapStartOffset = (L.Start - k0) / 1000.0 + vstart; c2.LapEndOffset = (L.End - k0) / 1000.0 + vstart; c2.Rotation = rot; c2.Encoder = run != null ? run.Encoder : "";
                 c2.Car = L.Car; c2.Track = L.Track; c2.Config = L.Config; c2.SessionTime = L.SessionTime; c2.Why = L.Why; c2.Keep = L.Keep; c2.Pb = L.Why == "pb" || (L.Bar > 0 && L.Time > 0 && L.Time < L.Bar - 0.0005);
-                c2.Truncated = truncated; c2.Created = (long)WallMs();
+                c2.Truncated = truncated; c2.Created = (long)WallMs(); c2.Audio = aud;
                 if (File.Exists(mp4)) File.Delete(mp4);
                 File.Move(tmp, mp4);
                 c2.Size = new FileInfo(mp4).Length;
                 SaveSidecar(c2);
                 lock (gate) { RecClip old = FindClip(id); if (old != null) clips.Remove(old); clips.Add(c2); }
                 job.Result = "ok";
-                Log.W("recorder: clip of lap " + L.N + " saved as " + id + " (" + vdur.ToString("0.0", Inv) + " s of video, " + (c2.Size / 1048576) + " MB, cut in " + sw.ElapsedMilliseconds + " ms, no re-encode" + (truncated ? ", the lap start is before the video" : "") + ")");
+                Log.W("recorder: clip of lap " + L.N + " saved as " + id + " (" + vdur.ToString("0.0", Inv) + " s of video, " + (c2.Size / 1048576) + " MB, cut in " + sw.ElapsedMilliseconds + " ms, picture not re-encoded, " + (aud == "none" ? "no sound" : aud == "partial" ? "sound for part of it" : "with sound") + (truncated ? ", the lap start is before the video" : "") + ")");
                 PruneClips();
             }
             catch (Exception ex) { if (job.Result.Length == 0 || job.Result == "cut failed") job.Result = "error"; Log.W("recorder: clip of lap " + L.N + ": " + ex.Message); }
@@ -894,6 +948,27 @@ namespace IRDash
         }
 
         static RecClip FindClip(string id) { foreach (RecClip c in clips) if (c.Id == id) return c; return null; }
+
+        // ---------------- the sound for a file (recaudio.cs) ----------------
+        // A raw PCM in the rec folder that follows the same wall-clock spans as the picture; pcm = null when nothing was captured then
+        // (the file is then written without a sound track, as before). verdict: ok | partial (some of the time had no capture) | none.
+        static void SoundFor(string name, double[] starts, double[] ends, out string pcm, out string verdict)
+        {
+            pcm = null; verdict = "none";
+            try
+            {
+                if (RecAudio.Count == 0 || starts.Length == 0) return;
+                string safe = name; foreach (char ch in Path.GetInvalidFileNameChars()) safe = safe.Replace(ch, '_');
+                string p = Path.Combine(RecDir, safe + ".pcm"); long frames;
+                double cov = RecAudio.BuildPcm(p, starts, ends, out frames);
+                if (cov <= 0.001 || frames <= 0) { try { File.Delete(p); } catch { } return; }
+                pcm = p; verdict = cov >= 0.99 ? "ok" : "partial";
+            }
+            catch (Exception ex) { Log.W("recorder: could not gather the sound for " + name + " (" + ex.Message + ") - writing the picture only"); pcm = null; verdict = "none"; }
+        }
+        static string SoundIn(string pcm) { return " -f s16le -ar 48000 -ac 2 -i \"" + pcm + "\""; }
+        // the picture is copied as it is; only the sound is encoded (AAC 160 kbit/s, one thread, so a cut while driving stays light)
+        static string SoundOut() { return "-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 160k -threads 1 "; }
 
         static void SaveSidecar(RecClip c)
         {
@@ -1073,7 +1148,7 @@ namespace IRDash
                        ",\"outputIdx\":" + outIdx + ",\"outputAdapter\":" + outAdapter + ",\"outputRect\":" + Json_.S(outRect) + ",\"rotation\":" + outRot + ",\"black\":" + (black ? "true" : "false") + ",\"blackChecked\":" + (blackChecked ? "true" : "false") + ",\"note\":" + Json_.S(note) + ",\"lastError\":" + Json_.S(lastErr) +
                        ",\"segments\":" + closed + ",\"segmentBytes\":" + bytes + ",\"oldestMs\":" + oldest.ToString("0", Inv) + ",\"newestMs\":" + newest.ToString("0", Inv) + ",\"keepSecs\":" + (KeepMs() / 1000.0).ToString("0", Inv) + ",\"probing\":" + probing + ",\"pendingCuts\":" + pending + ",\"busy\":" + busy +
                        ",\"clips\":" + clips.Count + ",\"freeGb\":" + (FreeBytes(ClipDir) / 1073741824.0).ToString("0.0", Inv) + ",\"minFreeGb\":" + MinFreeGb.ToString("0", Inv) + ",\"sessionBest\":" + N3(sessionBest) + ",\"lastCutArgs\":" + Json_.S(lastCutArgs) + ",\"lastRunArgs\":" + Json_.S(lastRunArgs) + ",\"encoderUsed\":" + Json_.S(run != null ? run.Encoder : "") + ",\"ffmpegPid\":" + (ff != null ? SafePid() : 0) +
-                       ",\"capture\":" + CaptureJson(newest, sessSecs) + ",\"segList\":" + seg0 + ",\"clipList\":" + cl + "}";
+                       ",\"capture\":" + CaptureJson(newest, sessSecs) + ",\"sound\":" + RecAudio.StatusJson() + ",\"audioMode\":" + Json_.S(testOn ? testAudio : audioMode) + ",\"segList\":" + seg0 + ",\"clipList\":" + cl + "}";
             }
         }
 
@@ -1090,7 +1165,10 @@ namespace IRDash
             else if (newestSegEnd > 0 && run != null && newestSegEnd >= run.StartMs && now - newestSegEnd <= fresh) st = "recording";
             else if (run != null && now - run.StartMs <= fresh + 10000) st = "starting";
             else st = "stalled";
-            return "{\"state\":" + Json_.S(st) + ",\"secs\":" + sessSecs.ToString("0", Inv) + ",\"lastSegAgoS\":" + (newestSegEnd > 0 ? ((now - newestSegEnd) / 1000.0).ToString("0.0", Inv) : "null") + "}";
+            // the sound beside it: ok | starting | failed | off (recorder_audio=0) while the picture runs, idle otherwise. Only "failed" is news for Peter ("no sound").
+            string au = ff == null ? "idle" : RecAudio.State;
+            return "{\"state\":" + Json_.S(st) + ",\"secs\":" + sessSecs.ToString("0", Inv) + ",\"lastSegAgoS\":" + (newestSegEnd > 0 ? ((now - newestSegEnd) / 1000.0).ToString("0.0", Inv) : "null") +
+                   ",\"audio\":" + Json_.S(au) + ",\"audioSource\":" + Json_.S(ff == null ? "" : RecAudio.Source) + "}";
         }
 
         // ---------------- S1: whole-session video, incident clips, retention and SAVE ----------------
@@ -1300,15 +1378,32 @@ namespace IRDash
                     // TS packet timestamps stay relative to the run's base, not the first packet in this segment.
                     if (from > g.Start + 1) sb.Append("inpoint ").Append(((from - g.BaseMs) / 1000.0).ToString("0.000", Inv)).Append('\n');
                     if (to < g.End - 1) sb.Append("outpoint ").Append(((to - g.BaseMs) / 1000.0).ToString("0.000", Inv)).Append('\n');
+                    // each piece takes exactly its wall-clock span in the file: the sound below is built from the same spans, and the lap
+                    // offsets (ClipSpans / WallToFile) too, so picture, sound and offsets stay together over an hour (no rounding creep)
+                    sb.Append("duration ").Append(((to - from) / 1000.0).ToString("0.000000", Inv)).Append('\n');
                 }
                 File.WriteAllText(lst, sb.ToString(), new UTF8Encoding(false));
                 string mp4 = Path.Combine(SessDir, s.Id + ".mp4"), tmp = mp4 + ".tmp";
                 int rot = sel[0].Rot == 3 ? 180 : sel[0].Rot == 2 ? 90 : sel[0].Rot == 4 ? 270 : 0;
-                string args = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-f concat -safe 0 -i \"" + lst + "\" -c copy " +
-                    (sel[0].Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                double[] ss0, se0; ClipSpans(sel, s, out ss0, out se0);
+                string pcm, aud; SoundFor("sess-" + s.Id, ss0, se0, out pcm, out aud);
+                double spanAll = 0; for (int i = 0; i < ss0.Length; i++) spanAll += Math.Max(0, se0[i] - ss0[i]) / 1000.0;
+                int tmo = 600000 + (int)Math.Min(3000000, spanAll * 200);          // the sound is encoded (~50x real time): a 3-hour race needs longer than 10 min
+                string head = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-f concat -safe 0 -i \"" + lst + "\"";
+                string fin = (sel[0].Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                string args = pcm != null ? head + SoundIn(pcm) + " " + SoundOut() + fin : head + " -c copy " + fin;
                 Stopwatch sw = Stopwatch.StartNew(); string so, se;
-                int rc = RunTool(FfmpegPath, args, RecDir, 600000, out so, out se);
+                int rc = RunTool(FfmpegPath, args, RecDir, tmo, out so, out se);
+                if (pcm != null && rc != 0)
+                {
+                    Log.W("recorder: session " + s.Id + " - the sound could not be added (" + (((se ?? "") + " " + (so ?? "")).Trim()) + "); writing the picture only");
+                    try { File.Delete(tmp); } catch { }
+                    aud = "none"; args = head + " -c copy " + fin;
+                    rc = RunTool(FfmpegPath, args, RecDir, 600000, out so, out se);
+                }
+                if (pcm != null) { try { File.Delete(pcm); } catch { } }
                 if (rc != 0 || !File.Exists(tmp) || new FileInfo(tmp).Length < 1000) { try { File.Delete(tmp); } catch { } lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; } Log.W("recorder: could not write the session video of " + s.Id + " (" + (((se ?? "") + " " + (so ?? "")).Trim()) + ") - keeping segments for retry"); return; }
+                s.Audio = aud; s.AudioSource = aud == "none" ? "" : (s.Recovered ? "" : RecAudio.LastRunSource);
                 if (File.Exists(mp4)) File.Delete(mp4);
                 File.Move(tmp, mp4);
                 try { File.Delete(lst); } catch { }
@@ -1366,7 +1461,7 @@ namespace IRDash
                 lock (gate) { foreach (RecSeg g in sel) segs.Remove(g); sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; }); sessions.Add(s); finishing.Remove(s); }
                 foreach (RecSeg g in sel) { try { File.Delete(Path.Combine(RecDir, g.Name)); } catch { } }
                 if (s.Gaps.Count > 0) Log.W("recorder: session " + s.Id + " is partial - " + s.Gaps.Count + " gap(s) where segments were missing; laps inside a gap have no video");
-                Log.W("recorder: session " + s.Id + " written (" + s.Duration.ToString("0.0", Inv) + " s, " + (s.Bytes / 1048576) + " MB, " + s.LapRows.Count + " laps, cut in " + sw.ElapsedMilliseconds + " ms, no re-encode" + (s.Saved ? ", SAVED" : "") + ")");
+                Log.W("recorder: session " + s.Id + " written (" + s.Duration.ToString("0.0", Inv) + " s, " + (s.Bytes / 1048576) + " MB, " + s.LapRows.Count + " laps, joined in " + sw.ElapsedMilliseconds + " ms, picture not re-encoded, " + (s.Audio == "ok" ? "with sound" : s.Audio == "partial" ? "sound for part of it" : "no sound") + (s.Saved ? ", SAVED" : "") + ")");
                 RetainSessions();
             }
             catch (Exception ex) { lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; if (wallIncidents != null) s.Incidents = wallIncidents; } Log.W("recorder: session " + s.Id + ": " + ex.Message); }
@@ -1409,6 +1504,7 @@ namespace IRDash
                    ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
                    ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"endMs\":" + (s.RecEndMs > 0 ? s.RecEndMs.ToString("0", Inv) : "null") + ",\"durationSec\":" + s.Duration.ToString("0.000", Inv) + ",\"durationSource\":" + Json_.S(s.DurationSource) + ",\"bytes\":" + s.Bytes + ",\"encoder\":" + Json_.S(s.Encoder) +
                    ",\"state\":" + Json_.S(s.State.Length > 0 ? s.State : s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
+                   ",\"audio\":" + Json_.S(s.Audio.Length > 0 ? s.Audio : "none") + ",\"audioSource\":" + Json_.S(s.AudioSource) +
                    ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
                    ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
                    ",\"laps\":" + lb + ",\"incidents\":" + ib + "}";
@@ -1477,6 +1573,7 @@ namespace IRDash
             s.RecEndMs = double.IsNaN(re) ? 0 : re;
             s.UniqueId = double.IsNaN(uid) ? -1 : uid; s.SessionNum = double.IsNaN(sn) ? -99 : (int)sn;
             s.DurationSource = DS(d, "durationSource"); s.SaveBlocked = DS(d, "saveBlocked"); s.SaveWhenDone = DB(d, "saveWhenDone") && !s.Saved;
+            s.Audio = DS(d, "audio"); s.AudioSource = DS(d, "audioSource");
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
@@ -1584,7 +1681,7 @@ namespace IRDash
                     sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"config\":" + Json_.S(s.Config) + ",\"car\":" + Json_.S(s.Car) + ",\"sessionType\":" + Json_.S(s.Type) +
                               ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"durationSec\":" + dur.ToString("0.000", Inv) + ",\"bytes\":" + bytes +
                               ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone ? "true" : "false") + ",\"open\":" + (s.Open ? "true" : "false") + ",\"state\":" + Json_.S(s.Open ? "open" : (finishing.Contains(s) ? (s.State == "finalize-stalled" ? s.State : "finishing") : "finished")) +
-                              ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") + ",\"gaps\":" + s.Gaps.Count + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) + ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"laps\":" + laps + ",\"incidents\":" + s.Incidents.Count + "}");
+                              ",\"uniqueId\":" + (s.UniqueId > 0 ? s.UniqueId.ToString("0", Inv) : "null") + ",\"sessionNum\":" + (s.SessionNum >= 0 ? s.SessionNum.ToString(Inv) : "null") + ",\"gaps\":" + s.Gaps.Count + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) + ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"laps\":" + laps + ",\"incidents\":" + s.Incidents.Count + ",\"audio\":" + Json_.S(s.Open ? "" : s.Audio) + "}");
                 }
                 sb.Append("]}");
                 return sb.ToString();
@@ -1778,19 +1875,24 @@ namespace IRDash
                 try { Directory.CreateDirectory(ClipDir); } catch { }
                 string tmp = mp4 + ".tmp";
                 int rot = first.Rot == 3 ? 180 : first.Rot == 2 ? 90 : first.Rot == 4 ? 270 : 0;
-                string args = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-i \"" + cat + "\" -ss " + ss.ToString("0.000", Inv) + " -t " + dur.ToString("0.000", Inv) + " -c copy " +
-                    (first.Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                string pcm, aud; SoundFor("cut-" + id, new double[] { first.Start }, new double[] { endWall }, out pcm, out aud);
+                string head = "-hide_banner -y -loglevel error " + (rot != 0 ? "-display_rotation " + rot + " " : "") + "-i \"" + cat + "\"";
+                string tail = " -ss " + ss.ToString("0.000", Inv) + " -t " + dur.ToString("0.000", Inv) + " ";
+                string fin = (first.Enc == "hevc_nvenc" ? "-tag:v hvc1 " : "") + "-movflags +faststart -f mp4 \"" + tmp + "\"";
+                string args = pcm != null ? head + SoundIn(pcm) + tail + SoundOut() + fin : head + tail + "-c copy " + fin;
                 string so, se2;
                 int crc = RunTool(FfmpegPath, args, RecDir, 180000, out so, out se2);
+                if (pcm != null && crc != 0 && crc != -1) { aud = "none"; Log.W("recorder: the incident clip could not take its sound (" + (se2 ?? "").Trim() + ") - cutting it without"); crc = RunTool(FfmpegPath, head + tail + "-c copy " + fin, RecDir, 180000, out so, out se2); }
+                if (pcm != null) { try { File.Delete(pcm); } catch { } }
                 if (crc != 0 || !File.Exists(tmp) || new FileInfo(tmp).Length < 1000) { if (crc == -1) { job.Result = "retry"; job.Ready = false; try { File.Delete(tmp); } catch { } return; } job.Result = "cut failed"; try { File.Delete(tmp); } catch { } Log.W("recorder: incident clip cut failed (" + ((se2 ?? "").Trim()) + ")"); return; }
                 if (File.Exists(mp4)) File.Delete(mp4);
                 File.Move(tmp, mp4);
                 double vdur = ProbeDuration(mp4);
                 string j = "{\"id\":" + Json_.S(id) + ",\"kind\":\"incident\",\"points\":" + job.Points + ",\"session\":" + Json_.S(job.Sess) + ",\"atMs\":" + job.At.ToString("0", Inv) +
-                           ",\"startMs\":" + k0.ToString("0", Inv) + ",\"endMs\":" + endWall.ToString("0", Inv) + ",\"duration\":" + vdur.ToString("0.000", Inv) + ",\"rotation\":" + rot + ",\"created\":" + WallMs().ToString("0", Inv) + "}";
+                           ",\"startMs\":" + k0.ToString("0", Inv) + ",\"endMs\":" + endWall.ToString("0", Inv) + ",\"duration\":" + vdur.ToString("0.000", Inv) + ",\"rotation\":" + rot + ",\"audio\":" + Json_.S(aud) + ",\"created\":" + WallMs().ToString("0", Inv) + "}";
                 File.WriteAllText(Path.ChangeExtension(mp4, ".json"), j, new UTF8Encoding(false));
                 job.Result = "ok";
-                Log.W("recorder: incident clip saved as " + id + " (" + vdur.ToString("0.0", Inv) + " s, " + (new FileInfo(mp4).Length / 1048576) + " MB, no re-encode)");
+                Log.W("recorder: incident clip saved as " + id + " (" + vdur.ToString("0.0", Inv) + " s, " + (new FileInfo(mp4).Length / 1048576) + " MB, picture not re-encoded, " + (aud == "none" ? "no sound" : "with sound") + ")");
             }
             catch (Exception ex) { if (job.Result.Length == 0) job.Result = "error"; Log.W("recorder: incident clip: " + ex.Message); }
             finally { lock (gate) if (job.Result != "retry") job.Done = true; }
@@ -1805,6 +1907,7 @@ namespace IRDash
                 string[] files = Directory.GetFiles(RecDir, "*.ts");
                 if (files.Length == 0) return true;
                 if (FreeBytes(SessDir) < (long)(MinFreeGb * 1073741824.0)) return false;
+                if (!RecAudio.Running) RecAudio.Adopt(RecDir);       // its sound chunks are named by their start: they come along
                 List<RecSeg> sel = new List<RecSeg>();
                 foreach (string path in files)
                 {
@@ -1847,6 +1950,7 @@ namespace IRDash
         {
             double now = WallMs();
             if (ff != null) { AskStop("test over", now); for (int i = 0; i < 60 && ff != null; i++) { try { if (ff.HasExited) break; } catch { break; } Thread.Sleep(150); } if (ff != null) { try { if (!ff.HasExited) ff.Kill(); } catch { } try { ReadList(run); ff.Dispose(); } catch { } ff = null; expectStop = false; } }
+            RecAudio.Stop(); testAudio = "off";
             testOn = false; source = "screen"; keepOverrideSec = 0; segSecs = 10; graceSecs = 20; minLap = 15; testBar = 0; testBlack = false; freeOverride = -1; gaveUp = false; restarts = 0; encoder = "hevc_nvenc"; fellBack = false;
             openSess = null; diskPaused = false; recState = ""; keepSessions = 3; recentBudgetBytes = -1; savedBudgetBytes = -1;
             lock (gate) { segs.Clear(); cuts.Clear(); incCuts.Clear(); probing = 0; clips.Clear(); }
@@ -1870,7 +1974,7 @@ namespace IRDash
                 sb.Append("],\"middle\":" + (mid == null ? "null" : "{\"adapter\":" + mid.Adapter + ",\"index\":" + mid.Index + ",\"x\":" + mid.L + ",\"y\":" + mid.T + ",\"w\":" + mid.W + ",\"h\":" + mid.H + ",\"rotation\":" + mid.Rotation + "}") + ",\"why\":" + Json_.S(why) + "}");
                 return sb.ToString();
             }
-            if (path == "/vault/test/recswitch") return "{\"on\":" + (ParseSwitch(Q(q, "text")) ? "true" : "false") + ",\"enabled\":" + (enabled ? "true" : "false") + "}";
+            if (path == "/vault/test/recswitch") return "{\"on\":" + (ParseSwitch(Q(q, "text")) ? "true" : "false") + ",\"enabled\":" + (enabled ? "true" : "false") + ",\"audioOn\":" + (ParseAudioSwitch(Q(q, "text")) ? "true" : "false") + ",\"audioMode\":" + Json_.S(audioMode) + "}";
             if (!Vault.SandboxOn) { code = 409; return Err("start the Vault sandbox first (/vault/test/sandbox?on=1)"); }
             if (Q(q, "cmd") == "buildargs")
             {
@@ -1891,6 +1995,9 @@ namespace IRDash
                         keepOverrideSec = int.TryParse(Q(q, "keep"), out v) && v > 5 ? v : 0; segSecs = int.TryParse(Q(q, "seg"), out v) && v >= 3 && v <= 60 ? v : 10; graceSecs = int.TryParse(Q(q, "grace"), out v) && v >= 0 ? v : 20;
                         minLap = double.TryParse(Q(q, "minlap"), NumberStyles.Float, Inv, out d) && d >= 0 ? d : 15; testBar = double.TryParse(Q(q, "bar"), NumberStyles.Float, Inv, out d) && d > 0 ? d : 0; testBlack = Q(q, "black") == "1";
                         try { Directory.CreateDirectory(RecDir); Directory.CreateDirectory(ClipDir); foreach (string f in Directory.GetFiles(RecDir)) File.Delete(f); foreach (string f in Directory.GetFiles(ClipDir, "rec-*")) File.Delete(f); } catch { }
+                        RecAudio.ForgetMissing();
+                        // the sound of a test: off (default), synth (clicks on every whole second), system, or pid:<n> (one program, e.g. a tone player)
+                        string am = Q(q, "audio"); testAudio = am == "synth" || am == "system" || Regex.IsMatch(am, "^pid:[0-9,]+$") ? am : "off";
                         testOn = true; source = Q(q, "source") == "screen" ? "screen" : "test"; lastHookCheck = WallMs();
                         if (Q(q, "enc") == "libx264") { encoder = "libx264"; fellBack = true; }      // the CPU fallback, on purpose
                         EnsureLoop();

@@ -41,7 +41,7 @@ const Debrief = {
     const s = this.st; this.st = null;
     if (!s) return;
     const laps = L.laps.filter(l => l.at >= s.t0 && isNum(l.time) && l.time > 0);
-    if (!laps.length) return;                                          // no full lap: nothing worth a review
+    // no full lap is still a drive (Peter 2026-10-18 "just show me the data"): the review shows what there is, and ALL THE DATA
     // The saved-laps panel is part of this review: when the session ends, or when he gets out after a race.
     // Getting out of practice is the plain review. Never a separate window, and never while he is still driving.
     const review = why === 'session ended' || (why === 'out of the car' && s.race);
@@ -68,7 +68,7 @@ const Debrief = {
   summarise(s, laps) {
     const clean = laps.filter(l => l.clean);
     const pool = clean.length ? clean : laps;
-    const best = Math.min.apply(null, pool.map(l => l.time));
+    const best = pool.length ? Math.min.apply(null, pool.map(l => l.time)) : null;
     return {
       type: s.type, race: s.race, track: s.track, car: s.car, laps: laps.length, cleanLaps: clean.length, startMs: s.wall0, best,
       rows: laps.map(l => ({ n: l.lap, time: l.time, clean: !!l.clean, why: l.why || '' })),      // why: out / in / pit / off from core.js trackLaps, '' = no reason seen
@@ -111,8 +111,16 @@ const Debrief = {
       b.type = 'button'; b.id = 'dbCos'; b.textContent = 'OPEN IN COSWORTH';
       b.addEventListener('click', e => {
         e.stopPropagation(); e.preventDefault();
-        b.textContent = 'OPENING';
-        fetch('/vault/open?how=cosworth&id=last', { cache: 'no-store' }).catch(() => { }).then(() => { b.textContent = 'OPEN IN COSWORTH'; });
+        if (b._busy) return;
+        b._busy = true; b.textContent = 'OPENING';
+        const say = (t, ms) => { b.textContent = t; setTimeout(() => { b.textContent = 'OPEN IN COSWORTH'; b._busy = false; }, ms); };
+        fetch('/vault/open?how=cosworth&id=last', { cache: 'no-store' }).then(r => r.json().catch(() => ({})).then(j => {
+          if (r.status === 409) say('NOT WHILE DRIVING', 4000);
+          else if (r.status === 404) say('FILE IS GONE', 4000);
+          else if (!r.ok) say('COULD NOT OPEN', 4000);
+          else if (j && j.action === 'folder') say('PI NOT FOUND', 4000);
+          else say(j && j.action === 'busy' ? 'ALREADY OPENING' : 'OPENING IN PI', 4000);
+        })).catch(() => say('COULD NOT OPEN', 4000));
       });
       slot.appendChild(b);
     }).catch(() => { });

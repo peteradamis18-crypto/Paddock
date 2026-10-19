@@ -24,46 +24,43 @@ const store = { get(k) { try { const s = localStorage.getItem(k); return s ? JSO
 const NYZ = { timeZone: 'America/New_York' };
 const nyPart = (ts, o) => new Date(ts).toLocaleDateString('en-US', Object.assign({}, o, NYZ));
 const dayTxt = ts => nyPart(ts, { weekday: 'short' }) + ' ' + nyPart(ts, { day: 'numeric' }) + ' ' + nyPart(ts, { month: 'short' });
-const dateTxt = ts => dayTxt(ts) + ' ' + nyPart(ts, { year: 'numeric' }) + ' ' + new Date(ts).toLocaleTimeString('en-US', Object.assign({ hour: 'numeric', minute: '2-digit' }, NYZ));
-const typeTxt = t => /offline testing/i.test(t || '') ? 'Test' : /open qualify/i.test(t || '') ? 'Qualify' : (t || '');
+const clockTxt = ts => new Date(ts).toLocaleTimeString('en-US', Object.assign({ hour: 'numeric', minute: '2-digit' }, NYZ));
+const dateTxt = ts => dayTxt(ts) + ' ' + nyPart(ts, { year: 'numeric' }) + ' ' + clockTxt(ts);
+const dayKey = ts => nyPart(ts, { year: 'numeric', month: '2-digit', day: '2-digit' });
+// "Today" / "Yesterday" for the newest two days, the date after that (the day header must be read at a glance)
+const dayHead = ts => { const k = dayKey(ts), n = Date.now(); return k === dayKey(n) ? 'Today · ' + dayTxt(ts) : k === dayKey(n - 86400000) ? 'Yesterday · ' + dayTxt(ts) : dayTxt(ts) + (nyPart(ts, { year: 'numeric' }) !== nyPart(n, { year: 'numeric' }) ? ' ' + nyPart(ts, { year: 'numeric' }) : ''); };
+const typeTxt = t => /offline testing/i.test(t || '') ? 'Test drive' : /open qualify|lone qualify/i.test(t || '') ? 'Qualifying' : (t || '');
+const cfgTxt = c => /^full course$/i.test(c || '') ? '' : (c || '');
 
 const V = {
-  d: null, sig: '', f: { kind: '', car: '', track: '', tag: '', year: '', q: '' }, sort: store.get('vault-sort') || 'date',
+  d: null, sig: '', f: { kind: '', car: '', track: '', tag: '', year: '', q: '' }, view: store.get('vault-view') || '', size: store.get('vault-size') || 'M',
   kmh: store.get('irdash-units') !== false,
   id: '', cur: null, laps: null, lap: 0, tr: new Map(), trace: null, ref: null, refInfo: null, cmpId: '', cmp: null,
   g: -1, pts: null, corners: null, discs: [], vid: null, videoId: '', ask: 0, stats: new Map(), seq: 0, showDelta: false, race: '',
-  rec: false, rc: null, rcRef: null, vid2: null, lockOn: false,
+  rec: false, rc: null, rcRef: null, vid2: null, lockOn: false, vis: [],
 };
+if (['S', 'M', 'L'].indexOf(V.size) < 0) V.size = 'M';
+if (['', 'keep', 'race', 'best', 'clip'].indexOf(V.view) < 0) V.view = '';
 
 /* ================= the grid ================= */
+// 2026-10-18 Peter: "vault is a disaster ... hard to interpret". It was 50 identical track outlines under six rows of small chips.
+// Now (docs\research\vault-references-2026-10.md): a real picture of each recorded lap with the length bottom-right (YouTube, every capture
+// gallery), the lap time big and the result as a coloured word (purple fastest ever, green new PB: the timing-screen colours), grouped by
+// day and then by session (F1 TV groups by event), a few big controls instead of chip rows, and S / M / L card sizes that are remembered.
 async function loadList() {
   try {
     const t = await (await fetch('/vault/list', { cache: 'no-store' })).text();
-    const sig = t.length + ':' + t.slice(-80) + ':' + t.slice(0, 400);
+    const sig = t.length + ':' + t.slice(-80) + ':' + t.slice(0, 600);
     if (sig !== V.sig) {
       V.sig = sig; V.d = JSON.parse(t);
       if (V.d && V.d.enabled === false) {
         setText('status', 'Vault is switched off.');
-        setText('totals', ''); setText('idNum', ''); setHTML('meter', ''); setHTML('setup', ''); setHTML('grid', '');
+        setText('idNum', ''); setHTML('meter', ''); setHTML('setup', ''); setHTML('grid', '');
         return;
       }
       renderGrid();
     }
   } catch (e) { setText('status', 'Not connected'); }
-}
-
-function chipRow(el, label, items, cur, set) {
-  el.textContent = '';
-  if (items.length < 2 && !cur) { el.hidden = true; return; }
-  el.hidden = false;
-  const l = document.createElement('label'); l.textContent = label; el.appendChild(l);
-  for (const [value, text, n] of items) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (value === cur ? ' on' : '');
-    b.textContent = text;
-    if (n != null) { const i = document.createElement('i'); i.textContent = n; b.appendChild(i); }
-    b.onclick = () => set(value === cur && value !== '' ? '' : value);
-    el.appendChild(b);
-  }
 }
 
 const bytesTxt = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : Math.round(b / 1024) + ' KB';
@@ -75,12 +72,15 @@ function renderMeter() {
 }
 
 function isKeeper(m) { return m.keeper; }
+const hasVid = m => !!(m.video || m.vid);
+const isRace = m => m.kind === 'race';
+const isBestLap = m => !isRace(m) && m.lapTime > 0 && (m.tags.indexOf('PB') >= 0 || m.tags.indexOf('BEST LAP') >= 0 || m.tags.indexOf('TOP 10') >= 0 || (isNum(m.gap) && Math.abs(m.gap) < 0.0005));
 
-// No recorder yet: the page must not offer a clip filter or say "clip".
+// No recorder yet: the page must not offer a video filter or say "video".
 function vaultHasVideo(d) {
   if (!d) return false;
-  if ((d.withVideo || 0) > 0 || (d.clips || 0) > 0) return true;
-  return (d.moments || []).some(m => m.video);
+  if ((d.withVideo || 0) > 0 || (d.clips || 0) > 0 || (d.vids || 0) > 0) return true;
+  return (d.moments || []).some(hasVid);
 }
 
 // A lap and the video of that same session file + lap number are one card. The video shows as a badge.
@@ -102,10 +102,13 @@ function mergeCards(list) {
     let vid = x.card.video ? x.card : null;
     for (const r of x.rest) if (!vid && r.video) vid = r;
     const wantKeeper = !!(x.card.keeper || x.rest.some(r => r.keeper));
-    const need = (vid && vid !== x.card) || (wantKeeper && !x.card.keeper);
+    // the tags of the other moment of this lap count too (a tag list that offered CLIP found no card before)
+    const tags = x.card.tags.slice(); x.rest.forEach(r => (r.tags || []).forEach(t => { if (tags.indexOf(t) < 0) tags.push(t); }));
+    const need = (vid && vid !== x.card) || (wantKeeper && !x.card.keeper) || tags.length !== x.card.tags.length;
     if (!need) { merged.push(x.card); continue; }
     const card = {};
     for (const key in x.card) card[key] = x.card[key];
+    card.tags = tags;
     if (vid && vid !== x.card) {
       card.video = vid.video; card.videoDur = vid.videoDur; card.videoFrom = vid.id;
       if (!card.thumb && vid.thumb) { card.thumb = true; card.thumbId = vid.id; }
@@ -116,71 +119,220 @@ function mergeCards(list) {
   return merged;
 }
 
+// the views: one press each, gold = the one on (as on the deck)
+const VIEWS = [['', 'All'], ['keep', '★ Keepers'], ['race', 'Races'], ['best', 'Best laps'], ['clip', 'Videos']];
+function inView(m, v) { return !v || (v === 'keep' ? m.keeper : v === 'race' ? isRace(m) : v === 'best' ? isBestLap(m) : v === 'clip' ? hasVid(m) : v === 'recent' ? !m.keeper : true); }
+
+// a drop-down that opens a big list (no typing): [value, text, count]
+function dropBtn(el, label, all, items, cur, set) {
+  el.textContent = '';
+  if (items.length < 2 && !cur) return;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'drop' + (cur ? ' on' : ''); b.dataset.drop = label;
+  const s = document.createElement('span'); s.textContent = cur || all; b.appendChild(s);
+  b.onclick = e => { e.stopPropagation(); openPop(b, [['', all, null]].concat(items), cur, set); };
+  el.appendChild(b);
+}
+function openPop(anchor, items, cur, set) {
+  const pop = $('pop');
+  if (!pop.hidden && pop._for === anchor) { closePop(); return; }
+  pop.textContent = ''; pop._for = anchor;
+  for (const [v, t, n] of items) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = v === cur ? 'on' : '';
+    const s = document.createElement('span'); s.textContent = t; b.appendChild(s);
+    if (n != null) { const i = document.createElement('i'); i.textContent = n; b.appendChild(i); }
+    b.onclick = e => { e.stopPropagation(); closePop(); set(v); };
+    pop.appendChild(b);
+  }
+  const host = $('viewGrid').getBoundingClientRect(), r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(0, Math.min(r.left - host.left, host.width - 440)) + 'px'; pop.style.top = (r.bottom - host.top + 6) + 'px';
+  pop.hidden = false;
+  const first = pop.querySelector('button.on') || pop.querySelector('button'); if (first) first.focus();
+}
+function closePop() { const p = $('pop'); if (p && !p.hidden) { p.hidden = true; p._for = null; } }
+document.addEventListener('click', e => { if (!$('pop').hidden && !$('pop').contains(e.target)) closePop(); });
+
+function renderControls(ms, pass) {
+  const cards = mergeCards(ms.slice().sort((a, b) => b.ts - a.ts));     // counts are cards, as shown
+  const videoOn = vaultHasVideo(V.d);
+  if (V.view === 'clip' && !videoOn) V.view = '';
+  const k = $('fKind'); k.textContent = '';
+  for (const [v, t] of VIEWS) {
+    if (v === 'clip' && !videoOn) continue;
+    const n = v ? cards.filter(m => inView(m, v)).length : null;
+    if (v === 'race' && !n) continue;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'tab' + (v === V.view ? ' on' : ''); b.dataset.view = v; b.setAttribute('role', 'tab');
+    b.textContent = t; if (n != null) { const i = document.createElement('i'); i.textContent = n; b.appendChild(i); }
+    b.onclick = () => { V.view = v; store.set('vault-view', v); $('gridScroll').scrollTop = 0; renderGrid(); };
+    k.appendChild(b);
+  }
+  const uniq = (skip, get) => { const c = new Map(); cards.filter(m => pass(m, skip)).forEach(m => { const v = get(m); if (v) c.set(v, (c.get(v) || 0) + 1); }); return Array.from(c.entries()).sort((a, b) => b[1] - a[1]).map(([v, n]) => [v, v, n]); };
+  dropBtn($('fCar'), 'car', 'All cars', uniq('car', m => m.car), V.f.car, v => { V.f.car = v; renderGrid(); });
+  dropBtn($('fTrack'), 'track', 'All tracks', uniq('track', m => m.track), V.f.track, v => { V.f.track = v; renderGrid(); });
+  // only the tags he can add himself (INCIDENT, OVERTAKE, CLEAN...): the automatic ones are the views and the coloured words
+  const tc = new Map(); cards.filter(m => pass(m, 'tag')).forEach(m => m.tags.forEach(t => { if (AUTO.indexOf(t) < 0) tc.set(t, (tc.get(t) || 0) + 1); }));
+  dropBtn($('fTag'), 'tag', 'Any tag', Array.from(tc.entries()).sort((a, b) => b[1] - a[1]).map(([t, n]) => [t, t, n]), V.f.tag, v => { V.f.tag = v; renderGrid(); });
+  const yc = new Map(); cards.filter(m => pass(m, 'year')).forEach(m => { const y = nyPart(m.ts, { year: 'numeric' }); yc.set(y, (yc.get(y) || 0) + 1); });
+  dropBtn($('fYear'), 'year', 'Every year', Array.from(yc.entries()).sort((a, b) => b[0] - a[0]).map(([y, n]) => [y, y, n]), V.f.year, v => { V.f.year = v; renderGrid(); });
+  if ($('q').value !== V.f.q) $('q').value = V.f.q;
+  const sz = $('fSize');
+  if (!sz.firstChild) {
+    sz.innerHTML = '<label>Size</label>' + ['S', 'M', 'L'].map(s => '<button class="sz" type="button" data-size="' + s + '" aria-label="' + ({ S: 'Small', M: 'Medium', L: 'Large' })[s] + ' cards">' + s + '</button>').join('');
+    sz.querySelectorAll('.sz').forEach(b => b.onclick = () => setSize(b.dataset.size));
+  }
+  sz.querySelectorAll('.sz').forEach(b => b.classList.toggle('on', b.dataset.size === V.size));
+}
+function setSize(s) {
+  if (['S', 'M', 'L'].indexOf(s) < 0) return;
+  const changed = V.size !== s;
+  V.size = s; store.set('vault-size', s);
+  const g = $('grid'); g.classList.remove('s-S', 's-M', 's-L'); g.classList.add('s-' + s);
+  $('fSize').querySelectorAll('.sz').forEach(b => b.classList.toggle('on', b.dataset.size === s));
+  if (changed && V.d) renderGrid();                  // the session groups are laid out for the number of columns
+}
+
+const AUTO = ['PB', 'WIN', 'PODIUM', 'BEST LAP', 'TOP 10', 'BEST RACE', 'BIG IR'];
+// the result as plain coloured words: purple = the fastest you have ever been here, green = it was a new personal best that day,
+// gold = a win / podium / one of your three quickest ever. Never more than three, the strongest first.
+function resultChips(m) {
+  const c = [];
+  if (isRace(m)) {
+    if (m.tags.indexOf('WIN') >= 0) c.push(['win', 'Win']);
+    else if (m.tags.indexOf('PODIUM') >= 0) c.push(['win', 'Podium']);
+    if (m.tags.indexOf('BEST RACE') >= 0) c.push(['gold', 'Best finish']);
+    if (isNum(m.irDelta) && Math.abs(m.irDelta) >= 1) c.push([m.irDelta > 0 ? 'up' : 'down', fmtDelta(m.irDelta, 0) + ' iRating']);
+    if (!m.official && m.finished) c.push(['', 'AI race']);
+  } else if (m.lapTime > 0) {
+    if (isNum(m.gap) && Math.abs(m.gap) < 0.0005) c.push(['fast', 'Fastest ever']);
+    else if (m.tags.indexOf('PB') >= 0) c.push(['newpb', 'New PB']);
+    if (m.tags.indexOf('BEST LAP') >= 0 && !(isNum(m.gap) && Math.abs(m.gap) < 0.0005)) c.push(['gold', 'Top 3 ever']);
+    else if (m.tags.indexOf('TOP 10') >= 0 && m.tags.indexOf('BEST LAP') < 0) c.push(['', 'Top 10 %']);
+  }
+  m.tags.forEach(t => { if (AUTO.indexOf(t) < 0) c.push([t === 'INCIDENT' ? 'down' : '', t.toLowerCase().replace(/^./, x => x.toUpperCase())]); });
+  return c.slice(0, 3);
+}
+function resultClass(m) {
+  if (isRace(m)) return m.tags.indexOf('WIN') >= 0 ? 'r-win' : m.tags.indexOf('PODIUM') >= 0 ? 'r-pod' : '';
+  if (isNum(m.gap) && Math.abs(m.gap) < 0.0005 && m.lapTime > 0) return 'r-fast';
+  return m.tags.indexOf('PB') >= 0 ? 'r-pb' : '';
+}
+
+function cardHTML(m, when) {
+  const race = isRace(m);
+  const fast = !race && isNum(m.gap) && Math.abs(m.gap) < 0.0005 && m.lapTime > 0;
+  let big, gap = '';
+  if (race) big = m.finished ? 'P' + m.pos + '<small>of ' + m.field + '</small>' : 'Did not finish';
+  else if (m.kind === 'clip' && !(m.lapTime > 0)) big = fmtDur(m.videoDur);
+  else big = fmtLap(m.lapTime);
+  if (!race && isNum(m.gap) && m.lapTime > 0) gap = fast ? '<span class="gap fast">best lap</span>' : '<span class="gap">' + fmtDelta(m.gap, 3) + ' to best</span>';
+  else if (race && m.lapTime > 0) gap = '<span class="gap">best ' + fmtLap(m.lapTime) + '</span>';
+  // the picture: a real frame of the recording when there is one (irdash makes it in the background), else the map with this lap's line
+  const pic = m.frame ? '<img loading="lazy" alt="" src="/vault/frame?id=' + encodeURIComponent(m.id) + '" data-map="' + (m.thumb ? encodeURIComponent(m.thumbId || m.id) : '') + '">'
+    : m.thumb ? '<img class="map" loading="lazy" alt="" src="/vault/thumb?id=' + encodeURIComponent(m.thumbId || m.id) + '">' : '<div class="none">No picture yet</div>';
+  const chips = resultChips(m).map(([k, t]) => '<span class="chip ' + k + '">' + esc(t) + '</span>').join('');
+  const dur = m.vid ? m.vidDur : m.video ? m.videoDur : 0;
+  const what = race ? (typeTxt(m.sType) || 'Race') : m.kind === 'clip' && !m.lap ? 'Video' : 'Lap ' + m.lap;
+  return '<div class="card ' + resultClass(m) + (m.keeper ? ' keeper' : '') + (m.frame ? ' framed' : '') + '" tabindex="0" data-id="' + esc(m.id) + '">' +
+    '<div class="th">' + pic + (chips ? '<div class="chips">' + chips + '</div>' : '') +
+    (m.keeper ? '<span class="star" title="Kept for good">★</span>' : '') +
+    (hasVid(m) ? '<span class="badge vid">▶ ' + fmtDur(dur) + '</span>' : '') + '</div>' +
+    '<div class="meta"><div class="tm"><b>' + big + '</b>' + gap + '</div>' +
+    '<div class="t1">' + esc(m.track || 'Unknown track') + (cfgTxt(m.config) ? ' · ' + esc(m.config) : '') + '</div>' +
+    '<div class="t2"><span>' + esc(what) + ' · ' + esc(m.car || '') + '</span><span class="when">' + esc(when) + '</span></div></div></div>';
+}
+
 function renderGrid() {
   const d = V.d; if (!d) return;
-  const ms = d.moments;
+  const ms = d.moments || [];
   renderMeter();
-  const videoOn = vaultHasVideo(d);
-  if (V.f.kind === 'clip' && !videoOn) V.f.kind = '';
-  const kinds = [['', 'Everything'], ['keep', '★ Keepers'], ['recent', 'Recent']];
-  if (videoOn) kinds.push(['clip', 'Clips']);
-  const pass = (m, skip) => (skip === 'kind' || !V.f.kind || (V.f.kind === 'keep' ? m.keeper : V.f.kind === 'recent' ? !m.keeper : m.video)) &&
+  const pass = (m, skip) => (skip === 'kind' || inView(m, V.view)) &&
     (skip === 'car' || !V.f.car || m.car === V.f.car) && (skip === 'track' || !V.f.track || m.track === V.f.track) && (skip === 'tag' || !V.f.tag || m.tags.indexOf(V.f.tag) >= 0) &&
-    (skip === 'year' || !V.f.year || String(new Date(m.ts).getFullYear()) === V.f.year) &&
-    (skip === 'q' || !V.f.q || (m.car + ' ' + m.track + ' ' + m.config + ' ' + m.note + ' ' + m.tags.join(' ') + ' ' + m.sType).toLowerCase().indexOf(V.f.q.toLowerCase()) >= 0);
-  const uniq = (key, skip, get) => { const c = new Map(); ms.filter(m => pass(m, skip)).forEach(m => { const v = get(m); if (v) c.set(v, (c.get(v) || 0) + 1); }); return Array.from(c.entries()).sort((a, b) => b[1] - a[1]); };
-  chipRow($('fKind'), 'Show', kinds.map(([v, t]) => [v, t, v === '' ? null : ms.filter(m => (v === 'keep' ? m.keeper : v === 'recent' ? !m.keeper : m.video)).length]), V.f.kind, v => { V.f.kind = v; renderGrid(); });
-  const cars = uniq('car', 'car', m => m.car), tracks = uniq('track', 'track', m => m.track), tags = uniq('tag', 'tag', m => null);
-  chipRow($('fCar'), 'Car', [['', 'All cars']].concat(cars.map(([c, n]) => [c, c, n])), V.f.car, v => { V.f.car = v; renderGrid(); });
-  chipRow($('fTrack'), 'Track', [['', 'All tracks']].concat(tracks.map(([c, n]) => [c, c, n])), V.f.track, v => { V.f.track = v; renderGrid(); });
-  const tagCount = new Map(); ms.filter(m => pass(m, 'tag')).forEach(m => m.tags.forEach(t => tagCount.set(t, (tagCount.get(t) || 0) + 1)));
-  chipRow($('fTag'), 'Tag', [['', 'Any']].concat(Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).map(([t, n]) => [t, t, n])), V.f.tag, v => { V.f.tag = v; renderGrid(); });
-  const yc = new Map(); ms.filter(m => pass(m, 'year')).forEach(m => { const y = String(new Date(m.ts).getFullYear()); yc.set(y, (yc.get(y) || 0) + 1); });
-  chipRow($('fYear'), 'Year', [['', 'All']].concat(Array.from(yc.entries()).sort((a, b) => b[0] - a[0]).map(([y, n]) => [y, y, n])), V.f.year, v => { V.f.year = v; renderGrid(); });
-  chipRow($('fSort'), 'Sort', [['date', 'Newest'], ['time', 'Fastest'], ['gap', 'Closest to PB']], V.sort, v => { V.sort = v || 'date'; store.set('vault-sort', V.sort); renderGrid(); });
-  if ($('q').value !== V.f.q) $('q').value = V.f.q;
-
-  const cmp = { date: (a, b) => b.ts - a.ts, time: (a, b) => (a.lapTime || 1e9) - (b.lapTime || 1e9), gap: (a, b) => (isNum(a.gap) ? Math.abs(a.gap) : 1e9) - (isNum(b.gap) ? Math.abs(b.gap) : 1e9) };
-  const ordered = ms.slice().sort(cmp[V.sort] || cmp.date);
+    (skip === 'year' || !V.f.year || nyPart(m.ts, { year: 'numeric' }) === V.f.year) &&
+    (skip === 'q' || !V.f.q || (m.car + ' ' + m.track + ' ' + m.config + ' ' + m.note + ' ' + m.tags.join(' ') + ' ' + m.sType + ' ' + typeTxt(m.sType)).toLowerCase().indexOf(V.f.q.toLowerCase()) >= 0);
+  renderControls(ms, pass);
+  const ordered = ms.slice().sort((a, b) => b.ts - a.ts);
   const vis = mergeCards(ordered).filter(m => pass(m, ''));
-  let tot = vis.length + (vis.length === 1 ? ' moment' : ' moments') + ' · ' + d.keepers + ' kept';
-  if (videoOn) tot += ' · ' + d.withVideo + (d.withVideo === 1 ? ' video' : ' videos');
-  setText('totals', tot);
+  V.vis = vis;
   setText('idNum', bytesTxt(d.usedBytes || 0) + ' · ' + ms.length + (ms.length === 1 ? ' moment' : ' moments'));
-  const bits = [];
+  const bits = [vis.length + (vis.length === 1 ? ' moment' : ' moments') + ' · ' + d.keepers + ' kept for good'];
   if (d.status === 'reading older sessions' || d.scanLeft > 0) bits.push('Reading sessions' + (d.scanLeft ? ': ' + d.scanLeft + ' to go' : ''));
   if (d.sandbox) bits.push('TEST VAULT');
-  bits.push('Recent laps kept ' + d.recentDays + ' days');
-  setText('status', bits.join(' · '));
+  bits.push('other laps stay ' + d.recentDays + ' days');
+  setText('totals', bits.join(' · '));
   renderSetup(d);
+  const g = $('grid'); if (!g.classList.contains('s-' + V.size)) setSize(V.size);
 
   let h = '';
-  for (const m of vis) {
-    const race = m.kind === 'race';
-    const title = esc(m.track || 'Unknown track') + (m.config ? '<small>' + esc(m.config) + '</small>' : '');
-    const big = race ? (m.finished ? 'P' + m.pos + '<span style="font-size:16px;color:var(--mute)"> of ' + m.field + '</span>' : '–') : (m.kind === 'clip' && !(m.lapTime > 0) ? '<span style="font-size:22px">' + fmtDur(m.videoDur) + '</span>' : fmtLap(m.lapTime));
-    let gap = '';
-    if (!race && isNum(m.gap) && m.lapTime > 0) gap = Math.abs(m.gap) < 0.0005 ? '<span class="gap pb">PB</span>' : '<span class="gap">' + fmtDelta(m.gap, 3) + '</span>';
-    else if (race && m.lapTime > 0) gap = '<span class="gap">' + fmtLap(m.lapTime) + '</span>';
-    const tg = m.tags.map(t => '<span class="tag' + (['PB', 'WIN', 'PODIUM', 'BEST LAP', 'TOP 10', 'BEST RACE', 'BIG IR'].indexOf(t) >= 0 ? ' k' : '') + '">' + esc(t) + '</span>').join('');
-    h += '<div class="card' + (m.keeper ? ' keeper' : '') + '" tabindex="0" data-id="' + esc(m.id) + '">' +
-      '<div class="th">' + (m.thumb ? '<img loading="lazy" alt="" src="/vault/thumb?id=' + encodeURIComponent(m.thumbId || m.id) + '">' : '<div class="none">picture soon</div>') +
-      (m.keeper ? '<span class="star" title="Kept for good">★</span>' : '') +
-      (m.video ? '<span class="badge vid">▶ ' + fmtDur(m.videoDur) + '</span>' : race ? '<span class="badge">' + (m.official ? 'Official race' : 'Race') + '</span>' : m.lap ? '<span class="badge">Lap ' + m.lap + '</span>' : '') + '</div>' +
-      '<div class="meta"><div class="t1">' + title + '</div><div class="t2">' + esc(m.car || '') + (m.sType ? ' · ' + esc(typeTxt(m.sType)) : '') + '</div>' +
-      '<div class="tm"><b>' + big + '</b>' + gap + '<span class="when">' + esc(dayTxt(m.ts)) + '</span></div><div class="tags">' + tg + (m.note ? '<span class="tag">NOTE</span>' : '') + '</div></div></div>';
+  if (V.view === 'best') {
+    // best laps: one group per car and track, quickest first (Garage 61 groups laps by car; a PB only means something per car + track)
+    const groups = new Map();
+    for (const m of vis) { const k = m.car + '\n' + m.track + '\n' + m.config; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); }
+    const gl = Array.from(groups.values()).sort((a, b) => Math.max.apply(null, b.map(x => x.ts)) - Math.max.apply(null, a.map(x => x.ts)));
+    for (const l of gl) {
+      l.sort((a, b) => (a.lapTime || 1e9) - (b.lapTime || 1e9));
+      const m0 = l[0];
+      h += '<div class="day">' + esc(m0.track) + (cfgTxt(m0.config) ? ' · ' + esc(m0.config) : '') + '<em>' + esc(m0.car) + ' · best ' + fmtLap(m0.pb || m0.lapTime) + ' · ' + l.length + (l.length === 1 ? ' lap' : ' laps') + '</em></div>';
+      h += '<div class="cards">' + l.map(m => cardHTML(m, dayTxt(m.ts))).join('') + '</div>';
+    }
+  } else {
+    // everything else: by day (sticky header), then by session, newest first; in a session the race comes first, then its laps quickest first
+    // A session is a framed group with its own header; groups flow side by side in the day's grid, so a day of three short sessions is one row, not three.
+    const cols = { S: 5, M: 4, L: 3 }[V.size] || 4;
+    let day = '', sess = null, open = false;
+    const flush = () => {
+      if (!sess) return;
+      const s = sess, m0 = s.items[0];
+      s.items.sort((a, b) => (isRace(b) ? 1 : 0) - (isRace(a) ? 1 : 0) || (a.lapTime || 1e9) - (b.lapTime || 1e9));
+      const n = s.items.length, span = Math.min(n, cols);
+      h += '<div class="sgrp" style="grid-column:span ' + span + '"><div class="sess"><b>' + esc(m0.track) + (cfgTxt(m0.config) ? ' · ' + esc(m0.config) : '') + '</b>' +
+        '<span class="ty">' + esc(typeTxt(m0.sType) || 'Session') + '</span><em>' + esc(clockTxt(s.ts)) + '</em></div>' +
+        '<div class="cards" style="--cols:' + span + '">' + s.items.map(m => cardHTML(m, clockTxt(m.ts))).join('') + '</div></div>';
+      sess = null;
+    };
+    const dayCount = new Map(); vis.forEach(m => { const k = dayKey(m.ts); dayCount.set(k, (dayCount.get(k) || 0) + 1); });
+    for (const m of vis) {
+      const dk = dayKey(m.ts), sk = (m.session || '') + '|' + (m.session ? '' : m.ts);
+      if (dk !== day) {
+        flush(); if (open) h += '</div>';
+        day = dk; const n = dayCount.get(dk);
+        h += '<div class="day">' + esc(dayHead(m.ts)) + '<em>' + n + (n === 1 ? ' moment' : ' moments') + '</em></div><div class="dgrid" style="--cols:' + cols + '">'; open = true;
+      }
+      if (!sess || sess.key !== sk) { flush(); sess = { key: sk, ts: m.ts, items: [] }; }
+      sess.items.push(m);
+    }
+    flush(); if (open) h += '</div>';
   }
   if (!vis.length) {
-    h = '<div class="empty">' + (ms.length ? '<b>No match</b>' : d.scanLeft > 0 || d.status !== 'up to date' ? '<b>Reading sessions</b>' :
+    h = '<div class="empty">' + (ms.length ? '<b>Nothing here</b><br>' + (V.f.car || V.f.track || V.f.tag || V.f.year || V.f.q ? 'Try All cars / All tracks.' : 'Choose All.') : d.scanLeft > 0 || d.status !== 'up to date' ? '<b>Reading sessions</b>' :
       '<b>No laps yet</b>') + '</div>';
   }
   setHTML('grid', h);
+  // a frame that cannot load (made on another PC, deleted) falls back to the map picture
+  g.querySelectorAll('img[data-map]').forEach(im => { im.onerror = () => { const k = im.dataset.map; im.onerror = null; if (k) { im.className = 'map'; im.src = '/vault/thumb?id=' + k; } else im.remove(); }; });
 }
 
 function renderSetup(d) {
-  // Video is recorded by Paddock itself in a later step. Do not send Peter to the NVIDIA app.
+  // Video is recorded by Paddock itself. Do not send Peter to the NVIDIA app.
   if (!d) return;
   setHTML('setup', '');
+}
+
+// arrows move between cards (by the grid's own columns), Enter opens one
+function moveCard(key) {
+  const cards = Array.from(document.querySelectorAll('#grid .card'));
+  if (!cards.length) return false;
+  let i = cards.indexOf(document.activeElement);
+  if (i < 0) { cards[0].focus(); return true; }
+  const r0 = cards[i].getBoundingClientRect();
+  let j = -1;
+  if (key === 'ArrowRight') j = Math.min(cards.length - 1, i + 1);
+  else if (key === 'ArrowLeft') j = Math.max(0, i - 1);
+  else {
+    // the nearest card straight below / above (rows are split by the session headers, so look at the boxes, not the index)
+    let bd = 1e9;
+    cards.forEach((c, k) => { const r = c.getBoundingClientRect(); const dy = key === 'ArrowDown' ? r.top - r0.bottom : r0.top - r.bottom; if (dy < -2) return; const dd = dy * 4 + Math.abs(r.left - r0.left); if (dd < bd) { bd = dd; j = k; } });
+  }
+  if (j >= 0) { cards[j].focus(); cards[j].scrollIntoView({ block: 'nearest' }); }
+  return true;
 }
 
 document.addEventListener('click', e => {
@@ -188,8 +340,23 @@ document.addEventListener('click', e => {
   if (c) location.hash = 'm=' + encodeURIComponent(c.dataset.id);
 });
 document.addEventListener('keydown', e => {
-  if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) { if (e.key === 'Escape') e.target.blur(); return; }
-  if (e.key === 'Escape') { if ($('wbHost')) closeRace(); else if (V.id) location.hash = ''; else closeMe(); return; }
+  const tg = e.target && e.target.tagName;
+  if (tg === 'TEXTAREA' || (tg === 'INPUT' && e.target.type !== 'range')) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.key === 'Escape') {
+    if (!$('pop').hidden) { closePop(); return; }
+    if ($('wbHost')) closeRace(); else if (V.id && theaterOn()) setTheater(false); else if (V.id) location.hash = ''; else closeMe();
+    return;
+  }
+  if (V.id && !$('wbHost') && V.vid && V.sync) {
+    // the player: Space play / pause, arrows 5 s, F full screen, E (or T) expand, M sound
+    const k = e.key.toLowerCase();
+    if (k === ' ' || k === 'k') { e.preventDefault(); togglePlay(); return; }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); skip(e.key === 'ArrowLeft' ? -5 : 5); return; }
+    if (k === 'f') { toggleFull(); return; }
+    if (k === 'e' || k === 't') { setTheater(!theaterOn()); return; }
+    if (k === 'm') { V.vid.muted = !V.vid.muted; return; }
+  }
+  if (!V.id && /^Arrow/.test(e.key) && $('pop').hidden) { if (moveCard(e.key)) e.preventDefault(); return; }
   if (e.key === 'Enter' && document.activeElement && document.activeElement.dataset && document.activeElement.dataset.id && !V.id) document.activeElement.click();
 });
 // the page may sit in the Vault's own host or (after "Vault" on the Sessions page) in the Sessions host: tell both, whichever exists closes
@@ -204,7 +371,7 @@ function route() {
   const m = /^#m=([a-z0-9-]+)(?:&c=([a-z0-9-]+))?(?:&lap=(\d+))?$/.exec(location.hash);
   if (m) { if (m[1] !== V.id) openItem(m[1], m[2] || '', +m[3] || 0); else if ((m[2] || '') !== V.cmpId) setCompare(m[2] || ''); }
   else {
-    V.id = ''; V.seq++; stopVideo(); teardownVid2();
+    V.id = ''; V.seq++; stopVideo(); teardownVid2(); setTheater(false); closeRace(true);
     $('viewDetail').hidden = true; $('viewGrid').hidden = false; V.sig = ''; loadList();
   }
 }
@@ -219,18 +386,18 @@ function blank(id) { const cv = $(id); if (cv && cv.width) cv.getContext('2d').c
 
 async function openItem(id, cmp, lap) {
   const seq = ++V.seq;
-  closeRace();                                       // the previous moment's workbench must not stay over this one
+  closeRace(true);                                   // the previous moment's workbench must not stay over this one
   // refInfo too: it names the comparison of the PREVIOUS lap page, and stayed on show until /vault/laps came back
   V.id = id; V.cur = null; V.laps = null; V.trace = null; V.ref = null; V.refInfo = null; V.cmp = null; V.cmpId = cmp; V.g = -1; V.pts = null; V.corners = null; V.discs = []; V.stats = new Map(); V.tr = new Map(); V.ask = 0; V.videoId = ''; V.showDelta = false; V.race = '';
   $('viewGrid').hidden = true; $('viewDetail').hidden = false;
-  teardownVid2();
-  setText('dTitle', 'Loading...'); wipe('dSub'); wipe('dActs'); wipe('cLeft'); wipe('cornerBox'); wipe('legend'); $('vidWrap').hidden = true; blank('plot'); blank('mapc');
+  teardownVid2(); closePop();
+  setText('dTitle', 'Loading...'); wipe('dSub'); wipe('dActs'); wipe('cLeft'); wipe('cMore'); wipe('cornerBox'); wipe('legend'); $('vidWrap').hidden = true; blank('plot'); blank('mapc');
   const r = await J('/vault/item?id=' + encodeURIComponent(id));
   if (seq !== V.seq) return;
   if (r.j && r.j.enabled === false) { setText('dTitle', 'Vault is switched off'); return; }
   if (!r.ok || !r.j || !r.j.m) { setText('dTitle', 'Not found'); setHTML('cLeft', '<div class="msg"><b>Not in the Vault</b></div>'); return; }
   V.cur = r.j; const m = r.j.m;
-  setText('dTitle', (m.track || (m.video ? 'Video' : 'Moment')) + (m.config ? ' · ' + m.config : ''));
+  setText('dTitle', (m.track || (m.video ? 'Video' : 'Moment')) + (cfgTxt(m.config) ? ' · ' + m.config : '') + (m.lapTime > 0 && m.kind !== 'race' ? '  ·  ' + fmtLap(m.lapTime) : m.kind === 'race' && m.finished ? '  ·  P' + m.pos + ' of ' + m.field : ''));
   renderHead();
   // the track outline and corners (kept on this PC by irdash)
   loadMap(m, seq);
@@ -241,9 +408,18 @@ async function openItem(id, cmp, lap) {
       V.laps = lr.j;
       const clean = lr.j.laps.filter(l => l.time > 15);
       V.lap = lap || (m.lap && lr.j.laps.some(l => l.n === m.lap) ? m.lap : (lr.j.best != null ? lr.j.best : (clean[0] || {}).n)) || 0;
-      // A clip stays on the Vault's own player: it has the SYNC nudge (remembered by irdash), the workbench does not.
-      if (V.lap) checkRace(id, seq);                 // not awaited: the RACE button appears by itself when there is a race log
-      if (V.lap && !m.video) { openWorkbench(id, V.lap); return; }
+      if (V.lap && !m.video) {
+        // A race opens its RACE page (the whole field) when irdash logged it, else the analysis of its best lap.
+        if (m.kind === 'race') { const ok = await checkRace(id, seq); if (seq !== V.seq) return; if (ok) openRace(true); else openWorkbench(id, V.lap); return; }
+        checkRace(id, seq);                          // not awaited: the RACE button appears by itself when there is a race log
+        // A lap that was recorded plays on the Vault's own player: the video big, the traces under it on one cursor, the SYNC nudge.
+        // A lap without video opens the analysis workbench.
+        // the list already says which laps have a clip (an older irdash does not: then ask), so a lap without one makes no 404 request
+        const lm = listed(id), knows = !!(V.d && V.d.frames != null && lm);
+        const ri = knows && !lm.vid ? null : await recInfo(id);
+        if (seq !== V.seq) return;
+        if (!ri) { openWorkbench(id, V.lap); return; }
+      } else if (V.lap) checkRace(id, seq);
     }
   }
   await prepareVideo(m, seq);
@@ -256,20 +432,22 @@ async function openItem(id, cmp, lap) {
   await setupCompareVideo(seq);
 }
 
+// Opened straight from a card: BACK goes back to the cards (it used to uncover a half-built detail page with no laps and no traces).
 function openWorkbench(id, lap) {
   if ($('wbHost') || !lap) return;
-  const host = document.createElement('div'); host.id = 'wbHost';
-  host.innerHTML = '<div class="back" id="wbBack">Back to the Vault</div><iframe title="Paddock Analysis"></iframe>';
+  const host = document.createElement('div'); host.id = 'wbHost'; host.dataset.grid = '1';
+  host.innerHTML = '<div class="back" id="wbBack">‹ Back to the Vault</div><iframe title="Paddock Analysis"></iframe>';
   host.querySelector('iframe').src = 'workbench.html?id=' + encodeURIComponent(id) + '&lap=' + encodeURIComponent(lap);
   document.body.appendChild(host);
   requestAnimationFrame(() => host.classList.add('on'));
-  host.querySelector('#wbBack').addEventListener('click', closeRace);
+  host.querySelector('#wbBack').addEventListener('click', () => closeRace());
 }
 
 function renderHead() {
   const m = V.cur.m;
   const race = m.kind === 'race';
-  setHTML('dSub', esc([m.car, typeTxt(m.sType), dateTxt(m.ts)].filter(Boolean).join('  ·  ')) + (m.tags.length ? '  ·  ' + m.tags.map(t => '<b>' + esc(t) + '</b>').join(' ') : ''));
+  // the result words are in the side column (big); here only what, where and when
+  setHTML('dSub', esc([m.car, (m.lap && m.kind !== 'race' ? 'Lap ' + m.lap + ' · ' : '') + typeTxt(m.sType), dayTxt(m.ts) + ' · ' + clockTxt(m.ts)].filter(Boolean).join('  ·  ')));
   const cw = V.cur.cosworth || {};
   const acts = [];
   // RACE: the whole field of this session (irdash logs every car in a race, W6). Only there when /analysis/race has a log for it.
@@ -280,7 +458,7 @@ function renderHead() {
   acts.push('<button class="btn" id="bShare" type="button">Share</button>');
   acts.push('<button class="btn bad" id="bDel" type="button">Delete</button>');
   setHTML('dActs', acts.join(''));
-  if ($('bRace')) $('bRace').onclick = openRace;
+  if ($('bRace')) $('bRace').onclick = () => openRace(false);
   $('bStar').onclick = () => edit('star=' + (m.pinned ? 0 : 1)).then(() => toast(m.pinned ? 'Back to automatic' : 'Kept for good'));
   if ($('bCos')) $('bCos').onclick = () => openFile('cosworth');
   $('bShare').onclick = () => openFile('share');
@@ -295,22 +473,28 @@ async function checkRace(id, seq) {
     try { if (r.body && r.body.cancel) r.body.cancel(); } catch (e) { }
     ok = r.status === 200;
   } catch (e) { }
-  if (!ok || seq !== V.seq || V.id !== id || !V.cur) return;
+  if (!ok || seq !== V.seq || V.id !== id || !V.cur) return false;
   V.race = id; renderHead();
+  return true;
 }
 
 // RACE: the analysis workbench on its RACE page, over the Vault (an iframe with a back bar, the same as ANALYSIS on the Session Review)
-function openRace() {
+function openRace(fromGrid) {
   if (!V.lap) return;
-  closeRace();                                       // a lap's workbench may already be up: the race page replaces it
-  const host = document.createElement('div'); host.id = 'wbHost';
+  closeRace(true);                                   // a lap's workbench may already be up: the race page replaces it
+  const host = document.createElement('div'); host.id = 'wbHost'; if (fromGrid === true) host.dataset.grid = '1';
   host.innerHTML = '<div class="back" id="wbBack">‹ Back to the Vault</div><iframe title="Paddock Analysis"></iframe>';
   host.querySelector('iframe').src = 'workbench.html?id=' + encodeURIComponent(V.id) + '&lap=' + V.lap + '&page=race';
   document.body.appendChild(host);
   requestAnimationFrame(() => host.classList.add('on'));
-  host.querySelector('#wbBack').addEventListener('click', closeRace);
+  host.querySelector('#wbBack').addEventListener('click', () => closeRace());
 }
-function closeRace() { const h = $('wbHost'); if (!h) return; h.classList.remove('on'); h.id = 'wbHostGone'; setTimeout(() => h.remove(), 450); }
+// quiet = only take the page away (a new moment opens, the grid comes back); otherwise a page opened from a card goes back to the cards
+function closeRace(quiet) {
+  const h = $('wbHost'); if (!h) return;
+  h.classList.remove('on'); h.id = 'wbHostGone'; setTimeout(() => h.remove(), 450);
+  if (quiet !== true && h.dataset.grid) location.hash = '';
+}
 
 async function edit(q) {
   const r = await J('/vault/edit?id=' + encodeURIComponent(V.id) + '&' + q);
@@ -327,19 +511,24 @@ async function openFile(how) {
 function renderLeft() {
   const c = V.cur, m = c.m, race = m.kind === 'race';
   let h = '';
+  // DELETE asks twice, at the top of the side column where the answer is in view
+  if (V.ask === 1) h += '<div class="ask"><div>Delete this ' + (m.kind === 'clip' ? 'video' : m.kind === 'race' ? 'race' : 'lap') + ' and its saved files?</div><div style="display:flex;gap:10px"><button class="btn" id="askNo" type="button">Keep it</button><button class="btn bad" id="askYes" type="button">Yes, delete</button></div></div>';
+  if (V.ask === 2) h += '<div class="ask"><div><b>Cannot be undone</b></div><div style="display:flex;gap:10px"><button class="btn" id="askNo" type="button">Keep it</button><button class="btn bad" id="askYes2" type="button">Delete for good</button></div></div>';
   if (race) h += '<div class="big">' + (m.finished ? 'P' + m.pos : 'Race') + '</div><div class="facts"><div>' + (m.finished ? 'of <b>' + m.field + '</b> cars' + (m.official ? ' · official' : ' · offline') : 'Not finished') + '</div>' +
     (isNum(m.irDelta) && m.irDelta !== 0 ? '<div>iRating <b class="' + (m.irDelta > 0 ? 'good' : 'bad') + '">' + fmtDelta(m.irDelta, 0) + '</b></div>' : '') + (m.lapTime > 0 ? '<div>Best lap <b>' + fmtLap(m.lapTime) + '</b></div>' : '') + '</div>';
   else {
     const gap = c.pb ? m.lapTime - c.pb : null;
-    h += '<div class="big">' + (m.lapTime > 0 ? fmtLap(m.lapTime) : (m.video ? fmtDur(m.videoDur) : '–')) + '</div><div class="facts">' +
-      (m.lap ? '<div>Lap <b>' + m.lap + '</b></div>' : '') + (isNum(gap) ? '<div class="gap">' + (Math.abs(gap) < 0.0005 ? '<b style="color:var(--gold)">Personal best</b>' : '<b class="' + (gap > 0 ? 'bad' : 'good') + '">' + fmtDelta(gap, 3) + '</b> to PB (' + fmtLap(c.pb) + ')') + '</div>' : '') +
+    h += '<div class="big"' + (isNum(gap) && Math.abs(gap) < 0.0005 ? ' style="color:var(--purple)"' : '') + '>' + (m.lapTime > 0 ? fmtLap(m.lapTime) : (m.video ? fmtDur(m.videoDur) : '–')) + '</div><div class="facts">' +
+      (m.lap ? '<div>Lap <b>' + m.lap + '</b></div>' : '') + (isNum(gap) ? '<div class="gap">' + (Math.abs(gap) < 0.0005 ? '<b style="color:var(--purple)">Fastest ever here</b>' : '<b class="' + (gap > 0 ? 'bad' : 'good') + '">' + fmtDelta(gap, 3) + '</b> to best (' + fmtLap(c.pb) + ')') + '</div>' : '') +
       (m.pbBefore > 0 ? '<div>Beat <b>' + fmtLap(m.pbBefore) + '</b> by ' + (m.pbBefore - m.lapTime).toFixed(3) + ' s</div>' : '') + '</div>';
   }
   if (!c.hasTelemetry) h += '<div class="msg"><b>Telemetry file gone</b></div>';
+  setHTML('cLeft', h);
+  h = '';
   // laps of the session
   if (V.laps) {
     const laps = V.laps.laps.filter(l => l.time > 15), best = laps.filter(l => !l.pit).reduce((a, l) => Math.min(a, l.time), 1e9);
-    h += '<h2>Laps<em>' + laps.length + ' full</em></h2><div class="scroll" id="lapScroll" style="flex:1;min-height:100px">';
+    h += '<h2>Laps<em>' + laps.length + ' full</em></h2><div class="scroll" id="lapScroll">';
     for (const l of laps) {
       const flags = [l.pit ? 'PIT' : '', l.off ? 'OFF' : '', l.inc ? l.inc + 'x' : ''].filter(Boolean).join(' ');
       h += '<div class="lap' + (l.n === V.lap ? ' cur' : '') + (l.pit ? ' dim' : '') + '" tabindex="0" data-lap="' + l.n + '"><span class="n">' + l.n + '</span><span>' + fmtLap(l.time) + '</span><span class="d">' + (l.time - best < 0.0005 && !l.pit ? 'best' : fmtDelta(l.time - best, 3)) + '</span><span class="fl">' + esc(flags) + '</span></div>';
@@ -353,10 +542,9 @@ function renderLeft() {
       others.map(o => '<option value="' + esc(o.id) + '"' + (o.id === V.cmpId ? ' selected' : '') + '>' + fmtLap(o.lapTime) + ' · lap ' + o.lap + ' · ' + esc(dayTxt(o.ts)) + (o.tags.length ? ' · ' + esc(o.tags[0]) : '') + '</option>').join('') + '</select>';
   }
   h += '<h2>Notes</h2><textarea class="note" id="note" placeholder="Note" maxlength="400">' + esc(m.note) + '</textarea>';
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap">' + ['INCIDENT', 'OVERTAKE', 'CLEAN'].map(t => '<button class="btn" data-tag="' + t + '" type="button" style="padding:4px 10px;font-size:12px' + (m.tags.indexOf(t) >= 0 ? ';background:var(--gold);color:#111' : '') + '">' + t + '</button>').join('') + '</div>';
-  if (V.ask === 1) h += '<div class="ask"><div>Delete this ' + (m.kind === 'clip' ? 'video' : m.kind === 'race' ? 'race' : 'lap') + ' and its saved files?</div><div style="display:flex;gap:10px"><button class="btn" id="askNo" type="button">Keep it</button><button class="btn bad" id="askYes" type="button">Yes, delete</button></div></div>';
-  if (V.ask === 2) h += '<div class="ask"><div><b>Cannot be undone</b></div><div style="display:flex;gap:10px"><button class="btn" id="askNo" type="button">Keep it</button><button class="btn bad" id="askYes2" type="button">Delete for good</button></div></div>';
-  setHTML('cLeft', h);
+  h += '<div class="tagrow">' + ['INCIDENT', 'OVERTAKE', 'CLEAN'].map(t => '<button class="btn' + (m.tags.indexOf(t) >= 0 ? ' on' : '') + '" data-tag="' + t + '" type="button">' + t + '</button>').join('') + '</div>';
+  setHTML('cMore', h);
+  if (V.ask && $('cSide')) $('cSide').scrollTop = 0;
   const lp = document.getElementById('lapScroll'); if (lp) { lp.querySelectorAll('.lap').forEach(el => { el.onclick = () => selectLap(+el.dataset.lap); }); const cur = lp.querySelector('.cur'); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' }); }
   const cp = $('cmpPick'); if (cp) cp.onchange = () => { location.hash = 'm=' + V.id + (cp.value ? '&c=' + cp.value : ''); };
   const nt = $('note'); if (nt) nt.onblur = () => { if (nt.value !== m.note) edit('note=' + encodeURIComponent(nt.value)); };
@@ -726,6 +914,14 @@ async function prepareVideo(m, seq) {
   setupVideo(m);
 }
 
+// The recordings carry the game's sound (dash\src\recaudio.cs). His volume / mute stays as he left it, on this screen, across laps and visits.
+// Nothing plays by itself: sound only follows his own press on Play.
+function soundPrefs(v) {
+  if (!v || v._snd) return; v._snd = true;
+  try { const p = JSON.parse(localStorage.getItem('paddock.sound') || 'null'); if (p) { v.volume = Math.max(0, Math.min(1, +p.v || 0)); v.muted = !!p.m; } } catch (e) { }
+  v.addEventListener('volumechange', () => { try { localStorage.setItem('paddock.sound', JSON.stringify({ v: v.volume, m: v.muted })); } catch (e) { } });
+}
+
 function stopVideo() { if (V.vid) { try { V.vid.pause(); V.vid.removeAttribute('src'); V.vid.removeAttribute('controls'); V.vid.load(); } catch (e) { } } V.vid = null; V.videoId = ''; V.sync = null; V.rec = false; V.rc = null; V.rcRef = null; cancelAnimationFrame(V.raf); }
 
 function setupVideo(m) {
@@ -734,14 +930,65 @@ function setupVideo(m) {
   if (!c.sync) { $('vidWrap').hidden = true; if (V.vid) V.vid.removeAttribute('controls'); return; }
   $('vidWrap').hidden = false;
   V.vid.controls = true;
+  soundPrefs(V.vid);
   if (!V.videoId) V.videoId = m.id;
   V.vid.src = (V.rec ? '/vault/video?id=' : '/vault/clip?id=') + encodeURIComponent(V.videoId);
   V.vid.onseeked = () => follow(true);
-  V.vid.onplay = () => { alignOnPlay(V.vid); loop(); };
-  V.vid.ontimeupdate = () => { if (V.vid.paused) follow(true); };
+  V.vid.onplay = () => { alignOnPlay(V.vid); loop(); paintPlayer(); };
+  V.vid.onpause = paintPlayer;
+  V.vid.ontimeupdate = () => { if (V.vid.paused) follow(true); paintPlayer(); };
+  applyVolume(V.vid);
   renderSync();
+  paintPlayer();
   const first = c.sync.laps.find(l => l.n === V.lap) || c.sync.laps[0];
   if (first && first.n !== V.lap) { V.lap = first.n; }
+}
+
+/* ---------- the player's own controls: big buttons, sound that is remembered, EXPAND and FULL SCREEN ---------- */
+// Volume and mute are kept in this browser (localStorage, wrapped: a private window has none) and set on every clip.
+function applyVolume(v) {
+  if (!v) return;
+  const s = store.get('vault-vol') || {};
+  v.volume = isNum(s.v) ? clamp(s.v, 0, 1) : 0.8;
+  v.muted = !!s.m;
+  v.onvolumechange = () => { store.set('vault-vol', { v: v.volume, m: v.muted }); paintPlayer(); };
+}
+function togglePlay() { const v = V.vid; if (!v) return; if (v.paused || v.ended) { const p = v.play(); if (p && p.catch) p.catch(() => { }); } else v.pause(); }
+function skip(s) { const v = V.vid; if (!v) return; v.currentTime = clamp(v.currentTime + s, 0, v.duration || 1e9); }
+function theaterOn() { return $('viewDetail').classList.contains('theater'); }
+function setTheater(on) {
+  const d = $('viewDetail'); if (!d) return;
+  d.classList.toggle('theater', !!on);
+  paintPlayer(); requestAnimationFrame(drawAll);
+}
+function fullEl() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+function toggleFull() {
+  const box = $('vidBox');
+  try {
+    if (fullEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else if (box.requestFullscreen) { const p = box.requestFullscreen(); if (p && p.catch) p.catch(() => toast('Full screen is not allowed here')); }
+    else if (box.webkitRequestFullscreen) box.webkitRequestFullscreen();
+  } catch (e) { toast('Full screen is not allowed here'); }
+}
+document.addEventListener('fullscreenchange', () => paintPlayer());
+function paintPlayer() {
+  const v = V.vid; if (!v || !$('pPlay')) return;
+  setText('pPlay', v.paused || v.ended ? '▶ Play' : 'Pause');
+  setText('pMute', v.muted || v.volume === 0 ? 'Muted' : 'Sound on');
+  $('pMute').classList.toggle('on', v.muted || v.volume === 0);
+  const vol = $('pVol'); if (document.activeElement !== vol) vol.value = v.muted ? 0 : v.volume;
+  setText('pTime', fmtDur(v.currentTime || 0) + ' / ' + fmtDur(isNum(v.duration) ? v.duration : 0));
+  setText('pExpand', theaterOn() ? 'Smaller' : 'Expand'); $('pExpand').classList.toggle('on', theaterOn());
+  setText('pFull', fullEl() ? 'Exit full screen' : 'Full screen');
+}
+function wirePlayer() {
+  $('pPlay').onclick = togglePlay;
+  $('pBack').onclick = () => skip(-5);
+  $('pFwd').onclick = () => skip(5);
+  $('pMute').onclick = () => { const v = V.vid; if (!v) return; if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.8; } else v.muted = true; };
+  $('pVol').oninput = e => { const v = V.vid; if (!v) return; v.volume = +e.target.value; v.muted = +e.target.value === 0; };
+  $('pExpand').onclick = () => setTheater(!theaterOn());
+  $('pFull').onclick = toggleFull;
 }
 
 function renderSync() {
@@ -877,7 +1124,7 @@ function buildVid2(ri) {
   const lab = document.createElement('div'); lab.className = 'vlab';
   lab.textContent = 'Reference · lap ' + (V.refInfo ? V.refInfo.lap : ri.lap) + ' · ' + fmtLap(ri.lapTime);
   box.appendChild(lab);
-  $('vidWrap').appendChild(box);
+  $('vids').appendChild(box);
   V.vid2 = v; V.lockOn = true;
 }
 // Load the reference lap's recorder clip and show it beside this lap. Only when both have one; never this lap itself.
@@ -909,6 +1156,7 @@ function init() {
   $('closeBtn').onclick = closeMe;
   $('sessBtn').onclick = () => { location.href = 'sessions.html' + (EMBED ? '?embed=1' : ''); };
   $('backBtn').onclick = () => { location.hash = ''; };
+  wirePlayer();
   $('q').oninput = e => { V.f.q = e.target.value; renderGrid(); };
   const pl = $('plot');
   pl.addEventListener('pointermove', e => pointer(e, false)); pl.addEventListener('pointerleave', leave); pl.addEventListener('pointerdown', e => pointer(e, true));
@@ -921,6 +1169,7 @@ function init() {
   });
   const ro = window.ResizeObserver ? new ResizeObserver(() => drawAll()) : null;
   if (ro) { ro.observe($('plotBox')); ro.observe($('mapBox')); } else window.addEventListener('resize', drawAll);
+  $('gridScroll').addEventListener('scroll', closePop, { passive: true });
   window.addEventListener('hashchange', route);
   loadList().then(route);
   setInterval(() => { if (!V.id) loadList(); }, 15000);

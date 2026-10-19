@@ -255,7 +255,7 @@ const MY = { name: 'PETER', team: '', number: '4' };   // the number and team co
     let h = header(M, D, X) + '<div class="sr-rule"></div>' + table(M, D, enough) + mapLabel(M, D, coloured);
     if (mp && D.best) { try { h += '<svg class="mapbox" viewBox="0 0 ' + MAPW + ' ' + MAPH + '" width="' + MAPW + '" height="' + MAPH + '">' + mapSvg(mp, M, coloured) + '</svg>'; } catch (e) { h += '<div class="mapmsg">No map</div>'; } }
     else if (D.best) h += '<div class="mapmsg">No map</div>';
-    else h += '<div class="mapmsg">No complete lap yet</div>';
+    else h += '<div class="mapmsg">No complete lap: ALL THE DATA below has every second of the drive</div>';   // never a dead end (Peter 2026-10-18)
     if (mp && D.best && mp.credit) h += '<div class="credit">' + esc(mp.credit) + '</div>';
     h += numbers(M, D, enough) + (enough ? chart(M, D) : '') + notesBlock(M, D, enough);
     body.innerHTML = h;
@@ -361,7 +361,9 @@ const MY = { name: 'PETER', team: '', number: '4' };   // the number and team co
       if (!res || stale) res = { M: liveModel(live, opts.base), mp: null };
       const D = render(body, res.M, res.mp, X);
       const btn = root.querySelector('#srAnalysis');
-      btn.hidden = !D.best || !!res.M.live;
+      // ANALYSIS opens the best lap; with no complete lap it is ALL THE DATA (rawdata.html), so this screen always has a way into the data
+      btn.hidden = !!res.M.live || (!D.best && !res.M.file);
+      btn.textContent = D.best ? 'ANALYSIS' : 'ALL THE DATA';
       btn.onclick = e => { e.stopPropagation(); e.preventDefault(); SR.openAnalysis(res.M, opts.id); };
       // RACE (W6b): next to ANALYSIS, only when irdash has a race log for this session (GET /analysis/race answers 200). No log, no button.
       const rb = root.querySelector('#srRace');
@@ -387,8 +389,16 @@ const MY = { name: 'PETER', team: '', number: '4' };   // the number and team co
         b.hidden = false;
         b.onclick = e => {
           e.stopPropagation(); e.preventDefault();
-          b.textContent = 'OPENING';
-          fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(cid), { cache: 'no-store' }).catch(() => { }).then(() => { b.textContent = 'OPEN IN COSWORTH'; });
+          if (b._busy) return;
+          b._busy = true; b.textContent = 'OPENING';
+          const say = (t, ms) => { b.textContent = t; setTimeout(() => { b.textContent = 'OPEN IN COSWORTH'; b._busy = false; }, ms); };
+          fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(cid), { cache: 'no-store' }).then(r => r.json().catch(() => ({})).then(j => {
+            if (r.status === 409) say('NOT WHILE DRIVING', 4000);
+            else if (r.status === 404) say('FILE IS GONE', 4000);
+            else if (!r.ok) say('COULD NOT OPEN', 4000);
+            else if (j && j.action === 'folder') say('PI NOT FOUND', 4000);
+            else say(j && j.action === 'busy' ? 'ALREADY OPENING' : 'OPENING IN PI', 4000);
+          })).catch(() => say('COULD NOT OPEN', 4000));
         };
       }).catch(() => { });
     },
@@ -430,9 +440,9 @@ const MY = { name: 'PETER', team: '', number: '4' };   // the number and team co
     openAnalysis(M, id, page) {
       if (document.getElementById('wbHost')) return;
       const lap = (M.shown || M.best || {}).lap;
-      if (!lap) return;
       const rid = !id || id === 'last' ? M.file : id;
-      const url = 'workbench.html?id=' + encodeURIComponent(rid) + '&lap=' + lap + (M.ref && M.ref.spec ? '&ref=' + encodeURIComponent(M.ref.spec) : '') + (page ? '&page=' + encodeURIComponent(page) : '');
+      if (!lap && !rid) return;
+      const url = !lap ? 'rawdata.html?id=' + encodeURIComponent(rid) : 'workbench.html?id=' + encodeURIComponent(rid) + '&lap=' + lap + (M.ref && M.ref.spec ? '&ref=' + encodeURIComponent(M.ref.spec) : '') + (page ? '&page=' + encodeURIComponent(page) : '');
       const host = document.createElement('div'); host.id = 'wbHost';
       host.innerHTML = '<div class="back" id="wbBack">‹ Back to session review</div><iframe title="Paddock Analysis"></iframe>';
       host.querySelector('iframe').src = url;

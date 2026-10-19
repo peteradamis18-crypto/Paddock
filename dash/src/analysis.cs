@@ -68,6 +68,10 @@ namespace IRDash
             public string SectorFrom = "";
             public List<Met> Corners = new List<Met>();
             public List<double> Straights = new List<double>();
+            // partial.cs: a lap that is not a full lap (out, in, pit, cut short) on the same 1 m grid over the stretch it covers.
+            // Partial = this object IS such a view; CovA / CovB = the metres of the lap it covers; PView = the view made from this raw lap.
+            public bool Partial, PDone; public double CovA, CovB; public LapTrace PView;
+            public double[] PD; public int[] PRec;    // the view's points: distance (m) and the file record each one is (workbench channels read them)
         }
 
         sealed class Sess
@@ -200,6 +204,7 @@ namespace IRDash
             if (path == "/analysis/career") return CareerRoute(q, out code);   // one car + track over every session (career.cs, W6c)
             if (path == "/analysis/gain") return GainRoute(q, out code);       // every car + track: PB, theoretical best, gap (gain.cs, MOST TO GAIN)
             if (path == "/analysis/coach") return CoachRoute(q, out code);     // what to fix next, from every clean lap of one session (coach.cs)
+            if (path == "/analysis/raw") return RawRoute(q, out code);         // every channel over TIME for any drive, no full lap needed (rawdata.cs)
             if (path != "/analysis/lap") { code = 404; return Err("not found"); }
             if (Program.IsDriving) { code = 503; return Err("Not while driving"); }
             string id = Q(q, "id"), rf = Q(q, "ref");
@@ -580,7 +585,9 @@ namespace IRDash
             lap.Measured = true;
             lap.Corners = new List<Met>();
             lap.Straights = new List<double>();
-            if (!lap.Clean || cs == null || cs.Turns == null) return;
+            // a whole lap with a long off-track (skip "off") is still a whole lap: it can be the reference iRacing counted (CleanOf), so its corners are measured too
+            bool whole = lap.Clean || (lap.Skip == "off" && lap.Tm != null && !lap.Partial);
+            if (!whole || cs == null || cs.Turns == null) return;
             for (int ti = 0; ti < cs.Turns.Count; ti++) lap.Corners.Add(MeasureOne(lap, cs.Turns[ti], ti > 0 ? cs.Turns[ti - 1].Pa : cs.Turns[cs.Turns.Count - 1].Pa));
             List<double[]> iv = new List<double[]>();
             foreach (Met m in lap.Corners)
@@ -980,10 +987,16 @@ namespace IRDash
             foreach (LapTrace lap in mine.Laps) if (lap.Lap == lapNo && (me == null || lap.Clean)) me = lap;
             if (me == null) return Err("no such lap in this file");
             if (dump != null && dump.Length > 0 && me.Clean) File.WriteAllText(dump, Canon(me), new UTF8Encoding(false));
+            if (!me.Clean && me.Tm == null)
+            {
+                // not a full lap: its corners over the stretch it covers (partial.cs), against the same reference; "partial" says how much
+                LapTrace pv = PartialOf(me);
+                if (pv != null) { MeasurePartial(pv, cs); me = pv; }
+            }
             List<LapTrace> clean = CleanOf(sessions);
             string kind = spec;
             LapTrace optimal = null;
-            LapTrace rf = me.Clean ? FindRef(clean, me, spec, sessions, cs, out kind, out optimal) : null;
+            LapTrace rf = me.Clean || me.Partial ? FindRef(clean, me, spec == "optimal" && me.Partial ? "pb" : spec, sessions, cs, out kind, out optimal) : null;
             if (rf != null && rf != me && !rf.Measured) Measure(rf, cs);
             LapTrace pb = Fastest(clean, null, null);
             LapTrace sessionBest = Fastest(clean, me.Path, null);
@@ -1063,8 +1076,11 @@ namespace IRDash
             else
             {
                 sb.Append("{\"kind\":").Append(Json_.S(kind)).Append(",\"file\":").Append(Json_.S(rf.File)).Append(",\"lap\":").Append(rf.Lap).Append(",\"time\":").Append(F(rf.Time, "0.000"));
-                sb.Append(",\"same\":").Append(SameLap(rf, me) ? "true" : "false").Append("},\"gap\":").Append(F(me.Time - rf.Time, "0.000"));
+                // a part-lap's gap is over the stretch it covers (the reference's time for the same metres), never against a whole lap
+                double rt = me.Partial ? Span(rf, me.CovA, me.CovB) : rf.Time;
+                sb.Append(",\"same\":").Append(SameLap(rf, me) ? "true" : "false").Append("},\"gap\":").Append(F(me.Time - rt, "0.000"));
             }
+            sb.Append(",\"partial\":"); if (me.Partial) AppendCover(sb, me); else sb.Append("null");
             sb.Append(",\"laps\":[");
             for (int i = 0; i < mine.Laps.Count; i++)
             {

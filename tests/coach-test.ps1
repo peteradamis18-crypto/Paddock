@@ -40,14 +40,28 @@ foreach ($f in @($o.focus)) {
 $banned = '\b(you|your)\b|!|—'
 Check 'the words follow COPY-RULES (no "you", no exclamation, no em dash)' ($r.raw -notmatch $banned)
 
-'3. too few clean laps: says how many, invents nothing'
+'3. too few clean laps: never a refusal with nothing behind it (Peter 2026-10-18), and the words say it is only a hint'
+Check 'the long session carries the drive summary too' ($o.summary -and [double]$o.summary.onTrackSec -gt 60 -and $o.mode -eq 'habit')
 $short = Get-ChildItem $tel -Filter '*.ibt' | Where-Object { $_.LastWriteTime -lt $old -and $_.Length -lt 6MB -and $_.Length -gt 1MB } | Select-Object -First 8
 $done = $false
 foreach ($s in $short) {
   $q = Run $s.Name
-  if ($q.obj.ok -and -not $q.obj.ready -and $q.obj.clean -lt 3) { Check "a short session ($($s.Name), $($q.obj.clean) clean laps) says '$($q.obj.reason)' and gives no advice" ($q.obj.reason -match 'Not enough laps at race pace to compare \(\d of 3\)' -and @($q.obj.focus).Count -eq 0); $done = $true; break }
+  if ($q.obj.ok -and $q.obj.clean -lt 3) {
+    $m = $q.obj.mode
+    Check "a short session ($($s.Name), $($q.obj.clean) clean laps) is ready (mode $m) with the drive summary, not 'Not enough laps'" ($q.obj.ready -and $q.obj.summary -and $q.obj.reason -notmatch 'Not enough laps' -and $m -in @('two', 'pb', 'partial', 'drive'))
+    if ($m -in @('two', 'pb', 'partial')) { Check "  its one comparison says it is a hint and names its reference ($($q.obj.hint))" ($q.obj.hint -match 'hint' -and $q.obj.ref.time -gt 0 -and @($q.obj.corners).Count -ge 1) }
+    else { Check "  nothing comparable: it says why ($($q.obj.reason))" ($q.obj.reason.Length -gt 10) }
+    $done = $true; break
+  }
 }
 if (-not $done) { '  info  no short old session found to check the "too few laps" answer' }
+$pz = Get-ChildItem $tel -Filter 'porsche718gt4_roadamerica 2026 full 2026-10-18 08-36-50.ibt' | Where-Object { $_.LastWriteTime -lt $old } | Select-Object -First 1
+if ($pz) {
+  $q = Run $pz.Name; $c = $q.obj
+  Check "08-36-50 (no full lap): mode $($c.mode), part of lap $($c.lap.lap) $($c.lap.cover.text), $(@($c.corners).Count) corners against the best lap ever $($c.ref.time)" ($c.ready -and $c.mode -eq 'partial' -and $c.lap.partial -and [double]$c.lap.cover.toPct -gt 0.4 -and @($c.corners).Count -ge 3 -and $c.ref.kind -match 'best ever')
+  Check '08-36-50: every fact on its cards is a measured difference (same wording rule as the habits)' (@($c.focus | ForEach-Object { $_.facts } | Where-Object { $_ -notmatch '^(Braking \d+ m (earlier|later) than the best lap|\d+ mph (slower|faster) (into the turn|at the slowest point|on the exit)|Throttle \d+ m later than the best lap)$' }).Count -eq 0)
+  Check '08-36-50: the words follow COPY-RULES' ($q.raw -notmatch $banned)
+}
 
 "$pass passed, $fail failed."
 if ($fail -gt 0) { exit 1 }

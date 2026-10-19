@@ -1010,8 +1010,21 @@ namespace IRDash
             LapTrace me = null;
             foreach (LapTrace lap in mine.Laps) if (lap.Lap == lapNo && (me == null || lap.Clean)) me = lap;
             if (me == null) { code = 404; return Err("no such lap in this file"); }
-            if (!me.Clean || me.Tm == null) { code = 409; return Err("lap " + lapNo.ToString(Inv) + " is not a full lap (" + me.Skip + ")"); }
+            if (me.Tm == null)
+            {
+                // The deep-dive engines (stints, per-lap fuel and tyres, the racing line against the reference) need a whole lap. Not a refusal:
+                // a 200 that says why and what the part-lap covers, so a page can show the rest and offer ALL THE DATA (rawdata.html).
+                LapTrace pv = PartialOf(me);
+                StringBuilder pb = new StringBuilder(600);
+                pb.Append("{\"v\":1,\"partial\":true,\"reason\":").Append(Json_.S("Lap " + lapNo.ToString(Inv) + " is not a full lap (" + (me.Skip.Length > 0 ? me.Skip : "partial") + "): the corner deep dive needs a whole lap. Every channel of it is in ALL THE DATA."))
+                  .Append(",\"file\":").Append(Json_.S(me.File)).Append(",\"lap\":").Append(me.Lap).Append(",\"car\":").Append(Json_.S(me.Car)).Append(",\"track\":").Append(Json_.S(me.Track)).Append(",\"config\":").Append(Json_.S(me.Config))
+                  .Append(",\"lengthM\":").Append(F(me.LengthM, "0.0")).Append(",\"cover\":");
+                if (pv != null) AppendCover(pb, pv); else pb.Append("null");
+                pb.Append(",\"raw\":").Append(Json_.S("rawdata.html?id=" + Uri.EscapeDataString(me.File))).Append(",\"corners\":[],\"laps\":[]}");
+                return pb.ToString();
+            }
             foreach (LapTrace lap in mine.Laps) if (lap.Clean) Measure(lap, cs);
+            Measure(me, cs);      // a whole lap with a long off-track (skip "off") is a whole lap too: its corners are measured (it used to be a 409)
             List<LapTrace> clean = CleanOf(sessions);
             string kind;
             LapTrace rf = FindRefLap(clean, me, spec, sessions, cs, out kind);

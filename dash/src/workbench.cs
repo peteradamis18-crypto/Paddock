@@ -135,6 +135,7 @@ namespace IRDash
         // Resample (monotonic distance, the sample before the line for the wrap, the line itself at the end).
         static float[][] LapChannels(LapTrace lap, List<Chan> chans, int n, bool meta)
         {
+            if (lap.Partial) return PartialChannels(lap, chans, n, meta);      // a part-lap view: its own points, NaN where it was not driven (partial.cs)
             int nc = chans.Count;
             float[][] outp = new float[nc][];
             for (int c = 0; c < nc; c++) outp[c] = new float[n];
@@ -222,7 +223,13 @@ namespace IRDash
             LapTrace me = null;
             foreach (LapTrace lap in mine.Laps) if (lap.Lap == lapNo && (me == null || lap.Clean)) me = lap;
             if (me == null) { code = 404; return Utf8(Err("no such lap in this file")); }
-            if (!me.Clean || me.Tm == null) { code = 409; return Utf8(Err("lap " + lapNo.ToString(Inv) + " is not a full lap (" + me.Skip + ")")); }
+            if (!me.Clean || me.Tm == null)
+            {
+                // not a full lap: the stretch it covers (partial.cs), NaN elsewhere, marked "partial" in the header (Peter 2026-10-18: show the data)
+                LapTrace pv = PartialOf(me);
+                if (pv == null) { code = 409; return Utf8(Err("lap " + lapNo.ToString(Inv) + " has under 200 m of driving: ALL THE DATA shows it")); }
+                me = pv;
+            }
             if (!string.IsNullOrEmpty(multiSpec)) spec = ""; // Explicit overlays replace the single reference.
             List<LapTrace> clean = CleanOf(sessions);
             string kind = "";
@@ -230,7 +237,7 @@ namespace IRDash
             if (rf != null && (SameLap(rf, me) || rf.Tm == null)) rf = null;     // a lap against itself shows nothing
             List<Chan> chans = ParseChannels(chList);
             int n = me.Metres + 1;
-            float[][] mineV = LapChannels(me, chans, n, true);
+            float[][] mineV = me.Partial ? PartialChannels(me, chans, n, true) : LapChannels(me, chans, n, true);
             float[][] refV = rf != null ? LapChannels(rf, chans, n, false) : null;
             List<LapTrace> extraLaps = new List<LapTrace>();
             if (!string.IsNullOrEmpty(multiSpec))
@@ -251,14 +258,19 @@ namespace IRDash
                     if (found == null) { code = 404; return Utf8(Err("no such lap")); }
                     if (SameLap(found, me)) { code = 400; return Utf8(Err("duplicate lap")); }
                     foreach (LapTrace prior in extraLaps) if (SameLap(found, prior)) { code = 400; return Utf8(Err("duplicate lap")); }
-                    if (!found.Clean || found.Tm == null) { code = 409; return Utf8(Err("selected lap is not a clean full lap")); }
+                    if (!found.Clean || found.Tm == null)
+                    {
+                        LapTrace fv = PartialOf(found);        // a part-lap overlays over the stretch it covers (NaN elsewhere)
+                        if (fv == null) { code = 409; return Utf8(Err("selected lap has under 200 m of driving")); }
+                        found = fv;
+                    }
                     if (!string.Equals(found.Track, me.Track, StringComparison.OrdinalIgnoreCase) || !string.Equals(found.Car, me.Car, StringComparison.OrdinalIgnoreCase))
                     { code = 409; return Utf8(Err("selected laps must use the same car and track")); }
                     extraLaps.Add(found);
                 }
             }
             List<float[][]> extraValues = new List<float[][]>();
-            foreach (LapTrace xlap in extraLaps) extraValues.Add(LapChannels(xlap, chans, n, false));
+            foreach (LapTrace xlap in extraLaps) extraValues.Add(xlap.Partial ? PartialChannels(xlap, chans, n, false) : LapChannels(xlap, chans, n, false));
             double L = me.LengthM;
 
             StringBuilder sb = new StringBuilder(6000);
@@ -266,6 +278,7 @@ namespace IRDash
             sb.Append(",\"step\":").Append(F(L / me.Metres, "0.00000"));
             sb.Append(",\"track\":").Append(Json_.S(me.Track)).Append(",\"config\":").Append(Json_.S(me.Config)).Append(",\"car\":").Append(Json_.S(me.Car));
             sb.Append(",\"lap\":"); AppendLapInfo(sb, me, "lap");
+            sb.Append(",\"partial\":"); if (me.Partial) AppendCover(sb, me); else sb.Append("null");
             sb.Append(",\"conditions\":").Append(Conditions(me));
             sb.Append(",\"ref\":"); if (rf == null) sb.Append("null"); else AppendLapInfo(sb, rf, kind);
             sb.Append(",\"channels\":[");

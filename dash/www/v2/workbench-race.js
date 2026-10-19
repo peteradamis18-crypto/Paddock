@@ -231,7 +231,13 @@ Compare.prototype = Object.create(A.Display.prototype);
 Compare.prototype.render = function () {
   var s = RS.sm, R = RS.R, me = RS.me, cm = RS.cm[me], cs = R.corners || [], b = this.body;
   if (me == null || !RS.tw[me]) { b.innerHTML = '<div class="tnote">Peter is not in this field.</div>'; return; }
-  if (!cm) { b.innerHTML = '<div class="tnote">Needs 3 clean laps</div>'; return; }
+  if (!cm) {
+    // a per-corner median needs 3 clean laps; the drive itself is still all there (never a dead end)
+    var rid = A.P.get('id');
+    b.innerHTML = '<div class="tnote">Fewer than 3 clean laps in this race, so no per-corner median yet.' + (rid ? ' <span class="addch" id="rcRaw" style="cursor:pointer;margin-left:16px">ALL THE DATA</span>' : '') + '</div>';
+    var rb = document.getElementById('rcRaw'); if (rb) rb.onclick = function () { location.href = 'rawdata.html?id=' + encodeURIComponent(rid); };
+    return;
+  }
   var targets = [];
   var add = function (i, role) { if (i == null || i === me) return; for (var q = 0; q < targets.length; q++) if (targets[q].i === i) return; targets.push({ i: i, role: role }); };
   add(s.ahead, 'ahead'); add(s.leader, 'leader'); if (s.ahead == null) add(s.behind, 'behind'); add(RS.sel, 'chosen');

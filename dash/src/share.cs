@@ -102,9 +102,10 @@ namespace IRDash
                 Sess mine = sessions[0];
                 LapTrace me = null;
                 foreach (LapTrace lap in mine.Laps) if (lap.Lap == clip.Lap && (me == null || lap.Clean)) me = lap;
-                if (me == null || me.Tm == null || me.RecB <= me.RecA) { r.Err = "Lap " + clip.Lap + " is not a full lap"; return r; }
+                if (me != null && (!me.Clean || me.Tm == null)) { LapTrace pv = PartialOf(me); if (pv != null) me = pv; }     // a part-lap: the stretch it covers (partial.cs)
+                if (me == null || me.Tm == null || me.RecB <= me.RecA) { r.Err = "Lap " + clip.Lap + " has too little driving to draw"; return r; }
                 double shown = me.HasOfficial ? me.Official : me.Time;
-                if (clip.LapTime > 0 && Math.Abs(shown - clip.LapTime) > 0.5) { r.Err = "Video does not match the lap"; return r; }
+                if (!me.Partial && clip.LapTime > 0 && Math.Abs(shown - clip.LapTime) > 0.5) { r.Err = "Video does not match the lap"; return r; }
                 string kind = ""; LapTrace rf = null;
                 try { rf = FindRefLap(CleanOf(sessions), me, string.IsNullOrEmpty(refSpec) ? "pb" : refSpec, sessions, null, out kind); } catch (Exception) { rf = null; }
                 if (rf != null && (SameLap(rf, me) || rf.Tm == null)) rf = null;
@@ -141,7 +142,8 @@ namespace IRDash
                         Gear.Add(vGear != null ? (int)Read(buf, o + vGear.Offset, vGear.Type) : 0);
                         double gap = double.NaN;
                         int rec = a + k;
-                        if (rf != null && rec >= me.RecA && rec < me.RecB && tl >= 0 && tl <= me.Time) gap = tl - TAt(rf, Math.Max(0, Math.Min(L, pct * L)));
+                        if (rf != null && rec >= me.RecA && rec < me.RecB && tl >= 0 && tl <= me.Time && (!me.Partial || (pct * L >= me.CovA && pct * L <= me.CovB)))
+                            gap = tl - (TAt(rf, Math.Max(0, Math.Min(L, pct * L))) - (me.Partial ? TAt(rf, me.CovA) : 0));      // a part-lap: against the reference over the same metres
                         Gap.Add(gap);
                         Lat.Add(vLat != null ? Read(buf, o + vLat.Offset, vLat.Type) : 0);
                         Lon.Add(vLon != null ? Read(buf, o + vLon.Offset, vLon.Type) : 0);

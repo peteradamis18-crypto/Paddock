@@ -13,6 +13,10 @@ var A = X.api, S = A.S, el = A.el, clamp = A.clamp, at = A.at, idxOf = A.idxOf, 
 var VID = { lap: null, ref: null, pip: false, wait: 0, wanted: false, force: -1, spot: -1, cover: [] };
 var holder = el('div', 'vhold'); document.body.appendChild(holder);        // where a clip waits while no page shows it (loading, other pages)
 var pipEl = null, clockCv = null;
+// The recordings carry the game's sound (dash\src\recaudio.cs). Off until he presses SOUND (or key U) once; then it stays as he left it
+// (the same setting the Vault player keeps). Only this lap's clip ever makes sound: the reference beside it stays quiet, two engines at once is noise.
+var SND = { on: false, vol: 1 };
+try { var sp0 = JSON.parse(localStorage.getItem('paddock.sound') || 'null'); if (sp0) { SND.on = !sp0.m && +sp0.v > 0; SND.vol = clamp(+sp0.v || 1, 0.05, 1); } } catch (x) { }
 
 // ---------- one clip: the <video>, its sidecar (lapStartOffset ...) and the sync rules ----------
 function Clip(role, info) {
@@ -22,6 +26,7 @@ function Clip(role, info) {
   var self = this, v = this.el = document.createElement('video');
   // only the header of the file is read until a page shows the clip (a lap's clip is 100 - 200 MB; most visits never look at it)
   v.muted = true; v.defaultMuted = true; v.preload = 'metadata'; v.playsInline = true; v.className = 'wbvid'; v.setAttribute('disablepictureinpicture', '');
+  if (role === 'lap') { v.volume = SND.vol; v.muted = !SND.on; }
   v.addEventListener('loadedmetadata', function () { if (!self.ok && v.duration > 0 && isFinite(v.duration) && v.videoWidth > 0) { self.ok = true; if (self.onok) self.onok(); } });
   v.addEventListener('error', function () { self.ok = false; });
   v.addEventListener('click', function () { WB.cmd('toggle-play'); });     // a click on the picture = play / pause
@@ -65,7 +70,11 @@ Clip.prototype.start = function () {
   this.running = true; this.fed = S.cur; this.lastSeek = NaN; this.blocked = false;
   if (Math.abs(e.currentTime - v) > 0.01) { this.lastSeek = clamp(v, 0, e.duration); try { e.currentTime = this.lastSeek; } catch (x) { } }
   e.playbackRate = S.speed;
-  var p = e.play(); if (p && p.catch) p.catch(function () { self.blocked = true; self.running = false; });
+  // a browser that will not start sound without a press on the page (PLAY came from the deck): play the picture quietly rather than not at all
+  var p = e.play(); if (p && p.catch) p.catch(function (err) {
+    if (!e.muted && err && err.name === 'NotAllowedError') { e.muted = true; sndPaint(); var p2 = e.play(); if (p2 && p2.catch) p2.catch(function () { self.blocked = true; self.running = false; }); return; }
+    self.blocked = true; self.running = false;
+  });
 };
 Clip.prototype.stop = function () { this.running = false; this.lastSeek = NaN; try { this.el.pause(); } catch (x) { } };
 // the picture that is really on screen: requestVideoFrameCallback runs just before the page is drawn, so the cursor and the frame always agree
@@ -227,8 +236,18 @@ function headChip() {
   var b = document.getElementById('pipbtn'); if (!b) return;
   b.style.display = usable() && S.page !== 'video' ? '' : 'none'; b.className = 'addch' + (VID.pip ? ' on' : '');
   if (!b._on) { b._on = true; b.addEventListener('click', function () { WB.cmd('video-pip'); }); }
+  // SOUND: a pill on the video itself (YouTube puts volume at the picture's bottom-left), not in the header, which has no room left
+  // for it beside the tabs, ADD LAPS, OPEN IN COSWORTH, MAKE SHARE VIDEO and SMALL VIDEO (video-page-test measures that).
+  var s = document.getElementById('sndbtn'), L = VID.lap, host = L && L.shown && L.el.parentNode;
+  if (!s) { s = document.createElement('div'); s.id = 'sndbtn'; s.title = 'U'; s.addEventListener('click', function (e) { e.stopPropagation(); WB.cmd('video-sound'); }); }
+  if (host && usable() && (S.page === 'video' || VID.pip)) { if (s.parentNode !== host) host.appendChild(s); s.style.display = ''; } else s.style.display = 'none';
+  sndPaint();
 }
-
+function sndPaint() {
+  var s = document.getElementById('sndbtn'), L = VID.lap; if (!s) return;
+  var on = !!(L && !L.el.muted && L.el.volume > 0);
+  s.className = 'vsnd' + (on ? ' on' : ''); s.textContent = on ? 'SOUND ON' : 'MUTED';
+}
 // ---------- finding the clip ----------
 // the server finds a lap's clip by the Vault's lap id, or by "<telemetry file>.ibt:<lap>" (dash\src\recorder.cs ClipFor)
 // Why the clip count first: with no recorder clip at all /vault/videoinfo can only answer 404 (a red console line on every open).
@@ -282,6 +301,14 @@ X.cmds['video-pip'] = function (a) {                              // '' toggles,
   if (!VID.pip) VID.force = -1;
   pipShow(); headChip();
 };
+X.keys.u = X.keys.U = function () { WB.cmd('video-sound'); };
+X.cmds['video-sound'] = function (a) {                            // '' toggles, 1 / on, 0 / off; remembered for next time
+  var L = VID.lap; if (!L) return;
+  var on = a === '' || a === 'toggle' || a == null ? L.el.muted : (a === '1' || a === 'on');
+  SND.on = on; L.el.volume = SND.vol; L.el.muted = !on;
+  try { localStorage.setItem('paddock.sound', JSON.stringify({ v: SND.vol, m: !on })); } catch (x) { }
+  sndPaint();
+};
 X.cmds['video-pip-corner'] = function () {
   if (!usable() || S.page === 'video') return;
   VID.force = VID.pip && VID.spot >= 0 ? (VID.spot + 1) % 4 : VID.force; VID.pip = true;
@@ -295,7 +322,7 @@ WB.video = function () {
     if (!c) return null;
     var tg = D && (c.role !== 'ref' || D.R) ? c.timeAt(S.cur) : null;
     return { id: c.info.id, ok: c.ok, sane: c.sane, shown: c.shown, running: c.running, blocked: c.blocked, time: c.el.currentTime, target: tg, off: c.off, end: +c.info.lapEndOffset, dur: c.el.duration,
-      paused: c.el.paused, seeking: c.el.seeking, rate: c.el.playbackRate, range: tg == null ? 0 : c.rangeOf(tg), w: c.el.videoWidth, h: c.el.videoHeight, rvfc: !!c.el.requestVideoFrameCallback, rvOn: c.rvOn(), media: c.media };
+      paused: c.el.paused, seeking: c.el.seeking, rate: c.el.playbackRate, range: tg == null ? 0 : c.rangeOf(tg), w: c.el.videoWidth, h: c.el.videoHeight, rvfc: !!c.el.requestVideoFrameCallback, rvOn: c.rvOn(), media: c.media, muted: c.el.muted, volume: c.el.volume };
   }
   return { lap: one(L), ref: one(R), pip: VID.pip, pipOn: !!(pipEl && /\bon\b/.test(pipEl.className)), pipRect: b && b.width ? { x: b.left, y: b.top, w: b.width, h: b.height } : null, spot: VID.spot, cover: VID.cover, forced: VID.force,
     cur: S.cur, curT: D ? at(D.A.t, S.cur) : null, page: S.page, drives: drives() };

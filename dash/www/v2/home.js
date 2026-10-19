@@ -99,7 +99,7 @@ const Home = {
       if (!r.enabled) rows.push(['Recording', 'Off in settings', 'mute']);
       else if (r.gaveUp || st === 'failed' || st === 'stalled') { rows.push(['Recording', 'Failed' + (gb ? DOT + gb : ''), 'fail']); bad.unshift('Recording failed'); worst = 'fail'; }
       else if (st === 'paused-disk' || (r.freeGb != null && r.minFreeGb != null && r.freeGb < r.minFreeGb)) { rows.push(['Recording', 'Disk low' + (gb ? DOT + gb : ''), 'warn']); bad.push('Disk low'); if (worst === 'ok') worst = 'warn'; }
-      else if (st === 'recording') { const s = Math.round(r.capture.secs || 0); rows.push(['Recording', 'On ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + (r.freeGb != null ? DOT + Math.round(r.freeGb) + ' GB' : ''), 'ok']); }
+      else if (st === 'recording') { const s = Math.round(r.capture.secs || 0), mute = r.capture.audio === 'failed'; rows.push(['Recording', 'On ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + (mute ? DOT + 'no sound' : '') + (r.freeGb != null ? DOT + Math.round(r.freeGb) + ' GB' : ''), mute ? 'warn' : 'ok']); if (mute) { bad.push('Recording has no sound'); if (worst === 'ok') worst = 'warn'; } }
       else rows.push(['Recording', 'Ready' + (gb ? DOT + gb : ''), '']);
     }
     const p = this.phoneInfo;

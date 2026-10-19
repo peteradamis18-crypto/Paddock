@@ -316,7 +316,8 @@ public static class PitProbe {
   $sched = Cdp-Json "({ race: document.getElementById('homeRace').innerText, weekend: document.getElementById('homeWeekend').innerText })"
   if ($h.nextRace) { Check "NEXT RACE shows the published series and track ($($h.nextRace.series), $($h.nextRace.track))" ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track)) ($sched.race -replace '\s+', ' ') }
   else { Check 'no next race: says so, invents nothing' ($sched.race -match 'No race published') }
-  $firstReal = @($timedReal | Sort-Object localStart | Select-Object -First 1)[0]
+  # the first session still to come: HOME no longer lists what has finished (a 6 AM race at 5 PM)
+  $firstReal = @($timedReal | Where-Object { $_.localStart -and ([DateTimeOffset]::Parse($_.localStart)).AddHours(3) -gt [DateTimeOffset]::Now } | Sort-Object localStart | Select-Object -First 1)[0]
   Check "WATCH shows the published schedule ($($firstReal.series) first), New York times, never the word Live" ($sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match '\d{1,2}:\d{2} (AM|PM)' -and $sched.weekend -notmatch '\bLive\b') ($sched.weekend -replace '\s+', ' ')
   Check "THIS WEEK on screen equals /home week: $($dom.week -join ' ') (hours, laps, PBs)" (@($dom.week).Count -ge 3 -and $dom.week[0] -eq ([double]$h.week.hours).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) -and ($dom.week[1] -replace ',', '') -eq "$($h.week.laps)" -and ($dom.week[2] -replace ',', '') -eq "$($h.week.pbs)") "week='$($dom.week -join ' ')' vs $($h.week.hours)/$($h.week.laps)/$($h.week.pbs)"
   Check "the THIS WEEK heading is there ('$($dom.weekLabel)')" ($dom.weekLabel -eq 'This week')

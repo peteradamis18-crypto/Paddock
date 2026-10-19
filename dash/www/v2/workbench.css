@@ -235,3 +235,7 @@ body.canjump .sj { display: inline-block; }
 body.canjump .ev { grid-template-columns: 96px 70px 1fr 90px auto; }
 body.canjump .compact .ev { grid-template-columns: 58px 56px 1fr 74px auto; }
 body.canjump .pz { grid-template-columns: 78px 150px 118px 1fr 56px auto; }
+
+/* the sound pill on the video (workbench-video.js): bottom-left of the picture, big enough to hit, never in the header */
+.vsnd { position: absolute; left: 10px; bottom: 10px; z-index: 6; padding: 10px 18px; font: 600 20px Bahnschrift, 'Segoe UI', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #f2c230; background: rgba(6, 6, 6, .86); border: 1px solid rgba(242, 194, 48, .6); cursor: pointer; }
+.vsnd.on { background: #f2c230; color: #0a0905; }

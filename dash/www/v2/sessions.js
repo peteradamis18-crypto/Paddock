@@ -56,8 +56,8 @@ function renderStatus() {
 
 function renderList() {
   const d = SX.d; if (!d) return;
-  const real = d.sessions.filter(s => !s.short), nShort = d.sessions.length - real.length;
-  const pool = SX.short ? d.sessions : real;
+  // Every session is listed (Peter 2026-10-18: "just show me the data"). A short run (no lap, never left the pit road) is quieter, never hidden.
+  const pool = d.sessions;
   const count = (key, val) => pool.filter(s => s[key] === val).length;
   const uniq = key => Array.from(new Set(pool.map(s => s[key]).filter(Boolean))).sort((a, b) => count(key, b) - count(key, a));
   if (SX.car && !uniq('car').includes(SX.car)) SX.car = '';
@@ -65,12 +65,6 @@ function renderList() {
   chipRow($('fCar'), 'Car', [['', 'All cars']].concat(uniq('car').map(c => [c, c, count('car', c)])), SX.car, v => { SX.car = v; renderList(); });
   chipRow($('fTrack'), 'Track', [['', 'All tracks']].concat(uniq('track').map(t => [t, t, count('track', t)])), SX.track, v => { SX.track = v; renderList(); });
   const more = $('fMore'); more.textContent = '';
-  if (nShort) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (SX.short ? ' on' : '');
-    b.textContent = (SX.short ? 'Showing' : 'Show') + ' short runs'; const i = document.createElement('i'); i.textContent = nShort; b.appendChild(i);
-    b.onclick = () => { SX.short = !SX.short; renderList(); };
-    more.appendChild(b);
-  }
   const vis = pool.filter(s => (!SX.car || s.car === SX.car) && (!SX.track || s.track === SX.track));
   const secs = vis.reduce((a, s) => a + s.secs, 0), laps = vis.reduce((a, s) => a + s.laps, 0);
   setText('totals', vis.length + (vis.length === 1 ? ' session' : ' sessions') + ' · ' + (secs / 3600).toFixed(1) + ' h · ' + laps + ' laps');
@@ -86,7 +80,7 @@ function renderList() {
       '<span class="when"><b>' + esc(dayTxt(s.ts)) + '</b>' + esc(clockTxt(s.ts)) + '</span>' +
       '<span class="c">' + esc(s.car || '–') + '</span>' +
       '<span class="t">' + esc(s.track || '–') + (s.config && s.config !== 'Full Course' ? '<small>' + esc(s.config) + '</small>' : '')   /* "Full Course" is the normal case and was cut to "Full Cou…" in every row */ + '</span>' +
-      '<span class="ty">' + esc(typeTxt(s.type)) + '</span><span class="r">' + s.laps + '</span>' +
+      '<span class="ty">' + esc(s.short ? 'Short run' : typeTxt(s.type)) + '</span><span class="r">' + s.laps + '</span>' +
       '<span class="best' + (pb ? ' pb' : '') + (s.best == null ? ' none' : '') + '">' + (s.best != null ? fmtLap(s.best) : '–') + '</span>' +
       '<span class="r">' + esc(secsTxt(s.secs)) + '</span><span class="go">' + (s.gone ? '' : '›') + '</span></div>';
   }
@@ -158,15 +152,16 @@ function route() {
 }
 
 async function openAnalysis(file) {
-  // A session row opens its best lap on the shared Workbench.
+  // A session row opens its best lap on the shared Workbench; a session without a timed lap (a short run, an out-lap, half a lap)
+  // opens ALL THE DATA (rawdata.html: every channel over time). A row never does nothing.
   try {
-    const r = await fetch('/ibt/laps?file=' + encodeURIComponent(file), { cache: 'no-store' });
-    const info = await r.json();
-    if (!r.ok || !info || !info.best) return;
+    let info = null;
+    try { const r = await fetch('/ibt/laps?file=' + encodeURIComponent(file), { cache: 'no-store' }); if (r.ok) info = await r.json(); } catch (e) { info = null; }
+    if (document.getElementById('wbHost')) return;
     const host = document.createElement('div'); host.id = 'wbHost';
     host.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#09090a;color:#ece8df';
     host.innerHTML = '<button type="button" style="position:absolute;z-index:2;left:20px;top:14px;padding:12px 24px;background:#171719;border:1px solid #51451c;color:#ece8df;font:16px Bahnschrift,Segoe UI,sans-serif" id="wbBack">Back to Sessions</button><iframe title="Paddock Analysis" style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>';
-    host.querySelector('iframe').src = 'workbench.html?id=' + encodeURIComponent(file) + '&lap=' + encodeURIComponent(info.best);
+    host.querySelector('iframe').src = info && info.best ? 'workbench.html?id=' + encodeURIComponent(file) + '&lap=' + encodeURIComponent(info.best) : 'rawdata.html?id=' + encodeURIComponent(file);
     SX.file = file;
     document.body.appendChild(host);
     host.querySelector('#wbBack').addEventListener('click', () => { host.remove(); location.hash = ''; });

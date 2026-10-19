@@ -231,7 +231,7 @@ $null = Cdp-Eval "document.getElementById('wbBack').click(); 1"; Start-Sleep -Se
 Check 'Back to Sessions closes the shared Workbench and returns to the session list' ((Cdp-Eval "!document.getElementById('wbHost') && location.hash === '' && document.querySelectorAll('#sessList .row').length > 0") -eq $true)
 Cdp-Shot (Join-Path $shots 'd-sessions.png')
 $rowsOnPage = Cdp-Eval "document.querySelectorAll('#sessList .row').length"
-Check 'the list on the page has the sessions (short runs hidden until asked for)' ($rowsOnPage -eq @($s.sessions | Where-Object { -not $_.short }).Count)
+Check 'the list on the page has every session (short runs too, quieter, never hidden: Peter 2026-10-18)' ($rowsOnPage -eq @($s.sessions).Count -and -not (Cdp-Eval "/short runs/i.test(document.getElementById('fMore').textContent)"))
 $null = Cdp-Eval "document.querySelectorAll('#fCar .chip')[1].click(); 1"; Start-Sleep -Milliseconds 600
 $filtered = Cdp-Eval "JSON.stringify({ rows: document.querySelectorAll('#sessList .row').length, pbs: document.querySelectorAll('#pbList .row').length, on: document.querySelector('#fCar .chip.on').textContent })" | ConvertFrom-Json
 Check 'choosing a car filters the sessions and the personal bests together' ($filtered.rows -lt $rowsOnPage -and $filtered.rows -ge 1 -and $filtered.pbs -ge 1)

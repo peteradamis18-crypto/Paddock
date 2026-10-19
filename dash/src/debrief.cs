@@ -112,7 +112,8 @@ namespace IRDash
               .Append(",\"type\":").Append(Json_.S(d.SessType)).Append(",\"sessNum\":").Append(d.SessNum).Append(",\"sessName\":").Append(Json_.S(d.SessName))
               .Append(",\"official\":").Append(B(d.Official)).Append(",\"me\":").Append(d.Me).Append(",\"class\":").Append(Json_.S(focus))
               .Append(",\"startMs\":").Append(d.StartMs).Append(",\"endMs\":").Append(d.EndMs).Append('}');
-            Result(sb, d, me, sm, tower, focus);
+            int fileInc = -1; if (id.EndsWith(".ibt", StringComparison.OrdinalIgnoreCase)) { try { fileInc = Vault.IncidentsOfFile(Path.GetFileName(id), d.SessNum); } catch { } }
+            Result(sb, d, me, sm, tower, focus, fileInc);
             Positions(sb, d, sm);
             Pace(sb, d, me, sm, tower, focus);
             sb.Append(TailSection(id, lapq, d.TrackName.Length > 0 ? d.TrackName : d.Track, d.StartMs, d.SessType));
@@ -120,7 +121,7 @@ namespace IRDash
             return sb.ToString();
         }
 
-        static void Result(StringBuilder sb, RfData d, RfCar me, Dictionary<string, object> sm, object[] tower, string focus)
+        static void Result(StringBuilder sb, RfData d, RfCar me, Dictionary<string, object> sm, object[] tower, string focus, int fileInc)
         {
             Dictionary<string, object> mt = null; int leadIdx = -1;
             foreach (object o in tower)
@@ -148,14 +149,11 @@ namespace IRDash
 
             int clean = 0; foreach (RfLap l in me.Laps) if (Clean(l, d.IsRace)) clean++;
 
-            RfCar lead = leadIdx >= 0 ? d.Car(leadIdx) : null;
+            // The gap comes from the summary's tower (laps behind and seconds to the class leader, both already null when the log missed the leader's last lap).
+            // It used the raw lap lists, so a leader whose final lap was never logged gave "151 s behind" for a car that finished the same lap.
             int gapLaps = 0; double gapWinner = double.NaN;
             if (finish == 1) gapWinner = 0;
-            else if (lead != null)
-            {
-                gapLaps = MaxLap(lead) - MaxLap(me);
-                if (gapLaps <= 0 && !double.IsNaN(LastE(lead)) && !double.IsNaN(LastE(me))) gapWinner = LastE(me) - LastE(lead);
-            }
+            else if (mt != null) { gapLaps = I(G(mt, "gapLaps")); if (gapLaps <= 0) gapWinner = D(G(mt, "gap")); }
 
             // iRating change: the community formula (data.cs Race.Change), only with a real field (two or more rated drivers) and an official race
             double irChange = double.NaN;
@@ -172,7 +170,7 @@ namespace IRDash
               .Append(",\"startPosition\":").Append(startPos).Append(",\"positionsGained\":").Append(startPos - finish)
               .Append(",\"iratingChange\":").Append(double.IsNaN(irChange) ? "null" : ((int)Math.Round(irChange)).ToString(Inv))
               .Append(",\"gapToWinner\":").Append(double.IsNaN(gapWinner) ? "null" : N(gapWinner, "0.000")).Append(",\"gapLaps\":").Append(gapLaps)
-              .Append(",\"incidents\":").Append(me.ResInc).Append(",\"cleanLaps\":").Append(clean).Append(",\"totalLaps\":").Append(totalLaps).Append('}');
+              .Append(",\"incidents\":").Append(Math.Max(fileInc, mt != null ? Math.Max(me.ResInc, I(G(mt, "inc"))) : me.ResInc)).Append(",\"cleanLaps\":").Append(clean).Append(",\"totalLaps\":").Append(totalLaps).Append('}');
         }
 
         static void Positions(StringBuilder sb, RfData d, Dictionary<string, object> sm)
@@ -184,11 +182,15 @@ namespace IRDash
             object[] passes = A(G(sm, "passes"));
             int maxLap = I(G(sm, "maxLap"));
             RfCar me = d.Car(d.Me);
+            // the last lap of the chart is his finishing place (the summary may rank it from a log that missed another car's last crossing)
+            int finishPos = 0; foreach (object to in A(G(sm, "tower"))) { Dictionary<string, object> tt = O(to); if (tt != null && I(G(tt, "i")) == d.Me) finishPos = I(G(tt, "pos")); }
+            int meLaps = 0; foreach (object to in A(G(sm, "tower"))) { Dictionary<string, object> tt = O(to); if (tt != null && I(G(tt, "i")) == d.Me) meLaps = I(G(tt, "laps")); }
             sb.Append(",\"positionByLap\":[");
             for (int n = 1; n <= maxLap; n++)
             {
                 if (n > 1) sb.Append(',');
                 object pv = n - 1 < p.Length ? p[n - 1] : null;
+                if (pv != null && n == maxLap && n == meLaps && finishPos > 0) pv = finishPos;
                 object gv = n - 1 < g.Length ? g[n - 1] : null;
                 bool pit = false; foreach (RfPit pt in me.Pits) if (pt.InLap == n) pit = true;
                 int pass = 0;

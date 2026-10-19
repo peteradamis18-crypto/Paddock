@@ -7,7 +7,9 @@
 //    (and at least 2). A big loss in one lap is a mistake, not a habit, and is reported as "inconsistent" instead;
 //  - each measured difference must clear its noise floor (5 m, 3 mph, 10 m) or it is left out;
 //  - the instruction comes from a fixed table keyed on what was measured. No generated prose;
-//  - at least 3 clean laps, or it says how many more are needed. Never a made-up number.
+//  - habits need at least 3 clean laps. Fewer is still data (CoachFew): 2 laps against each other, 1 lap or a part-lap against
+//    his best lap ever here, each with plain "treat it as a hint" words; nothing comparable = the drive's summary and the raw
+//    data (rawdata.cs). The reply always carries "summary". Never a made-up number.
 // Speeds are said in mph (Peter's iRacing is set to imperial). C# 5; reads only.
 using System;
 using System.Collections.Generic;
@@ -64,16 +66,17 @@ namespace IRDash
             StringBuilder sb = new StringBuilder(4096);
             sb.Append("{\"ok\":true,\"file\":").Append(Json_.S(mine.File)).Append(",\"car\":").Append(Json_.S(mine.Car)).Append(",\"track\":").Append(Json_.S(CoachTrackName(mine)))
               .Append(",\"config\":").Append(Json_.S(mine.Config)).Append(",\"units\":\"imperial\",\"clean\":").Append(clean.Count);
-            if (clean.Count < 3)
-            {
-                sb.Append(",\"ready\":false,\"reason\":").Append(Json_.S("Not enough laps at race pace to compare (" + clean.Count + " of 3)")).Append(",\"focus\":[],\"inconsistent\":[]}");
-                return sb.ToString();
-            }
+            // what the drive held (rawdata.cs): always there, so the screen is never only a refusal
+            sb.Append(",\"summary\":").Append(DriveSummary(file));
+            // Fewer than 3 laps in rhythm is not a habit, but it is still data (Peter 2026-10-18): 2 laps are compared with each other,
+            // 1 lap (or the part of a lap that was driven) with his best lap ever in this car here. Plain words say how much it is worth.
+            if (clean.Count < 3) return CoachFew(sb, file, mine, cs, clean, all);
             if (best.Corners == null || best.Corners.Count == 0)
             {
-                sb.Append(",\"ready\":false,\"reason\":").Append(Json_.S("No corner map for this track yet")).Append(",\"focus\":[],\"inconsistent\":[]}");
+                sb.Append(",\"ready\":false,\"mode\":\"drive\",\"reason\":").Append(Json_.S("No corner map for this track yet")).Append(",\"focus\":[],\"inconsistent\":[]}");
                 return sb.ToString();
             }
+            sb.Append(",\"mode\":\"habit\"");
 
             List<CoachRow> rows = new List<CoachRow>();
             foreach (Met bm in best.Corners)
@@ -145,10 +148,12 @@ namespace IRDash
         }
 
         // one advice card: the corner, the typical loss, how often, the measured facts, one instruction, and where to look
-        static void AppendFocus(StringBuilder sb, CoachRow r, LapTrace best)
+        // minSupport: 2 for habits (one lap's braking point is not "typical"); 1 when only one lap is compared (the page says it is a hint).
+        // bestHere: the best lap is in this session's file (its video cue means something); false for a best lap from another session.
+        static void AppendFocus(StringBuilder sb, CoachRow r, LapTrace best, int minSupport = 2, bool bestHere = true)
         {
-            // a fact must stand on at least half of the losing laps (and 2): one lap's braking point is not "typical"
-            int support = Math.Max(2, (int)Math.Ceiling(r.Lost / 2.0));
+            // a fact must stand on at least half of the losing laps (and minSupport)
+            int support = Math.Max(minSupport, (int)Math.Ceiling(r.Lost / 2.0));
             Func<List<double>, double> typical = delegate (List<double> v) { return v.Count >= support ? Median(v) : double.NaN; };
             double br = typical(r.Br), en = typical(r.En), mn = typical(r.Mn), pk = typical(r.Pk), ex = typical(r.Ex);
             // phases (Delta-style): brake, entry, apex, exit. Each: the measured difference, or null under its noise floor.
@@ -213,8 +218,145 @@ namespace IRDash
             // Analysis time is pinned to the official lap time (drift is tiny over a corner); good for a cue, not a frame.
             sb.Append(",\"example\":");
             if (r.Example == null) sb.Append("null");
-            else sb.Append("{\"lap\":").Append(r.Example.Lap).Append(",\"time\":").Append(F(r.Example.Time, "0.000")).Append(",\"loss\":").Append(F(r.ExampleLoss, "0.000")).Append(",\"at\":").Append(F(CueAt(r.Example, r.M.P0), "0.00")).Append('}');
-            sb.Append(",\"best\":{\"lap\":").Append(best.Lap).Append(",\"at\":").Append(F(CueAt(best, r.M.P0), "0.00")).Append("}}");
+            else
+            {
+                // a partial lap that does not start at the line has no lap-start time in the recording: no cue (WATCH says so)
+                bool cue = !r.Example.Partial || r.Example.CovA <= 1;
+                sb.Append("{\"lap\":").Append(r.Example.Lap).Append(",\"time\":").Append(F(r.Example.Time, "0.000")).Append(",\"loss\":").Append(F(r.ExampleLoss, "0.000")).Append(",\"at\":").Append(cue ? F(CueAt(r.Example, r.M.P0), "0.00") : "null").Append(",\"partial\":").Append(r.Example.Partial ? "true" : "false").Append('}');
+            }
+            if (bestHere) sb.Append(",\"best\":{\"lap\":").Append(best.Lap).Append(",\"at\":").Append(F(CueAt(best, r.M.P0), "0.00")).Append("}}");
+            else sb.Append(",\"best\":null}");
+        }
+
+        // ---------------- fewer than 3 laps in rhythm: still the data, with honest words ----------------
+        //   2 laps: the slower one against the quicker one ("only 2 laps: treat this as a hint");
+        //   1 lap: that lap against his best lap EVER in this car here (the laps iRacing counted, every session: the PB rule);
+        //   0 full laps: the part of a lap he drove (partial.cs) against that same best lap, corner by corner, over what it covers;
+        //   nothing comparable: what the drive held (the summary) and the raw data, one press away (the page draws the button).
+        static string CoachFew(StringBuilder sb, string file, Sess mine, CornerSet cs, List<LapTrace> rhythm, List<LapTrace> all)
+        {
+            bool haveMap = cs != null && cs.Turns != null && cs.Turns.Count > 0;
+            LapTrace me = null, rf = null; string mode, hint = "", refKind = ""; bool refHere = false;
+            if (rhythm.Count == 2)
+            {
+                LapTrace a = rhythm[0], b = rhythm[1];
+                rf = a.Time <= b.Time ? a : b; me = rf == a ? b : a;
+                mode = "two"; refKind = "session best"; refHere = true;
+                hint = "Only 2 laps at race pace: lap " + me.Lap + " against lap " + rf.Lap + ". Treat this as a hint, not a habit.";
+            }
+            else
+            {
+                if (rhythm.Count == 1) me = rhythm[0];
+                else foreach (LapTrace l in all) if (me == null || l.Time < me.Time) me = l;
+                bool offLap = false;
+                if (me == null && haveMap)
+                {
+                    // no clean lap: a whole lap with an off-track is still a whole lap of data, unless it is quicker than the best lap ever
+                    // (then the off-track was a short cut: Ferrari 17-45-41 lap 4 "gained" 10.9 s in T4), which compares nothing
+                    string pdir = TrackMaps.TelemetryDir;
+                    if (string.IsNullOrEmpty(pdir) || !Directory.Exists(pdir)) pdir = Path.GetDirectoryName(file);
+                    LapTrace ever = Fastest(CleanOf(Gather(file, pdir, true)), null, null);
+                    foreach (LapTrace l in mine.Laps)
+                        if (l.Skip == "off" && l.Tm != null && ever != null && l.Time >= ever.Time - 0.05 && !SameLap(l, ever) && (me == null || l.Time < me.Time)) { me = l; offLap = true; }
+                }
+                mode = me != null ? "pb" : "partial";
+                if (me == null) me = BestPartial(mine, cs);
+                if (offLap) hint = "No clean lap: lap " + me.Lap + " (it had an off-track) against the best lap ever in this car here. Treat it as a hint.";
+                if (me != null && haveMap)
+                {
+                    string dir = TrackMaps.TelemetryDir;
+                    if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) dir = Path.GetDirectoryName(file);
+                    rf = Fastest(CleanOf(Gather(file, dir, true)), null, me);
+                    if (rf != null)
+                    {
+                        refHere = string.Equals(rf.Path, me.Path, StringComparison.OrdinalIgnoreCase);
+                        refKind = !me.Partial && me.Time < rf.Time ? "next best ever" : "best ever";
+                    }
+                }
+                if (offLap) { }
+                else if (me != null && mode == "pb")
+                    hint = "Only 1 lap at race pace: lap " + me.Lap + " against the " + (refKind == "next best ever" ? "next best lap ever (this lap is the best)" : "best lap ever") + " in this car here. Treat it as a hint.";
+                else if (me != null)
+                {
+                    string pa = Math.Round(me.CovA / me.LengthM * 100).ToString(Inv), pz = Math.Round(me.CovB / me.LengthM * 100).ToString(Inv);
+                    hint = "No full lap in this drive. " + (me.Skip == "out" ? "The out-lap" : me.Skip == "in" ? "The in-lap" : "Lap " + me.Lap) + " was driven " +
+                        (me.CovA <= 1 ? "from the line to " + pz + " %" : "from " + pa + " % to " + pz + " %") + " of the lap: those corners against the best lap ever here." +
+                        (me.Skip == "out" ? " Out-lap tyres are cold." : "") + " Treat it as a hint.";
+                }
+            }
+            Func<string, string> none = delegate (string why)
+            {
+                sb.Append(",\"ready\":true,\"mode\":\"drive\",\"hint\":").Append(Json_.S(hint)).Append(",\"reason\":").Append(Json_.S(why)).Append(",\"focus\":[],\"corners\":[],\"inconsistent\":[]}");
+                return sb.ToString();
+            };
+            if (me == null) return none(all.Count == 0 ? "No lap long enough to compare. Here is everything the drive held." : "Nothing to compare yet.");
+            if (!haveMap) return none("No corner map for this track yet. Here is everything the drive held.");
+            if (rf == null) return none("First drive in this car here: nothing to compare with yet.");
+            if (me.Partial) MeasurePartial(me, cs); else Measure(me, cs);
+            if (!rf.Measured) Measure(rf, cs);
+            if (me.Corners.Count == 0) return none("The part of the lap that was driven holds no whole corner.");
+
+            List<CoachRow> rows = new List<CoachRow>();
+            List<Diff> diffs = new List<Diff>();
+            foreach (Met m in me.Corners)
+            {
+                Met o = ByN(rf.Corners, m.N); if (o == null) continue;
+                Diff d = CompareMet(m, o, rf.LengthM);
+                CoachRow r = new CoachRow(); r.M = o; r.Laps = 1; r.Loss.Add(d.DTime); r.Example = me; r.ExampleLoss = d.DTime;
+                if (d.DTime >= CoachMinLoss)
+                {
+                    r.Lost = 1; r.In.Add(d.DIn); r.Out.Add(d.DOut);
+                    if (d.HasBr) r.Br.Add(d.DBr); if (d.HasEn) r.En.Add(d.DEn); if (d.HasMn) r.Mn.Add(d.DMn); if (d.HasPk) r.Pk.Add(d.DPk); if (d.HasEx) r.Ex.Add(d.DEx);
+                }
+                rows.Add(r); diffs.Add(d);
+            }
+            if (rows.Count == 0) return none("The corners of this lap could not be matched with the best lap.");
+            List<CoachRow> focus = new List<CoachRow>();
+            foreach (CoachRow r in rows) if (r.Loss[0] >= CoachMinLoss) focus.Add(r);
+            focus.Sort(delegate (CoachRow x, CoachRow y) { return y.Loss[0].CompareTo(x.Loss[0]); });
+            if (focus.Count > 3) focus.RemoveRange(3, focus.Count - 3);
+            double total = 0; foreach (CoachRow r in focus) total += r.Loss[0];
+
+            sb.Append(",\"ready\":true,\"mode\":").Append(Json_.S(mode)).Append(",\"hint\":").Append(Json_.S(hint));
+            sb.Append(",\"reason\":").Append(Json_.S(focus.Count == 0 ? "No corner lost 0.05 s or more against the " + (mode == "two" ? "quicker lap." : "best lap ever.") : ""));
+            sb.Append(",\"ref\":{\"lap\":").Append(rf.Lap).Append(",\"time\":").Append(F(rf.Time, "0.000")).Append(",\"kind\":").Append(Json_.S(refKind))
+              .Append(",\"file\":").Append(Json_.S(rf.File)).Append(",\"date\":").Append(Json_.S(DateOf(rf.File))).Append(",\"here\":").Append(refHere ? "true" : "false").Append('}');
+            sb.Append(",\"lap\":{\"lap\":").Append(me.Lap).Append(",\"time\":").Append(F(me.Time, "0.000")).Append(",\"partial\":").Append(me.Partial ? "true" : "false").Append(",\"cover\":");
+            if (me.Partial) AppendCover(sb, me); else sb.Append("null");
+            if (me.Partial) sb.Append(",\"refStretch\":").Append(F(Span(rf, me.CovA, me.CovB), "0.000"));
+            sb.Append('}');
+            sb.Append(",\"perLap\":").Append(F(total, "0.000"));
+            sb.Append(",\"focus\":[");
+            for (int i = 0; i < focus.Count; i++) { if (i > 0) sb.Append(','); AppendFocus(sb, focus[i], rf, 1, refHere); }
+            sb.Append("],\"corners\":[");
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                Diff d = diffs[i]; Met m = rows[i].M;
+                sb.Append("{\"n\":").Append(m.N).Append(",\"label\":").Append(Json_.S(m.Label)).Append(",\"dTime\":").Append(F(d.DTime, "0.000"))
+                  .Append(",\"dBrakeM\":").Append(NZ(d.HasBr, d.DBr, "0.0")).Append(",\"dEntryMph\":").Append(NZ(d.HasEn, d.DEn / KmhPerMph, "0.0"))
+                  .Append(",\"dMinMph\":").Append(NZ(d.HasMn, d.DMn / KmhPerMph, "0.0")).Append(",\"dExitMph\":").Append(NZ(d.HasEx, d.DEx / KmhPerMph, "0.0"))
+                  .Append(",\"dPickupM\":").Append(NZ(d.HasPk, d.DPk, "0.0")).Append('}');
+            }
+            sb.Append("],\"inconsistent\":[]}");
+            return sb.ToString();
+        }
+
+        // the part-lap worth comparing: a hot lap cut short before an off-track lap, before an in-lap, before an out-lap (cold tyres); then the most corners
+        static LapTrace BestPartial(Sess mine, CornerSet cs)
+        {
+            LapTrace pick = null; int pickRank = -1, pickN = -1; double pickCov = 0;
+            foreach (LapTrace l in mine.Laps)
+            {
+                if ((l.Clean && l.Tm != null) || l.Skip == "off") continue;      // whole laps are handled above (an off-track lap is not a part-lap)
+                LapTrace v = PartialOf(l); if (v == null) continue;
+                MeasurePartial(v, cs);
+                int rank = v.Skip == "partial" ? 4 : v.Skip == "off" ? 3 : v.Skip == "in" ? 2 : v.Skip == "pit" ? 1 : 0;
+                double cov = v.CovB - v.CovA;
+                bool better = pick == null || v.Corners.Count > 0 && pickN == 0 || (v.Corners.Count > 0) == (pickN > 0) && (rank > pickRank || rank == pickRank && (v.Corners.Count > pickN || v.Corners.Count == pickN && cov > pickCov));
+                if (better) { pick = v; pickRank = rank; pickN = v.Corners.Count; pickCov = cov; }
+            }
+            return pick;
         }
 
         // the name iRacing shows ("Road America"), not its internal one ("roadamerica 2026 full")

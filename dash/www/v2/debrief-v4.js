@@ -219,8 +219,14 @@ const Debrief4 = (function () {
       requestAnimationFrame(() => ov.classList.add('on'));
     }
     const v = ov.querySelector('video');
+    // the clip has the game's sound: his own press on ▶ starts it, at the volume he left (same setting as the Vault player)
+    if (!v._snd) {
+      v._snd = true;
+      try { const p = JSON.parse(localStorage.getItem('paddock.sound') || 'null'); if (p) { v.volume = Math.max(0, Math.min(1, +p.v || 0)); v.muted = !!p.m; } } catch (e) { }
+      v.addEventListener('volumechange', () => { if (v._auto) { v._auto = false; return; } try { localStorage.setItem('paddock.sound', JSON.stringify({ v: v.volume, m: v.muted })); } catch (e) { } });
+    }
     v.src = '/debrief/video?id=' + encodeURIComponent(vid);
-    const pr = v.play(); if (pr && pr.catch) pr.catch(() => { });
+    const pr = v.play(); if (pr && pr.catch) pr.catch(() => { if (v.muted) return; v._auto = true; v.muted = true; const p2 = v.play(); if (p2 && p2.catch) p2.catch(() => { }); });   // a browser that refuses sound still shows the picture (his setting is not changed)
   }
   function closePlayer() { const ov = document.getElementById('db4Player'); if (!ov) return; ov.classList.remove('on'); try { ov.querySelector('video').pause(); } catch (e) { } setTimeout(() => ov.remove(), 250); }
 
@@ -233,7 +239,12 @@ const Debrief4 = (function () {
       if (t.id === 'db4Cos') {
         e.stopPropagation();
         const dd = (j.bar && j.bar.deepDive) || {};
-        if (dd.id) fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(dd.id), { cache: 'no-store' }).catch(() => { });
+        if (t._busy) return;       // no double launch while Pi is opening
+        if (dd.id) {
+          t._busy = true; const was = t.textContent; t.textContent = 'OPENING';
+          const say = (m) => { t.textContent = m; setTimeout(() => { t.textContent = was; t._busy = false; }, 4000); };
+          fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(dd.id), { cache: 'no-store' }).then(r => say(r.status === 409 ? 'NOT WHILE DRIVING' : r.status === 404 ? 'FILE IS GONE' : r.ok ? 'OPENING IN PI' : 'COULD NOT OPEN')).catch(() => say('COULD NOT OPEN'));
+        }
         return;
       }
       if (t.id === 'db4Deep') { e.stopPropagation(); openDeepDive(root, j); return; }
@@ -390,7 +401,8 @@ const Debrief4 = (function () {
 
   // After leaving the car: the review of THAT session. While driving we remember iRacing's session identity and the
   // laps completed; afterwards "last" is asked every 4 s for up to 90 s (the telemetry file may still be finishing) and
-  // a reply about any other session is thrown away. Getting back in the car cancels it. No lap completed: no review.
+  // a reply about any other session is thrown away. Getting back in the car cancels it. No lap completed is still a drive: the coach
+  // then shows what it held and ALL THE DATA (Peter 2026-10-18: a qualifying run with no full lap showed nothing).
   let seen = null, wait = null;
   function remember() {
     try {
@@ -430,7 +442,7 @@ const Debrief4 = (function () {
       if (live) { remember(); if (wait) { clearTimeout(wait.t); wait = null; } }
       if (lastLive && !live) {
         const want = seen; seen = null;
-        if (!want || want.laps == null || want.laps >= 1) awaitReview(want);
+        awaitReview(want);
       }
       lastLive = live;
     }, 1000);

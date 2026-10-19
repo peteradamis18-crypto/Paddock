@@ -428,7 +428,9 @@ try {
   Start-Sleep -Milliseconds 1500
   $null = Cdp-Eval "window.__db4Live = false; 1"
   Start-Sleep -Seconds 5
-  Check 'no completed lap (left in the pits): no review and no waiting' ((Cdp-Eval "!document.querySelector('#debrief4.on') && !Debrief4.waiting()") -eq $true)
+  # 2026-10-18 (Peter: 'with not a full lap it doesnt show me any data'): a drive with no completed lap is not refused any more, the screen goes up (the coach, with the drive's summary and ALL THE DATA behind it)
+  Check 'no completed lap (left in the pits): the screen still goes up, nothing is refused, and it is not waiting' ((Cdp-Eval "!!document.querySelector('#debrief4.on') && !Debrief4.waiting()") -eq $true)
+  $null = Cdp-Eval "Debrief4.hide(); 1"; Start-Sleep -Milliseconds 800
   $null = Cdp-Eval "window.__debrief4Src = '/v2/db4-wrong.json'; window.__db4Live = true; L.v.LapCompleted = 4; 1"
   Start-Sleep -Milliseconds 1500
   $null = Cdp-Eval "window.__db4Live = false; 1"

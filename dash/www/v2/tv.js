@@ -647,11 +647,12 @@ const Tower = {
     const el = $('dRec'); if (!el) return;
     const c = d && d.capture, st = c && c.state;
     const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
-    const words = { recording: 'REC ' + mmss(c && c.secs), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
+    const mute = st === 'recording' && c.audio === 'failed';      // the picture is landing, the sound is not: say so, nothing more
+    const words = { recording: 'REC ' + mmss(c && c.secs) + (mute ? ' · NO SOUND' : ''), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
     const text = d ? words[st] || '' : 'RECORDING UNKNOWN';
     el.hidden = !text;
     el.querySelector('span').textContent = text;
-    el.className = !text ? '' : !d ? 'warn' : st === 'recording' ? '' : st === 'stalled' || st === 'failed' ? 'bad' : 'warn';
+    el.className = !text ? '' : !d ? 'warn' : st === 'recording' ? (mute ? 'warn' : '') : st === 'stalled' || st === 'failed' ? 'bad' : 'warn';
   },
   fmtTime(n) {
     if (typeof n !== 'number' || !isFinite(n) || n <= 0) return '–';

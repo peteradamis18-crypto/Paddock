@@ -20,7 +20,9 @@ Other recent laps stay for 30 days, then drop off. A lap you star yourself is a 
 
 On the top screen: Sessions, then **Vault ›**. After a new personal best, the debrief has **In the Vault**.
 
-The page is a grid of cards. Each card is the track map with your line on it. Filter by car, track, tag or year, or search. Open a card for the map, your speed, throttle and brake, and the time difference against another lap, all on one cursor. The corner table shows each turn against your personal best and against the best lap of that turn in the Vault. You can write a note.
+The page is a grid of cards, grouped by day (the day header stays at the top while you scroll) and then by session. A lap that was recorded shows a real picture from its video (irdash cuts one frame with ffmpeg in the background, never while you drive, into `vault\thumbs\f-<id>.jpg`; `GET /vault/frame?id=`), with the video's length bottom-right; a lap without video shows the track map with its line. Each card has the lap time big, how far it is from your best, and the result as a coloured word: purple FASTEST EVER, green NEW PB (it was a personal best that day), gold WIN / PODIUM / TOP 3 EVER. `/vault/list` gives each moment `vid` (its recorder clip), `vidDur` and `frame`. Views: All, Keepers, Races, Best laps (grouped by car and track, quickest first), Videos; Car / Track (and Tag, Year when there is more than one) open big lists; S / M / L card sizes are remembered. Arrows move between cards, Enter opens one.
+
+A recorded lap opens on the Vault's own player: the video big, PLAY, -5 s / +5 s, SOUND ON / MUTED and a volume slider (remembered), EXPAND (the video fills the page; E key, Escape makes it smaller) and FULL SCREEN (F key), the SYNC nudge, and under it your speed, throttle and brake and the time difference against another lap, all on one cursor. A lap without video opens the analysis workbench; a race with a race log opens its RACE page. BACK goes back to the cards. The corner table shows each turn against your personal best and against the best lap of that turn in the Vault. You can write a note.
 
 **Open in Cosworth** opens the lap in Cosworth Pi Toolbox (with Pi's iRacing workbook, the lap added to it). **Share** opens the folder. **Delete** asks twice.
 
@@ -45,6 +47,8 @@ When it is on you do nothing. While you are in the car Paddock films the middle 
 - If the recorder program stops by itself it is started again, at most 3 times in a session, each time logged. After that it gives up until the next session and says so.
 
 It uses the NVIDIA video chip (HEVC `hevc_nvenc` at about 8 Mbit/s), not the processor, so the game should feel nothing. If the chip refuses, it tries h264_nvenc, then the processor (libx264). Every HEVC file carries `hvc1` and `faststart` so iPhones and Safari play it. That is a claim to check: the lead measures the frame rate in a full race with `recorder=1` before it stays on (steps in `docs\tasks\log\C-06.md`).
+
+**Sound** (2026-10-18, `dash\src\recaudio.cs`, `docs\design\audio-recording.md`). The videos carry the game's sound: only iRacing and CrewChief (Windows "process loopback"), so music or Discord never get into a clip; only if Windows cannot pick them out is the whole PC recorded. It runs exactly while the picture does, writes `vault\rec\aud-<start µs>.pcm` chunks on the same wall clock, and every session file and clip gets its sound encoded once (AAC 160 kbit/s) while the picture is still copied. Sidecars say `audio: ok | partial | none` (+ `audioSource`). HOME and the REC pill say "no sound" only when the sound capture failed. `recorder_audio=0` in `irdash.ini` switches only the sound off. Players: the Vault and Debrief players keep his volume; the Workbench has SOUND (key U), off until pressed once.
 
 ## Whole sessions (S1)
 

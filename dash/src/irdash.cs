@@ -2521,11 +2521,17 @@ namespace IRDash
             Application.EnableVisualStyles();
             Log.W("irdash starting on port " + cfg.Port);
             Server server = new Server(cfg.Port, Path.Combine(Dir, "www"), Path.Combine(Dir, "maps"));
-            try { server.Start(); }
-            catch (Exception ex)
+            // The port can still be held for a few seconds by the copy that just closed (a restart) or by a program that inherited it.
+            // Wait for it instead of giving up on the first try, which left Peter with no Paddock at all after a restart.
+            Exception startErr = null;
+            for (int attempt = 0; attempt < 20; attempt++)
             {
-                MessageBox.Show("irdash could not start its local server on port " + cfg.Port + ".\n\n" + ex.Message +
-                                "\n\nChange port= in irdash.ini and try again.", "Paddock", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                try { server.Start(); startErr = null; break; }
+                catch (Exception ex) { startErr = ex; Log.W("server start try " + (attempt + 1) + ": " + ex.Message); Thread.Sleep(1000); }
+            }
+            if (startErr != null)
+            {
+                MessageBox.Show("Paddock could not start: another program is holding port " + cfg.Port + ".\n\nRestart the PC. If it happens again, tell Claude.\n\n(" + startErr.Message + ")", "Paddock", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             Thread sdk = new Thread(Sdk.Run);
@@ -2648,6 +2654,18 @@ namespace IRDash
             return best;
         }
 
+        // "auto" means the screen strictly above all the others (the 1080p dashboard monitor above the race screens). When that monitor is off
+        // or asleep at logon, every remaining screen sits at y 0 and PickScreen used to take a race screen: the kiosk dashboard then covered
+        // it and the sim was placed over only two screens. Better no dashboard until the monitor is back (KeepDash retries every 2 s).
+        static bool DashScreenFound()
+        {
+            Screen[] all = Screen.AllScreens;
+            if (all.Length <= 1 || (!string.IsNullOrEmpty(cfg.Screen) && cfg.Screen != "auto")) return true;
+            Screen best = PickScreen();
+            foreach (Screen sc in all) if (!sc.Equals(best) && sc.Bounds.Y <= best.Bounds.Y) return false;
+            return true;
+        }
+
         static string BrowserExe()
         {
             if (!string.IsNullOrEmpty(cfg.Browser) && cfg.Browser != "auto" && File.Exists(cfg.Browser)) return cfg.Browser;
@@ -2693,6 +2711,7 @@ namespace IRDash
                 MessageBox.Show("No Chrome or Edge found. Set browser= in irdash.ini.", "Paddock");
                 return;
             }
+            if (!DashScreenFound()) { Log.W("dashboard not opened: the dashboard monitor is not there (only the race screens are)"); return; }
             Rectangle b = PickScreen().Bounds;
             string profile = Path.Combine(Dir, "browser-profile");
             string url = "http://localhost:" + cfg.Port + "/" + cfg.Page + query;
@@ -2704,6 +2723,9 @@ namespace IRDash
             try
             {
                 Process.Start(exe, args);
+                // The new window has no title for the first seconds, so DashWindows() cannot see it. Without this stamp KeepDash (every 2 s)
+                // saw "no dashboard" right after the start-up open and opened a SECOND kiosk window on the same screen.
+                lastAutoOpen = DateTime.Now;
                 Log.W("opened dashboard on " + b + " with " + Path.GetFileName(exe));
             }
             catch (Exception ex) { Log.W("open: " + ex.Message); }
@@ -2724,7 +2746,7 @@ namespace IRDash
                     int.TryParse(p[2].Trim(), out w) && int.TryParse(p[3].Trim(), out h) && w > 0 && h > 0)
                     return new Rectangle(x, y, w, h);
             }
-            Rectangle dash = PickScreen().Bounds, u = Rectangle.Empty;
+            Rectangle dash = DashScreenFound() ? PickScreen().Bounds : Rectangle.Empty, u = Rectangle.Empty;
             foreach (Screen s in Screen.AllScreens)
                 if (s.Bounds != dash) u = u.IsEmpty ? s.Bounds : Rectangle.Union(u, s.Bounds);
             return u;
@@ -2755,6 +2777,7 @@ namespace IRDash
 
         static void KeepDash()
         {
+            if (!DashScreenFound()) return;       // never drag the dashboard onto a race screen
             List<Process> ws = DashWindows();
             Rectangle b = PickScreen().Bounds;
             if (ws.Count == 0)
