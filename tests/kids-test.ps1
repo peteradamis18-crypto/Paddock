@@ -1,4 +1,4 @@
-# Kids mode (K-01): one deck key locks the keyboard and mouse, and every other deck key does nothing.
+﻿# Kids mode (K-01): one deck key locks the keyboard and mouse, and every other deck key does nothing.
 # The hook is real, so this script refuses while the sim is running (tests\guard.ps1) and every lock
 # expires on its own within a few seconds if the script is cut off. It does not start the sim, deploy,
 # or touch Stream Deck. The wheel is not hooked; that is checked in the source.
@@ -8,6 +8,9 @@ $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree
 Enter-TestLock 'kids-test' 0
+# every hook this test starts ends by itself within 30 s, whatever command started it (2026-10-23: a hung run kept Peter's
+# keyboard and mouse locked for 9 minutes). Child processes inherit this; the deck keys never have it.
+$env:IRDECK_KIDS_TEST_MAXSEC = '30'
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
 $pass = 0; $fail = 0
 function Check($what, $ok) { if ($ok) { $script:pass++; Write-Host "  ok    $what" } else { $script:fail++; Write-Host "  FAIL  $what" } }
@@ -75,8 +78,8 @@ try {
   New-Item -ItemType Directory -Force (Join-Path $iso 'dash') | Out-Null
   Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso 'irdeck-cli.exe') -Force
   Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso 'keys\probe.exe') -Force
-  foreach ($k in 'tow', 'smartdry', 'restart') { Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso "keys\$k.exe") -Force }
-  [IO.File]::WriteAllText((Join-Path $iso 'keys\keys.map'), "probe=state`r`nkids=kids`r`ntow=tow --pretend 0.4`r`nsmartdry=smart --dry`r`nrestart=confirm restart-race restartrace`r`n", (New-Object Text.UTF8Encoding $false))
+  foreach ($k in 'tow', 'smartdry', 'restart', 'home') { Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso "keys\$k.exe") -Force }
+  [IO.File]::WriteAllText((Join-Path $iso 'keys\keys.map'), "probe=state`r`nkids=kids`r`ntow=tow --pretend 0.4`r`nsmartdry=smart --dry`r`nrestart=confirm restart-race restartrace`r`nhome=rigon`r`n", (New-Object Text.UTF8Encoding $false))
   $cli = Join-Path $iso 'irdeck-cli.exe'
 
   'Kids mode test'
@@ -188,7 +191,7 @@ try {
   $probe = & (Join-Path $iso 'keys\probe.exe') 2>&1 | ForEach-Object { "$_" }
   $probe = $probe -join "`n"
   Check 'the deck key works after that one press' ($probe -match 'state: sim=' -and $probe -notmatch 'kids mode: ignored')
-  $r = Ir kids --for 8
+  $r = Ir kids --for 30   # 30 s: the HOME step below must never meet an expired lock (rigon would then really run)
   Check 'the key command (toggle) locks' ($r.rc -eq 0 -and $r.out -match 'kids: locked')
   $r = Ir kids
   Check 'a second toggle inside 0.7 s is one press' ($r.rc -eq 0 -and $r.out -match 'repeat press ignored' -and $r.out -notmatch 'kids: unlocked')
@@ -196,7 +199,13 @@ try {
   Check 'it is still locked after the bounce' ($r.out -match 'kids: on')
   Start-Sleep -Milliseconds 800
   $r = Ir kids
-  Check 'the same command again unlocks (the key, and a later press)' ($r.rc -eq 0 -and $r.out -match 'kids: unlocked')
+  Check 'a second KIDS press does not unlock: it asks for HOME within 4 s (a child mashing the deck hit KIDS)' ($r.rc -eq 0 -and $r.out -match 'press HOME within 4 seconds' -and $r.out -notmatch 'kids: unlocked')
+  $still = (Ir kids status).out -match 'kids: on'
+  Check 'still locked after that press' $still
+  # HOME goes through a deck key exe (the unlock is a deck rule). Only while still locked: an unlocked HOME would really run RIG ON.
+  if ($still) { $homeOut = (& (Join-Path $iso 'keys\home.exe') 2>&1 | ForEach-Object { "$_" }) -join "`n"; $hlog = [IO.File]::ReadAllText((Join-Path $iso 'irdeck.log')) }
+  Check 'HOME within 4 s unlocks, and RIG ON itself does not run' ($still -and $hlog -match 'kids: unlocked \(KIDS then HOME\)' -and $hlog -notmatch 'rigon: ')
+  Check 'unlocked: the lock file is gone' (-not (Test-Path -LiteralPath (Join-Path $iso 'dash\kids.lock')))
 
   Section '4. top screen and the deck key'
   $kidsCs = [IO.File]::ReadAllText((Join-Path $root 'src\kids.cs'))
@@ -207,22 +216,22 @@ try {
   $deck = [IO.File]::ReadAllText((Join-Path $root 'build-deck.ps1'))
   Check 'the hook is keyboard and mouse only (the wheel is not blocked)' ($kidsCs -match 'WH_KEYBOARD_LL' -and $kidsCs -match 'WH_MOUSE_LL' -and $kidsCs -notmatch 'BlockInput' -and $kidsCs -notmatch 'RegisterRawInputDevices')
   Check 'deck keys check the lock before they run' ($ir -match 'KidsLocked\(\)' -and $ir -match 'kids mode: ignored')
-  Check 'the top screen text is KIDS MODE - locked' ($ui -match 'KIDS MODE - locked' -and $dash -match 'KIDS MODE - locked' -and $css -match '#kidsMode')
+  Check 'the top screen says KIDS MODE and how to unlock (KIDS, then HOME)' ($ui.Contains('KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME') -and $dash.Contains('KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME') -and $css -match '#kidsMode')
   Check 'MAIN keeps a KIDS key at 6,0 that runs kids' ($deck -match "'6,0'\s*=\s*K 'KIDS'" -and $deck -match "\(L 'kids'\s+'kids'\)")
   $page = $null; $cssPage = $null; $api = $null; $httpErr = ''
   try {
     $page = (Invoke-WebRequest 'http://localhost:8199/v2/ui.js' -UseBasicParsing -TimeoutSec 3).Content
     $cssPage = (Invoke-WebRequest 'http://localhost:8199/v2/style.css' -UseBasicParsing -TimeoutSec 3).Content
   } catch { $httpErr = $_.Exception.Message }
-  Check 'the running top screen has the line' ($httpErr -eq '' -and $page -match 'KIDS MODE - locked' -and $cssPage -match '#kidsMode')
+  Check 'the running top screen has the line' ($httpErr -eq '' -and $page.Contains('KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME') -and $cssPage -match '#kidsMode')
   if ($httpErr) { Note $httpErr }
   $until = [DateTime]::UtcNow.AddSeconds(8).Ticks
   [IO.File]::WriteAllText($realLock, ("boot={0}`r`nuntil={1}`r`n" -f $boot, $until))
   try {
     $api = Invoke-RestMethod 'http://localhost:8199/api/kids' -TimeoutSec 3
-    Check 'the top screen API says KIDS MODE - locked for this boot' ($api.on -eq $true -and $api.text -eq 'KIDS MODE - locked')
+    Check 'the top screen API says KIDS MODE and how to unlock, for this boot' ($api.on -eq $true -and $api.text -eq 'KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME')
   } catch {
-    Check 'the top screen API says KIDS MODE - locked for this boot' $false
+    Check 'the top screen API says KIDS MODE and how to unlock, for this boot' $false
     Note $_.Exception.Message
   } finally {
     if (Test-Path -LiteralPath $realLock) { Remove-Item -LiteralPath $realLock -Force -ErrorAction SilentlyContinue }

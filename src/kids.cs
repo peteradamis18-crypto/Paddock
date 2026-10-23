@@ -199,8 +199,11 @@ namespace IRDeck
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = Process.GetCurrentProcess().MainModule.FileName;
             psi.Arguments = "kids hook";
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
+            // shell start, hidden: the hook must NOT inherit the caller's handles. With UseShellExecute=false it held the caller's output pipe,
+            // so whoever read the press's output (tests, a wrapper) waited until the hook ended - 2026-10-23 that left a test waiting forever
+            // on a lock with no end while Peter's keyboard and mouse were blocked. The environment is still inherited.
+            psi.UseShellExecute = true;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
             psi.WorkingDirectory = Root;
             Process.Start(psi);
         }
@@ -343,13 +346,17 @@ namespace IRDeck
             KidsWriteHookFile();
             Log("kids hook: keyboard and mouse locked");
             SetTimer(IntPtr.Zero, (UIntPtr)1, 50, IntPtr.Zero);
+            // tests only: IRDECK_KIDS_TEST_MAXSEC ends any hook a test starts after that many seconds, whatever command started it
+            // (a test that hangs can never leave the real keyboard and mouse locked). The deck keys never set it.
+            int maxSec = 0; int.TryParse(Environment.GetEnvironmentVariable("IRDECK_KIDS_TEST_MAXSEC") ?? "", out maxSec);
+            Stopwatch alive = Stopwatch.StartNew();
             KidsMsg msg;
             while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
             {
                 if (msg.message == 0x0113)
                 {
                     KidsWriteHookFile();
-                    if (!KidsLocked()) PostQuitMessage(0);
+                    if (!KidsLocked() || (maxSec > 0 && alive.Elapsed.TotalSeconds > maxSec)) PostQuitMessage(0);
                 }
                 else
                 {

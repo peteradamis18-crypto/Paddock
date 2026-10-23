@@ -158,6 +158,10 @@ Check 'the profile manifest lists the pages in the order LEAVE, MAIN, MORE and o
 # Stream Deck's Default page is its own hidden empty page, never a listed one (MAIN as Default = "Failed to map default page", then MAIN pruned)
 Check 'the Default page is a separate empty page, not MAIN or any listed page' ($bp -match '\$ids\.dflt = G' -and $bp -match 'Profiles\\\$\(\$ids\.dflt\.ToUpper\(\)\)\\manifest\.json.{0,10}\{"Controllers":\[\{"Actions":null' -and $bp -notmatch 'Default = \$ids\.(main|more|leave)')
 
+# the irdash watchdog restarted a closed Stream Deck mid-build and it deleted the half-written MAIN (2026-10-23): the build holds a lock
+$wd = (ReadText 'dash\src\irdash.cs'); $dr = (ReadText 'tools\deck-refresh.ps1')
+Check 'the watchdog leaves Stream Deck closed while build-deck / deck-refresh hold dash\deck-build.lock' ($wd -match 'deck-build\.lock' -and $wd -match 'File\.Exists\(deckBuild\) && \(now - File\.GetLastWriteTime\(deckBuild\)\)\.TotalMinutes < 5\) deckMissingSince = now' -and $bp -match 'dash\\deck-build\.lock' -and $dr -match 'dash\\deck-build\.lock' -and $dr -match 'finally \{ Remove-Item -LiteralPath \$buildLock')
+
 # ================= 2. what each kind of key points at =================
 Section '2. every key has a command or handler, and it exists'
 $verbs = Case-Labels ($irSrc.Substring($irSrc.IndexOf('static int Run(string[] a)'), 6000))

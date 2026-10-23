@@ -217,6 +217,9 @@ $more = [ordered]@{
 # ---------- write the profile ----------
 if (-not $Preview) {
   if (Get-Process StreamDeck -ErrorAction SilentlyContinue) { throw "Close Stream Deck first (it only reads profiles when it starts)." }
+  # tell the irdash watchdog not to restart Stream Deck while the pages are half written (dash\deck-build.lock, see irdash.cs Tick)
+  $buildLock = Join-Path $here 'dash\deck-build.lock'; $ownLock = -not (Test-Path $buildLock)
+  [IO.File]::WriteAllText($buildLock, (Get-Date).ToString('o'))
   $dev = (Get-Content "$profDir\manifest.json" -Raw | ConvertFrom-Json).Device
   $oldPages = @(Get-ChildItem "$profDir\Profiles" -Directory -ErrorAction SilentlyContinue)   # removed only after the new pages are written
 }
@@ -357,4 +360,5 @@ New-Item -ItemType Directory "$profDir\Profiles\$($ids.dflt.ToUpper())\Images" -
 [IO.File]::WriteAllText("$profDir\Profiles\$($ids.dflt.ToUpper())\manifest.json", '{"Controllers":[{"Actions":null,"Type":"Keypad"}],"Icon":"","Name":""}', $u8)
 $tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Current = $ids.main; Default = $ids.dflt; Pages = @($ids.leave, $ids.main, $ids.more) }; Version = '3.0' }
 [IO.File]::WriteAllText("$profDir\manifest.json", ($tm | ConvertTo-Json -Depth 10), $u8)
+if ($ownLock) { Remove-Item -LiteralPath $buildLock -Force -ErrorAction SilentlyContinue }   # deck-refresh owns it otherwise, until Stream Deck is back
 "built: MAIN $($main.Count) keys, MORE $($more.Count) keys, LEAVE $($leave.Count) keys; $($keyMap.Count) key exes"

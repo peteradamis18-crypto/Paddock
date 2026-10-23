@@ -252,7 +252,8 @@ else {
   $r = Get-Code "$api/api/keymsg?key=keymsg-test&text=&kind=ok"
   Check 'live: no text is refused (400) and changes nothing' ($r.code -eq 400 -and ((Get-Code "$api/keymsg").body | ConvertFrom-Json).seq -eq $seq)
   $r = Get-Code "$api/api/keymsg?key=keymsg-test&text=phone&kind=ok&asphone=1"
-  Check 'live: treated as a phone it cannot write (404)' ($r.code -eq 404)
+  # the phone gate (irdash.cs, before any route) answers 401 to a phone that is not paired; the route itself answers 404: both refuse
+Check 'live: treated as a phone it cannot write (401 from the phone gate, or 404)' ((401, 404) -contains $r.code -and ((Get-Code "$api/keymsg").body | ConvertFrom-Json).text -ne 'phone')
 }
 
 "$pass passed, $fail failed."

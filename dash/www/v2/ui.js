@@ -522,7 +522,7 @@ const KidsMode = {
     const el = document.createElement('div');
     el.id = 'kidsMode';
     el.hidden = true;
-    el.textContent = 'KIDS MODE - locked';
+    el.textContent = 'KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME';
     document.body.appendChild(el);
     const tick = async () => {
       if (document.hidden || this.dead) return;

@@ -1526,7 +1526,12 @@ namespace IRDash
             DateTime now = DateTime.Now;
 
             // Stream Deck: restart it if it has been gone for 10 s (at most once a minute)
+            // ...except while build-deck / tools\deck-refresh.ps1 rewrite the profile (dash\deck-build.lock, fresh for 5 min): a restart
+            // in the middle read a half-written MAIN page ("import_profile ERROR ... failbit"), and Stream Deck then deleted MAIN
+            // (2026-10-23 13:39, 13:40, 15:16 - the "deck sometimes loses MAIN" bug).
+            string deckBuild = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "deck-build.lock");
             if (Running("StreamDeck")) deckMissingSince = DateTime.MinValue;
+            else if (File.Exists(deckBuild) && (now - File.GetLastWriteTime(deckBuild)).TotalMinutes < 5) deckMissingSince = now;
             else
             {
                 if (deckMissingSince == DateTime.MinValue) deckMissingSince = now;
