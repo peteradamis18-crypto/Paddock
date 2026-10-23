@@ -9,7 +9,7 @@ $fw = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319"; $wpf = "$fw\WPF"; $out
 New-Item -ItemType Directory -Force $out | Out-Null
 $refs = @('-r:System.dll', '-r:System.Core.dll', '-r:System.Drawing.dll', '-r:System.Windows.Forms.dll', '-r:System.Web.Extensions.dll',
           "-r:$wpf\UIAutomationClient.dll", "-r:$wpf\UIAutomationTypes.dll", "-r:$wpf\WindowsBase.dll")
-$src = @("$r\src\irdeck.cs", "$r\src\deckstate.cs", "$r\src\guest.cs", "$r\src\testdrive.cs", "$r\src\overlays.cs", "$r\src\mydrive.cs", "$r\src\actions.cs", "$r\src\official.cs", "$r\src\sound.cs", "$r\src\tunerbox.cs")   # add new src files here
+$src = @("$r\src\irdeck.cs", "$r\src\deckstate.cs", "$r\src\guest.cs", "$r\src\testdrive.cs", "$r\src\overlays.cs", "$r\src\mydrive.cs", "$r\src\actions.cs", "$r\src\official.cs", "$r\src\sound.cs", "$r\src\tunerbox.cs", "$r\src\kids.cs", "$r\src\deckrules.cs", "$r\src\keymsg.cs")   # add new src files here
 & "$fw\csc.exe" -nologo -optimize+ -target:winexe "-out:$out\irdeck.exe" @refs @src
 if ($LASTEXITCODE -ne 0) { 'build failed (irdeck.exe)'; exit 1 }
 & "$fw\csc.exe" -nologo -optimize+ -target:exe -define:CLI "-out:$out\irdeck-cli.exe" @refs @src

@@ -913,18 +913,30 @@ namespace IRDeck
             // 3. damage off / on (the switch lives in the Set Car panel; green = damage is disabled)
             if (noDamage || damageOn)
             {
+                string whyBefore = TdWhy;
                 els = EnsurePanel(root, true);
-                if (els == null) return 1;
-                UEl sw = Find(els, u => u.Id.StartsWith("toggle-switch"));
-                bool? on = sw == null ? (bool?)null : DamageSwitchOn(sw);
-                bool wantDisabled = noDamage;
-                if (on != null && on != wantDisabled)
+                if (els == null)
                 {
-                    try { ((InvokePattern)sw.E.GetCurrentPattern(InvokePattern.Pattern)).Invoke(); } catch { ClickEl(sw); }
-                    Thread.Sleep(500);
-                    on = DamageSwitchOn(sw);
+                    // 22 Oct: "the Set Car panel did not open - stopped" although the card already showed the right car. The damage switch is a
+                    // nicety; if the Test Drive window itself is still there, go on with iRacing's current damage setting. If the window is gone, stop.
+                    els = UiAll(root);
+                    if (!DialogOpen(els) || ReadCards(els) == null) return 1;
+                    TdWhy = whyBefore;
+                    Log("tdsetup: damage switch not reachable - starting with iRacing's current damage setting");
                 }
-                Log("tdsetup: car damage " + (on == null ? "switch not found" : on == wantDisabled ? (wantDisabled ? "disabled" : "enabled") : "could NOT be set"));
+                else
+                {
+                    UEl sw = Find(els, u => u.Id.StartsWith("toggle-switch"));
+                    bool? on = sw == null ? (bool?)null : DamageSwitchOn(sw);
+                    bool wantDisabled = noDamage;
+                    if (on != null && on != wantDisabled)
+                    {
+                        try { ((InvokePattern)sw.E.GetCurrentPattern(InvokePattern.Pattern)).Invoke(); } catch { ClickEl(sw); }
+                        Thread.Sleep(500);
+                        on = DamageSwitchOn(sw);
+                    }
+                    Log("tdsetup: car damage " + (on == null ? "switch not found" : on == wantDisabled ? (wantDisabled ? "disabled" : "enabled") : "could NOT be set"));
+                }
             }
             // 4. track and layout
             els = UiAll(root); cards = ReadCards(els);

@@ -88,6 +88,11 @@ button { font-family: inherit; }
   pointer-events: none; background: rgba(6, 6, 6, .94); color: #f2c230; font-size: 18px; letter-spacing: .08em;
   border-bottom: 1px solid rgba(242, 194, 48, .35); }
 #towWait[hidden] { display: none !important; }
+/* K-01. One line while the rig is locked. Above the idle screen and the tow line. Not a popup. */
+#kidsMode { position: fixed; left: 0; right: 0; top: 0; z-index: 956; height: 36px; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; background: rgba(6, 6, 6, .94); color: #f2c230; font-size: 18px; letter-spacing: .08em;
+  border-bottom: 1px solid rgba(242, 194, 48, .35); }
+#kidsMode[hidden] { display: none !important; }
 
 /* ---------- layout ---------- */
 main { display: grid; grid-template-columns: 590px minmax(0, 1fr) 600px; gap: 10px; padding: 10px; min-height: 0; }

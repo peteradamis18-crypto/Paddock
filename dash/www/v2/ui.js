@@ -515,3 +515,28 @@ const TowWait = {
   },
 };
 TowWait.init();
+
+// One line on the top screen while kids mode is on. The lock itself is irdeck; this only shows it.
+const KidsMode = {
+  init() {
+    const el = document.createElement('div');
+    el.id = 'kidsMode';
+    el.hidden = true;
+    el.textContent = 'KIDS MODE - locked';
+    document.body.appendChild(el);
+    const tick = async () => {
+      if (document.hidden || this.dead) return;
+      try {
+        const res = await fetch('/api/kids', { cache: 'no-store' });
+        // The page is served before the program is rebuilt. One miss is enough; a rebuild reloads the page.
+        if (res.status === 404) { this.dead = true; return; }
+        const r = await res.json();
+        el.hidden = !r.on;
+        if (r.on && r.text) el.textContent = r.text;
+      } catch (e) { /* dashboard restarting */ }
+    };
+    tick();
+    setInterval(tick, 500);
+  },
+};
+KidsMode.init();

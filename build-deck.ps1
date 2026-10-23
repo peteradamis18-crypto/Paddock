@@ -139,45 +139,58 @@ $minus = [string][char]0x2212   # a real minus sign for VOL; the script file its
 #   row 1 get into a car, row 2 in the session, row 3 pit and car, row 4 talk, sound and live numbers.
 #   One key = one finished job. A key whose live state the add-on draws (DK-4) carries no static subtitle
 #   (no "on / off", no "last settings"). Keys that end something sit right, red, and need a second press (x2).
-#   The cell 7,3 (row 4, right) stays empty on purpose. DK-2b (Peter, 2026-10-11) filled 6,0 (OFFICIAL) and 6,2 (CAR TRACK).
+#   DK-2 left cell 7,3 empty. K-01 uses it for KIDS. DK-2b (Peter, 2026-10-11) filled 6,0 (OFFICIAL) and 6,2 (CAR TRACK).
 $main = [ordered]@{
-  # row 1 - get into a car
-  '0,0' = K 'HOME' '' 'go' 'power'                             (L 'rig-on'          'rigon')   # rig up: RIG ON; rig already up: the top screen's HOME (the add-on picks, DK-4)
-  '1,0' = K 'AI RACE' '' 'go' 'play'                           (L 'ai-race'         'airace start')
-  '2,0' = K 'TEST DRIVE' '' 'go' 'watch'                       (L 'test-drive'      'startlast td')
-  '3,0' = K 'MY DRIVE' '' 'go' 'folder'                        @{ plugin = 'com.peter.rigintro.mydrive'; name = 'My Drive' }   # pick car + track on the add-on, then its START
-  '4,0' = K 'FRIENDS' '' 'go' 'wheel'                          @{ plugin = 'com.peter.rigintro.friends'; name = 'Friends mode' }
-  '5,0' = K 'MORE' '' 'nav' 'next'                             @{ page = 'next' }
-  '6,0' = K 'OFFICIAL' '' 'go' 'flag'                          (L 'official'        'official')   # DK-2b (Peter): official racing; `official` lists the schedule today, K-03 adds the on-deck screen. Not PENDING because irdeck has the command (case "official").
-  '7,0' = K 'GET IN' '' 'go' 'play'                            (L 'smart'           'smart')
-  # row 2 - in the session
-  '0,1' = K 'GET OUT' '' 'ses' 'exit'                          (L 'get-out'         'getout')
-  '1,1' = K 'RESET CAR' '' 'ses' 'left'                        (L 'tow'             'tow')   # waits (up to 20 s) for the car to stop, then tows (C-26); the top screen says WAITING
-  '2,1' = K 'KEEP LAP' '' 'ses' 'flag'                         (L 'keep-lap'        'dash vkkeep')   # irdash's Vault key (vault=1)
-  '3,1' = K 'SAVE' '' 'ses' 'flag'                             (L 'save-rec'        'dash recsave')  # save the recorder's last minutes
-  '4,1' = K 'TV' '' 'nav' 'monitor'                            (Later 'TV view rebuild: irdash answers 400 to tvview (irdash.cs /api/do, P0-03), so the key could only beep')   # was (L 'tv' 'dash tvview'); a dead key stays OFF the real deck until the view is rebuilt
-  '5,1' = K 'SKIP SESSION' '' 'stop' 'next'                  (L 'skip-session'    'skip')
-  '6,1' = K 'RESTART' 'x2' 'stop' 'restart'                    (L 'restart-race'    'confirm restart-race restartrace')
-  '7,1' = K 'QUIT' 'x2' 'stop' 'home'                          (L 'quit-main'       'confirm quit-main quitmain')
-  # row 3 - pit and car (pit keys work only while you are in the car)
-  '0,2' = K 'FUEL' '' 'car' 'pump'                             (L 'fuel-finish'     'chat say #autofuel')
+  # DECK v2 (2026-10-23, docs\design\deck-v2\deck-plan.html, Peter: "yes, build it"). Every key is ONE press from any state:
+  # the key works out where he is. No x2 keys: the thing that ends a session sits behind the LEAVE page, and opening that page is the check.
+  # row 1 - start something
+  '0,0' = K 'HOME' '' 'go' 'power'                             (L 'rig-on'          'rigon')          # rig up: RIG ON; rig already up: HOME. Also the 2nd key of the kids unlock (KIDS, then HOME)
+  '1,0' = K 'LAST' 'DRIVE' 'go' $null                           (L 'last-drive'      'mydrive start')  # your last car + track as a test drive (MY DRIVE's choice), same as HOME's gold button
+  '2,0' = K 'AI RACE' '' 'go' 'play'                           (L 'ai-race'         'airace start')
+  '3,0' = K 'CAR' 'TRACK' 'nav' 'folder'                        @{ plugin = 'com.peter.rigintro.mydrive'; name = 'Car Track' }   # change the car & track LAST DRIVE / AI RACE use
+  '4,0' = K 'OFFICIAL' '' 'go' 'flag'                          (L 'official'        'official')
+  '5,0' = K 'FRIENDS' '' 'go' 'wheel'                          @{ plugin = 'com.peter.rigintro.friends'; name = 'Friends mode' }
+  # kids mode: locks keyboard + mouse, works while the kids drive; the deck then answers only GET IN, RESET CAR, RESTART, VOL. Unlock: KIDS then HOME.
+  '6,0' = K 'KIDS' '' 'talk' 'lock'                            (L 'kids'            'kids')
+  '7,0' = K 'MORE' '' 'nav' 'next'                             @{ page = 'next' }
+  # row 2 - the session loop (GET OUT -> RESTART -> GET IN was 3 presses and 2 of them failed; each now finishes the job)
+  '0,1' = K 'GET IN' '' 'go' 'play'                            (L 'smart'           'smart')          # always: no sim = starts the last drive; session screen/replay = Drive
+  '1,1' = K 'GET OUT' '' 'ses' 'exit'                          (L 'get-out'         'getout')         # still rolling: waits for the car to stop (15 s), then out
+  '2,1' = K 'RESET' 'CAR' 'ses' 'left'                          (L 'tow'             'tow')
+  '3,1' = K 'RESTART' '' 'ses' 'restart'                       (L 'restart-race'    'restartrace')    # AI race: out, restart, back in. Test drive: pits + in the car
+  '4,1' = K 'NEXT' 'SESSION' 'ses' 'next'                       (L 'skip-session'    'skip')           # practice -> qualify -> race; test drive: back to the menu
+  '5,1' = K 'RACE' 'NOW' 'go' 'flag'                            (L 'race-now'        'racenow')        # from practice or qualify straight to the race
+  '6,1' = K 'INSTANT' 'REPLAY' 'nav' 'camera'                   (Later 'instant replay of the last 30 s: not built yet')
+  '7,1' = K 'LEAVE' '' 'stop' 'home'                           @{ page = 'previous' }               # opens the LEAVE page (QUIT TO MENU is one press there)
+  # row 3 - pit and car, and the screens
+  '0,2' = K 'FUEL TO' 'FINISH' 'car' 'pump'                     (L 'fuel-finish'     'chat say #autofuel')
   '1,2' = K 'TIRES' '' 'car' $null                             (L 'pit-tires'       'pittoggle tires')
-  '2,2' = K 'CLEAR' '' 'ses' 'clear'                           (L 'pit-clear'       'pit clear')   # its own colour: "add" (teal) is not "undo" (amber)
-  '3,2' = K 'OVERLAYS' '' 'nav' 'eye'                          @{ plugin = 'com.peter.rigintro.overlays'; name = 'Overlays' }
-  '4,2' = K 'REVIEW' '' 'nav' 'info'                           (L 'debrief'         'dash debrief')   # the coach for the last outing on the top screen (irdash: debrief -> coach page)
-  '5,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')     # top-screen Vault (irdash: vault -> vkopen)
-  '6,2' = K 'CAR TRACK' '' 'nav' 'folder'                      @{ plugin = 'com.peter.rigintro.mydrive'; name = 'Car Track' }   # DK-2b (Peter): change the car & track AI RACE / TEST DRIVE use. Reuses the MY DRIVE key; its home screen IS the car/track step (MyDrive.open() resets to it, no deeper step exists).
+  '2,2' = K 'FAST' 'REPAIR' 'car' 'cross'                       (L 'pit-fr'          'pittoggle fr')
+  '3,2' = K 'CLEAR' 'PIT' 'ses' 'clear'                         (L 'pit-clear'       'pit clear')
+  '4,2' = K 'OVERLAYS' '' 'nav' 'eye'                          @{ plugin = 'com.peter.rigintro.overlays'; name = 'Overlays' }
+  '5,2' = K 'REVIEW' '' 'nav' 'info'                           (L 'debrief'         'dash debrief')
+  '6,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')
   '7,2' = K 'LAPS TO' 'EMPTY' 'car' $null                      (Live 'laps-to-empty' @{} '12' 'laps left')
-  # row 4 - talk, sound and live numbers
-  '0,3' = K 'SORRY' '' 'talk' 'chat'                           (L 'say-sorry'       'chat say Sorry!')
-  '1,3' = K 'THANKS' '' 'talk' 'chat'                          (L 'say-thanks'      'chat say Thanks!')
-  '2,3' = K ('VOL ' + $minus) '' 'talk' 'speaker'              (L 'vol-down'        'appvol game -10')   # the sim, its menu and the spotter, together
-  '3,3' = K 'VOL +' '' 'talk' 'speaker'                        (L 'vol-up'          'appvol game +10')
-  '4,3' = K 'RELATIVE' '' 'talk' $null                         (L 'bb-f3'           'key --sim f3')
-  '5,3' = K 'POSITION' 'CLASS' 'talk' $null                    (Live 'position' @{ positionType = 'class'; positionShowTotal = 'true' } 'P4' 'of 18')
-  '6,3' = K 'INCIDENTS' '' 'talk' $null                        (Live 'incidents' @{} '2' 'incidents')
+  # row 4 - sound, talk, live numbers
+  '0,3' = K ('VOL ' + $minus) '' 'talk' 'speaker'              (L 'vol-down'        'appvol game -10')   # the sim, its menu and the spotter, together
+  '1,3' = K 'VOL +' '' 'talk' 'speaker'                        (L 'vol-up'          'appvol game +10')
+  '2,3' = K 'MUTE' 'SPOTTER' 'talk' 'mute'                      (L 'mute-spotter'    'appvol mute spotter')
+  '3,3' = K 'SORRY' '' 'talk' 'chat'                           (L 'say-sorry'       'chat say Sorry!')
+  '4,3' = K 'THANKS' '' 'talk' 'chat'                          (L 'say-thanks'      'chat say Thanks!')
+  '5,3' = K 'RELATIVE' '' 'talk' $null                         (L 'bb-f3'           'key --sim f3')
+  '6,3' = K 'POSITION' 'CLASS' 'talk' $null                    (Live 'position' @{ positionType = 'class'; positionShowTotal = 'true' } 'P4' 'of 18')
+  '7,3' = K 'INCIDENTS' '' 'talk' $null                        (Live 'incidents' @{} '2' 'incidents')
 }
 
+# LEAVE (the page BEFORE MAIN: MAIN's LEAVE key is "previous page", this page's BACK is "next page"). One big QUIT, no second press.
+$leave = [ordered]@{
+  '0,0' = K 'BACK' '' 'nav' 'left'                             @{ page = 'next' }
+  '3,1' = K 'QUIT TO' 'MENU' 'stop' 'home'                      (L 'quit-main'       'quitmain')
+  '4,1' = K 'QUIT TO' 'MENU' 'stop' 'home'                      (L 'quit-main2'      'quitmain')       # the same, twice as wide a target
+  '0,3' = K 'KIDS' 'MODE' 'talk' 'lock'                        (L 'kids-leave'      'kids')            # hand the rig to the kids (Peter 2026-10-23: the blanks = kids mode and shut off PC)
+  '6,3' = K 'SHUT' 'DOWN PC' 'stop' 'power'                     (L 'shutdown'        'power off')       # quits iRacing cleanly first, then turns the PC off
+  '7,3' = K 'SLEEP' 'PC' 'stop' 'moon'                          (L 'sleep'           'power sleep')
+}
 # MORE (page 2): the rare keys and the ones that end something, plus the MAIN keys the new grid drops. BACK returns
 # to MAIN. Nothing is lost: MARK SPOT / BACK TO SPOT are the old reset points, WIPE is the windscreen tear-off.
 $more = [ordered]@{
@@ -186,12 +199,10 @@ $more = [ordered]@{
   '3,0' = K 'MUTE' '' 'talk' 'mute'                            (L 'mute'            'media mute')
   '4,0' = K 'SHOWCASE' '' 'nav' 'play'                         (L 'showcase'        'showcase')
   '5,0' = K 'SOUND' '' 'talk' 'speaker'                        @{ plugin = 'com.peter.rigintro.sound'; name = 'Sound' }   # the SOUND screen (C-39): game, spotter, music, speakers, ButtKicker, presets
-  '6,0' = K 'SLEEP' 'x2' 'stop' 'moon'                         (L 'sleep'           'confirm sleep power sleep')
-  '7,0' = K 'LOCK' 'x2' 'stop' 'lock'                          (L 'lock'            'confirm lock power lock')
+  '7,0' = K 'LOCK' '' 'stop' 'lock'                            (L 'lock'            'power lock')   # one press, like every v2 key; it only locks Windows and sits on MORE, never on MAIN
   '0,1' = K 'MARK' 'SPOT' 'ses' 'flag'                         (L 'reset-save'      'key --sim ctrl+shift+f1')
   '1,1' = K 'BACK TO' 'SPOT' 'ses' 'restart'                   (L 'reset-run'       'key --sim ctrl+shift+f2')
   '2,1' = K 'REPLAY' '' 'nav' 'camera'                         @{ plugin = 'com.peter.rigintro.replay'; name = 'Replay' }
-  '3,1' = K 'REPAIR' '' 'car' 'cross'                          (L 'pit-fr'          'pittoggle fr')
   '4,1' = K 'WIPE' '' 'car' $null                              (L 'pit-ws'          'pittoggle ws')   # windscreen tear-off
   '5,1' = K 'SEAT' 'LOWER' 'car' 'down'                        (L 'seat-down'       'key --sim ctrl+[')
   '6,1' = K 'SEAT' 'HIGHER' 'car' 'up'                         (L 'seat-up'         'key --sim ctrl+]')
@@ -209,7 +220,7 @@ if (-not $Preview) {
   $dev = (Get-Content "$profDir\manifest.json" -Raw | ConvertFrom-Json).Device
   $oldPages = @(Get-ChildItem "$profDir\Profiles" -Directory -ErrorAction SilentlyContinue)   # removed only after the new pages are written
 }
-$ids = @{ main = G; more = G; guest = G }
+$ids = @{ main = G; more = G; leave = G; guest = G }
 # One line per key, written next to the pictures in -Preview: page, col, row, line 1, line 2, kind, what it does.
 # tests\keys-test.ps1 reads it, so the test never has to guess the layout from this script's text.
 $layout = New-Object Collections.Generic.List[string]
@@ -302,6 +313,7 @@ function Write-Page($pageId, $name, $keysDef) {
 Write-Page $ids.main 'MAIN' $main
 # MORE is page 2 (MORE key on MAIN, BACK key here). Stream Deck's own page switching; the Pages list below names both.
 Write-Page $ids.more 'MORE' $more
+Write-Page $ids.leave 'LEAVE' $leave
 if ($Preview) {
   # docs\deck\main-preview.png: the MAIN page as Peter sees it (black keys, gold labels, the real key text).
   # -Preview only; touches no Stream Deck profile and does not close Stream Deck.
@@ -337,6 +349,12 @@ if ($Preview) {
 Get-ChildItem -LiteralPath $keys -Filter *.exe -File | ? { -not $keyMap.Contains($_.BaseName) } | % { Remove-Item -LiteralPath $_.FullName -Force }
 # new pages are complete: now drop the old ones (a failed build above leaves the old profile intact)
 foreach ($d in $oldPages) { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-$tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Current = $ids.main; Default = $ids.main; Pages = @($ids.main, $ids.more) }; Version = '3.0' }
+# Stream Deck's Default page is a hidden empty page of its own, never one of the listed pages (every profile it makes is like that).
+# We used to name MAIN as Default too: its log then said "Failed to map default page" for MAIN, and that is when it pruned MAIN
+# and left blank keys (2026-10-18, 2026-10-23). Current = MAIN is what makes the deck open on MAIN.
+$ids.dflt = G
+New-Item -ItemType Directory "$profDir\Profiles\$($ids.dflt.ToUpper())\Images" -Force | Out-Null
+[IO.File]::WriteAllText("$profDir\Profiles\$($ids.dflt.ToUpper())\manifest.json", '{"Controllers":[{"Actions":null,"Type":"Keypad"}],"Icon":"","Name":""}', $u8)
+$tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Current = $ids.main; Default = $ids.dflt; Pages = @($ids.leave, $ids.main, $ids.more) }; Version = '3.0' }
 [IO.File]::WriteAllText("$profDir\manifest.json", ($tm | ConvertTo-Json -Depth 10), $u8)
-"built: MAIN $($main.Count) keys, MORE $($more.Count) keys; $($keyMap.Count) key exes"
+"built: MAIN $($main.Count) keys, MORE $($more.Count) keys, LEAVE $($leave.Count) keys; $($keyMap.Count) key exes"

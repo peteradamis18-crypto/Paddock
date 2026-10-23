@@ -206,7 +206,9 @@ namespace IRDeck
             try
             {
                 string p = Path.Combine(Root, "irdeck.log");
-                if (File.Exists(p) && new FileInfo(p).Length > 200000) File.Delete(p);
+                // keep the history: at 1 MB the log moves to irdeck.log.1 (it used to be DELETED at 200 kB, so only 3 days of presses survived)
+                if (File.Exists(p) && new FileInfo(p).Length > 1000000) { string old = p + ".1"; try { if (File.Exists(old)) File.Delete(old); File.Move(p, old); } catch { } }
+                if (!s.StartsWith("[") && s.IndexOf("repeat press ignored", StringComparison.Ordinal) < 0) LastLog = s;
                 File.AppendAllText(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "  " + s + "\r\n");
             }
             catch { }
@@ -243,7 +245,17 @@ namespace IRDeck
                 }
                 catch { }
                 if (line == null) { Log("[" + self + "] no entry in keys.map"); Beep(300, 400); return 1; }
-                a = SplitArgs(line); tag = "[" + self + "] ";
+                a = SplitArgs(line); tag = "[" + self + "] "; KeyId = self;
+                // K-01: kids mode ignores every deck key except the kids key and the few a child needs while driving (GET IN, TOW,
+                // RESTART, game volume: DeckRules.KidsAllows). The flag file is checked first, so one press of the kids key still
+                // unlocks after the hook process has died (the hook dies with it).
+                if (KidsLocked() && a.Length > 0 && a[0].Equals("rigon", StringComparison.OrdinalIgnoreCase) && KidsUnlockArmed()) { KidsUnlockByHome(); return 0; }   // KIDS, then HOME within 4 s
+                if (KidsLocked() && !DeckRules.KidsAllows(a))
+                {
+                    Log(tag + "kids mode: ignored");
+                    Say("no", "Kids mode is on"); SayFlush();
+                    return 0;
+                }
                 // One press can reach us two or three times within a fraction of a second (seen 2026-10-09:
                 // QUIT TO MAIN x3 in 0.3 s, SLEEP x2 in 50 ms, which also defeated SLEEP's press-twice guard).
                 // Drop a repeat while the same key is still running or within 0.7 s of its last start.
@@ -279,6 +291,7 @@ namespace IRDeck
             int rc = 9;
             try { rc = Run(a); }
             catch (Exception ex) { Log("ERROR " + ex.GetType().Name + ": " + ex.Message); }
+            if (tag.Length > 0 && rc != 4) { SayResult(rc); SayFlush(); }
             if (rc == 4) return 0;   // tow gave up, or a second press while one is already waiting: already logged, no beep
 #if !CLI
             if (rc != 0) { try { Beep(rc == 3 ? 500u : 300u, 180); } catch { } }   // short beep = the key was received but did nothing
@@ -288,7 +301,7 @@ namespace IRDeck
 
         static int Run(string[] a)
         {
-            if (a.Length == 0) { Log("usage: ui|uilist|pit|chat|key|state|quit-sim|focus ..."); return 1; }
+            if (a.Length == 0) { Log("usage: ui|uilist|pit|chat|key|state|quit-sim|focus|kids|racenow ..."); return 1; }
             switch (a[0].ToLowerInvariant())
             {
                 case "ui": return CmdUi(Slice(a, 1), false);
@@ -330,6 +343,7 @@ namespace IRDeck
                 case "tow": return CmdTow(Slice(a, 1));
                 case "restartrace": return CmdRestartRace();
                 case "skip": return CmdSkip();
+                case "racenow": return CmdRaceNow();   // from practice or qualify: keep skipping until the race, then get in the car
                 case "pittoggle": return CmdPitToggle(Slice(a, 1));
                 case "replay": return CmdReplayIncident();
                 case "capture": return CmdCapture();
@@ -341,6 +355,7 @@ namespace IRDeck
                 case "simdialog": return CmdSimDialog();          // actions.cs: is a sim confirmation dialog showing
                 case "doctor": return CmdDoctor();            // overlays.cs: Rig Doctor on the top screen
                 case "tunerbox": return CmdTunerBox(Slice(a, 1));   // tunerbox.cs: hide the Simucube Tuner's blank grey box (never closes the Tuner)
+                case "kids": return CmdKids(Slice(a, 1));             // kids.cs: one key locks the keyboard and mouse
             }
             Log("unknown command " + a[0]);
             return 1;
@@ -561,15 +576,94 @@ namespace IRDeck
             }
             return false;
         }
+        // GET IN (the `smart` key): ONE press from any state finishes the whole job. It works the state out itself
+        // (DeckRules.GetInPlan) and no longer depends on the deck-face resolver: after GET OUT iRacing plays a replay behind its
+        // session screen, and the resolver said WAIT for that (15 of 17 real presses did nothing, 20-23 Oct).
+        //   in the car                 -> nothing to do
+        //   a session (any screen)     -> press the sim's green Drive/Test/Race button until the car is on track (CmdGo)
+        //   no session                 -> start the last drive: MY DRIVE's choice, else the Test Drive 'Last settings'
+        //   iRacing app not open       -> open it (RIG ON) first
+        // `smart --dry` only says which of these it would do. `smart --fake <json>` is the resolver test hook (no sim).
         static int CmdSmart(string[] args)
         {
+            bool dry = args != null && Array.IndexOf(args, "--dry") >= 0;
             Snapshot fake = SmartFake(args);
-            bool isFake = fake != null;
-            DeckState s = isFake ? DeckStateResolver.Resolve(fake) : CurrentDeckState();
-            if (args != null && args.Length > 0 && args[0] == "--dry") { Log("smart --dry: " + s.Primary + " | " + s.Label + " | " + (s.Action.Length == 0 ? "none" : s.Action)); return 0; }
+            if (fake != null) return SmartFakeRun(args, fake, dry);
+            if (dry) { Log("smart --dry: get in plan = " + SmartPlan()); return 0; }
+            return WithNamedLock("Local\\irdeck-getin", "smart", delegate { return SmartGetIn(); });
+        }
+
+        static bool StartedRecently(int minutes)
+        {
+            try
+            {
+                string[] p = File.ReadAllText(Path.Combine(Root, @"dash\start-mark.txt")).Split('\t');
+                long t;
+                return long.TryParse(p[0], out t) && t > DateTime.UtcNow.AddMinutes(-minutes).Ticks && t <= DateTime.UtcNow.AddSeconds(5).Ticks;
+            }
+            catch { return false; }
+        }
+
+        static string SmartPlan()
+        {
+            bool simProc = Process.GetProcessesByName("iRacingSim64DX11").Length > 0;
+            bool ui = Process.GetProcessesByName("iRacingUI").Length > 0;
+            bool session = SessionActive();
+            return DeckRules.GetInPlan(ui, simProc, session, session && OnTrack(), simProc && !session && StartedRecently(4));
+        }
+
+        static int SmartGetIn()
+        {
+            string plan = SmartPlan();
+            Log("smart: get in plan = " + plan);
+            if (plan == "already") { Log("smart: already in the car"); return 0; }
+            if (plan == "go")
+            {
+                int grc = CmdGo();
+                Log(grc == 0 ? "smart: in the car" : "smart: could not get in the car (see the lines above)");
+                return grc;
+            }
+            if (plan == "wait-load")
+            {
+                Log("smart: iRacing is still loading the session - waiting for it"); Say("wait", "iRacing is loading - getting in when ready");
+                for (int i = 0; i < 300 && !SessionActive(); i++) Thread.Sleep(500);
+                if (!SessionActive()) { Log("smart: the session did not load - look at the iRacing screen"); return 1; }
+                Thread.Sleep(3000);
+                int wrc = CmdGo();
+                Log(wrc == 0 ? "smart: in the car" : "smart: could not get in the car (see the lines above)");
+                return wrc;
+            }
+            if (plan == "open-then-start")
+            {
+                Log("smart: the iRacing app is not open - opening the rig first"); Say("wait", "Opening iRacing first");
+                int orc = CmdRigOn(new string[0]);
+                if (orc != 0) { Log("smart: the rig did not come up - stopped"); return orc; }
+                if (SessionActive()) return SmartGetIn();   // a session came up by itself meanwhile
+            }
+            MdCombo c = MdChosen();
+            int rc;
+            if (c.Car.Length > 0 && c.Track.Length > 0)
+            {
+                Log("smart: no session - starting your last drive: " + c.Car + " at " + c.Track);
+                rc = MdStart(new string[] { "start" });
+            }
+            else
+            {
+                Log("smart: no car and track chosen in MY DRIVE - starting the Test Drive from iRacing's 'Last settings'");
+                rc = CmdStartLast(new string[] { "td" });
+            }
+            Log(rc == 0 ? "smart: in the car" : "smart: the drive did not start (see the lines above)");
+            return rc;
+        }
+
+        // The old resolver-driven path, now only for tests: `smart --fake <json>` runs the deck-face table without a sim.
+        static int SmartFakeRun(string[] args, Snapshot fake, bool dry)
+        {
+            DeckState s = DeckStateResolver.Resolve(fake);
+            if (dry) { Log("smart --dry: " + s.Primary + " | " + s.Label + " | " + (s.Action.Length == 0 ? "none" : s.Action)); return 0; }
             Log("smart: " + s.Primary);
             if (s.Action.Length == 0) return 0;
-            if (isFake && s.Action == "confirm skip skip")
+            if (s.Action == "confirm skip skip")
             {
                 int rc;
                 if (Array.IndexOf(args, "--fake-bounce") >= 0)
@@ -580,18 +674,26 @@ namespace IRDeck
                 else rc = CmdConfirm(new string[] { "skip", "skip" });
                 return rc;
             }
-            if (isFake) return 3;
-            DeckState current = CurrentDeckState();
-            if (current.Primary != s.Primary || current.Action != s.Action) { Log("smart: state changed; wait"); return 3; }
-            if (s.Action == "tow") return CmdTow();
-            // The deck key that runs `smart` is labelled GET IN and its picture never changes (the add-on has no smart key action), so it
-            // must never arm a SKIP: in a Test Drive or AI garage the resolver says SKIP, and the 2nd press used to end Peter's session.
-            // Out of the car in a Test/AI session the honest meaning of GET IN is the same verified Drive press.
-            if (s.Action == "confirm skip skip") return GoDriveOnly(true);
-            if (s.Action == "drive-only") return GoDriveOnly(false);
-            if (s.Action == "rigon") return CmdRigOn(new string[0]);
-            if (s.Action == "home") { Log("smart: HOME is already on the top screen"); return 0; }
             return 3;
+        }
+
+        // One run at a time for the long keys. A repeat (the deck sends two or three) finds the lock taken and does nothing (rc 4: no beep).
+        static int WithNamedLock(string mutexName, string what, Func<int> body)
+        {
+            Mutex mx = new Mutex(false, mutexName);
+            bool mine = false;
+            try
+            {
+                try { mine = mx.WaitOne(0); }
+                catch (AbandonedMutexException) { mine = true; }
+                if (!mine) { Log(what + ": already in progress"); return 4; }
+                return body();
+            }
+            finally
+            {
+                if (mine) { try { mx.ReleaseMutex(); } catch { } }
+                mx.Dispose();
+            }
         }
 
         static Snapshot SmartFake(string[] args)
@@ -771,7 +873,33 @@ namespace IRDeck
             return 1;
         }
 
-        // Hold Esc to get out of the car - only when the car is stopped, so it can never reset you at speed.
+        // Wait (200 ms steps, up to limitMs) until the car is under 1 m/s or out of the car. The top screen shows the same
+        // "waiting" line as TOW. 0 = stopped / out of the car, 2 = still moving at the limit, 4 = the sim went away.
+        static int WaitCarStopped(string tag, int limitMs, ref bool inCar, ref double speed)
+        {
+            Log(string.Format(CultureInfo.InvariantCulture, "{0}: waiting for the car to stop ({1:0.0} m/s)", tag, speed));
+            Say("wait", "Waiting for the car to stop");
+            TowWaitFlag(true);
+            try
+            {
+                Stopwatch sw = Stopwatch.StartNew();
+                while (true)
+                {
+                    int d = DeckRules.StopWait(inCar, speed, (int)sw.ElapsedMilliseconds, limitMs);
+                    if (d == 0) { Log(string.Format(CultureInfo.InvariantCulture, "{0}: the car has stopped ({1:0.0} m/s)", tag, speed)); return 0; }
+                    if (d == 2) { Log(string.Format(CultureInfo.InvariantCulture, "{0}: still moving after {1} s ({2:0.0} m/s)", tag, limitMs / 1000, speed)); return 2; }
+                    TowWaitFlag(true);
+                    Thread.Sleep(200);
+                    Tele n = Tele.Open();
+                    if (n == null) { Log(tag + ": the sim left while waiting"); return 4; }
+                    using (n) { inCar = n.Bool("IsOnTrack"); speed = n.Num("Speed"); }
+                }
+            }
+            finally { TowWaitFlag(false); }
+        }
+
+        // Hold Esc to get out of the car. A moving car is waited for (up to 15 s) until it is nearly stopped, so it can never
+        // reset you at speed and Peter does not have to time his press.
         static int CmdGetOut()
         {
             Tele t = Tele.Open();
@@ -779,7 +907,13 @@ namespace IRDeck
             bool inCar; double speed;
             using (t) { inCar = t.Bool("IsOnTrack"); speed = t.Num("Speed"); }
             if (!inCar) { Log("getout: you are not in the car"); return 0; }
-            if (speed > 1.0) { Log(string.Format(CultureInfo.InvariantCulture, "getout refused: the car is moving ({0:0.0} m/s)", speed)); return 3; }
+            if (speed > 1.0)
+            {
+                // GET OUT used to refuse while the car still rolled (10 of 41 presses, 1-37 m/s): wait for it to stop instead
+                int w = WaitCarStopped("getout", DeckRules.StopWaitMs, ref inCar, ref speed);
+                if (w != 0) { Log(string.Format(CultureInfo.InvariantCulture, "getout refused: the car is still moving ({0:0.0} m/s) after {1} s - slow down and press again", speed, DeckRules.StopWaitMs / 1000)); return 3; }
+                if (!inCar) { Log("getout: you are not in the car"); return 0; }
+            }
             if (!FocusWindow(SimWindow())) { Log("getout: could not bring the sim to the front"); return 3; }
             SendCombo("esc", 1800);
             Log("getout: held Esc");
@@ -794,6 +928,21 @@ namespace IRDeck
             foreach (string t in a) if (t != "--button") args.Add(t);
             if (UiWindow() == IntPtr.Zero) { Log("nav: iRacing UI is not running (press RIG ON)"); return 2; }
             int rc = CmdUi(args.ToArray(), false);
+            if (rc != 0 && Array.IndexOf(a, "--button") >= 0)
+            {
+                // iRacing's UI is not consistent about what a sidebar entry is: OFFICIAL is a Hyperlink there, not a Button
+                // ("not found: Official (type=button)", 21 Oct). Same exact name, as a Hyperlink or a TabItem.
+                List<string> names = new List<string>();
+                foreach (string t in a) if (t != "--button" && !t.StartsWith("--")) names.Add(t);
+                // Never for "Test Drive": inside its dialog the Hyperlink of that name is the LAUNCH link, so a missing sidebar button must not start a drive.
+                if (names.Exists(delegate (string n) { return n.Trim().Equals("Test Drive", StringComparison.OrdinalIgnoreCase); })) names.Clear();
+                if (names.Count > 0)
+                foreach (string alt in new string[] { "hyperlink", "tabitem" })
+                {
+                    List<string> again = new List<string>(); again.Add("--type=" + alt); again.AddRange(names); again.Add("--timeout=2500");
+                    if (CmdUi(again.ToArray(), false) == 0) { Log("nav: '" + string.Join(" | ", names.ToArray()) + "' is a " + alt + " in this iRacing, not a button - pressed it"); rc = 0; break; }
+                }
+            }
             if (rc == 0 && !OnTrack()) FocusWindow(UiWindow());
             return rc;
         }
@@ -1090,7 +1239,12 @@ namespace IRDeck
             bool inCar = false; double speed = 0;
             Tele t = Tele.Open();
             if (t != null) using (t) { inCar = t.Bool("IsOnTrack"); speed = t.Num("Speed"); }
-            if (inCar && speed > 1.0) { Log(tag + " refused: the car is moving"); return 3; }
+            if (inCar && speed > 1.0)
+            {
+                // wait for a rolling car to stop (15 s) instead of refusing: one press has to finish the job
+                int w = WaitCarStopped(tag, DeckRules.StopWaitMs, ref inCar, ref speed);
+                if (w != 0) { Log(tag + " refused: the car is still moving"); return 3; }
+            }
             if (!FocusWindow(SimWindow())) { Log(tag + ": could not bring the sim to the front"); return 3; }
             if (inCar) { SendCombo("esc", 1800); for (int i = 0; i < 40 && OnTrack(); i++) Thread.Sleep(250); }
             if (inCar) Thread.Sleep(1200);   // the bar slides in
@@ -1106,16 +1260,43 @@ namespace IRDeck
 
         // RESTART RACE: AI races press Prev on the session bar (the sim asks "Restart Session?": confirmed), wait until the
         // session really started over, then Drive. Until Prev is measured, it relaunches the whole event from last settings.
+        //
+        // ONE press does the whole job (the deck key is `confirm restart-race restartrace`, which now runs this at once): from any state
+        // it ends with Peter in the car of the restarted session. A car that still rolls is waited for (like GET OUT), not refused.
         static int CmdRestartRace()
         {
+            return WithNamedLock("Local\\irdeck-restartrace", "restartrace", delegate { return CmdRestartRaceBody(); });
+        }
+
+        static int CmdRestartRaceBody()
+        {
+            if (!SessionActive()) { Log("restartrace: no session is running - nothing to restart (GET IN starts one)"); return 3; }
             string info;
             bool ai = IsAiSession(out info);
-            if (System.Text.RegularExpressions.Regex.IsMatch(info, @"EventType:\s*Test")) return CmdTow();   // test drive: back to the pits
-            if (!ai && info.Length > 0) { Log("restartrace: only AI races can be restarted - use TOW TO PITS"); return 3; }
-            if (ai && PrevNext() != null)
+            if (System.Text.RegularExpressions.Regex.IsMatch(info, @"EventType:\s*Test"))
+            {
+                // test drive: tow back to the pits (it waits for a rolling car), then make sure Peter is in the car
+                Log("restartrace: Test Drive - back to the pits and into the car");
+                int trc = CmdTow();
+                if (trc == 0 && SessionActive() && !OnTrack()) trc = CmdGo();
+                if (trc == 0) Log(OnTrack() ? "restart: back in the car" : "restart: NOT in the car yet");
+                return trc;
+            }
+            if (!ai) { Log("restartrace: only AI races can be restarted - use TOW TO PITS"); return 3; }
+            // a rolling car is waited for (up to 15 s), the same as GET OUT
+            bool inCar = false; double speed = 0;
+            Tele t0 = Tele.Open();
+            if (t0 != null) using (t0) { inCar = t0.Bool("IsOnTrack"); speed = t0.Num("Speed"); }
+            if (inCar && speed > 1.0)
+            {
+                int w = WaitCarStopped("restartrace", DeckRules.StopWaitMs, ref inCar, ref speed);
+                if (w != 0) { Log("restartrace refused: the car is still moving - slow down and press again"); return 3; }
+            }
+            int rc;
+            if (PrevNext() != null)
             {
                 SessSnap s0 = Snap();
-                int rc = ClickPrevNext(-1, "restartrace");
+                rc = ClickPrevNext(-1, "restartrace");
                 if (rc != 0) return rc;
                 Func<bool> restarted = delegate { SessSnap n = Snap(); return n.Live && (n.Time < s0.Time - 3 || n.Num != s0.Num); };
                 ConfirmDialogs(restarted, 8000, "restartrace");
@@ -1123,10 +1304,15 @@ namespace IRDeck
                 if (!restarted()) { Log("restartrace: the session did not start over (screen saved to " + SaveSimArea("fail-restartrace") + ")"); return 1; }
                 Log("restartrace: the session started over");
                 Thread.Sleep(2500);
-                return CmdGo();
+                rc = CmdGo();
             }
-            if (ai) Log("restartrace: Prev button not measured yet - relaunching the event from last settings");
-            return CmdRestart(new string[0]);
+            else
+            {
+                Log("restartrace: Prev button not measured yet - relaunching the event from last settings");
+                rc = CmdRestart(new string[0]);
+            }
+            if (rc == 0) Log(OnTrack() ? "restart: back in the car" : "restart: NOT in the car yet");
+            return rc;
         }
 
         // SKIP: AI races press Next on the session bar and confirm the sim's "Skip to Next Session?"; other sessions you host
@@ -1137,27 +1323,87 @@ namespace IRDeck
             SessSnap s0 = Snap();
             bool testSession = System.Text.RegularExpressions.Regex.IsMatch(s0.Info, @"EventType:\s*Test");
             if (!s0.Ai && !testSession) { Log("skip refused: official sessions cannot be skipped"); return 3; }
-            if (s0.OnTrack && s0.Speed > 1.0) { Log("skip refused: the car is moving"); return 3; }
+            if (s0.OnTrack && s0.Speed > 1.0)
+            {
+                // wait for a rolling car (15 s) like GET OUT, instead of refusing (NEXT SESSION was the last key that still refused)
+                bool inCar = s0.OnTrack; double speed = s0.Speed;
+                if (WaitCarStopped("skip", DeckRules.StopWaitMs, ref inCar, ref speed) != 0) { Log("skip refused: the car is still moving - slow down and press again"); return 3; }
+                s0 = Snap();
+            }
             // A Test Drive is ONE session: the Prev / Next buttons on its screen pick the DRIVER (replay camera), so the old click did
             // nothing and Peter's SKIP SESSION 'never worked' (live 2026-10-19). 'Skip' there means 'finish this and go back to the menu',
             // the same as QUIT, which is what he wants next after a test drive.
             if (testSession && !s0.Ai) { Log("skip: a Test Drive has no next session - ending it and going back to the menu (like QUIT)"); return CmdQuitMain(); }
+            // An AI Qualify sometimes ignores the first Next (iRacing then moves you to the race grid on the next one):
+            // if nothing moved after 10 s, click Next once more and give it up to 40 s.
+            bool qualify = DeckRules.IsQualify(s0.Type);
+            int clicks = 0;
+            Stopwatch sinceClick = Stopwatch.StartNew();
+            Func<bool> advanced = delegate { SessSnap n = Snap(); return !n.Live || n.Num != s0.Num; };
             if (PrevNext() != null)
             {
                 int rc = ClickPrevNext(1, "skip");
                 if (rc != 0) return rc;
-                ConfirmDialogs(delegate { SessSnap n = Snap(); return !n.Live || n.Num != s0.Num; }, 8000, "skip");
+                clicks = 1; sinceClick.Reset(); sinceClick.Start();
+                ConfirmDialogs(advanced, 8000, "skip");
             }
             else { Log("skip refused: no verified next-session control"); return 3; }
-            for (int i = 0; i < 80; i++)
+            DateTime end = DateTime.Now.AddSeconds(40);
+            while (DateTime.Now < end)
             {
                 SessSnap n = Snap();
                 if (!n.Live) { Log("skip: the event is over, the sim left"); return 0; }
-                if (n.Num != s0.Num) { Log("skip: now in session " + n.Num + " (" + n.Type + ")"); return 0; }
+                if (n.Num != s0.Num) { Log("skip: now in session " + n.Num + " (" + n.Type + ")" + (clicks > 1 ? " - the second Next did it" : " - the first Next did it")); return 0; }
+                if (DeckRules.SecondNextDue(qualify, clicks, (int)sinceClick.ElapsedMilliseconds, false))
+                {
+                    Log("skip: Qualify did not move on within 10 s - clicking Next once more");
+                    int rc2 = ClickPrevNext(1, "skip");
+                    if (rc2 != 0) return rc2;
+                    clicks = 2; sinceClick.Reset(); sinceClick.Start();
+                    ConfirmDialogs(advanced, 8000, "skip");
+                    end = DateTime.Now.AddSeconds(40);
+                    continue;
+                }
                 Thread.Sleep(500);
             }
-            Log("skip: the session did not advance (screen saved to " + SaveSimArea("fail-skip") + ")");
+            Log("skip: the session did not advance after " + clicks + " Next click" + (clicks == 1 ? "" : "s") + " (screen saved to " + SaveSimArea("fail-skip") + ")");
             return 1;
+        }
+
+        // RACE NOW: from practice or qualify of an AI race, skip ahead (at most 3 session skips) until the session is the race,
+        // then get in the car. A rolling car is waited for first. Test drives have no race; official sessions cannot be skipped.
+        static int CmdRaceNow()
+        {
+            return WithNamedLock("Local\\irdeck-racenow", "racenow", delegate { return CmdRaceNowBody(); });
+        }
+
+        static int CmdRaceNowBody()
+        {
+            if (!SessionActive()) { Log("racenow: no session is running"); return 3; }
+            SessSnap s = Snap();
+            if (!s.Ai) { Log("racenow: only an AI race can be fast-forwarded to its race (a Test Drive has no race, official sessions cannot be skipped)"); return 3; }
+            if (!DeckRules.IsRaceType(s.Type))
+            {
+                if (s.OnTrack && s.Speed > 1.0)
+                {
+                    bool inCar = s.OnTrack; double speed = s.Speed;
+                    if (WaitCarStopped("racenow", DeckRules.StopWaitMs, ref inCar, ref speed) != 0) { Log("racenow refused: the car is still moving - slow down and press again"); return 3; }
+                }
+                for (int hop = 1; hop <= DeckRules.RaceHopsMax && !DeckRules.IsRaceType(s.Type); hop++)
+                {
+                    Log("racenow: " + (s.Type.Length > 0 ? s.Type : "this session") + " - skipping to the next session (" + hop + " of up to " + DeckRules.RaceHopsMax + ")"); if (hop == 1) Say("wait", "Skipping to the race");
+                    int rc = CmdSkip();
+                    if (rc != 0) { Log("racenow: the skip did not work - stopped"); return rc; }
+                    s = Snap();
+                    if (!s.Live) { Log("racenow: the event is over, the sim left"); return 0; }
+                }
+                if (!DeckRules.IsRaceType(s.Type)) { Log("racenow: still in " + (s.Type.Length > 0 ? s.Type : "an unknown session") + " after " + DeckRules.RaceHopsMax + " skips - stopped"); return 1; }
+                Thread.Sleep(2500);
+            }
+            else Log("racenow: already in the race session");
+            int grc = CmdGo();
+            if (grc == 0) Log(OnTrack() ? "racenow: in the race, in the car" : "racenow: the race session is up but you are NOT in the car yet");
+            return grc;
         }
         // Pit toggles from the live pit-service flags: tires (all four), fr (fast repair), ws (tear-off).
         static int CmdPitToggle(string[] a)
@@ -1271,10 +1517,46 @@ namespace IRDeck
         // appvol game|music +10 / -10 : change just that app's volume in the Windows mixer, on every output device.
         // "game" = the sim, its menu app and the spotter (CrewChief), so VOL - / VOL + on the deck move them together.
         // "--dry" only counts what it would change (tests\keys-test.ps1).
+        // MUTE SPOTTER (deck v2): one press mutes CrewChief's voice in the Windows mixer, the next press brings it back.
+        // Only that program's own mixer entry is touched; the sim, music and the PC volume stay as they are.
+        static int AppMuteToggle(string who)
+        {
+            string proc = who.Equals("spotter", StringComparison.OrdinalIgnoreCase) ? "CrewChiefV4" : who;
+            int touched = 0; bool nowMuted = false;
+            try
+            {
+                IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+                IMMDeviceCollection devs; if (en.EnumAudioEndpoints(0, 1, out devs) != 0) throw new Exception("no audio devices");
+                int n; devs.GetCount(out n); Guid iid = typeof(IAudioSessionManager2).GUID;
+                bool decided = false, target = true;
+                for (int i = 0; i < n; i++)
+                {
+                    IMMDevice dev; if (devs.Item(i, out dev) != 0) continue;
+                    object o; if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) continue;
+                    IAudioSessionEnumerator se; if (((IAudioSessionManager2)o).GetSessionEnumerator(out se) != 0) continue;
+                    int cnt; se.GetCount(out cnt);
+                    for (int j = 0; j < cnt; j++)
+                    {
+                        IAudioSessionControl2 ctl; if (se.GetSession(j, out ctl) != 0) continue;
+                        uint pid; ctl.GetProcessId(out pid);
+                        string pn = ""; try { pn = Process.GetProcessById((int)pid).ProcessName; } catch { }
+                        if (!proc.Equals(pn, StringComparison.OrdinalIgnoreCase)) continue;
+                        ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
+                        if (!decided) { bool m; v.GetMute(out m); target = !m; decided = true; }   // every entry of the program follows the first one
+                        Guid g = Guid.Empty; v.SetMute(target, ref g); touched++; nowMuted = target;
+                    }
+                }
+            }
+            catch (Exception ex) { Log("appvol mute error: " + ex.Message); return 1; }
+            if (touched == 0) { Log("appvol mute: " + proc + " is not making sound right now"); return 3; }
+            Log("appvol mute: " + proc + (nowMuted ? " muted" : " sound back on") + " (" + touched + " session(s))");
+            return 0;
+        }
         static int CmdAppVol(string[] a)
         {
             if (a.Length < 2) { Log("appvol: need game|music and a step like +10"); return 1; }
             string which = a[0].ToLowerInvariant();
+            if (which == "mute") return AppMuteToggle(a[1]);
             bool dry = Array.IndexOf(a, "--dry") >= 0;
             double step = double.Parse(a[1], CultureInfo.InvariantCulture) / 100.0;
             string[] procs = which == "game" ? new string[] { "iRacingSim64DX11", "iRacingUI", "CrewChiefV4" } : which == "music" ? new string[] { "Spotify" } : new string[] { a[0] };
@@ -1408,7 +1690,9 @@ namespace IRDeck
             // SKIP SESSION is ONE press (2026-10-18, Peter: 'skip session doesnt work'). The two-press arm only gave a double beep and
             // a second press never came: every real use in the log (10-15, 10-18) stopped at 'armed'. The command itself already refuses
             // everything risky (official sessions, a moving car) and the key ignores repeats within 0.7 s, so a bounce cannot skip twice.
-            if (a[0] == "skip-session") { Log("confirm skip-session: one press, no arming"); return Run(Slice(a, 1)); }
+            // RESTART is one press too (2026-10-23: 15 presses armed, 9 confirmed). restartrace does everything itself: waits for a rolling
+            // car, restarts, gets back in. The deck's `confirm restart-race restartrace` therefore works before the layout is rebuilt.
+            if (a[0] == "skip-session" || a[0] == "restart-race") { Log("confirm " + a[0] + ": one press, no arming"); return Run(Slice(a, 1)); }
             string f = Path.Combine(Root, "armed-" + a[0] + ".txt");
             DateTime expiry = DateTime.MinValue;
             try { if (File.Exists(f)) expiry = DateTime.Parse(File.ReadAllText(f), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); } catch { }
@@ -1609,6 +1893,30 @@ namespace IRDeck
             return 0;
         }
 
+        // The deck sends one press 2-3 times and THANKS once went out twice, 0.96 s apart (past the 0.7 s key filter). The same line within
+        // 3 s of the last one sent is dropped. The stamp is in the temp folder like the other repeat guards; a mutex makes check-and-write one step.
+        static bool ChatRepeat(string text)
+        {
+            Mutex mx = new Mutex(false, "Local\\irdeck-chat-stamp");
+            bool mine = false;
+            try
+            {
+                try { mine = mx.WaitOne(2000); } catch (AbandonedMutexException) { mine = true; }
+                string stampFile = Path.Combine(Path.GetTempPath(), "irdeck-chat-say.last");
+                string last = "";
+                try { last = File.ReadAllText(stampFile); } catch { }
+                long now = DateTime.UtcNow.Ticks;
+                if (DeckRules.ChatIsRepeat(last, text, now, DeckRules.ChatRepeatMs)) { Log("chat say: the same message was sent a moment ago - repeat press ignored"); return true; }
+                try { File.WriteAllText(stampFile, DeckRules.ChatStamp(text, now)); } catch { }
+                return false;
+            }
+            finally
+            {
+                if (mine) { try { mx.ReleaseMutex(); } catch { } }
+                mx.Dispose();
+            }
+        }
+
         static int CmdChat(string[] a)
         {
             if (a.Length == 0) { Log("chat: need begin|reply|cancel|macro N|say TEXT"); return 1; }
@@ -1620,6 +1928,7 @@ namespace IRDeck
                 case "macro": Bcast(8, 0, int.Parse(a[1])); break;
                 case "say":
                     if (!SessionActive()) { Log("chat say: no sim session running"); return 3; }
+                    if (ChatRepeat(string.Join(" ", Slice(a, 1)))) return 0;
                     if (!FocusWindow(SimWindow())) { Log("chat say: could not bring the sim to the front"); return 3; }
                     Bcast(8, 1, 0); Thread.Sleep(250);
                     TypeText(string.Join(" ", Slice(a, 1)));

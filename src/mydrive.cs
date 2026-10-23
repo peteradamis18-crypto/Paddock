@@ -1,4 +1,4 @@
-﻿// irdeck My Drive (the MY DRIVE screen on the Stream Deck): pick a car and track from your recent drives, your favourites
+// irdeck My Drive (the MY DRIVE screen on the Stream Deck): pick a car and track from your recent drives, your favourites
 // or a search of iRacing's own lists, then START = Test Drive set up, launched, and into the car. Everything lives in
 // <root>\mydrive: state.ini (the choice, progress, last start time), favourites.ini (edit by hand if you like),
 // results.json (the last search, 7 at most). Recent drives come from dash\career-cache.tsv (read only).
@@ -428,7 +428,7 @@ namespace IRDeck
                 bool damageOn = Sv(st0, "damage", "on") == "on";
                 try { File.WriteAllText(Path.Combine(Root, @"dash\start-mark.txt"), pressed.Ticks + "\t" + MarkLabel("mydrive start")); } catch { }   // irdash times START -> session -> in the car (dash\timings.tsv)
                 MdPhase("setup", "Setting up " + c.Car + " at " + c.Track);
-                Log("mydrive: START " + c.Car + " at " + c.Track + (c.Layout != "" ? " (" + c.Layout + ")" : "") + ", damage " + (damageOn ? "on" : "off"));
+                Log("mydrive: START " + c.Car + " at " + c.Track + (c.Layout != "" ? " (" + c.Layout + ")" : "") + ", damage " + (damageOn ? "on" : "off")); Say("wait", "Starting " + c.Car + " at " + c.Track);
                 var args = new List<string> { c.Car, c.Track };
                 if (c.Layout != "") args.Add(c.Layout);
                 args.Add(damageOn ? "--damage-on" : "--damage-off");

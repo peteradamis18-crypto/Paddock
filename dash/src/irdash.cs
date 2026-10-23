@@ -770,6 +770,25 @@ namespace IRDash
                         Send(s, 200, "application/json", Encoding.UTF8.GetBytes(on ? "{\"on\":true}" : "{\"on\":false}"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
+                    if (method == "GET" && path == "/keymsg") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(KeyMsg.Current()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the top screen's "what that deck key did" line (keymsg.cs)
+                    if (method == "GET" && path == "/api/keymsg")
+                    {
+                        // irdeck says what a deck key did. This PC only; the phone never writes it. Nothing here touches iRacing.
+                        if (!local || query.Contains("asphone=1")) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
+                        var kq = ParseQuery(query); string kk, kt, kd;
+                        kq.TryGetValue("key", out kk); kq.TryGetValue("text", out kt); kq.TryGetValue("kind", out kd);
+                        string kept = KeyMsg.Set(kk, kt, kd);
+                        Send(s, kept.Length > 0 ? 200 : 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(kept.Length > 0 ? "ok" : "no text"));
+                        return;
+                    }
+                    if (method == "GET" && path == "/api/kids")
+                    {
+                        // irdeck writes dash\kids.lock (this boot's id). The top screen says so while that lock is current.
+                        bool kidsOn = KidsLockOn();
+                        string kidsBody = kidsOn ? "{\"on\":true,\"text\":\"KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME\"}" : "{\"on\":false,\"text\":\"\"}";
+                        Send(s, 200, "application/json", Encoding.UTF8.GetBytes(kidsBody), "Access-Control-Allow-Origin: *\r\n");
+                        return;
+                    }
                     if (method == "GET" && path == "/version")
                     {
                         // newest change to the dashboard files or the exe; the page reloads itself when this changes
@@ -885,6 +904,54 @@ namespace IRDash
             byte[] b = Encoding.UTF8.GetBytes(text);
             s.Write(b, 0, b.Length);
             s.Flush();
+        }
+
+        // K-01. Keep this in step with src\kids.cs KidsBootId: kernel BootTime, else clock minus uptime in whole minutes.
+        [System.Runtime.InteropServices.DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int cls, byte[] info, int len, out int ret);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern ulong GetTickCount64();
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern void GetSystemTimeAsFileTime(out long ft);
+        static long KidsBootId()
+        {
+            byte[] buf = new byte[64];
+            int ret;
+            int st = NtQuerySystemInformation(3, buf, 48, out ret);
+            if (st != 0) st = NtQuerySystemInformation(3, buf, 64, out ret);
+            if (st == 0)
+            {
+                long boot = BitConverter.ToInt64(buf, 0);
+                if (boot != 0) return boot;
+            }
+            long now;
+            GetSystemTimeAsFileTime(out now);
+            ulong ms = GetTickCount64();
+            long raw = now - (long)ms * 10000L;
+            if (raw == 0) return 0;
+            return raw / 600000000L;
+        }
+        static bool KidsLockOn()
+        {
+            try
+            {
+                string dir = AppDomain.CurrentDomain.BaseDirectory;
+                if (File.Exists(Path.Combine(dir, "kids.stop"))) return false;
+                string p = Path.Combine(dir, "kids.lock");
+                if (!File.Exists(p)) return false;
+                long boot = 0, until = 0;
+                foreach (string line in File.ReadAllLines(p))
+                {
+                    int i = line.IndexOf('=');
+                    if (i <= 0) continue;
+                    string k = line.Substring(0, i).Trim();
+                    string v = line.Substring(i + 1).Trim();
+                    if (k == "boot") long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out boot);
+                    else if (k == "until") long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out until);
+                }
+                long nowBoot = KidsBootId();
+                if (boot == 0 || nowBoot == 0 || boot != nowBoot) return false;
+                if (until > 0 && DateTime.UtcNow.Ticks > until) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         static void Send(NetworkStream s, int code, string type, byte[] body) { Send(s, code, type, body, ""); }

@@ -18,9 +18,10 @@ for ($try = 1; $try -le 4; $try++) {
   $mark = (Get-Content $log -Tail 1).Substring(0, 19)
   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe" --runinbk' } | Out-Null
   Start-Sleep 18
-  $dirs = @(Get-ChildItem "$($prof.FullName)\Profiles" -Directory | Where-Object { (Get-ChildItem "$($_.FullName)\Images" -File -ErrorAction SilentlyContinue).Count -ge 20 })
+  # every page the build wrote must still be there with one picture per key (MAIN 31, MORE 19, LEAVE 6 ... whatever the build made)
+  $dirs = @($want | Where-Object { $d = Join-Path "$($prof.FullName)\Profiles" $_.ToUpper(); (Test-Path "$d\manifest.json") -and ((Get-ChildItem "$d\Images" -File -ErrorAction SilentlyContinue).Count -ge @((Get-Content "$d\manifest.json" -Raw | ConvertFrom-Json).Controllers[0].Actions.PSObject.Properties).Count) -and ((Get-ChildItem "$d\Images" -File -ErrorAction SilentlyContinue).Count -gt 0) })
   $pruned = @(Get-Content $log -Tail 600 | Select-String 'Prune orphaned|import_profile.*ERROR').Count
-  "  pages with pictures: $($dirs.Count) of 2; import errors this start: $pruned"
-  if ($dirs.Count -ge 2 -and $pruned -eq 0) { 'deck is whole'; exit 0 }
+  "  pages kept whole: $($dirs.Count) of $($want.Count); import errors this start: $pruned"
+  if ($dirs.Count -eq $want.Count -and $want.Count -ge 2 -and $pruned -eq 0) { 'deck is whole'; exit 0 }
 }
 'the deck is NOT whole after 4 tries'; exit 1

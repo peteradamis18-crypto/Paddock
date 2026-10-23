@@ -292,7 +292,13 @@ namespace IRDeck
             if (SessionActive())
             {
                 SessSnap s0 = Snap();
-                if (s0.OnTrack && s0.Speed > 1.0) { Log("quitmain refused: the car is moving"); return 3; }
+                if (s0.OnTrack && s0.Speed > 1.0)
+                {
+                    // wait for a rolling car (15 s) like GET OUT, instead of refusing: one press has to finish the job
+                    bool inCar = s0.OnTrack; double speed = s0.Speed;
+                    if (WaitCarStopped("quitmain", DeckRules.StopWaitMs, ref inCar, ref speed) != 0) { Log("quitmain refused: the car is still moving - slow down and press again"); return 3; }
+                    s0 = Snap();
+                }
                 if (!FocusWindow(SimWindow())) { Log("quitmain: could not bring the sim to the front"); return 3; }
                 Log("quitmain: leaving " + s0.ToString());
                 if (s0.OnTrack)

@@ -1,5 +1,5 @@
-# keys-test (C-32): every Stream Deck key answers, no dead keys.
-# Reads the MAIN and MORE pages by running build-deck.ps1 -Preview (it only writes C:\Temp\preview), keys\keys.map,
+﻿# keys-test (C-32): every Stream Deck key answers, no dead keys.
+# Reads the MAIN, MORE and LEAVE pages (deck v2, 2026-10-23) by running build-deck.ps1 -Preview (it only writes C:\Temp\preview), keys\keys.map,
 # deck-intro\plugin.html (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND) and the sources behind them (src\irdeck.cs, dash\src\*.cs).
 # No clicks, no sim, nothing is written to Stream Deck. The only live part (section 8) runs real irdeck commands that
 # are known to do nothing without a session, plus the new --dry commands, and only when the rig is free.
@@ -7,8 +7,8 @@
 #   powershell -ExecutionPolicy Bypass -File tests\keys-test.ps1 -StaticOnly   (files only; fine while he races)
 #   -Cli <path>   run the dry commands with another irdeck-cli.exe (for example %TEMP%\ird\irdeck-cli.exe, a build not deployed yet)
 # Checked per key: it has a command / handler that really exists, no two keys on a page do the same, every label is at
-# most 2 short lines, a key marked x2 is a confirm key (and the other way round), a key whose feature is not built is
-# OFF the deck. The table of every key (page, position, command, status) is the end of the output = tests\last\keys.txt.
+# most 2 short lines, no key uses `confirm` (v2: every key is one press; a key that ends a session or the PC is only on
+# LEAVE or MORE), a key whose feature is not built is OFF the deck. The table of every key (page, position, command, status) is the end of the output = tests\last\keys.txt.
 param([switch]$StaticOnly, [string]$Cli = '')
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -102,16 +102,16 @@ if (Test-Path "$prev\layout.tsv") {
     $deck += [pscustomobject]@{ page = $p[0]; col = [int]$p[1]; row = [int]$p[2]; t1 = $p[3]; t2 = $p[4]; kind = $p[5]; what = $p[6]; status = ''; label = (Ascii (($p[3] + ' ' + $p[4]).Trim())) }
   }
 }
-$main = @($deck | Where-Object { $_.page -eq 'MAIN' }); $more = @($deck | Where-Object { $_.page -eq 'MORE' })
-Check "MAIN has keys ($($main.Count)) and MORE has keys ($($more.Count))" ($main.Count -ge 20 -and $more.Count -ge 10)
+$main = @($deck | Where-Object { $_.page -eq 'MAIN' }); $more = @($deck | Where-Object { $_.page -eq 'MORE' }); $leave = @($deck | Where-Object { $_.page -eq 'LEAVE' })
+Check "MAIN has keys ($($main.Count)), MORE has keys ($($more.Count)) and LEAVE has keys ($($leave.Count))" ($main.Count -ge 20 -and $more.Count -ge 10 -and $leave.Count -eq 6)
 Check 'every key sits inside the 8 x 4 grid, one key per cell' (@($deck | Where-Object { $_.col -lt 0 -or $_.col -gt 7 -or $_.row -lt 0 -or $_.row -gt 3 }).Count -eq 0 -and @($deck | Group-Object { $_.page + ':' + $_.col + ',' + $_.row } | Where-Object { $_.Count -gt 1 }).Count -eq 0)
 
-# MAIN is the DK-2 grid (docs\deck\council-fable.md section 3, adopted by docs\deck\DECK-v4.md): same cell, same word
+# MAIN is the DECK v2 grid (docs\design\deck-v2\deck-plan.html, approved by Peter 2026-10-23): same cell, same word
 $approved = [ordered]@{
-  '0,0' = 'HOME*'; '1,0' = 'AI RACE*'; '2,0' = 'TEST DRIVE*'; '3,0' = 'MY DRIVE*'; '4,0' = 'FRIENDS*'; '5,0' = 'MORE*'; '6,0' = 'OFFICIAL*'; '7,0' = 'GET IN*'
-  '0,1' = 'GET OUT*'; '1,1' = 'RESET CAR*'; '2,1' = 'KEEP LAP*'; '3,1' = 'SAVE*'; '4,1' = 'TV*'; '5,1' = 'SKIP SESSION*'; '6,1' = 'RESTART*'; '7,1' = 'QUIT*'
-  '0,2' = 'FUEL*'; '1,2' = 'TIRES*'; '2,2' = 'CLEAR*'; '3,2' = 'OVERLAYS*'; '4,2' = 'REVIEW*'; '5,2' = 'VAULT*'; '6,2' = 'CAR TRACK*'; '7,2' = 'live:laps-to-empty'
-  '0,3' = 'SORRY*'; '1,3' = 'THANKS*'; '2,3' = 'VOL -*'; '3,3' = 'VOL +*'; '4,3' = 'RELATIVE*'; '5,3' = 'live:position'; '6,3' = 'live:incidents' }
+  '0,0' = 'HOME'; '1,0' = 'LAST DRIVE'; '2,0' = 'AI RACE'; '3,0' = 'CAR TRACK'; '4,0' = 'OFFICIAL'; '5,0' = 'FRIENDS'; '6,0' = 'KIDS'; '7,0' = 'MORE'
+  '0,1' = 'GET IN'; '1,1' = 'GET OUT'; '2,1' = 'RESET CAR'; '3,1' = 'RESTART'; '4,1' = 'NEXT SESSION'; '5,1' = 'RACE NOW'; '6,1' = 'INSTANT REPLAY'; '7,1' = 'LEAVE'
+  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'VAULT'; '7,2' = 'live:laps-to-empty'
+  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SORRY'; '4,3' = 'THANKS'; '5,3' = 'RELATIVE'; '6,3' = 'live:position'; '7,3' = 'live:incidents' }
 $bad = @()
 foreach ($pos in $approved.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -119,24 +119,44 @@ foreach ($pos in $approved.Keys) {
   if (-not $k) { $bad += "$pos missing"; continue }
   $want = $approved[$pos]
   $got = if ($k.kind -eq 'live') { 'live:' + ($k.what -replace '^session-info:', '') } else { $k.label }
-  if (-not ($got -like $want)) { $bad += "$pos is '$got', approved '$want'" }
+  if ($got -ne $want) { $bad += "$pos is '$got', approved '$want'" }
 }
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
-Check 'MAIN is the DK-2 / DK-2b grid, cell by cell (7,3 stays empty)' ($bad.Count -eq 0) ($bad -join '; ')
-$moreWant = [ordered]@{ '0,0' = 'BACK*'; '2,0' = 'GOOD RACE*'; '3,0' = 'MUTE*'; '4,0' = 'SHOWCASE*'; '5,0' = 'SOUND*'; '6,0' = 'SLEEP*'; '7,0' = 'LOCK*'
-  '0,1' = 'MARK SPOT*'; '1,1' = 'BACK TO SPOT*'; '2,1' = 'REPLAY*'; '3,1' = 'REPAIR*'; '4,1' = 'WIPE*'; '5,1' = 'SEAT LOWER*'; '6,1' = 'SEAT HIGHER*'
-  '0,2' = 'TIMING*'; '1,2' = 'STANDINGS*'; '2,2' = 'FUEL BOX*'; '3,2' = 'TIRE BOX*'; '4,2' = 'IN-CAR*'; '5,2' = 'WEATHER*'; '6,2' = 'ANALYSIS*' }
+Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
+$moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
+  '0,1' = 'MARK SPOT'; '1,1' = 'BACK TO SPOT'; '2,1' = 'REPLAY'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
+  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
   $k = $more | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1
   if (-not $k) { $bad += "$pos missing"; continue }
-  if (-not ($k.label -like $moreWant[$pos])) { $bad += "$pos is '$($k.label)', wanted '$($moreWant[$pos])'" }
+  if ($k.label -ne $moreWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($moreWant[$pos])'" }
 }
 foreach ($k in $more) { if (-not $moreWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the MORE plan" } }
-Check 'MORE is the planned page, cell by cell (BACK in the corner, the bottom row empty)' ($bad.Count -eq 0) ($bad -join '; ')
-Check 'MAIN has a MORE key (next page) and MORE has a BACK key (previous page)' (@($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'next' }).Count -eq 1 -and @($more | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' }).Count -eq 1)
-Check 'every key on the device is drawn on MAIN.png / MORE.png' ((Test-Path "$prev\MAIN.png") -and (Test-Path "$prev\MORE.png") -and (Get-Item "$prev\MAIN.png").LastWriteTime -ge $t0.AddSeconds(-2))
+Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, the bottom row empty)' ($bad.Count -eq 0) ($bad -join '; ')
+
+# LEAVE: the page before MAIN. Opening it is the check, so the keys that end things are one press here.
+$leaveWant = [ordered]@{ '0,0' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '0,3' = 'KIDS MODE'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
+$bad = @()
+foreach ($pos in $leaveWant.Keys) {
+  $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
+  $k = $leave | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1
+  if (-not $k) { $bad += "$pos missing"; continue }
+  if ($k.label -ne $leaveWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($leaveWant[$pos])'" }
+}
+foreach ($k in $leave) { if (-not $leaveWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the LEAVE plan" } }
+Check 'LEAVE is the planned page, cell by cell (BACK, QUIT TO MENU twice as wide, KIDS MODE, SHUT DOWN PC, SLEEP PC)' ($bad.Count -eq 0) ($bad -join '; ')
+function Leave-At($c, $r) { $leave | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1 }
+Check 'LEAVE: BACK at 0,0 is "next page" (back to MAIN); QUIT TO MENU at 3,1 and 4,1 is quitmain; SLEEP PC at 7,3 is power sleep' ((Leave-At 0 0).kind -eq 'page' -and (Leave-At 0 0).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main2=quitmain' -and (Leave-At 7 3).what -eq 'sleep=power sleep')
+Check 'MAIN has a MORE key (next page) and a LEAVE key (previous page); MORE has a BACK key (previous page)' (@($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'next' -and $_.label -eq 'MORE' }).Count -eq 1 -and @($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' -and $_.label -eq 'LEAVE' }).Count -eq 1 -and @($more | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' }).Count -eq 1)
+Check 'every key on the device is drawn on MAIN.png / MORE.png / LEAVE.png' ((Test-Path "$prev\MAIN.png") -and (Test-Path "$prev\MORE.png") -and (Test-Path "$prev\LEAVE.png") -and (Get-Item "$prev\MAIN.png").LastWriteTime -ge $t0.AddSeconds(-2))
+# page order in the profile: LEAVE, MAIN, MORE (a page key moves one step; the profile opens on MAIN)
+$bp = (ReadText 'build-deck.ps1')
+Check 'the profile manifest lists the pages in the order LEAVE, MAIN, MORE and opens on MAIN' ($bp -match 'Pages = @\(\$ids\.leave, \$ids\.main, \$ids\.more\)' -and $bp -match 'Current = \$ids\.main; Default = \$ids\.dflt' -and $bp -match "Write-Page \`$ids\.leave 'LEAVE' \`$leave")
+
+# Stream Deck's Default page is its own hidden empty page, never a listed one (MAIN as Default = "Failed to map default page", then MAIN pruned)
+Check 'the Default page is a separate empty page, not MAIN or any listed page' ($bp -match '\$ids\.dflt = G' -and $bp -match 'Profiles\\\$\(\$ids\.dflt\.ToUpper\(\)\)\\manifest\.json.{0,10}\{"Controllers":\[\{"Actions":null' -and $bp -notmatch 'Default = \$ids\.(main|more|leave)')
 
 # ================= 2. what each kind of key points at =================
 Section '2. every key has a command or handler, and it exists'
@@ -186,7 +206,8 @@ function Test-IrCommand([string]$line) {
     'chat'      { if ($t.Count -lt 2 -or $script:chatCmds -notcontains $t[1].ToLowerInvariant()) { return "chat '$($t[1])' is not a chat command" }; if ($t[1] -eq 'say' -and $t.Count -lt 3) { return 'chat say needs text' } }
     'media'     { if ($t.Count -lt 2 -or $script:mediaCmds -notcontains $t[1].ToLowerInvariant()) { return "media '$($t[1])' is not a media command" } }
     'power'     { if ($t.Count -lt 2 -or $script:powerCmds -notcontains $t[1].ToLowerInvariant()) { return "power '$($t[1])' is not a power command" } }
-    'appvol'    { if ($t.Count -lt 3 -or @('game', 'music') -notcontains $t[1].ToLowerInvariant() -or $t[2] -notmatch '^[+-]\d+$') { return 'appvol needs game|music and a step like +10' } }
+    'appvol'    { if ($t.Count -ge 3 -and $t[1].ToLowerInvariant() -eq 'mute') { if ($t[2] -notmatch '^[A-Za-z0-9_]+$') { return 'appvol mute needs spotter or a program name' } }   # MUTE SPOTTER: appvol mute <spotter|program>
+                  elseif ($t.Count -lt 3 -or @('game', 'music') -notcontains $t[1].ToLowerInvariant() -or $t[2] -notmatch '^[+-]\d+$') { return 'appvol needs game|music and a step like +10, or mute spotter' } }
     'dash'      { if ($t.Count -lt 2) { return 'dash needs a command' }
                   $dc = $t[1].ToLowerInvariant()
                   if (-not $script:handled.ContainsKey($dc)) {
@@ -241,10 +262,9 @@ foreach ($k in $deck) {
   elseif ($why) { $k.status = 'FAIL: ' + $why; $bad += "$($k.page) $($k.col),$($k.row) $($k.label): $why" }
   else { $k.status = 'ok' }
 }
-Check 'every key on MAIN and MORE resolves to a real irdeck command, add-on screen, page switch or live mode' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'every key on MAIN, MORE and LEAVE resolves to a real irdeck command, add-on screen, page switch or live mode' ($bad.Count -eq 0) ($bad -join '; ')
 $later = @($deck | Where-Object { $_.kind -eq 'later' })
-Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" (@($later | Where-Object { $_.label -like 'ANALYSIS*' -or $_.label -like 'TV*' }).Count -eq $later.Count -and $later.Count -le 2)
-$bp = (ReadText 'build-deck.ps1')
+Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" (@($later | Where-Object { $_.label -eq 'INSTANT REPLAY' -and $_.page -eq 'MAIN' }).Count -eq $later.Count -and $later.Count -ge 1 -and $later.Count -le 2)
 Check 'build-deck.ps1 leaves a not-built key out of the profile when it is not a preview' ($bp -match 'if \(-not \$Preview\) \{ continue \}')
 
 # the lead's requirements, one by one
@@ -253,12 +273,17 @@ function Cmd-Of($label) { $k = $deckKeys | Where-Object { $_.label -like $label 
 Check 'RESET CAR runs tow, which waits for the car to stop (C-26)' ((Cmd-Of 'RESET CAR*') -eq 'tow' -and $irSrc -match 'TowWaitLive\(ref inCar, ref speed\)' -and $irSrc -match 'TowLimitMs')
 $vd = (Cmd-Of 'VOL -*'), (Cmd-Of 'VOL +*')
 Check 'VOL - / VOL + are appvol game -10 / +10, and game covers the sim, its menu and CrewChief' ($vd[0] -eq 'appvol game -10' -and $vd[1] -eq 'appvol game +10' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI", "CrewChiefV4"')
-$sl = Get-Body $irSrc 'static int CmdStartLast(string[] a)'
-Check 'TEST DRIVE (startlast td) no longer quits a running session: it does nothing and says so' ((Cmd-Of 'TEST DRIVE*') -eq 'startlast td' -and $sl -notmatch 'Armed\(' -and $sl -notmatch 'CmdQuitMain' -and $sl -match 'nothing was done' -and $irSrc -notmatch 'static bool Armed\(')
+# deck v2 (2026-10-23): every key is one press from any state. Their behaviour is tested in tests\deck-behaviour-test.ps1;
+# here each key must point at the right command.
+Check 'GET IN is smart (any state), GET OUT is getout (waits for the car), LAST DRIVE is mydrive start' ((Cmd-Of 'GET IN') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and (Cmd-Of 'LAST DRIVE') -eq 'mydrive start' -and $irSrc -match 'case "mydrive"')
+Check 'RESTART is restartrace, NEXT SESSION is skip, RACE NOW is racenow: one press each' ((Cmd-Of 'RESTART') -eq 'restartrace' -and (Cmd-Of 'NEXT SESSION') -eq 'skip' -and (Cmd-Of 'RACE NOW') -eq 'racenow' -and $irSrc -match 'case "restartrace"' -and $irSrc -match 'case "racenow"')
+Check 'MUTE SPOTTER is appvol mute spotter, and irdeck mutes only CrewChief''s own mixer entry' ((Cmd-Of 'MUTE SPOTTER') -eq 'appvol mute spotter' -and $irSrc -match 'static int AppMuteToggle\(string who\)' -and $irSrc -match 'who\.Equals\("spotter"[^)]*\) \? "CrewChiefV4"')
+Check 'KIDS (6,0) is the kids command; HOME (0,0) is the second key of the unlock' ((Cmd-Of 'KIDS') -eq 'kids' -and @($main | Where-Object { $_.col -eq 6 -and $_.row -eq 0 -and $_.label -eq 'KIDS' }).Count -eq 1 -and $irSrc -match 'case "kids"')
 $ini = ReadText 'dash\irdash.ini'
-Check 'KEEP LAP is dash vkkeep, irdash accepts vkkeep, and the Vault is on (vault=1)' ((Cmd-Of 'KEEP LAP*') -eq 'dash vkkeep' -and $handled['vkkeep'] -eq 'vault' -and $ini -match '(?m)^\s*vault\s*=\s*1')
-# 2026-10-18 audit: irdash answers 400 to tvview (P0-03), so a TV key on the deck can only beep. TV stays Later (off the deck) until the view is rebuilt.
-Check 'TV is a Later key while irdash refuses tvview (no dead key on the deck)' (@($deck | Where-Object { $_.label -like 'TV*' -and $_.kind -eq 'later' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.label -like 'TV*' }).Count -eq 0)
+# KEEP LAP / SAVE / TV left the deck in v2. Their irdash commands stay (the Vault and the phone still use them).
+Check 'irdash still accepts vkkeep and recsave (the Vault is on, vault=1), although no deck key sends them now' ($handled['vkkeep'] -eq 'vault' -and $handled['recsave'] -eq 'vault' -and $ini -match '(?m)^\s*vault\s*=\s*1')
+Check 'INSTANT REPLAY is a Later key on MAIN at 6,1: drawn on the picture, absent from the device' (@($main | Where-Object { $_.col -eq 6 -and $_.row -eq 1 -and $_.label -eq 'INSTANT REPLAY' -and $_.kind -eq 'later' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.label -like 'INSTANT*' }).Count -eq 0)
+Check 'KEEP LAP, SAVE, TV, TEST DRIVE, MY DRIVE, SKIP SESSION and QUIT are no longer keys on any page' (@($deck | Where-Object { $_.label -in 'KEEP LAP', 'SAVE', 'TV', 'TEST DRIVE', 'MY DRIVE', 'SKIP SESSION', 'QUIT' }).Count -eq 0)
 Check 'HOME is a real command and sits at 0,0 (the up key on every screen)' ((Cmd-Of 'HOME*') -eq 'rigon' -and @($main | Where-Object { $_.col -eq 0 -and $_.row -eq 0 -and $_.label -like 'HOME*' }).Count -eq 1)
 Check 'AI RACE is the airace command the sim tree has' ((Cmd-Of 'AI RACE*') -eq 'airace start' -and $irSrc -match 'case "airace"')
 # DK-2b (Peter): OFFICIAL and CAR TRACK. OFFICIAL runs the `official` command irdeck already has (K-03 builds the on-deck
@@ -269,10 +294,9 @@ Check 'OFFICIAL (DK-2b) runs the official command irdeck has' ((Cmd-Of 'OFFICIAL
 $ofBody = Get-Body (ReadText 'src\official.cs') 'static int CmdOfficial(string[] a)'
 Check 'OFFICIAL with no arguments opens the Official page (CmdNav), it does not just print usage' ($ofBody -match '(?s)a\.Length == 0\)\s*\{.*?CmdNav\(new string\[\] \{ "--button", "Official" \}\)' -and $ofBody -notmatch 'if \(a\.Length == 0\) \{ Log\("official: list')
 Check 'CAR TRACK (DK-2b) opens the MY DRIVE add-on screen (its home IS the car/track step)' (@($deck | Where-Object { $_.label -like 'CAR TRACK*' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1)
-Check 'SAVE is dash recsave and irdash accepts recsave (the recorder saves the last minutes)' ((Cmd-Of 'SAVE*') -eq 'dash recsave' -and $handled['recsave'] -eq 'vault')
 Check 'REVIEW is dash debrief and irdash accepts it (opens the coach for the last outing)' ((Cmd-Of 'REVIEW*') -eq 'dash debrief' -and $handled.ContainsKey('debrief'))
 Check 'VAULT is dash vault and irdash accepts it (alias of vkopen, opens the Vault)' ((Cmd-Of 'VAULT*') -eq 'dash vault' -and $handled['vault'] -eq 'alias of vkopen')
-Check 'no MAIN or MORE key carries a static on / off subtitle (live state is drawn by the add-on, DK-4)' (@($deck | Where-Object { $_.t2 -match '(?i)\bon\s*/\s*off\b' }).Count -eq 0)
+Check 'no key carries a static on / off subtitle (live state is drawn by the add-on, DK-4)' (@($deck | Where-Object { $_.t2 -match '(?i)\bon\s*/\s*off\b' }).Count -eq 0)
 
 # ================= 3. the old keys.map still works =================
 Section '3. keys\keys.map (the layout on the device today) still resolves'
@@ -297,7 +321,7 @@ $gone = @($deployed.Keys | Where-Object { -not $plan.Contains($_) })
 Note "keys.map on the device differs from the plan in $($changed.Count) key(s) and has $($gone.Count) key(s) the plan drops: the real build-deck.ps1 run writes the new map (lead + Peter)"
 
 # ================= 4. no duplicates, short labels, x2 =================
-Section '4. no two keys on a page do the same thing; labels are at most 2 short lines; x2 means confirm'
+Section '4. no two keys on a page do the same thing; labels are at most 2 short lines; no x2 / confirm keys'
 $sig = @{}
 foreach ($k in $deck) {
   # a plugin key's label is part of its identity: DK-2b's CAR TRACK deliberately opens the same MY DRIVE screen (its car/track
@@ -311,8 +335,13 @@ foreach ($pg in 'MAIN', 'MORE') {
   $d = @($deck | Where-Object { $_.page -eq $pg -and $_.kind -ne 'later' } | Group-Object sig | Where-Object { $_.Count -gt 1 })
   Check "$pg : no two keys do the same thing" ($d.Count -eq 0) (($d | ForEach-Object { $_.Name }) -join '; ')
 }
-$both = @($deck | Where-Object { $_.kind -ne 'later' -and $_.kind -ne 'page' } | Group-Object sig | Where-Object { $_.Count -gt 1 })
-Check 'no key is on both MAIN and MORE' ($both.Count -eq 0) (($both | ForEach-Object { $_.Name }) -join '; ')
+# LEAVE has two QUIT TO MENU cells on purpose (one key, twice as wide a target): that pair is the only repeat allowed
+$d = @($deck | Where-Object { $_.page -eq 'LEAVE' -and $_.kind -ne 'later' } | Group-Object sig | Where-Object { $_.Count -gt 1 -and $_.Name -ne 'quitmain' })
+Check 'LEAVE : no two keys do the same thing (except the double-width QUIT TO MENU pair)' ($d.Count -eq 0 -and @($leave | Where-Object { $_.sig -eq 'quitmain' }).Count -eq 2) (($d | ForEach-Object { $_.Name }) -join '; ')
+# a command on two different pages is a duplicate; two cells of one page (QUIT TO MENU) are one key.
+# KIDS is the one key on two pages on purpose: Peter wants it on LEAVE too (2026-10-23, handing the rig over is a way of leaving)
+$both = @($deck | Where-Object { $_.kind -ne 'later' -and $_.kind -ne 'page' } | Group-Object sig | Where-Object { $_.Name -ne 'kids' -and @($_.Group | Select-Object -ExpandProperty page -Unique).Count -gt 1 })
+Check 'no key is on more than one of MAIN, MORE and LEAVE' ($both.Count -eq 0) (($both | ForEach-Object { $_.Name }) -join '; ')
 $bad = @($deck | Where-Object { $_.t1 -eq '' -and $_.kind -ne 'page' })
 Check 'every key has a label' ($bad.Count -eq 0) (($bad | ForEach-Object { "$($_.page) $($_.col),$($_.row)" }) -join '; ')
 $bad = @($deck | Where-Object { (Ascii $_.t1).Length -gt 16 -or (Ascii $_.t2).Length -gt 16 -or $_.t1 -match '[\r\n]' -or $_.t2 -match '[\r\n]' })
@@ -334,15 +363,19 @@ foreach ($k in $deck) {
   foreach ($n in $labelBanned.Keys) { if ([regex]::IsMatch($txt, $labelBanned[$n])) { $bad += "$($k.page) $($k.col),$($k.row) '$txt' ($n)" } }
 }
 Check 'every key label passes the copy rules (docs\COPY-RULES.md)' ($bad.Count -eq 0) ($bad -join '; ')
-# SKIP SESSION is one press on purpose (2026-10-18): the two-press arm never got its second press. The command itself refuses official sessions and a moving car.
-$ends = @('quitmain', 'restartrace', 'power sleep', 'power lock')
+# DECK v2 (2026-10-23): no key needs a second press (the two-press arm never got its second press; SKIP went to one press 2026-10-18).
+# The safety is where the key sits: a key that ends a session or the PC is only on the LEAVE page (opening it is the check) or on MORE, never on MAIN.
+# The commands themselves still refuse official sessions and a moving car.
+$ends = @('quitmain', 'power sleep', 'power lock')
 $bad = @()
 foreach ($k in $deckKeys) {
-  $c = ($k.what -split '=', 2)[1]; $x2 = ($k.t2 -match '\bx2\b') -or ($k.t1 -match '\bx2\b'); $conf = $c -match '^confirm '
-  if ($x2 -ne $conf) { $bad += "$($k.label): label x2=$x2, confirm=$conf" }
-  foreach ($e in $ends) { if ($c -match "(^|\s)$e(\s|$)" -and -not $conf) { $bad += "$($k.label) ends something without a second press" } }
+  $c = ($k.what -split '=', 2)[1]
+  if ($c -match '^confirm\s') { $bad += "$($k.page) $($k.label) uses confirm" }
+  if (($k.t2 -match '\bx2\b') -or ($k.t1 -match '\bx2\b')) { $bad += "$($k.page) $($k.label) is marked x2" }
+  foreach ($e in $ends) { if ($c -match "(^|\s)$e(\s|$)" -and $k.page -eq 'MAIN') { $bad += "$($k.label) ends a session or the PC and sits on MAIN" } }
 }
-Check 'a key marked x2 is a confirm key, and every key that ends a session or the PC needs the second press' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'no key uses confirm or is marked x2, and no key that ends a session or the PC (quitmain, power sleep, power lock) is on MAIN' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'quitmain and power sleep are on LEAVE, power lock is on MORE (they still exist)' (@($deckKeys | Where-Object { $_.page -eq 'LEAVE' -and $_.what -match '=quitmain$' }).Count -eq 2 -and @($deckKeys | Where-Object { $_.page -eq 'LEAVE' -and $_.what -match '=power sleep$' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.page -eq 'MORE' -and $_.what -match '=power lock$' }).Count -eq 1)
 $names = @($plan.Keys); $dupNames = @($names | Group-Object | Where-Object { $_.Count -gt 1 })
 Check 'every key has its own exe name' ($dupNames.Count -eq 0)
 
@@ -468,7 +501,7 @@ foreach ($r in $addonRows) {
 $doNothing = @(($deck | Where-Object { $_.kind -eq 'later' }) | ForEach-Object { "$($_.page) $($_.col),$($_.row) $($_.label) (not on the deck)" }) + @($addonRows | Where-Object { $_.status -like 'DEAD*' } | ForEach-Object { "$($_.page) $($_.pos) $($_.label)" })
 $tbl.Add('')
 $tbl.Add('Keys that do nothing: ' + $(if ($doNothing.Count) { $doNothing -join '; ' } else { 'none' }))
-$tbl.Add("Deck: $($main.Count) MAIN + $($more.Count) MORE keys planned ($(@($deck | Where-Object { $_.kind -ne 'later' }).Count) on the device), $($addonRows.Count) add-on tiles read")
+$tbl.Add("Deck: $($main.Count) MAIN + $($more.Count) MORE + $($leave.Count) LEAVE keys planned ($(@($deck | Where-Object { $_.kind -ne 'later' }).Count) on the device), $($addonRows.Count) add-on tiles read")
 foreach ($l in $tbl) { Say $l }
 
 # ================= 8. dry runs (live, rig must be free) =================
@@ -497,7 +530,7 @@ else {
     $t = @(Split-Cmd $line)
     switch ($t[0].ToLowerInvariant()) {
       'startlast' { Dry "$($k.label): $line --dry" ($t + '--dry') @(0) 'dry\)' $true }
-      'appvol'    { Dry "$($k.label): $line --dry" ($t + '--dry') @(0) 'dry\)' $true }
+      'appvol'    { if ($t[1] -eq 'mute') { Note "not run (mute has no --dry form and would really toggle the spotter): $($k.label)" } else { Dry "$($k.label): $line --dry" ($t + '--dry') @(0) 'dry\)' $true } }
       'dash'      { Dry "$($k.label): $line --dry" ($t + '--dry') @(0, 1) 'dry\)|not reachable' $true }
       'pittoggle' { Dry "$($k.label): $line (no session)" $t @(3) 'no sim session running' $false }
       'getout'    { Dry "$($k.label): $line (no session)" $t @(3) 'no sim session running' $false }
@@ -518,11 +551,11 @@ $badDash = @($deckKeys | Where-Object { $c = ($_.what -split '=', 2)[1]; $c -mat
 Check "no deck key sends irdash a command it always refuses ($($refused -join ', '))" ($refused.Count -ge 1 -and $badDash.Count -eq 0) (($badDash | ForEach-Object { $_.label }) -join ', ')
 # 9b. GET IN (`smart`) must never arm a SKIP. Its picture is fixed (the add-on has no smart key action), but the resolver says SKIP in a Test Drive / AI garage.
 $smart = Get-Body $irSrc 'static int CmdSmart(string[] args)'
-$realPath = $smart.Substring($smart.IndexOf('if (isFake) return 3;'))
+$realPath = $smart + (Get-Body $irSrc 'static int SmartGetIn()')   # the real GET IN: CmdSmart + SmartGetIn (the old fake-only resolver path is SmartFakeRun)
 # live 2026-10-19: SKIP SESSION in a Test Drive clicked the DRIVER Prev/Next buttons and did nothing; it now ends the drive like QUIT
 $skipSrc = [regex]::Match($irSrc, '(?s)static int CmdSkip\(\).*?\r?\n        \}').Value
 Check 'SKIP SESSION in a Test Drive ends it back to the menu (CmdQuitMain) instead of clicking the driver Prev/Next buttons' ($skipSrc -match 'testSession && !s0\.Ai' -and $skipSrc -match 'return CmdQuitMain\(\)')
-Check 'GET IN (smart) does not arm a skip-session confirm outside the fake test path' ($smart.Contains('if (isFake) return 3;') -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'GoDriveOnly\(true\)')
+Check 'GET IN (smart) does not arm a skip-session confirm on its real path; it presses the sim''s Drive button (CmdGo) whatever the screen' ($smart.Contains('SmartFakeRun(args, fake, dry)') -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'CmdGo\(\)' -and $realPath -notmatch 'IsReplayPlaying|\.Replay')
 Check 'the add-on has no smart / skip key action, so GET IN is a fixed picture' ($inst -notmatch 'UUID = "\$uuid\.(smart|skip|quit|restart)"')
 # 9c. HOME (rigon) with a session running must not maximise the iRacing UI over the sim
 $rig = Get-Body $irSrc 'static int CmdRigOn(string[] a)'
@@ -537,12 +570,14 @@ Check 'an add-on screen whose irdash stops answering says so on its keys, and ke
 $ct = @($main | Where-Object { $_.label -like 'CAR TRACK*' } | Select-Object -First 1)
 $myd = $plug.Substring($plug.IndexOf('const MyDrive = new class extends Screen'))
 $myd = $myd.Substring(0, $myd.IndexOf('async keyTick()'))
-Check 'CAR TRACK (same add-on screen as MY DRIVE) gets its own picture, chosen by its place on the deck' ($ct.Count -eq 1 -and $myd -match "keyPos\[ctx\] === '$($ct[0].col),$($ct[0].row)'" -and $myd -match "'CAR', 'TRACK'" -and $plug -match 'keyScreen\.keyPos\[e\.context\] = pos')
+# deck v2: CAR TRACK moved from 6,2 to 3,0; the add-on paints its picture at '3,0' or '6,2' (6,2 is VAULT now and is never a MY DRIVE key)
+Check 'CAR TRACK (same add-on screen as MY DRIVE) gets its own picture, chosen by its place on the deck (3,0 or 6,2)' ($ct.Count -eq 1 -and @('3,0', '6,2') -contains "$($ct[0].col),$($ct[0].row)" -and $myd -match "keyPos\[ctx\] === '$($ct[0].col),$($ct[0].row)'" -and $myd -match "keyPos\[ctx\] === '6,2'" -and $myd -match "'CAR', 'TRACK'" -and $plug -match 'keyScreen\.keyPos\[e\.context\] = pos')
 # 9e. docs\USER-GUIDE.md names every key on the deck, and none of the old names
 $guide = Ascii (ReadText 'docs\USER-GUIDE.md')
 $noGuide = @($deck | Where-Object { $_.kind -in 'key', 'plugin', 'later' } | ForEach-Object { ($_.label -replace '\s+x2$', '').ToUpperInvariant() } | Where-Object { $guide.ToUpperInvariant().IndexOf($_) -lt 0 })
-Check 'the user guide names every key on MAIN and MORE' ($noGuide.Count -eq 0) ($noGuide -join ', ')
-$stale = @('DRIVE . CONTINUE', 'TOW TO PITS', 'QUIT TO MAIN', '**DEBRIEF**', 'FAST REPAIR**', 'OFFICIAL RACING**', 'SAVE . RESET POINT', 'TEAR OFF**', 'FRIENDS MODE**', 'SHOWCASE . INTRO', 'OVERLAYS SCREEN**') | Where-Object { $guide.ToUpperInvariant().Contains($_.ToUpperInvariant()) }
+Check 'the user guide names every key on MAIN, MORE and LEAVE' ($noGuide.Count -eq 0) ($noGuide -join ', ')
+$stale = @('DRIVE . CONTINUE', 'TOW TO PITS', 'QUIT TO MAIN', '**DEBRIEF**', 'OFFICIAL RACING**', 'SAVE . RESET POINT', 'TEAR OFF**', 'FRIENDS MODE**', 'SHOWCASE . INTRO', 'OVERLAYS SCREEN**',
+  '**KEEP LAP**', '**TV**', '**TEST DRIVE**', '**MY DRIVE**', '**SKIP SESSION', '**QUIT x2**', ' x2**', 'SECOND PRESS') | Where-Object { $guide.ToUpperInvariant().Contains($_.ToUpperInvariant()) }
 Check 'the user guide has none of the old key names' (@($stale).Count -eq 0) (@($stale) -join ', ')
 Say ''
 Say ("$pass passed, $fail failed" + $(if ($warns) { "   ($warns warnings)" } else { '' }))

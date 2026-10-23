@@ -582,7 +582,7 @@ const MyDrive = new class extends Screen {
     const pic = (a, b) => { const [c, g] = this.iconCanvas(); g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText(a, 72, 66); g.fillText(b, 72, 100); return c.toDataURL('image/png'); };
     const mine = pic('MY', 'DRIVE'), carTrack = pic('CAR', 'TRACK');
     this.keyShown = '1';
-    for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: this.keyPos[ctx] === '6,2' ? carTrack : mine, target: 0 } });
+    for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: (this.keyPos[ctx] === '3,0' || this.keyPos[ctx] === '6,2') ? carTrack : mine   /* deck v2 (2026-10-23): CAR TRACK moved to 3,0 */, target: 0 } });
   }
 
   // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request

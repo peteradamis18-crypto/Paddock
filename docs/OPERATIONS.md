@@ -282,7 +282,8 @@ It opens the `.streamDeckPlugin` through Explorer. Stream Deck asks once. Peter 
 
 **Order matters (2026-10-18):** when the add-on version changed, click Install FIRST, then run the MAIN page steps below. Stream Deck's install rewrote the MAIN profile and its key pictures went missing (112 'custom image missing' lines, blank keys) after a build-deck done before the install. Run build-deck again after the install and the deck is whole.
 
-**Use `powershell -ExecutionPolicy Bypass -File tools\deck-refresh.ps1`** for the MAIN page: it closes Stream Deck, runs build-deck, starts it, and CHECKS that both pages kept their pictures (Stream Deck sometimes drops the MAIN page at start; it retries up to 4 times). The manual steps below are what it does.
+**Use `powershell -ExecutionPolicy Bypass -File tools\deck-refresh.ps1`** for the MAIN page: it closes Stream Deck, runs build-deck, starts it, and CHECKS that every page the build wrote (LEAVE, MAIN, MORE) kept one picture per key (Stream Deck sometimes dropped the MAIN page at start; it retries up to 4 times). The manual steps below are what it does.
+The likely cause of that drop (found 2026-10-23): build-deck named MAIN as the profile's Default page too, and Stream Deck logged "Failed to map default page" for it. Stream Deck's Default page must be its own hidden empty page outside the page list (every profile it makes is like that); build-deck now writes one. Current = MAIN is what opens the deck on MAIN.
 
 MAIN page, after `build-deck.ps1` or `keys\keys.map` changes. Stream Deck must be closed or the script throws `Close Stream Deck first`. When section 1 is clear:
 

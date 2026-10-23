@@ -1,0 +1,21 @@
+/* The one-line "what that deck key just did" message (keymsg.js), bottom-centre of the top screen for 4 seconds.
+   Where it sits (measured at 1920 x 1080, tests\keymsg-test.ps1): y 1012-1070, x centred, 840 px at most (540-1380).
+   - Drive v1 (drive.css): the delta bar, fuel, gap and position cells end at y 984; the bottom row (#dFoot, y 1000-1048) holds
+     Last/Best on the far left (to about x 520) and the REC pill on the far right (from about x 1560), so the middle is empty.
+   - Old grid (style.css): the centre column ends with the lap list under the fuel row, so only old lap lines are covered.
+   - HOME: the bottom row of the "where to watch" list is covered for 4 s (solid black, so the message reads clearly). Nothing else.
+   Black and gold like the rest. ok = gold border, wait = amber, no = a red word. No sound; no movement for reduced-motion. */
+#keyMsg {
+  position: fixed; left: 50%; bottom: 10px; z-index: 990; box-sizing: border-box; max-width: 840px; height: 58px; padding: 0 30px;
+  display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: #050505; border: 2px solid #f2c230; border-radius: 8px; color: #f4f1ea;
+  font: 400 36px/54px Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; letter-spacing: .02em;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, .75); pointer-events: none;
+  opacity: 0; visibility: hidden; transform: translate(-50%, 8px); transition: opacity .25s ease, transform .25s ease, visibility 0s linear .25s;
+}
+#keyMsg.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity .2s ease, transform .2s ease, visibility 0s; }
+#keyMsg.wait { border-color: #ffb21e; color: #ffb21e; }
+#keyMsg.no { border-color: rgba(255, 102, 89, .6); color: #ff6659; }
+@media (prefers-reduced-motion: reduce) {
+  #keyMsg, #keyMsg.on { transition: none; transform: translate(-50%, 0); }
+}

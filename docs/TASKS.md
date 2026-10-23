@@ -521,3 +521,9 @@ Gate: tests\home-test.ps1 and tests\data-test.ps1 -> 0 FAIL; deploy through dash
 ## INT-2c Integration fixes
 Status: partly 2026-10-12 (broker deploy exit 0; named suites remain red: phone 218/32, video-page 93/6, race-field 112/1, pro-tools 106/4, cars 42/2, tv 46/1, perf 95/2, gpsmap 15/1. `run-all.ps1` invoked once; still waiting at the friends-live away gate. Report: `docs\tasks\log\INT-2c.md`.)
 Gate: named suites and `tests\run-all.ps1` -> 0 FAIL; deploy through `dash\build.ps1` when sim=False.
+
+## K-01 Kids mode (one Stream Deck key locks the rig)
+Status: partly 2026-10-20 (lock, hook, flag, top-screen line and MAIN key at 7,3 are in the source. Both no-deploy builds passed. kids-test stopped at the guard: sim on track. Deploy and the test wait until sim=False. Report: docs\tasks\log\K-01.md.)
+Goal: one key on the MAIN page turns KIDS MODE on/off. On: the keyboard and mouse are blocked system-wide (low-level hook in irdeck, started by the key, stopped by the same key or by a long press on the Deck) and every other Deck key except the KIDS key is ignored by irdeck (keys check a lock flag file first). Off by default after every reboot. Plain on-screen state on the top screen ("KIDS MODE - locked"). Wheel buttons are NOT blocked (he races with the wheel).
+Rules: never turn on while sim=True/onTrack; never write iRacing files; the unlock must work with one Deck press even if irdeck crashes (hook dies with the process).
+Gate: new tests/kids-test.ps1 (flag file, key ignore logic, hook start/stop via irdeck-cli), 0 FAIL; build-irdeck.ps1; MAIN-page change needs Peter's Install/restart steps (docs/OPERATIONS.md).

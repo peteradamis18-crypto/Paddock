@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="home.css">
 <link rel="stylesheet" href="tv.css">
 <link rel="stylesheet" href="drive.css">
+<link rel="stylesheet" href="keymsg.css">
 </head>
 <body>
 <header id="strip">
@@ -122,6 +123,7 @@
   <div id="dFoot"><span id="dLaps"></span><span id="dRec" hidden><i></i><span></span></span></div>
 </section>
 <div id="toast" role="status" hidden></div>
+<div id="keyMsg" role="status" aria-live="polite"></div><!-- keymsg.js: what the last deck key did, 4 s, bottom-centre -->
 
 <!-- shown whenever no session is live: covers the whole screen, so no empty race boxes -->
 <div id="overlay" class="show">
@@ -167,5 +169,6 @@
 <script src="intro.js"></script>
 <script src="tv.js"></script>
 <script src="drive.js"></script>
+<script src="keymsg.js"></script>
 </body>
 </html>

@@ -1,0 +1,170 @@
+<title>Paddock Deck Rebuild</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; each deck page drawn as the real 8 x 4 Stream Deck XL grid, keys coloured by what changes */
+:root {
+  --bg: #0b0a08; --panel: #15130f; --line: #2a261d; --fg: #ece6d6; --mute: #9b937f;
+  --gold: #e8b931; --gold-ink: #17130a; --new: #3fbf7f; --fix: #e8b931; --gone: #c4523f; --same: #3a352a;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif; --body: "Barlow", "Segoe UI", sans-serif; --mono: "JetBrains Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font: 400 17px/1.55 var(--body); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 40px 80px; display: grid; gap: 44px; }
+h1 { font: 700 54px/1 var(--display); letter-spacing: .02em; margin: 0; text-wrap: balance; }
+h1 span { color: var(--gold); }
+h2 { font: 600 30px/1.1 var(--display); letter-spacing: .03em; margin: 0 0 14px; text-transform: uppercase; text-wrap: balance; }
+h3 { font: 600 21px/1.2 var(--display); letter-spacing: .04em; margin: 22px 0 8px; text-transform: uppercase; color: var(--gold); }
+p { margin: 0 0 12px; max-width: 68ch; }
+.lead { font-size: 20px; color: var(--mute); max-width: 62ch; }
+.lbl { font: 600 13px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; min-width: 640px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 13px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+td.n { font: 600 18px var(--mono); white-space: nowrap; }
+td.bad { color: #ff8a73; } td.ok { color: var(--new); }
+.flow { display: grid; gap: 12px; }
+.seq { background: var(--panel); border: 1px solid var(--line); padding: 14px 16px; }
+.seq b { font: 600 18px var(--display); letter-spacing: .05em; text-transform: uppercase; color: var(--gold); display: block; margin-bottom: 6px; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.step { font: 600 14px var(--mono); padding: 5px 9px; background: #211e16; border: 1px solid var(--line); }
+.step.x { border-color: var(--gone); color: #ff8a73; }
+.arrow { color: var(--mute); }
+.deck { overflow-x: auto; padding-bottom: 6px; }
+.grid { display: grid; grid-template-columns: repeat(8, 112px); gap: 8px; width: max-content; }
+.k { width: 112px; height: 112px; border-radius: 12px; background: #1b1913; border: 2px solid var(--same); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 6px; box-sizing: border-box; font: 700 17px/1.05 var(--display); letter-spacing: .04em; text-transform: uppercase; }
+.k small { display: block; font: 500 11px/1.2 var(--mono); letter-spacing: .02em; text-transform: none; color: var(--mute); margin-top: 6px; }
+.k.new { border-color: var(--new); } .k.fix { border-color: var(--fix); } .k.go { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); } .k.go small { color: #4a3d14; }
+.k.page { border-style: dashed; border-color: var(--mute); } .k.empty { background: transparent; border-style: dotted; border-color: var(--line); color: var(--line); }
+.k.stop { border-color: var(--gone); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 14px; color: var(--mute); }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 2px solid; vertical-align: -2px; margin-right: 6px; }
+ul { margin: 0; padding-left: 20px; max-width: 70ch; } li { margin: 0 0 8px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.cols > div { min-width: 0; background: var(--panel); border: 1px solid var(--line); padding: 16px 18px; }
+.ask { border: 2px solid var(--gold); padding: 18px 20px; }
+code { font: 500 15px var(--mono); color: var(--gold); }
+@media (max-width: 520px) { h1 { font-size: 40px; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="lbl">Stream Deck XL · from 4 days of your presses (20–23 Oct)</div>
+  <h1>Deck rebuild: <span>one press, always works</span></h1>
+  <p class="lead">I went through every key press in the log, traced each key into the code, and watched where it stopped. The deck failed you for a few clear reasons. Here is what broke, how you actually drive, and the new deck.</p>
+</header>
+
+<section>
+  <h2>What actually happened</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Presses</th><th>Worked</th><th>Why it failed</th></tr>
+    <tr><td>GET IN</td><td class="n">17</td><td class="n bad">0</td><td>After GET OUT, iRacing plays the replay behind the menu. GET IN saw "replay" and waited (15 times "WAIT"). The other 2 times there was no session, so it did nothing.</td></tr>
+    <tr><td>QUIT</td><td class="n">14</td><td class="n bad">1</td><td>Needs a second press within 3 s. You press once; the deck's repeat filter swallows the bounce, and the second press never comes.</td></tr>
+    <tr><td>RESTART</td><td class="n">15</td><td class="n">7</td><td>Same two-press trap (6 times only armed). Also needs you to press GET OUT first.</td></tr>
+    <tr><td>GET OUT</td><td class="n">41</td><td class="n">29</td><td>Refused 10 times because the car was still rolling (1 to 37 m/s). You then pressed again.</td></tr>
+    <tr><td>SKIP</td><td class="n">4</td><td class="n">3</td><td>Worked in the AI race. Once in Qualify it pressed Next but the race did not start (iRacing waits out the qualify clock).</td></tr>
+    <tr><td>MY DRIVE start</td><td class="n">1</td><td class="n bad">0</td><td>22 Oct: the "car damage off" step could not open the car panel, so the whole start stopped.</td></tr>
+    <tr><td>OFFICIAL</td><td class="n">1</td><td class="n bad">0</td><td>iRacing's Official is a link, the key looked for a button.</td></tr>
+    <tr><td>THANKS</td><td class="n">2</td><td class="n bad">sent twice</td><td>One press arrived twice, 1 s apart, so "Thanks!" went out twice.</td></tr>
+    <tr><td>VOL − / VOL +</td><td class="n">72</td><td class="n ok">72</td><td>Your most used keys, in bursts of 3–4 presses.</td></tr>
+    <tr><td>KEEP LAP · SAVE · TV</td><td class="n">0</td><td class="n">–</td><td>Never pressed. Recordings and best laps are kept automatically now; TV did nothing.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>How you actually drive</h2>
+  <div class="flow">
+    <div class="seq"><b>Test drive loop</b><div class="steps"><span class="step">LAST DRIVE</span><span class="arrow">→</span><span class="step">drive</span><span class="arrow">→</span><span class="step">GET OUT</span><span class="arrow">→</span><span class="step">RESTART / RESET</span><span class="arrow">→</span><span class="step x">GET IN (failed)</span><span class="arrow">→</span><span class="step">…</span><span class="arrow">→</span><span class="step">GET OUT</span><span class="arrow">→</span><span class="step x">QUIT (failed)</span></div></div>
+    <div class="seq"><b>AI race</b><div class="steps"><span class="step">AI RACE</span><span class="arrow">→</span><span class="step">practice</span><span class="arrow">→</span><span class="step">SKIP</span><span class="arrow">→</span><span class="step">qualify</span><span class="arrow">→</span><span class="step">SKIP</span><span class="arrow">→</span><span class="step">race</span><span class="arrow">→</span><span class="step">GET OUT</span><span class="arrow">→</span><span class="step">RESTART ×2</span><span class="arrow">→</span><span class="step">back in</span><span class="arrow">→</span><span class="step">…</span></div></div>
+    <div class="seq"><b>While driving</b><div class="steps"><span class="step">VOL ± bursts</span><span class="step">FUEL TO FINISH</span><span class="step">TIRES</span><span class="step">CLEAR</span><span class="step">THANKS</span></div></div>
+  </div>
+  <p style="margin-top:14px">Three keys carry the whole loop (GET OUT, RESTART, GET IN) and two of them broke. So the rule for every key is: <b>one press, from any state, finishes the whole job</b>. The key works out where you are; you never do the steps.</p>
+</section>
+
+<section>
+  <h2>What each key will do</h2>
+  <div class="cols">
+    <div><h3>GET IN</h3><p>Always puts you in the car. No sim: starts your last drive. Session screen or replay: presses Drive. In the garage: goes to the pits. Already in: nothing.</p></div>
+    <div><h3>GET OUT</h3><p>Still rolling? It waits for the car to stop (up to 15 s), then gets out. One press.</p></div>
+    <div><h3>RESTART</h3><p>AI race: gets you out, restarts the race, puts you back in. Test drive: back to the pits and in the car. One press.</p></div>
+    <div><h3>NEXT SESSION</h3><p>AI race: practice → qualify → race. In qualify it jumps straight to the race start. Test drive: back to the menu.</p></div>
+    <div><h3>RACE NOW</h3><p>New. From practice or qualify, straight to the green flag of the race.</p></div>
+    <div><h3>LEAVE</h3><p>Opens a small page with one big QUIT TO MENU key and BACK. Opening the page is the safety check, so QUIT itself is one press. No more "press again in 3 seconds".</p></div>
+  </div>
+  <p style="margin-top:14px">Every press also shows one line on the top screen for 4 seconds: what it did, or why not ("Waiting for the car to stop…", "No race running").</p>
+</section>
+
+<section>
+  <h2>The new MAIN page</h2>
+  <div class="deck"><div class="grid">
+    <div class="k">Home</div>
+    <div class="k go new">Last drive<small>start your last car + track</small></div>
+    <div class="k">AI race</div>
+    <div class="k">Car &amp; track</div>
+    <div class="k fix">Official</div>
+    <div class="k">Friends</div>
+    <div class="k fix">Kids</div>
+    <div class="k page">More</div>
+
+    <div class="k go fix">Get in<small>always</small></div>
+    <div class="k fix">Get out<small>waits for a stop</small></div>
+    <div class="k">Reset car</div>
+    <div class="k fix">Restart<small>one press</small></div>
+    <div class="k fix">Next session</div>
+    <div class="k new">Race now</div>
+    <div class="k new">Instant replay<small>last 30 s</small></div>
+    <div class="k page stop">Leave ▸</div>
+
+    <div class="k">Fuel to finish</div>
+    <div class="k">Tires</div>
+    <div class="k new">Fast repair</div>
+    <div class="k">Clear pit</div>
+    <div class="k">Overlays</div>
+    <div class="k">Review</div>
+    <div class="k">Vault</div>
+    <div class="k">Laps left<small>live</small></div>
+
+    <div class="k fix">Vol −<small>shows level</small></div>
+    <div class="k fix">Vol +<small>shows level</small></div>
+    <div class="k new">Mute spotter</div>
+    <div class="k">Sorry</div>
+    <div class="k fix">Thanks<small>never twice</small></div>
+    <div class="k">Relative</div>
+    <div class="k">Position<small>live</small></div>
+    <div class="k">Incidents<small>live</small></div>
+  </div></div>
+  <div class="legend"><span><i style="border-color:var(--new)"></i>new</span><span><i style="border-color:var(--fix)"></i>fixed or one press now</span><span><i style="border-color:var(--mute);border-style:dashed"></i>opens a page</span><span><i style="border-color:var(--same)"></i>same as today</span></div>
+  <p style="margin-top:12px">Gone from MAIN: KEEP LAP and SAVE (automatic now), TV (did nothing), TEST DRIVE (LAST DRIVE does it, with your last car and track).</p>
+</section>
+
+<section>
+  <h2>The pages behind keys</h2>
+  <h3>Leave</h3>
+  <div class="deck"><div class="grid">
+    <div class="k page">Back</div><div class="k empty"></div><div class="k empty"></div><div class="k stop" style="grid-column: span 2; width: auto">Quit to menu</div><div class="k empty"></div><div class="k empty"></div><div class="k">Sleep PC</div>
+  </div></div>
+  <h3>Kids</h3>
+  <div class="deck"><div class="grid">
+    <div class="k go">Get in</div><div class="k">Reset car</div><div class="k">Restart</div><div class="k">Vol −</div><div class="k">Vol +</div><div class="k empty"></div><div class="k empty"></div><div class="k page">Unlock<small>then press the flashing corner</small></div>
+  </div></div>
+  <p style="margin-top:12px">Kids mode locks the keyboard and mouse and swaps the deck to this page. The wheel and pedals keep working, and it now works <b>while the kids drive</b> (today it refuses when the sim is running, which is exactly when you need it). Paddock's own key presses still get through, so GET IN and RESTART work. Unlock needs two keys far apart in order, which a child mashing the deck won't hit. The top screen shows KIDS MODE in the corner.</p>
+</section>
+
+<section>
+  <h2>Other threads I'll pull</h2>
+  <ul>
+    <li><b>Deck health:</b> Stream Deck sometimes drops the MAIN page after a rebuild. The rebuild now checks and retries, and Rig Doctor will check it at every start.</li>
+    <li><b>Pop-ups:</b> iRacing's Latest News box hides every button from Paddock. It gets closed before any key runs, not only before LAST DRIVE.</li>
+    <li><b>Chat keys</b> ignore a repeat within 3 s, so a message never goes twice.</li>
+    <li><b>Live key faces</b> for the session keys: GET IN shows "IN CAR" when you are in, NEXT SESSION shows "→ RACE" in qualify. You see what the key will do before pressing.</li>
+    <li><b>Recording bug found:</b> a 16-minute qualify on 22 Oct was saved with 0 laps marked. I'll fix lap marking in recordings.</li>
+    <li><b>Live check:</b> before anything reaches your deck, I drive the full loop in iRacing myself: last drive, out, restart, in, next session, race now, leave, kids lock and unlock.</li>
+  </ul>
+</section>
+
+<section class="ask">
+  <h2>Your call</h2>
+  <p>The behaviour fixes (GET IN, GET OUT, RESTART, NEXT SESSION, QUIT through the Leave page, Official, chat repeats, the start fix, kids mode while driving) start now. The new layout moves some keys, so it waits for your yes. Then Paddock is next, as you said.</p>
+</section>
+</div>

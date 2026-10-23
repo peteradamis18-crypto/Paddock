@@ -1,4 +1,4 @@
-﻿# Every Stream Deck ACTION key, end to end, in real sessions (the real sim starts; you must not be in the car):
+# Every Stream Deck ACTION key, end to end, in real sessions (the real sim starts; you must not be in the car):
 #   AI race: startlast ai, getout, go, tow, replay, RESTART RACE (pressed twice), skip, quit mid-race
 #   Test drive: startlast td, quitmain
 #   Friends START (and its wheel strength put back), then quitmain
@@ -94,15 +94,14 @@ Shot 'replay'
 $null = Ir go
 Check 'back in the car after the replay keys (GO)' ((Sess).onTrack)
 
-'6. RESTART RACE (pressed twice, like the key)'
+'6. RESTART RACE (ONE press, like the key since 2026-10-23)'
 Start-Sleep -Seconds 4
 $s0 = Sess
-$r1 = Ir confirm restart-race restartrace
-Check 'the first press only arms it (nothing restarted)' ($r1.rc -eq 0 -and $r1.out -match 'armed' -and (Sess).time -ge $s0.time)
-Start-Sleep -Milliseconds 1200
 $t = Timed { Ir confirm restart-race restartrace }
 $s = Sess
-Check "the second press restarts the session and gets back in the car ($($t.secs) s)" ($t.r.rc -eq 0 -and $s.live -and $s.num -eq $s0.num -and $s.time -lt $s0.time -and $s.onTrack)
+Check 'the press does not arm: it restarts at once' ($t.r.out -match 'one press, no arming' -and $t.r.out -notmatch 'armed - press again')
+Check "the one press restarts the session and gets back in the car ($($t.secs) s)" ($t.r.rc -eq 0 -and $s.live -and $s.num -eq $s0.num -and $s.time -lt $s0.time -and $s.onTrack)
+Check 'the log says he is back in the car' ($t.r.out -match 'restart: back in the car')
 Check 'the sim''s Restart Session? dialog was met and confirmed' ($t.r.out -match 'the sim asks to confirm' -and (Test-Path (Join-Path $shots 'a-restartrace-dialog1.png')))
 "        session time $($s0.time) s -> $($s.time) s"
 
@@ -118,7 +117,6 @@ Shot 'after-skip'
 $t = Timed { Ir go }
 Check "GO gets in the car for the race ($($t.secs) s)" ($t.r.rc -eq 0 -and (Sess).onTrack)
 Start-Sleep -Seconds 6   # the session clock must be well past 0 to see it start over
-$null = Ir confirm restart-race restartrace; Start-Sleep -Milliseconds 1200
 $s0 = Sess
 $t = Timed { Ir confirm restart-race restartrace }
 $s = Sess
