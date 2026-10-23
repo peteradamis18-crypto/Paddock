@@ -502,7 +502,7 @@ namespace IRDeck
         // ---- Rig Doctor ----
         static int CmdDoctor()
         {
-            try { using (var wc = new System.Net.WebClient()) { wc.Proxy = null; wc.DownloadString("http://localhost:8199/api/doctor/run"); } Log("doctor: requested"); return 0; }   // no proxy lookup: it adds seconds
+            try { using (var wc = new System.Net.WebClient()) { wc.Proxy = null; wc.DownloadString("http://127.0.0.1:8199/api/doctor/run"); } Log("doctor: requested"); return 0; }   // no proxy lookup: it adds seconds
             catch (Exception ex) { Log("doctor: irdash not reachable (" + ex.Message + ")"); return 1; }
         }
 

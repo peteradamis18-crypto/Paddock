@@ -56,6 +56,10 @@ function Words($line) {
   return ''
 }
 Check "the table was read ($($rows.Count) rows)" ($rows.Count -ge 30)
+# from a fresh process "localhost" tries IPv6 first: 2.1 s per request, so every key message was lost (live 2026-10-23)
+$lh = @(Get-ChildItem (Join-Path $root 'src') -Filter *.cs | Select-String -Pattern 'http://localhost:8199' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })
+Check "irdeck talks to irdash at 127.0.0.1, never localhost ($($lh -join ', '))" ($lh.Count -eq 0 -and $say -match 'http://127\.0\.0\.1:8199/api/keymsg')
+Check 'the last message gets up to 800 ms to leave before the key exe exits' ($say -match 'int ms = 800 - ')
 $cases = [ordered]@{
   'go: in the car (press 2)' = 'ok|In the car'
   'smart: in the car' = 'ok|In the car'
@@ -73,6 +77,7 @@ $cases = [ordered]@{
   'quitmain refused: the car is still moving - slow down and press again' = 'no|The car did not stop'
   'skip: now in session 2 (Race) - the first Next did it' = 'ok|Next session: Race'
   'restart: back in the car' = 'ok|Race restarted'
+  'restart: test drive - back in the car in the pits' = 'ok|Back in the pits, in the car'
   'racenow: in the race, in the car' = 'ok|Race starting'
   'racenow: only an AI race can be fast-forwarded to its race (a Test Drive has no race, official sessions cannot be skipped)' = 'no|Only AI races can jump to the race'
   'racenow: still in Practice after 4 skips - stopped' = 'no|Could not reach the race'

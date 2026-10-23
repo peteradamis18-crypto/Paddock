@@ -344,6 +344,7 @@ namespace IRDeck
         static int AiStop(string code, string reason, AutomationElement window)
         {
             AiFail(code, "airace stopped: " + reason);
+            Log("airace: screen saved to " + SaveSimArea("fail-airace"));   // before the cleanup closes the wizard: what it was showing
             AiCleanup(window);
             return 3;
         }
@@ -628,11 +629,14 @@ namespace IRDeck
             if (row.Count < 3) return null;
             var c = new Cards { CarInfo = row[0], TrackInfo = row[2] };
             double ny = c.CarInfo.R.Y + 49;
+            // The NEAREST text left of each card's info button is that card's name. The tree also holds the home page behind the
+            // dialog: 2026-10-23 (Season 4 build) a news headline sat at the same height further left and was read as the car, so
+            // "did the car change?" never saw the new car and LAST DRIVE stopped.
             foreach (var u in els)
             {
                 if (Math.Abs(u.R.Y - ny) > 8 || u.Name.Length == 0) continue;
-                if (u.Type == ControlType.Text && u.R.X < c.CarInfo.R.X && c.CarName == null) c.CarName = u;
-                else if (u.Type == ControlType.Text && u.R.X > c.CarInfo.R.X + 100 && u.R.X < c.TrackInfo.R.X && c.TrackName == null) c.TrackName = u;
+                if (u.Type == ControlType.Text && u.R.X < c.CarInfo.R.X) { if (c.CarName == null || u.R.X > c.CarName.R.X) c.CarName = u; }
+                else if (u.Type == ControlType.Text && u.R.X > c.CarInfo.R.X + 100 && u.R.X < c.TrackInfo.R.X) { if (c.TrackName == null || u.R.X > c.TrackName.R.X) c.TrackName = u; }
                 else if (u.Type == ControlType.Button && u.R.X > c.TrackInfo.R.X - 150 && u.R.X < c.TrackInfo.R.X + 150) c.Layout = u;
             }
             return c;

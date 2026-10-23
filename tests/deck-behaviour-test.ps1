@@ -138,7 +138,7 @@ Check 'confirm quit-main stays two-press (arms)' ($cf -match 'armed - press agai
 $rr = Body $ir 'static int CmdRestartRaceBody()'
 Check 'restartrace is one-at-a-time and the doubled press is dropped' ((Body $ir 'static int CmdRestartRace()') -match 'WithNamedLock\("Local\\\\irdeck-restartrace"')
 Check 'restartrace with no session says so in plain words (rc 3)' ($rr -match '!SessionActive\(\)\) \{ Log\("restartrace: no session is running')
-Check 'restartrace, Test Drive: tow (waits for a rolling car), then makes sure he is in the car' ($rr -match 'EventType:\\s\*Test' -and $rr -match 'CmdTow\(\)' -and $rr -match 'trc = CmdGo\(\)' -and $rr -match 'restart: back in the car')
+Check 'restartrace, Test Drive: tow (waits for a rolling car), then makes sure he is in the car' ($rr -match 'EventType:\\s\*Test' -and $rr -match 'CmdTow\(\)' -and $rr -match 'trc = CmdGo\(\)' -and $rr -match 'restart: test drive - back in the car in the pits')
 Check 'restartrace, AI race: waits for a rolling car, Prev + confirm dialogs, waits for the start over, then CmdGo and logs "restart: back in the car"' ($rr -match 'WaitCarStopped\("restartrace"' -and $rr -match 'ClickPrevNext\(-1, "restartrace"\)' -and $rr -match 'ConfirmDialogs\(restarted' -and $rr -match 'rc = CmdGo\(\)' -and $rr -match 'restart: back in the car')
 Check 'restartrace falls back to the whole relaunch (CmdRestart) when Prev is not measured, and still ends in the car' ($rr -match 'rc = CmdRestart\(new string\[0\]\)' -and (Body $ir 'static int CmdRestart(string[] a)') -match 'return CmdGo\(\)')
 $pn = Body $ir 'static int ClickPrevNext('
@@ -168,6 +168,10 @@ $tds = Body $td 'static int CmdTdSetup(string[] a)'
 Check 'tdsetup: the damage switch panel failing no longer stops the start; it logs and goes on to the track' ($tds -match "damage switch not reachable - starting with iRacing's current damage setting" -and $tds -match '3\. damage off / on' -and $tds.IndexOf('damage switch not reachable') -lt $tds.IndexOf('// 4. track and layout'))
 Check 'tdsetup: it still stops when the Test Drive window itself is gone (not just the switch)' ($tds -match 'if \(!DialogOpen\(els\) \|\| ReadCards\(els\) == null\) return 1;')
 Check 'tdsetup: the CAR step and the track step still stop on failure' ($tds -match 'if \(EnsurePanel\(root, true\) == null\) return 1;' -and $tds -match 'if \(EnsurePanel\(root, false\) == null\) return 1;')
+
+$rc = Body $td 'static Cards ReadCards('
+Check 'Test Drive cards: the name is the text NEAREST each info button (a news headline behind the dialog was read as the car, 2026-10-23)' ($rc -match 'u\.R\.X > c\.CarName\.R\.X' -and $rc -match 'u\.R\.X > c\.TrackName\.R\.X' -and $rc -notmatch 'c\.CarName == null\) c\.CarName = u')
+Check 'AI RACE saves a picture of the screen when it stops' ((Body $td 'static int AiStop(') -match 'SaveSimArea\("fail-airace"\)')
 
 Section '5. kids mode while the sim runs'
 Check 'kids: KidsDriving is gone, arming never checks the sim or the car' ($kids -notmatch 'KidsDriving' -and (Body $kids 'static int KidsTurnOn(') -notmatch 'iRacingSim64DX11|IsOnTrack|refused')

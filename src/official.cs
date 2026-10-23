@@ -89,7 +89,7 @@ namespace IRDeck
             using (WebClient wc = new WebClient())
             {
                 wc.Encoding = Encoding.UTF8;
-                return Js().DeserializeObject(wc.DownloadString("http://localhost:8199" + path)) as Dictionary<string, object>;
+                return Js().DeserializeObject(wc.DownloadString("http://127.0.0.1:8199" + path)) as Dictionary<string, object>;
             }
         }
         static string OfS(Dictionary<string, object> d, string k) { object o; return d != null && d.TryGetValue(k, out o) && o != null ? Convert.ToString(o, CultureInfo.InvariantCulture) : ""; }
@@ -124,7 +124,7 @@ namespace IRDeck
             if (what.Length == 0) { Log("official fav: give a series id or its name"); return 1; }
             if (Regex.IsMatch(what, "^o[0-9a-f]{8}$"))
             {
-                try { using (WebClient wc = new WebClient()) wc.DownloadString("http://localhost:8199/api/do?c=offav&a=" + what); Log("official: star toggled for " + what); return 0; }
+                try { using (WebClient wc = new WebClient()) wc.DownloadString("http://127.0.0.1:8199/api/do?c=offav&a=" + what); Log("official: star toggled for " + what); return 0; }
                 catch (Exception ex) { Log("official fav: irdash is not answering (" + ex.Message + ")"); return 1; }
             }
             string f = Path.Combine(OfDir, "favourites.ini");
@@ -189,7 +189,7 @@ namespace IRDeck
                 result["checkedAt"] = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture); result["cars"] = cars; result["tracks"] = tracks;
                 Directory.CreateDirectory(OfDir);
                 File.WriteAllText(Path.Combine(OfDir, "owned-ui.json"), Js().Serialize(result), new UTF8Encoding(false));
-                try { using (WebClient wc = new WebClient()) wc.DownloadString("http://localhost:8199/official/refresh"); } catch { }
+                try { using (WebClient wc = new WebClient()) wc.DownloadString("http://127.0.0.1:8199/official/refresh"); } catch { }
                 Log("official scan: " + checkedN + " names checked in " + Math.Round((DateTime.Now - t0).TotalSeconds) + " s");
                 return 0;
             }

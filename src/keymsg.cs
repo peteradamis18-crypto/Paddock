@@ -21,24 +21,26 @@ namespace IRDeck
             {
                 if (KeyId.Length == 0 || string.IsNullOrEmpty(text)) return;
                 KeyMsgSent = true;
-                HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://localhost:8199/api/keymsg?key=" + Uri.EscapeDataString(KeyId) +
+                HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8199/api/keymsg?key=" + Uri.EscapeDataString(KeyId) +
                     "&kind=" + kind + "&text=" + Uri.EscapeDataString(text));
-                rq.Timeout = 300; rq.ReadWriteTimeout = 300; rq.Proxy = null; rq.KeepAlive = false;   // no proxy lookup: it adds seconds
+                rq.Timeout = 800; rq.ReadWriteTimeout = 800; rq.Proxy = null; rq.KeepAlive = false;   // no proxy lookup: it adds seconds
                 sayAt = DateTime.UtcNow;
                 sayPending = rq.BeginGetResponse(delegate (IAsyncResult ar) { try { ((HttpWebRequest)ar.AsyncState).EndGetResponse(ar).Close(); } catch { } }, rq);
             }
             catch { }
         }
 
-        // Lets a request sent in the last moments reach the wire (300 ms at most since it started), then the exe may exit.
+        // Lets the last request reach irdash (800 ms at most since it started), then the exe may exit. 127.0.0.1, never "localhost":
+        // from a fresh process "localhost" tries IPv6 first and took 2.1 s (live 2026-10-23: every message but the first was lost).
         static void SayFlush()
         {
-            try { if (sayPending != null) { int ms = 300 - (int)(DateTime.UtcNow - sayAt).TotalMilliseconds; if (ms > 0) sayPending.AsyncWaitHandle.WaitOne(ms); } } catch { }
+            try { if (sayPending != null) { int ms = 800 - (int)(DateTime.UtcNow - sayAt).TotalMilliseconds; if (ms > 0) sayPending.AsyncWaitHandle.WaitOne(ms); } } catch { }
         }
 
         // log wording -> {kind, plain words}. First match wins; $1 copies a captured part.
         static readonly string[][] SayTable = new string[][] {
             new[] { @"already in the car", "ok", "Already in the car" },
+            new[] { @"restart: test drive - back in the car", "ok", "Back in the pits, in the car" },
             new[] { @"restart: back in the car", "ok", "Race restarted" },
             new[] { @"tow: back in the car", "ok", "Car reset to the pits" },
             new[] { @"go: in the car|smart: in the car|START -> in the car|back in the car in the pits", "ok", "In the car" },

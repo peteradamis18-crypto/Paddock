@@ -310,7 +310,7 @@ namespace IRDeck
                 case "tdsetup": return CmdTdSetup(Slice(a, 1));   // testdrive.cs
                 case "tdfind": return CmdTdFind(Slice(a, 1));
                 case "showcase":   // replay the startup intro on the top screen (irdash refuses while driving)
-                    try { using (var wc = new System.Net.WebClient()) wc.DownloadString("http://localhost:8199/api/showcase"); Log("showcase: requested"); return 0; }
+                    try { using (var wc = new System.Net.WebClient()) wc.DownloadString("http://127.0.0.1:8199/api/showcase"); Log("showcase: requested"); return 0; }
                     catch (Exception ex) { Log("showcase: irdash not reachable (" + ex.Message + ")"); return 1; }
                 case "pit": return CmdPit(Slice(a, 1));
                 case "chat": return CmdChat(Slice(a, 1));
@@ -1279,7 +1279,7 @@ namespace IRDeck
                 Log("restartrace: Test Drive - back to the pits and into the car");
                 int trc = CmdTow();
                 if (trc == 0 && SessionActive() && !OnTrack()) trc = CmdGo();
-                if (trc == 0) Log(OnTrack() ? "restart: back in the car" : "restart: NOT in the car yet");
+                if (trc == 0) Log(OnTrack() ? "restart: test drive - back in the car in the pits" : "restart: NOT in the car yet");   // own words: the top screen says "Back in the pits", not "Race restarted"
                 return trc;
             }
             if (!ai) { Log("restartrace: only AI races can be restarted - use TOW TO PITS"); return 3; }
@@ -1608,8 +1608,8 @@ namespace IRDeck
                 using (var wc = new System.Net.WebClient())
                 {
                     wc.Proxy = null;   // no proxy lookup: it adds seconds
-                    if (dry) { wc.DownloadString("http://localhost:8199/tv"); Log("dash " + c + " (dry): irdash answers, nothing was pressed"); return 0; }
-                    wc.DownloadString("http://localhost:8199/api/do?c=" + c);
+                    if (dry) { wc.DownloadString("http://127.0.0.1:8199/tv"); Log("dash " + c + " (dry): irdash answers, nothing was pressed"); return 0; }
+                    wc.DownloadString("http://127.0.0.1:8199/api/do?c=" + c);
                 }
                 Log("dash " + c + ": done");
                 return 0;
