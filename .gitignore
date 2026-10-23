@@ -103,3 +103,8 @@
 /dash/kids.hook
 /dash/kids.tap
 /dash/kids-unlock.txt
+/ac/ac.json
+/ac/*.log
+/tools/python/
+/ac/state.json
+/ac/*.tmp

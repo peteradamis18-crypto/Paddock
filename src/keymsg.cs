@@ -75,6 +75,8 @@ namespace IRDeck
             new[] { @"power \w+: cancelled", "no", "Stopped: iRacing did not quit" },
             new[] { @"^power off$", "ok", "PC turning off in 5 seconds" },
             new[] { @"^power sleep$", "ok", "PC going to sleep" },
+            new[] { @"^ac: (AC did not answer.*|AC not connected.*|AC is not answering|AC control is not installed)$", "no", "$1" },
+            new[] { @"^ac: (AC (on|off).*)$", "ok", "$1" },
             new[] { @"mydrive: START|starting your last drive", "wait", "Starting your last drive" },
             new[] { @"choose a car and track first", "no", "Choose a car and track first" },
             new[] { @"The Test Drive window isn't open|iRacing UI is not running|press RIG ON", "no", "iRacing is not open" },

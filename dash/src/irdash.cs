@@ -2629,6 +2629,7 @@ namespace IRDash
             try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); }
             Coverage.Init(RootDir);   // where to watch in the U.S. (dash\coverage.json, coverage.cs)
             Doctor.Init(RootDir, Dir);
+            try { AcAuto.Init(RootDir); AcAuto.Start(); } catch (Exception ex) { Log.W("ac auto: could not start: " + ex.Message); }   // auto-cool the rig room (ac.cs, ac\ac.py); idle until ac\ac.json exists
             Phone.Init(RootDir, Dir); Home.Init(RootDir, cfg.Port);   // P1: the phone app's pairing + HOME's hero picture
             Career.ScanLater(File.Exists(Career.CacheFile) ? 120000 : 5000);
             Thread maps = new Thread(delegate () { try { TrackMaps.BuildAll(); } catch (Exception ex) { Log.W("maps: " + ex.Message); } });

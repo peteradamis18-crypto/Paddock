@@ -338,6 +338,7 @@ namespace IRDeck
                 case "center": return CmdCenter();
                 case "confirm": return CmdConfirm(Slice(a, 1));
                 case "power": return CmdPower(Slice(a, 1));
+                case "ac": return CmdAc(Slice(a, 1));   // the rig room's Midea AC (src\ac.cs, ac\ac.py)
                 case "rigon": return CmdRigOn(Slice(a, 1));
                 case "startlast": return CmdStartLast(Slice(a, 1));
                 case "tow": return CmdTow(Slice(a, 1));
@@ -1729,6 +1730,8 @@ namespace IRDeck
                 int rc = CmdQuitMain();   // leave iRacing cleanly first; refuses if the car is moving
                 if (rc != 0) { Log("power " + c + ": cancelled because iRacing did not quit"); return rc; }
             }
+            // the PC is going away: stop the cooling auto-cool started (a manual AC ON is left alone). Never blocks the power step.
+            if ((c == "off" || c == "sleep") && File.Exists(Path.Combine(Root, @"ac\ac.json"))) { try { CmdAc(new string[] { "pcoff" }); } catch { } }
             ProcessStartInfo psi;
             switch (c)
             {

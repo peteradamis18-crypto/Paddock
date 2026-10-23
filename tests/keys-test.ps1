@@ -125,7 +125,8 @@ foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $b
 Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
 $moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
   '0,1' = 'MARK SPOT'; '1,1' = 'BACK TO SPOT'; '2,1' = 'REPLAY'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
-  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
+  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS'
+  '0,3' = 'AC'; '1,3' = 'AC COOLER'; '2,3' = 'AC WARMER'; '3,3' = 'AC FAN' }   # the rig room's AC (2026-10-23)
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -134,7 +135,7 @@ foreach ($pos in $moreWant.Keys) {
   if ($k.label -ne $moreWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($moreWant[$pos])'" }
 }
 foreach ($k in $more) { if (-not $moreWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the MORE plan" } }
-Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, the bottom row empty)' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, the AC keys on the bottom row)' ($bad.Count -eq 0) ($bad -join '; ')
 
 # LEAVE: the page before MAIN. Opening it is the check, so the keys that end things are one press here.
 $leaveWant = [ordered]@{ '0,0' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '0,3' = 'KIDS MODE'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }

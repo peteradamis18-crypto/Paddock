@@ -90,6 +90,10 @@ $cases = [ordered]@{
   'kids: press HOME within 4 seconds to unlock' = 'wait|Press HOME within 4 seconds to unlock'
   'power off' = 'ok|PC turning off in 5 seconds'
   'power sleep' = 'ok|PC going to sleep'
+  'ac: AC on - cooling to 70°F - fan auto - room 75°F' = 'ok|AC on - cooling to 70°F - fan auto - room 75°F'
+  'ac: AC off - room 71°F' = 'ok|AC off - room 71°F'
+  "ac: AC not connected yet - run 'Connect AC' once" = "no|AC not connected yet - run 'Connect AC' once"
+  'ac: AC did not answer (timed out)' = 'no|AC did not answer (timed out)'
   'power off: cancelled because iRacing did not quit' = 'no|Stopped: iRacing did not quit'
 }
 foreach ($k in $cases.Keys) { $w = Words $k; Check "'$k' -> '$($cases[$k])'" ($w -eq $cases[$k]) }
