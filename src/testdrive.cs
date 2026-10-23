@@ -161,7 +161,7 @@ namespace IRDeck
             return id.StartsWith("wizard-sidebar-link-set-", StringComparison.Ordinal)
                 || id.StartsWith("default-close-modal-btn-", StringComparison.Ordinal)
                 || Same(name, "AI Single Player") || Same(name, "Single Race")
-                || Same(name, "Last Settings") || Same(name, "Close") || Same(name, "Back") || Same(name, "Select")
+                || Same(name, "Last Settings") || Same(name, "Close") || Same(name, "Back") || Same(name, "Select") || Same(name, "Add a Car")
                 || (aiAllowNew && Same(name, "New Race")) || (aiAllowRace && Same(name, "Race"))
                 || (aiAllowContinue && Same(name, "Continue"))
                 || (aiAllowLayout && Same(name, aiLayoutName));
@@ -191,6 +191,17 @@ namespace IRDeck
         {
             if (search == null) search = name;
             if (choose == null) choose = rs => BestRow(rs, u => AiRowName(u.Name), name) ?? BestRow(rs, u => AiRowName(u.Name), name + " button");
+            // 2026-10-23: the second AI race in a row shows the car step as "Set Car" with an "Add a Car" button and no car list (the
+            // first one shows the list at once). Press it so the list opens; then the normal search below.
+            if (car)
+                for (int i = 0; i < 12; i++)
+                {
+                    List<UEl> m0 = AiElements(modal);
+                    if (Find(m0, u => u.Id.StartsWith("select-car-id-", StringComparison.Ordinal)) != null) break;
+                    UEl add = Find(m0, u => (u.Type == ControlType.Button || u.Type == ControlType.Hyperlink) && Same(u.Name, "Add a Car"));
+                    if (add != null) { Log("airace: the car step shows Add a Car - opening the car list"); AiPress(add); break; }
+                    Thread.Sleep(250);
+                }
             UEl edit = null;
             if (!WaitFor(delegate { edit = null; List<UEl> ms = AiElements(modal); UEl panel = Find(ms, u => u.Id.StartsWith(car ? "select-car-id-" : "select-track-id-", StringComparison.Ordinal)); if (panel == null) return false; foreach (UEl x in ms) if (x.Type == ControlType.Edit && x.Name == "Search" && panel.R.Contains(x.R)) { edit = x; break; } return edit != null; /* three Search boxes exist (page behind, sidebar, this panel): only the one inside the car/track select panel */ }, 8000, 250, "UI CHANGED", car ? "car search" : "track search")) return null;
             // ValuePattern needs no focus or click (the background page has a search box too)
@@ -343,7 +354,7 @@ namespace IRDeck
 
         static int AiStop(string code, string reason, AutomationElement window)
         {
-            AiFail(code, "airace stopped: " + reason);
+            AiFail(code, "airace stopped: " + reason); Say("no", "AI race stopped: " + reason);
             Log("airace: screen saved to " + SaveSimArea("fail-airace"));   // before the cleanup closes the wizard: what it was showing
             AiCleanup(window);
             return 3;
@@ -354,7 +365,7 @@ namespace IRDeck
             if (SessionActive() || Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { Log("airace start: a session is running"); return 3; }
             MdCombo combo = AiCombo();
             if (combo == null || combo.Car.Length == 0 || combo.Track.Length == 0) { AiFail("NO CHOICE", "airace start: no MY DRIVE or last driven car and track"); return 3; }
-            Log("airace start" + (dry ? " --dry" : "") + ": " + combo.Car + " at " + combo.Track + (combo.Layout.Length > 0 ? " / " + combo.Layout : ""));
+            Log("airace start" + (dry ? " --dry" : "") + ": " + combo.Car + " at " + combo.Track + (combo.Layout.Length > 0 ? " / " + combo.Layout : "")); if (!dry) Say("wait", "Starting the AI race: " + combo.Car + " at " + combo.Track);
             if (dry) return 0;
             AutomationElement window = FindUiWindow(); if (window == null) { AiFail("UI CHANGED", "airace start: iRacing UI not found"); return 3; }
             tdUi = new IntPtr(window.Current.NativeWindowHandle);

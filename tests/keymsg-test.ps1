@@ -63,6 +63,7 @@ Check 'the last message gets up to 800 ms to leave before the key exe exits' ($s
 $cases = [ordered]@{
   'go: in the car (press 2)' = 'ok|In the car'
   'smart: in the car' = 'ok|In the car'
+  'airace wait: IsOnTrack ready in 0 ms' = 'ok|In the car'
   'smart: already in the car' = 'ok|Already in the car'
   'tow: back in the car in the pits' = 'ok|Car reset to the pits'
   'mydrive: START -> in the car in 34 s' = 'ok|In the car'

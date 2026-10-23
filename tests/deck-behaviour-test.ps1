@@ -173,6 +173,11 @@ $rc = Body $td 'static Cards ReadCards('
 Check 'Test Drive cards: the name is the text NEAREST each info button (a news headline behind the dialog was read as the car, 2026-10-23)' ($rc -match 'u\.R\.X > c\.CarName\.R\.X' -and $rc -match 'u\.R\.X > c\.TrackName\.R\.X' -and $rc -notmatch 'c\.CarName == null\) c\.CarName = u')
 Check 'AI RACE saves a picture of the screen when it stops' ((Body $td 'static int AiStop(') -match 'SaveSimArea\("fail-airace"\)')
 
+$ap = Body $td 'static UEl AiPickRow('
+Check 'AI RACE opens the car list with Add a Car when the car step shows that button instead (2nd AI race in a row, 2026-10-23)' ($ap -match 'Same\(u\.Name, "Add a Car"\)' -and $td -match 'Same\(name, "Add a Car"\)')
+Check 'AI RACE tells the top screen when it starts and why it stopped' ((Body $td 'static int AiStop(') -match 'Say\("no", "AI race stopped: "' -and $td -match 'Say\("wait", "Starting the AI race: "')
+Check 'HOME after KIDS says Kids mode off on the top screen' ($ir -match 'KidsUnlockByHome\(\); Say\("ok", "Kids mode off"\)')
+
 Section '5. kids mode while the sim runs'
 Check 'kids: KidsDriving is gone, arming never checks the sim or the car' ($kids -notmatch 'KidsDriving' -and (Body $kids 'static int KidsTurnOn(') -notmatch 'iRacingSim64DX11|IsOnTrack|refused')
 Check 'kids: the keyboard and mouse hooks let injected input through (DeckRules.HookPasses with the hook flags)' ($kids -match 'DeckRules\.HookPasses\(k\.flags, false' -and $kids -match 'DeckRules\.HookPasses\(m\.flags, true' -and $kids -match 'struct KidsMouse' -and $rules -match 'KbdInjected = 0x10' -and $rules -match 'MouseInjected = 0x01')

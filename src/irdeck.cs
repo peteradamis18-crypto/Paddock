@@ -249,7 +249,7 @@ namespace IRDeck
                 // K-01: kids mode ignores every deck key except the kids key and the few a child needs while driving (GET IN, TOW,
                 // RESTART, game volume: DeckRules.KidsAllows). The flag file is checked first, so one press of the kids key still
                 // unlocks after the hook process has died (the hook dies with it).
-                if (KidsLocked() && a.Length > 0 && a[0].Equals("rigon", StringComparison.OrdinalIgnoreCase) && KidsUnlockArmed()) { KidsUnlockByHome(); return 0; }   // KIDS, then HOME within 4 s
+                if (KidsLocked() && a.Length > 0 && a[0].Equals("rigon", StringComparison.OrdinalIgnoreCase) && KidsUnlockArmed()) { KidsUnlockByHome(); Say("ok", "Kids mode off"); SayFlush(); return 0; }   // KIDS, then HOME within 4 s
                 if (KidsLocked() && !DeckRules.KidsAllows(a))
                 {
                     Log(tag + "kids mode: ignored");

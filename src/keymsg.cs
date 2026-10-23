@@ -43,6 +43,7 @@ namespace IRDeck
             new[] { @"restart: test drive - back in the car", "ok", "Back in the pits, in the car" },
             new[] { @"restart: back in the car", "ok", "Race restarted" },
             new[] { @"tow: back in the car", "ok", "Car reset to the pits" },
+            new[] { @"airace wait: IsOnTrack ready", "ok", "In the car" },
             new[] { @"go: in the car|smart: in the car|START -> in the car|back in the car in the pits", "ok", "In the car" },
             new[] { @"getout: held Esc", "ok", "Out of the car" },
             new[] { @"you are not in the car", "ok", "Already out of the car" },
