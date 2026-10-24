@@ -125,8 +125,9 @@ foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $b
 Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
 $moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
   '0,1' = 'MARK SPOT'; '1,1' = 'BACK TO SPOT'; '2,1' = 'REPLAY'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
-  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS'
-  '0,3' = 'AC'; '1,3' = 'AC COOLER'; '2,3' = 'AC WARMER'; '3,3' = 'AC FAN' }   # the rig room's AC (2026-10-23)
+  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
+# the AC keys are on MORE's bottom row only once the AC is connected (ac\ac.json)
+if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC'; $moreWant['1,3'] = 'AC COOLER'; $moreWant['2,3'] = 'AC WARMER'; $moreWant['3,3'] = 'AC FAN' }
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }

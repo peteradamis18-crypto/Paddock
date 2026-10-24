@@ -18,6 +18,7 @@ namespace IRDeck
             if (Array.IndexOf(AcVerbs, verb) < 0) { Log("ac: need " + string.Join("|", AcVerbs)); return 1; }
             string py = Path.Combine(Root, @"tools\python\python.exe"), script = Path.Combine(Root, @"ac\ac.py");
             if (!File.Exists(py) || !File.Exists(script)) { Log("ac: AC control is not installed"); return 1; }
+            if (verb != "status" && verb != "auto" && verb != "pcoff") Say("wait", "Talking to the AC");   // Midea's server takes ~7 s
             string text; int code;
             int rc = RunAcPy(py, script, verb, out text, out code);
             if (rc != 0) { Log("ac: AC did not answer (" + (rc == 2 ? "timed out" : "could not start") + ")"); return 1; }
@@ -25,7 +26,7 @@ namespace IRDeck
             return code == 0 ? 0 : code == 2 ? 3 : 1;
         }
 
-        // Runs ac.py hidden, at most 20 s (the AC answers in about 1-2 s). -X utf8 so the ° sign survives.
+        // Runs ac.py hidden, at most 30 s (through Midea's server a command takes about 7 s). -X utf8 so the ° sign survives.
         static int RunAcPy(string py, string script, string verb, out string text, out int code)
         {
             text = ""; code = 1;
@@ -40,7 +41,7 @@ namespace IRDeck
                     p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
                     p.ErrorDataReceived += delegate { };   // drain stderr so a noisy library can't block the pipe
                     p.BeginOutputReadLine(); p.BeginErrorReadLine();
-                    if (!p.WaitForExit(20000)) { try { p.Kill(); } catch { } return 2; }
+                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return 2; }
                     p.WaitForExit();   // flushes the async readers
                     string o; lock (sb) o = sb.ToString();
                     string[] lines = o.Replace("\r", "").Trim().Split('\n');

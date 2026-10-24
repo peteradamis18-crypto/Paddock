@@ -213,11 +213,14 @@ $more = [ordered]@{
   '4,2' = K 'IN-CAR' '' 'talk' $null                           (L 'bb-f8'           'key --sim f8')
   '5,2' = K 'WEATHER' '' 'talk' $null                          (L 'bb-f11'          'key --sim f11')
   '6,2' = K 'ANALYSIS' '' 'nav' 'info'                         @{ plugin = 'com.peter.rigintro.analysis'; name = 'Analysis' }   # moved off MAIN (DK-2), same screen
-  # the rig room's Midea AC (src\ac.cs -> ac\ac.py). Auto-cool runs on its own from irdash; these are for when Peter wants it now.
-  '0,3' = K 'AC' '' 'nav' 'power'                              (L 'ac-toggle'       'ac toggle')
-  '1,3' = K 'AC' 'COOLER' 'nav' 'down'                         (L 'ac-cooler'       'ac cooler')
-  '2,3' = K 'AC' 'WARMER' 'nav' 'up'                           (L 'ac-warmer'       'ac warmer')
-  '3,3' = K 'AC' 'FAN' 'nav' $null                             (L 'ac-fan'          'ac fan')
+}
+# the rig room's Midea AC (src\ac.cs -> ac\ac.py): the keys appear only once the AC is connected (ac\ac.json exists), so the
+# deck never shows keys that can't work (2026-10-23: connected through the Midea Air route, ac\cloud.bin)
+if ((Test-Path (Join-Path $here 'ac\ac.json')) -or (Test-Path (Join-Path $here 'ac\cloud.bin'))) {   # connected: local key or the Midea Air login
+  $more['0,3'] = K 'AC' '' 'nav' 'power'                      (L 'ac-toggle'       'ac toggle')
+  $more['1,3'] = K 'AC' 'COOLER' 'nav' 'down'                 (L 'ac-cooler'       'ac cooler')
+  $more['2,3'] = K 'AC' 'WARMER' 'nav' 'up'                   (L 'ac-warmer'       'ac warmer')
+  $more['3,3'] = K 'AC' 'FAN' 'nav' $null                     (L 'ac-fan'          'ac fan')
 }
 # ---------- write the profile ----------
 if (-not $Preview) {

@@ -36,7 +36,7 @@ namespace IRDash
         static void Tick()
         {
             string py = Path.Combine(root, @"tools\python\python.exe"), script = Path.Combine(root, @"ac\ac.py");
-            if (!File.Exists(Path.Combine(root, @"ac\ac.json")) || !File.Exists(py) || !File.Exists(script)) return;   // not connected yet
+            if ((!File.Exists(Path.Combine(root, @"ac\ac.json")) && !File.Exists(Path.Combine(root, @"ac\cloud.bin"))) || !File.Exists(py) || !File.Exists(script)) return;   // not connected yet (local key or Midea Air login)
             ProcessStartInfo psi = new ProcessStartInfo(py, "-I -X utf8 \"" + script + "\" auto");
             psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
             psi.StandardOutputEncoding = Encoding.UTF8; psi.WorkingDirectory = root;
@@ -47,7 +47,7 @@ namespace IRDash
                 p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
                 p.ErrorDataReceived += delegate { };
                 p.BeginOutputReadLine(); p.BeginErrorReadLine();
-                if (!p.WaitForExit(20000)) { try { p.Kill(); } catch { } Log.W("ac auto: the AC did not answer in 20 s"); return; }
+                if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } Log.W("ac auto: the AC did not answer in 30 s"); return; }
                 p.WaitForExit();
                 string o; lock (sb) o = sb.ToString().Trim();
                 string last = o.Length == 0 ? "" : o.Substring(o.LastIndexOf('\n') + 1).Trim();

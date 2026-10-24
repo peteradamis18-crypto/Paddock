@@ -1731,7 +1731,7 @@ namespace IRDeck
                 if (rc != 0) { Log("power " + c + ": cancelled because iRacing did not quit"); return rc; }
             }
             // the PC is going away: stop the cooling auto-cool started (a manual AC ON is left alone). Never blocks the power step.
-            if ((c == "off" || c == "sleep") && File.Exists(Path.Combine(Root, @"ac\ac.json"))) { try { CmdAc(new string[] { "pcoff" }); } catch { } }
+            if ((c == "off" || c == "sleep") && (File.Exists(Path.Combine(Root, @"ac\ac.json")) || File.Exists(Path.Combine(Root, @"ac\cloud.bin")))) { try { CmdAc(new string[] { "pcoff" }); } catch { } }
             ProcessStartInfo psi;
             switch (c)
             {

@@ -109,3 +109,5 @@
 /ac/state.json
 /ac/*.tmp
 __pycache__/
+/ac/getkey.log
+/ac/cloud.bin

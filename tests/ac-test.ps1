@@ -1,4 +1,4 @@
-# ac-test.ps1 - the rig room's Midea AC: ac\ac.py (msmart-ng in tools\python), irdeck's `ac` command (src\ac.cs), the four
+﻿# ac-test.ps1 - the rig room's Midea AC: ac\ac.py (msmart-ng in tools\python), irdeck's `ac` command (src\ac.cs), the four
 # MORE keys, auto-cool in irdash (dash\src\ac.cs) and the secret key file staying out of the public repo.
 #   1. offline: the auto-cool rule and the °F/°C steps, run from ac.py itself
 #   2. offline: ac.py and irdeck without a key say "not connected" and change nothing
@@ -59,21 +59,25 @@ $db = [IO.File]::ReadAllText((Join-Path $root 'dash\build.ps1')); $id = [IO.File
 $bd = [IO.File]::ReadAllText((Join-Path $root 'build-deck.ps1')); $gi = [IO.File]::ReadAllText((Join-Path $root '.gitignore'))
 $acs = [IO.File]::ReadAllText((Join-Path $root 'src\ac.cs')); $dac = [IO.File]::ReadAllText((Join-Path $root 'dash\src\ac.cs'))
 Check 'irdeck builds src\ac.cs and has the ac command' ($bi -match 'src\\ac\.cs' -and $ir -match 'case "ac": return CmdAc')
-Check 'irdeck waits at most 20 s for the AC and never blocks on its output' ($acs -match 'WaitForExit\(20000\)' -and $acs -match 'BeginOutputReadLine' -and $acs -notmatch 'ReadToEnd')
+Check 'irdeck waits at most 30 s for the AC and never blocks on its output' ($acs -match 'WaitForExit\(30000\)' -and $acs -match 'BeginOutputReadLine' -and $acs -notmatch 'ReadToEnd')
 Check 'SLEEP PC / SHUT DOWN PC stop the cooling auto-cool started' ($ir -match '"pcoff"')
 Check 'irdash builds dash\src\ac.cs and starts auto-cool' ($db -match 'src\\ac\.cs' -and $id -match 'AcAuto\.Init\(RootDir\); AcAuto\.Start\(\)')
-Check 'auto-cool runs every 2 min, BelowNormal, idle until the AC is connected' ($dac -match 'EveryMs = 120000' -and $dac -match 'BelowNormal' -and $dac -match 'ac\\ac\.json')
+Check 'auto-cool runs every 2 min, BelowNormal, idle until the AC is connected' ($dac -match 'EveryMs = 120000' -and $dac -match 'BelowNormal' -and $dac -match 'ac\\ac\.json' -and $dac -match 'ac\\cloud\.bin')
 Check 'MORE has AC, AC COOLER, AC WARMER, AC FAN' ($bd -match "'ac toggle'" -and $bd -match "'ac cooler'" -and $bd -match "'ac warmer'" -and $bd -match "'ac fan'")
-Check 'the AC key file and portable Python are kept out of the public repo' ($gi -match '(?m)^/ac/ac\.json' -and $gi -match '(?m)^/tools/python/')
+Check 'the AC key file, the saved Midea Air login and portable Python are kept out of the public repo' ($gi -match '(?m)^/ac/ac\.json' -and $gi -match '(?m)^/ac/cloud\.bin' -and $gi -match '(?m)^/tools/python/')
 $git = 'C:\Users\peter\AppData\Local\grok\git\2.55.0.windows.5\cmd\git.exe'
-if (Test-Path $git) { $tracked = & $git -C $root ls-files ac/ac.json tools/python; Check 'git tracks neither' ([string]::IsNullOrEmpty(($tracked -join ''))) ($tracked -join ', ') }
-Check 'Connect AC.cmd asks for the email itself and never stores it' ([IO.File]::ReadAllText((Join-Path $root 'ac\Connect AC.cmd')) -match 'set ACMAIL=\s*\r?\n')
+if (Test-Path $git) { $tracked = & $git -C $root ls-files ac/ac.json ac/cloud.bin tools/python; Check 'git tracks neither' ([string]::IsNullOrEmpty(($tracked -join ''))) ($tracked -join ', ') }
+$ct = [IO.File]::ReadAllText((Join-Path $root 'ac\cloudtry.py'))
+Check 'Connect AC saves the Midea Air login only after the AC answered, DPAPI-encrypted, never in plain text' ($ct -match 'CryptProtectData' -and $ct.IndexOf('AC answered through Midea Air') -lt $ct.IndexOf('protect(json.dumps'))
+$ap = [IO.File]::ReadAllText((Join-Path $root 'ac\ac.py'))
+Check 'an OFF with the remote or the app pauses auto-cool for an hour (it never fights Peter)' ($ap -match 'st\.get\("last_on"\) and not dev\.power_state' -and $ap -match 'manual_pause_min')
+Check 'FAN leaves Auto mode for Cool (Midea locks the fan in Auto)' ($ap -match 'in \(MODE_AUTO, MODE_DRY\)')
 
 Section '4. live (read-only)'
-if (-not (Test-Path (Join-Path $root 'ac\ac.json'))) { '  (skipped: the AC is not connected yet - run ac\Connect AC.cmd)' }
+if (-not (Test-Path (Join-Path $root 'ac\ac.json')) -and -not (Test-Path (Join-Path $root 'ac\cloud.bin'))) { '  (skipped: the AC is not connected yet - run ac\Connect AC.cmd)' }
 else {
   $o = & $py -I -X utf8 (Join-Path $root 'ac\ac.py') status 2>&1 | ForEach-Object { "$_" }
-  $last = $o[-1]
+  $last = @($o)[-1]   # one line comes back as a string; @() keeps it whole
   Check 'the real AC answers status with its state and the room temperature' ($LASTEXITCODE -eq 0 -and $last -match '^AC (on|off)' -and $last -match 'room \d+°F') $last
   Check 'state.json written for the top screen' ((Get-Item (Join-Path $root 'ac\state.json')).LastWriteTime -gt (Get-Date).AddMinutes(-1))
 }

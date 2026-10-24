@@ -76,11 +76,11 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **SEAT LOWER** / **SEAT HIGHER** | Moves your view down or up. |
 | **TIMING, STANDINGS, FUEL BOX, TIRE BOX, IN-CAR, WEATHER** | Shows that iRacing box (F1, F2, F4, F5, F8, F11) while you are in the sim. |
 | **ANALYSIS** | Opens the analysis screen on the deck. |
-| **AC** | Turns the room AC on (cooling) or off. Turning it off yourself pauses auto-cool for an hour. |
+| **AC** | Turns the room AC on or off, like the remote's power button (it keeps its own mode and temperature). Turning it off, here or with the remote or app, pauses auto-cool for an hour. |
 | **AC COOLER** / **AC WARMER** | Sets the AC about 1 °F cooler or warmer (turns it on if it was off). |
-| **AC FAN** | Steps the AC fan: low, medium, high, auto. |
+| **AC FAN** | Steps the AC fan: low, medium, high, auto. If the AC is in Auto mode it switches to Cool first, because Auto locks the fan. |
 
-**Auto-cool.** While the PC is on, Paddock checks the room every 2 minutes using the AC's own thermometer. At 76 °F or warmer it turns the AC on, cooling to 70 °F. At 72 °F or cooler it turns it off again, but only if auto-cool turned it on. SLEEP PC and SHUT DOWN PC also turn off cooling that auto-cool started. The top screen says what the AC is doing whenever a key is pressed or auto-cool switches it.
+**Auto-cool.** While the PC is on, Paddock checks the room every 2 minutes using the AC's own thermometer. At 76 °F or warmer it turns the AC on, cooling to 70 °F. At 72 °F or cooler it turns it off again, but only if auto-cool turned it on. SLEEP PC and SHUT DOWN PC also turn off cooling that auto-cool started. The top screen says what the AC is doing whenever a key is pressed or auto-cool switches it. Each AC key takes about 7 seconds, because the command goes through Midea's server, the same way the Midea Air app does it.
 
 
 ## Screens on the deck
