@@ -100,12 +100,48 @@ async def connect():
     return dev
 
 
-async def run(verb):
+def settings_verb(verb, args):
+    """autocool on|off, startat <°F>: Paddock's own settings, no AC traffic (the AC screen's bottom row)."""
+    s = dict(DEFAULTS); s.update(load(SETTINGS, {}))
+    if verb == "autocool":
+        s["auto"] = (args[0] if args else "") .lower() == "on"
+    else:
+        f = int(round(float(args[0])))
+        s["on_above_f"] = max(68, min(90, f))
+        s["off_below_f"] = s["on_above_f"] - 4          # stop 4 °F lower, so it never flicks on and off around one number
+        s["cool_to_f"] = s["off_below_f"] - 2              # cool a little past the stop point (76 -> stops 72, cools to 70)
+    save(SETTINGS, {k: s[k] for k in DEFAULTS})
+    st = load(STATE, {}); st.update({"auto": bool(s["auto"]), "on_above_f": s["on_above_f"], "off_below_f": s["off_below_f"], "cool_to_f": s["cool_to_f"]})
+    save(STATE, st)
+    print("Auto-cool %s - cools at %d°F, stops at %d°F" % ("on" if s["auto"] else "off", s["on_above_f"], s["off_below_f"]))
+
+
+async def run(verb, args=()):
     s = dict(DEFAULTS); s.update(load(SETTINGS, {}))
     st = load(STATE, {})
     dev = await connect()
     changed = False
-    if verb in ("on", "toggle") and (verb == "on" or not dev.power_state):
+    if verb == "set":
+        # the AC screen: one command with everything that changed since the last one (power=1 mode=2 temp=23.5 fan=40, temp in °C)
+        want = dict(a.split("=", 1) for a in args if "=" in a)
+        if "power" in want:
+            on = want["power"] == "1"
+            if on != bool(dev.power_state):
+                dev.power_state = on; changed = True
+                st["auto_on"] = False
+                st["pause_until"] = 0 if on else time.time() + 60 * s["manual_pause_min"]
+        if "mode" in want and int(want["mode"]) in MODE_WORD:
+            dev.operational_mode = int(want["mode"]); changed = True
+        if "temp" in want:
+            dev.target_temperature = max(16.0, min(30.0, round(float(want["temp"]) * 2) / 2)); changed = True
+        if "fan" in want and int(want["fan"]) in FAN_WORD:
+            if int(want["fan"]) != FAN_AUTO and int(dev.operational_mode) in (MODE_AUTO, MODE_DRY):
+                dev.operational_mode = MODE_COOL      # Midea locks the fan in Auto / Dry: cooling lets it change
+            dev.fan_speed = int(want["fan"]); changed = True
+        if changed and "power" not in want and not dev.power_state:
+            dev.power_state = True; st["pause_until"] = 0   # changing a setting on a switched-off AC means "on, like this"
+        st["auto_on"] = False if changed else st.get("auto_on", False)
+    elif verb in ("on", "toggle") and (verb == "on" or not dev.power_state):
         if not dev.power_state:
             dev.power_state = True               # like the remote's power button: the AC keeps its own last mode and temperature
             changed = True
@@ -157,8 +193,9 @@ async def run(verb):
     st["we_turned_off"] = bool(changed and not dev.power_state)   # an OFF that came from Paddock itself (deck key, auto, PC off)
     st["last_on"] = bool(dev.power_state)
     st.update({"at": time.time(), "text": text, "on": bool(dev.power_state), "room_f": c2f(dev.indoor_temperature),
-               "target_f": c2f(dev.target_temperature), "auto": bool(s["auto"]),
-               "paused": time.time() < st.get("pause_until", 0)})
+               "target_f": c2f(dev.target_temperature), "target_c": dev.target_temperature, "mode": int(dev.operational_mode),
+               "fan": int(dev.fan_speed), "auto": bool(s["auto"]), "on_above_f": s["on_above_f"], "off_below_f": s["off_below_f"],
+               "cool_to_f": s["cool_to_f"], "paused": time.time() < st.get("pause_until", 0)})
     save(STATE, st)
     # auto prints "AUTO <what it did>" only when it switched the AC, so irdash knows to show it on the top screen
     print(("AUTO " + st.get("auto_said", text)) if (verb == "auto" and changed) else text)
@@ -167,7 +204,9 @@ async def run(verb):
 def main():
     verb = sys.argv[1].lower() if len(sys.argv) > 1 else "status"
     try:
-        asyncio.run(run(verb))
+        if verb in ("autocool", "startat"):
+            settings_verb(verb, sys.argv[2:]); return
+        asyncio.run(run(verb, sys.argv[2:]))
     except SystemExit as e:
         if e.code not in (None, 0): print(str(e.code)); sys.exit(2)
     except Exception as e:

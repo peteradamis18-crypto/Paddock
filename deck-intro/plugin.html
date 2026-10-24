@@ -1424,8 +1424,102 @@ const Sound = new class extends Screen {
   }
 };
 
+// ---------------- AC screen (the rig room's Midea AC, 2026-10-23) ----------------
+// One page with everything: power, the room and target temperature, mode, fan, three one-press presets and auto-cool.
+// irdash (dash\src\ac.cs) keeps what was pressed and sends it to the AC as ONE command (~7 s through Midea's server), so the keys
+// show the new setting at once and several quick presses never queue up as several waits. /ac?live=1 keeps it fresh while open.
+const ACMODES = [[2, 'cool', 'COOL'], [1, 'auto', 'AUTO'], [3, 'dry', 'DRY'], [5, 'fan', 'FAN ONLY']];
+const ACFANS = [[40, 'low', 'LOW'], [60, 'medium', 'MEDIUM'], [80, 'high', 'HIGH'], [102, 'auto', 'AUTO']];
+const ACMODEWORD = { 1: 'AUTO', 2: 'COOLING', 3: 'DRYING', 4: 'HEATING', 5: 'FAN ONLY' };
+const Ac = new class extends Screen {
+  constructor() {
+    super('ac', SNDCOLORS);
+    this.s = null;                 // the last /ac
+    this.interval = 700;
+  }
+  hasState() { return !!this.s; }
+
+  // the AC key on MORE: AC, and on / off with the room temperature once it is known
+  keyIcon(force) {
+    if (!this.keys.size) return;
+    const s = this.s || {}, sub = !s.connected ? 'SCREEN' : (s.on ? 'ON' : 'OFF') + (s.room_f != null ? '  ' + s.room_f + '°F' : '');
+    if (!force && this.keyShown === sub) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 40px ' + FONT; g.fillText('AC', 72, 66);
+    g.fillStyle = s.connected && s.on ? GREEN : INK; g.font = '400 22px ' + FONT; g.fillText(sub, 72, 102);
+    this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
+  }
+
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    try { this.s = await this.get('/ac'); } catch (e) { this.s = { connected: false }; }
+    this.keyIcon(false);
+    this.warm();
+  }
+
+  async open() {
+    if (!deviceId) return;
+    Perf.begin('ac');
+    this.switchTo('RigAC'); Perf.mark('ac', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.s) this.warm();
+  }
+  exit() { this.switchTo(''); }
+
+  async poll() {
+    try { this.s = await this.get('/ac?live=1'); } catch (e) { this.s = { connected: false, offline: true }; }
+    this.relayout();
+  }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(150);       // irdash already shows the press; look again almost at once
+  }
+
+  // the ROOM key: the room temperature big, what the AC is doing small under it (every label sits on ONE key: the deck's
+  // bezels between keys cut through text spread over two keys - first draft, 2026-10-23)
+  paintRoom(x, px, py, pw, ph, s) {
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = GOLD; x.font = '600 14px ' + FONT; x.fillText('ROOM', px + pw / 2, py + 15);
+    x.fillStyle = INK; x.font = '600 40px ' + FONT; x.fillText(s.room_f != null ? s.room_f + '°F' : '--', px + pw / 2, py + ph / 2 + 2, pw - 8);
+    x.font = '600 13px ' + FONT;
+    if (s.busy) { x.fillStyle = '#d98b2b'; x.fillText('SENDING…', px + pw / 2, py + ph - 15); }
+    else { x.fillStyle = s.on ? GREEN : '#8a867d'; x.fillText(s.on ? ACMODEWORD[s.mode] : 'AC OFF', px + pw / 2, py + ph - 15, pw - 8); }
+  }
+
+  build() {
+    const s = this.s, R = [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more); R.push(o); };
+    if (!s.connected || !s.read) {
+      add(0, 0, 8, 3, s.offline ? 'DASHBOARD NOT ANSWERING' : !s.connected ? 'AC NOT CONNECTED' : 'READING THE AC', s.connected ? 'One moment' : 'Run Connect AC once (ac folder)', null, null, 'amber', 2, { size: 38 });
+      add(7, 3, 1, 1, 'EXIT', 'AC', 'exit', null, 'stop');
+      return R;
+    }
+    // row 1, what is used most: power, the room, the target, the one-press presets
+    add(0, 0, 1, 1, s.on ? 'AC ON' : 'AC OFF', s.on ? 'PRESS: OFF' : 'PRESS: ON', 'acpower', null, s.on ? 'go' : 'grey', 0, { size: 26 });
+    add(1, 0, 1, 1, '', '', null, null, 'banner', 0, { extra: JSON.stringify([s.room_f, s.on, s.mode, s.busy]), noflash: true, paint: (x, px, py, pw, ph) => this.paintRoom(x, px, py, pw, ph, s) });
+    add(2, 0, 1, 1, '−', 'COOLER', 'actemp', '-1', '', 0, { size: 50 });
+    add(3, 0, 1, 1, s.target_f + '°F', 'TARGET', null, null, 'banner', 0, { size: 36 });
+    add(4, 0, 1, 1, '+', 'WARMER', 'actemp', '+1', '', 0, { size: 50 });
+    add(5, 0, 1, 1, 'MAX COOL', '64°F FAN HIGH', 'acpreset', 'max', '', 2);
+    add(6, 0, 1, 1, 'COMFORT', '72°F FAN AUTO', 'acpreset', 'comfort', '', 2);
+    add(7, 0, 1, 1, 'QUIET', '72°F FAN LOW', 'acpreset', 'quiet', '', 2);
+    // row 2: mode (lit = what the AC is doing; nothing lit while it is off)
+    ACMODES.concat([[4, 'heat', 'HEAT']]).forEach(([m, arg, label], i) => add(i, 1, 1, 1, label, 'MODE', 'acmode', arg, s.on && s.mode === m ? (m === 4 ? 'amber' : 'sel') : '', 2));
+    // row 3: fan
+    ACFANS.forEach(([f, arg, label], i) => add(i, 2, 1, 1, label, 'FAN', 'acfan', arg, s.on && s.fan === f ? 'sel' : '', 2));
+    // row 4: auto-cool and when it starts, EXIT
+    add(0, 3, 1, 1, s.auto ? 'AUTO-COOL ON' : 'AUTO-COOL OFF', s.auto ? (s.paused ? 'PAUSED 1 HOUR' : 'STOPS ' + s.off_below_f + '°F') : 'PRESS: ON', 'acauto', null, s.auto ? (s.paused ? 'amber' : 'sel') : 'grey', 2);
+    add(1, 3, 1, 1, '−', 'START', 'acstart', '-1', s.auto ? '' : 'dim', 0, { size: 50 });
+    add(2, 3, 1, 1, s.on_above_f + '°F', 'STARTS AT', null, null, 'banner', 0, { size: 36 });
+    add(3, 3, 1, 1, '+', 'START', 'acstart', '+1', s.auto ? '' : 'dim', 0, { size: 50 });
+    add(7, 3, 1, 1, 'EXIT', 'AC', 'exit', null, 'stop');
+    return R;
+  }
+};
 // The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
-const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound };
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac };
 
 // ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
 // irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.
@@ -1488,6 +1582,7 @@ async function pollLoop() {
     try { await Replay.keyTick(); } catch (e) { }
     try { await Analysis.keyTick(); } catch (e) { }
     try { await Sound.keyTick(); } catch (e) { }
+    try { await Ac.keyTick(); } catch (e) { }
     try { await RigDoctor.tick(); } catch (e) { }
     await sleep(2000);
   }

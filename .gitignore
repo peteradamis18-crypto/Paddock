@@ -111,3 +111,4 @@
 __pycache__/
 /ac/getkey.log
 /ac/cloud.bin
+/ac/settings.json
