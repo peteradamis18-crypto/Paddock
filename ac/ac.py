@@ -116,10 +116,46 @@ def settings_verb(verb, args):
     print("Auto-cool %s - cools at %d°F, stops at %d°F" % ("on" if s["auto"] else "off", s["on_above_f"], s["off_below_f"]))
 
 
+def snapshot(dev):
+    return (bool(dev.power_state), int(dev.operational_mode), float(dev.target_temperature or 0), int(dev.fan_speed))
+
+
+def put(dev, snap):
+    dev.power_state, dev.operational_mode, dev.target_temperature, dev.fan_speed = snap
+
+
+# Midea's server drops about 1 command in 15 ("CloudRequestError", 2026-10-23 - one was Peter's AC ON). Reading is retried as is.
+# A failed SEND is never blindly repeated: the AC may have done it and only the answer got lost, and a second COOLER or
+# toggle would then step twice. So it reads the AC again and sends only if the change is not there yet.
+async def connect_retry():
+    for i in range(3):
+        try:
+            return await connect()
+        except SystemExit:
+            raise
+        except Exception:
+            if i == 2: raise
+            await asyncio.sleep(1.5)
+
+
+async def apply_retry(dev):
+    want = snapshot(dev)
+    for i in range(3):
+        try:
+            await dev.apply()
+            return dev
+        except Exception:
+            if i == 2: raise
+            await asyncio.sleep(1.5)
+            dev = await connect_retry()
+            if snapshot(dev) == want: return dev      # it went through; only the answer was lost
+            put(dev, want)
+
+
 async def run(verb, args=()):
     s = dict(DEFAULTS); s.update(load(SETTINGS, {}))
     st = load(STATE, {})
-    dev = await connect()
+    dev = await connect_retry()
     changed = False
     if verb == "set":
         # the AC screen: one command with everything that changed since the last one (power=1 mode=2 temp=23.5 fan=40, temp in °C)
@@ -186,9 +222,10 @@ async def run(verb, args=()):
     elif verb != "status":
         raise SystemExit("unknown: " + verb)
     if changed:
-        await dev.apply()
+        dev = await apply_retry(dev)
         await asyncio.sleep(1)
-        await dev.refresh()
+        try: await dev.refresh()
+        except Exception: pass                          # the command went through; the state shown is what was sent
     text = line(dev)
     st["we_turned_off"] = bool(changed and not dev.power_state)   # an OFF that came from Paddock itself (deck key, auto, PC off)
     st["last_on"] = bool(dev.power_state)

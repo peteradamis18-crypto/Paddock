@@ -43,6 +43,40 @@ $out = & $py -I -X utf8 $pf (Join-Path $root 'ac\ac.py') 2>&1 | ForEach-Object {
 Remove-Item $pf -ErrorAction SilentlyContinue
 foreach ($l in $out) { if ($l -match '^ok (.+)') { Check $Matches[1] $true } elseif ($l -match '^FAIL (.+)') { Check $Matches[1] $false } else { Check "probe line: $l" $false } }
 
+Section '1b. a dropped command is retried safely (pretend AC)'
+$probe2 = @'
+import asyncio, runpy, sys
+m = runpy.run_path(sys.argv[1]); g = m["apply_retry"].__globals__
+class Fake:
+    def __init__(s, real): s.real = real; s.power_state, s.operational_mode, s.target_temperature, s.fan_speed = real["v"]
+    async def apply(s):
+        s.real["applies"] += 1
+        if s.real["fail"] > 0:
+            s.real["fail"] -= 1
+            if s.real["lost_answer"]: s.real["v"] = (s.power_state, s.operational_mode, s.target_temperature, s.fan_speed)
+            raise RuntimeError("CloudRequestError")
+        s.real["v"] = (s.power_state, s.operational_mode, s.target_temperature, s.fan_speed)
+def case(fail, lost, connect_fails=0):
+    real = {"v": (True, 2, 23.0, 102), "applies": 0, "fail": fail, "lost_answer": lost, "cf": connect_fails}
+    async def connect():
+        if real["cf"] > 0:
+            real["cf"] -= 1; raise RuntimeError("CloudRequestError")
+        return Fake(real)
+    g["connect"] = connect
+    async def go():
+        d = await g["connect_retry"](); d.target_temperature = 22.5      # COOLER
+        await g["apply_retry"](d)
+    asyncio.run(go())
+    return real
+r = case(1, False); print(("ok " if r["applies"] == 2 and r["v"][2] == 22.5 else "FAIL ") + "a dropped command that did NOT reach the AC is sent again (applies=%d)" % r["applies"])
+r = case(1, True);  print(("ok " if r["applies"] == 1 and r["v"][2] == 22.5 else "FAIL ") + "a command that reached the AC but lost its answer is NOT sent twice (applies=%d)" % r["applies"])
+r = case(0, False, 2); print(("ok " if r["applies"] == 1 else "FAIL ") + "reading the AC is retried (2 failures, then it works)")
+'@
+$pf2 = Join-Path $env:TEMP ('ac-probe2-' + $PID + '.py'); [IO.File]::WriteAllText($pf2, $probe2)
+$out2 = & $py -I -X utf8 $pf2 (Join-Path $root 'ac\ac.py') 2>&1 | ForEach-Object { "$_" }
+Remove-Item $pf2 -ErrorAction SilentlyContinue
+foreach ($l in $out2) { if ($l -match '^ok (.+)') { Check $Matches[1] $true } elseif ($l -match '^FAIL (.+)') { Check $Matches[1] $false } else { Check "probe line: $l" $false } }
+
 Section '2. without a key nothing is touched'
 $tmp = Join-Path $env:TEMP ('ac-nokey-' + $PID); New-Item -ItemType Directory -Force $tmp | Out-Null
 Copy-Item (Join-Path $root 'ac\ac.py') $tmp
