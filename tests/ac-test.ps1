@@ -67,7 +67,7 @@ Check 'irdash serves /ac and takes the AC screen''s commands, checked one by one
 Check 'the AC screen''s presses go out as one command (a burst waits 600 ms, one ac.py at a time)' ($dac -match 'Thread\.Sleep\(600\)' -and $dac -match 'lock \(run\)' -and $dac -match 'StringBuilder\("set"\)')
 $ins = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\install.ps1'))
 Check 'the add-on installs the RigAC profile and the AC opener action' ($ins -match "Build-Profile 'RigAC' 'ac'" -and $ins -match 'uuid\.ac"')
-Check 'MORE has one AC key that opens the AC screen, only once the AC is connected' ($bd -match "plugin = 'com\.peter\.rigintro\.ac'" -and $bd -match 'Test-Path \(Join-Path \$here ''ac\\cloud\.bin''\)')
+Check 'MORE has AC (opens the AC screen), AC COOLER and AC WARMER, only once the AC is connected' ($bd -match "'ac cooler'" -and $bd -match "'ac warmer'" -and $bd -match "plugin = 'com\.peter\.rigintro\.ac'" -and $bd -match 'Test-Path \(Join-Path \$here ''ac\\cloud\.bin''\)')
 Check 'the AC key file, the saved Midea Air login and portable Python are kept out of the public repo' ($gi -match '(?m)^/ac/ac\.json' -and $gi -match '(?m)^/ac/cloud\.bin' -and $gi -match '(?m)^/tools/python/')
 $git = 'C:\Users\peter\AppData\Local\grok\git\2.55.0.windows.5\cmd\git.exe'
 if (Test-Path $git) { $tracked = & $git -C $root ls-files ac/ac.json ac/cloud.bin tools/python; Check 'git tracks neither' ([string]::IsNullOrEmpty(($tracked -join ''))) ($tracked -join ', ') }
