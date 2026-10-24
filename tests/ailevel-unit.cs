@@ -36,7 +36,7 @@ static class AiLevelUnit
     {
         Check("it handles the ailevel command and nothing else", AiLevel.Handles("ailevel") && !AiLevel.Handles("sndvol") && !AiLevel.Handles(null));
         string j = Json();
-        Check("no file yet: adaptive, medium (a safe middle)", j.Contains("\"mode\":\"adaptive\"") && j.Contains("\"level\":\"medium\""));
+        Check("no file yet: adaptive, low (iRacing's own start-up setting), and 25 to 50 if you switch to a range", j.Contains("\"mode\":\"adaptive\"") && j.Contains("\"level\":\"low\"") && j.Contains("\"min\":25") && j.Contains("\"max\":50"));
 
         Check("HIGH is saved", AiLevel.Do("ailevel", "high") && Saved().Contains("\"level\":\"high\"") && Saved().Contains("\"mode\":\"adaptive\""));
         Check("the top screen is told", KeyMsg.Last.Contains("adaptive AI, high"));
@@ -47,8 +47,8 @@ static class AiLevelUnit
         // range
         Check("RANGE switches the mode", AiLevel.Do("ailevel", "range") && Saved().Contains("\"mode\":\"range\""));
         string before = Saved();
-        Check("MIN + steps by " + AiLevel.RangeStep, AiLevel.Do("ailevel", "min+") && Regex.IsMatch(Saved(), "\"min\":" + (60 + AiLevel.RangeStep)));
-        Check("MAX - steps down", AiLevel.Do("ailevel", "max-") && Regex.IsMatch(Saved(), "\"max\":" + (85 - AiLevel.RangeStep)));
+        Check("MIN + steps by " + AiLevel.RangeStep, AiLevel.Do("ailevel", "min+") && Regex.IsMatch(Saved(), "\"min\":" + (25 + AiLevel.RangeStep)));
+        Check("MAX - steps down", AiLevel.Do("ailevel", "max-") && Regex.IsMatch(Saved(), "\"max\":" + (50 - AiLevel.RangeStep)));
         for (int i = 0; i < 40; i++) AiLevel.Do("ailevel", "min+");
         Match m = Regex.Match(Saved(), "\"min\":(\\d+),\"max\":(\\d+)");
         int mn = int.Parse(m.Groups[1].Value), mx = int.Parse(m.Groups[2].Value);
@@ -65,7 +65,7 @@ static class AiLevelUnit
         // a damaged file never breaks the screen
         File.WriteAllText(File_(), "{\"mode\":\"range\",\"level\":\"pro\",\"min\":9,\"max\":900}");
         j = Json();
-        Check("a file with nonsense values comes back inside the limits", j.Contains("\"mode\":\"range\"") && j.Contains("\"level\":\"medium\"") && Regex.IsMatch(j, "\"min\":(2\\d|[3-9]\\d)") && j.Contains("\"max\":" + AiLevel.RangeHi));
+        Check("a file with nonsense values comes back inside the limits", j.Contains("\"mode\":\"range\"") && j.Contains("\"level\":\"low\"") && Regex.IsMatch(j, "\"min\":\\d+") && j.Contains("\"max\":" + AiLevel.RangeHi));
         File.WriteAllText(File_(), "not json at all");
         Check("a file that is not JSON gives the defaults", Json().Contains("\"mode\":\"adaptive\""));
 

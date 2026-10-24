@@ -1527,7 +1527,7 @@ const AiLevel = new class extends Screen {
     this.s = null;                 // the last /ailevel
     this.interval = 700;
   }
-  hasState() { return !!this.s && !!this.s.ready; }
+  hasState() { return !!this.s; }          // build() says so itself when irdash is not ready
 
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;

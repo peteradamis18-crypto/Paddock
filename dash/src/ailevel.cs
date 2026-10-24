@@ -20,14 +20,15 @@ namespace IRDash
     {
         public static bool Handles(string c) { return c == "ailevel"; }
 
-        // the skill scale of the Fixed Skill Range (set from what iRacing's own control shows: docs\research\ai-opponents-dump-*.txt)
-        public const int RangeLo = 20, RangeHi = 120, RangeStep = 5, RangeMinGap = 5;
-        const int DefMin = 60, DefMax = 85;
+        // the skill scale of the Fixed Skill Range: two handles on a 0 to 125 percent slider (docs\research\ai-opponents-dump-20261023-214722.txt)
+        public const int RangeLo = 0, RangeHi = 125, RangeStep = 5, RangeMinGap = 5;
+        const int DefMin = 25, DefMax = 50;      // what iRacing shows when you switch to Fixed Skill Range: "Skill Spread 25% - 50%"
 
         static readonly object gate = new object();
         static string Path_() { return Path.Combine(Program.RootDir, @"ai\level.json"); }
 
-        sealed class St { public string Mode = "adaptive", Level = "medium"; public int Min = DefMin, Max = DefMax; }
+        // Level "low" = iRacing's own start-up setting (Adaptive AI, Low): what a race gets until a key is pressed
+        sealed class St { public string Mode = "adaptive", Level = "low"; public int Min = DefMin, Max = DefMax; }
 
         static St Load()
         {

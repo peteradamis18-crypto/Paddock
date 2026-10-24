@@ -175,8 +175,12 @@ try {
   Check 'the iRacing UI is on Home' (UiHome)
   Check "the top screen says 'Back at the menu'" (Said $r 'Back at the menu')
 
-  Section '7. AI RACE, RESTART in the first session'
+  Section '7. AI RACE with an AI level chosen (adaptive HIGH), RESTART in the first session'
+  $aiFile = Join-Path $root 'ai\level.json'; $aiHad = Test-Path $aiFile; $aiSave = if ($aiHad) { Get-Content $aiFile -Raw } else { $null }
+  New-Item -ItemType Directory -Force (Split-Path $aiFile) | Out-Null
+  [IO.File]::WriteAllText($aiFile, '{"mode":"adaptive","level":"high","min":25,"max":50}', (New-Object Text.UTF8Encoding $false))
   $r = Press 'ai-race' 400
+  Check 'AI RACE set the AI level from the AI LEVEL screen (adaptive AI, high) and read it back from the wizard' ($r.log -match 'airace level: set \(adaptive AI, high challenge\); the step now shows Adaptive AI, High')
   $s = WaitSess { param($x) $x.live } 60
   $null = WaitSess { param($x) $x.onTrack } 30
   $s = Sess
@@ -210,8 +214,10 @@ try {
   Check 'the iRacing UI is on Home' (UiHome)
   Check "the top screen says 'Back at the menu'" (Said $r 'Back at the menu')
 
-  Section '9. AI RACE again, RACE NOW from the first session, QUIT (second LEAVE cell)'
+  Section '9. AI RACE again with a skill range (30 to 60), RACE NOW from the first session, QUIT (second LEAVE cell)'
+  [IO.File]::WriteAllText($aiFile, '{"mode":"range","level":"low","min":30,"max":60}', (New-Object Text.UTF8Encoding $false))
   $r = Press 'ai-race' 400
+  Check 'AI RACE set the skill range 30% to 60% and read it back' ($r.log -match 'airace level: set \(skill range 30% to 60%\); the step now shows Fixed Skill Range, skill 30% to 60%')
   $null = WaitSess { param($x) $x.live -and $x.onTrack } 60
   $s0 = Sess
   Check "a fresh AI event, first session ($($s0.type))" ($s0.live -and $s0.ai -and $s0.num -eq 0)
@@ -225,6 +231,8 @@ try {
   Check 'the iRacing UI is on Home' (UiHome)
 }
 finally {
+  # the AI LEVEL choice goes back to what it was (no file = iRacing's own Adaptive Low)
+  try { if ($aiHad) { [IO.File]::WriteAllText($aiFile, $aiSave, (New-Object Text.UTF8Encoding $false)) } elseif (Test-Path $aiFile) { Remove-Item $aiFile -Force } } catch { }
   # never leave kids mode on, and always end on Home
   if (Test-Path (Join-Path $root 'dash\kids.lock')) { $null = Ir kids off }
   if ((Sess).live) { $null = Ir quitmain }

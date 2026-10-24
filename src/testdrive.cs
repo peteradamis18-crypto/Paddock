@@ -153,7 +153,7 @@ namespace IRDeck
             try { object p; if (u.E.TryGetCurrentPattern(InvokePattern.Pattern, out p)) { ((InvokePattern)p).Invoke(); return true; } } catch { }
             return ClickEl(u);
         }
-        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace, aiSurveyAi;
+        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace, aiSurveyAi, aiApplyOnly;
         static string aiSurveyName = "";                         // survey-ai: the one control named on the command line that may be pressed right now
         static readonly List<string> aiSurveyPresses = new List<string>();
         static string aiLayoutName = "";
@@ -273,8 +273,25 @@ namespace IRDeck
             }
             File.AppendAllText(path, b.ToString());
         }
+        // iRacing's UI sometimes shows "Something went wrong ... Reset test drive settings / Close" (it did after arrow keys on the skill slider). Close it; never Reset.
+        static bool AiCloseErrorDialog(AutomationElement window)
+        {
+            try
+            {
+                List<UEl> all = AiElements(window);
+                if (!all.Exists(u => u.Name.IndexOf("Something went wrong", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+                UEl reset = all.Find(u => u.Type == ControlType.Hyperlink && u.Name.IndexOf("Reset test drive settings", StringComparison.OrdinalIgnoreCase) >= 0);
+                if (reset == null) return false;
+                UEl close = all.Find(u => u.Type == ControlType.Hyperlink && Same(u.Name, "Close") && u.R.Y > reset.R.Y && u.R.Y < reset.R.Y + 300);
+                if (close == null) return false;
+                Log("airace: iRacing showed Something went wrong - closing that box (nothing is reset)");
+                bool ok = AiPress(close); Thread.Sleep(600); return ok;
+            }
+            catch { return false; }
+        }
         static void AiCleanup(AutomationElement window)
         {
+            AiCloseErrorDialog(window);
             AutomationElement modal = AiModal(window);
             if (modal != null)
             {
@@ -305,6 +322,13 @@ namespace IRDeck
                 for (int i = 1; i < args.Length; i++) if (!args[i].StartsWith("--")) aiSurveyPresses.Add(args[i]);
                 aiSurveyAi = true;
                 try { return CmdAiraceStart(false); } finally { aiSurveyAi = false; aiSurveyName = ""; }
+            }
+            if (args.Length > 0 && args[0].Equals("apply-level", StringComparison.OrdinalIgnoreCase))
+            {
+                // Sets the AI Opponents step from ai\level.json exactly as AI RACE does, shows what it reads back, and leaves with Back / Close:
+                // nothing is started or saved. For trying the AI LEVEL screen's choice out (out of the car only).
+                aiApplyOnly = true;
+                try { return CmdAiraceStart(false); } finally { aiApplyOnly = false; }
             }
             if (op == "start") return CmdAiraceStart(dry);
             if (op == "save") { Log("airace save: not available on the New Race path"); return 1; }
@@ -359,6 +383,126 @@ namespace IRDeck
             catch (Exception ex) { Log("airace survey: " + ex.Message); AiCleanup(window); return 1; }
         }
 
+        // ---- AI LEVEL: put the AI Opponents step the way the AI LEVEL screen chose (<root>\ai\level.json, written by dash\src\ailevel.cs) ----
+        // What the step looks like (docs\research\ai-opponents-dump-*.txt): an "AI Type" field (Fixed Skill Range or Adaptive AI) and, for Adaptive AI,
+        // a "Challenge Level" field (Low / Medium / High). Each is an edit box that opens a menu of items named "<choice> <what it means>".
+        sealed class AiChoice { public string Mode = "adaptive", Level = "medium"; public int Min = 60, Max = 85; }
+        static AiChoice AiReadChoice()
+        {
+            AiChoice c = new AiChoice();
+            try
+            {
+                string f = Path.Combine(Root, @"ai\level.json");
+                if (!File.Exists(f)) return c;
+                string j = File.ReadAllText(f); Match m;
+                m = Regex.Match(j, "\"mode\"\\s*:\\s*\"(adaptive|range)\""); if (m.Success) c.Mode = m.Groups[1].Value;
+                m = Regex.Match(j, "\"level\"\\s*:\\s*\"(low|medium|high)\""); if (m.Success) c.Level = m.Groups[1].Value;
+                m = Regex.Match(j, "\"min\"\\s*:\\s*(\\d{1,3})"); if (m.Success) c.Min = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                m = Regex.Match(j, "\"max\"\\s*:\\s*(\\d{1,3})"); if (m.Success) c.Max = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) { Log("airace level: could not read ai\\level.json: " + ex.Message); }
+            return c;
+        }
+        static string AiEditValue(UEl u)
+        {
+            try { object p; if (u != null && u.E.TryGetCurrentPattern(ValuePattern.Pattern, out p)) return ((ValuePattern)p).Current.Value ?? ""; } catch { }
+            return "";
+        }
+        static UEl AiField(AutomationElement modal, string label)
+        {
+            return modal == null ? null : AiElements(modal).Find(u => u.Type == ControlType.Edit && Same(u.Name, label));
+        }
+        // Opens the field's menu and picks the item that starts with `want`; true once the field shows it. Presses only that field and that item.
+        static bool AiPickMenu(AutomationElement window, string label, string want)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                UEl field = AiField(AiModal(window), label);
+                if (field == null) { Log("airace level: no " + label + " field on the step"); return false; }
+                if (AiEditValue(field).StartsWith(want, StringComparison.OrdinalIgnoreCase)) return true;
+                bool menuOpen = AiElements(window).Exists(u => u.Type == ControlType.Menu && u.Id.StartsWith("menu-list-", StringComparison.Ordinal));
+                if (!menuOpen) { aiSurveyName = field.Name; bool pressed = AiPress(field); aiSurveyName = ""; if (!pressed) return false; }
+                UEl item = null;
+                if (!WaitFor(delegate { item = AiElements(window).Find(u => u.Type == ControlType.MenuItem && u.Id.StartsWith("menu-list-", StringComparison.Ordinal) && u.Name.StartsWith(want, StringComparison.OrdinalIgnoreCase) && u.E.Current.IsEnabled); return item != null; }, 4000, 200, "UI CHANGED", label + " menu")) continue;
+                aiSurveyName = item.Name; bool ok = AiPress(item); aiSurveyName = "";
+                if (!ok) continue;
+                if (WaitFor(delegate { return AiEditValue(AiField(AiModal(window), label)).StartsWith(want, StringComparison.OrdinalIgnoreCase); }, 4000, 200, "UI CHANGED", label + " value")) return true;
+            }
+            return false;
+        }
+        static string AiWord(string s) { return s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s.Substring(1); }
+
+        // Fixed Skill Range shows one slider with two handles, named "One" (the slowest AI) and "Two" (the fastest), 0 to 125 percent. Each handle can only
+        // go as far as the other (One's top is Two's value). Set by value; if the page ignores that, by the handle's own arrow keys.
+        static UEl AiThumb(AutomationElement window, string name)
+        {
+            AutomationElement modal = AiModal(window);
+            return modal == null ? null : AiElements(modal).Find(u => u.Type == ControlType.Slider && Same(u.Name, name));
+        }
+        static double AiThumbValue(UEl u)
+        {
+            try { object p; if (u != null && u.E.TryGetCurrentPattern(RangeValuePattern.Pattern, out p)) return ((RangeValuePattern)p).Current.Value; } catch { }
+            return double.NaN;
+        }
+        static bool AiSetThumb(AutomationElement window, string name, int want)
+        {
+            // Dragged with the mouse, the way a person does it. (Setting the value through UI Automation was ignored by the page, and arrow keys on the handle made
+            // iRacing's UI show "Something went wrong" - 2026-10-23 - so neither is used.)
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                UEl s = AiThumb(window, name); if (s == null) { Log("airace level: no slider handle " + name); return false; }
+                double cur = AiThumbValue(s);
+                if (Math.Abs(cur - want) < 0.5) return true;
+                AutomationElement modal = AiModal(window);
+                UEl root = modal == null ? null : AiElements(modal).Find(u => u.Id.StartsWith("slider-root-", StringComparison.Ordinal));
+                if (root == null || root.R.Width < 100) { Log("airace level: the skill slider''s track is not showing"); return false; }
+                double perUnit = (root.R.Width - s.R.Width) / 125.0;                  // the handle''s centre travels the track minus its own width over 0..125
+                int y = (int)(s.R.Y + s.R.Height / 2), fromX = (int)(s.R.X + s.R.Width / 2), toX = (int)Math.Round(fromX + (want - cur) * perUnit);
+                if (Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { Log("airace level: sim=True immediately before a drag; stopped"); return false; }
+                if (!UiOwnsPoint(tdUi, fromX, y) || !UiOwnsPoint(tdUi, toX, y)) { Log("airace level: something covers the slider - not dragging"); return false; }
+                Log("airace level: dragging handle " + name + " from " + cur + " to " + want + " (" + fromX + " -> " + toX + ")");
+                Native.SetCursorPos(fromX, y); Thread.Sleep(150);
+                Native.mouse_event(0x02, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(150);
+                for (int k = 1; k <= 8; k++) { Native.SetCursorPos(fromX + (toX - fromX) * k / 8, y); Thread.Sleep(30); }
+                Thread.Sleep(80);
+                Native.mouse_event(0x04, 0, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(450);
+                if (AiModal(window) == null) { Log("airace level: the wizard is gone after the drag"); try { AiScreenshot(tdUi, Path.Combine(Root, @"tests\shots\ai-thumb-modal-gone.png")); } catch { } return false; }
+            }
+            UEl last = AiThumb(window, name);
+            Log("airace level: handle " + name + " would not settle on " + want + " (reads " + AiThumbValue(last) + ")");
+            return false;
+        }
+        static bool AiSetRange(AutomationElement window, int min, int max)
+        {
+            UEl one = AiThumb(window, "One"), two = AiThumb(window, "Two");
+            if (one == null || two == null) { Log("airace level: the skill range handles are not showing"); return false; }
+            double curTwo = AiThumbValue(two);
+            // raising the range: the top handle first (the bottom one cannot pass it); lowering it: the bottom one first
+            bool ok = (max >= curTwo) ? (AiSetThumb(window, "Two", max) && AiSetThumb(window, "One", min)) : (AiSetThumb(window, "One", min) && AiSetThumb(window, "Two", max));
+            return ok;
+        }
+
+        // The whole job: the AI Opponents step set the way the AI LEVEL screen says. false = something did not take (logged; AI RACE says so).
+        static bool AiApplyLevel(AutomationElement window)
+        {
+            if (!File.Exists(Path.Combine(Root, @"ai\level.json"))) { Log("airace level: no choice made on the AI LEVEL screen yet - the step is left the way iRacing has it"); return true; }
+            AiChoice c = AiReadChoice();
+            string want = c.Mode == "range" ? "skill range " + c.Min + "% to " + c.Max + "%" : "adaptive AI, " + c.Level + " challenge";
+            AutomationElement modal = AiModal(window);
+            UEl step = modal == null ? null : AiById(AiElements(modal), "wizard-sidebar-link-set-ai");
+            if (step == null || !AiPress(step)) { Log("airace level: the AI Opponents step is locked - NOT set (" + want + ")"); return false; }
+            Thread.Sleep(700);
+            bool ok;
+            if (c.Mode == "range") ok = AiPickMenu(window, "AI Type", "Fixed Skill Range") && AiSetRange(window, c.Min, c.Max);
+            else ok = AiPickMenu(window, "AI Type", "Adaptive AI") && AiPickMenu(window, "Challenge Level", AiWord(c.Level));
+            // read it back from the step itself
+            string typeNow = AiEditValue(AiField(AiModal(window), "AI Type")), levelNow = AiEditValue(AiField(AiModal(window), "Challenge Level"));
+            double a = AiThumbValue(AiThumb(window, "One")), b = AiThumbValue(AiThumb(window, "Two"));
+            Log("airace level: " + (ok ? "set" : "NOT set") + " (" + want + "); the step now shows " + typeNow + (levelNow.Length > 0 ? ", " + levelNow : "") + (!double.IsNaN(a) ? ", skill " + a + "% to " + b + "%" : ""));
+            return ok;
+        }
+
         static int AiSurveyAiStep(AutomationElement window)
         {
             string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
@@ -379,12 +523,12 @@ namespace IRDeck
                     n++;
                     // "Edit:AI Type" = the control of that type with that name (the same words are also plain text on the page)
                     string name = asked, kind = null;
-                    Match km = Regex.Match(asked, "^(Edit|Hyperlink|Text|ListItem|DataItem|Group|Button|Slider):(.+)$");
+                    Match km = Regex.Match(asked, "^(Edit|Hyperlink|Text|ListItem|DataItem|Group|Button|Slider|MenuItem|Menu):(.+)$");
                     if (km.Success) { kind = "ControlType." + km.Groups[1].Value; name = km.Groups[2].Value; }
                     if (Same(name, "Race") || Same(name, "Continue")) { Log("airace survey-ai: will not press " + name); continue; }
                     modal = AiModal(window); if (modal == null) break;
                     Rect mr = Rect.Empty; try { mr = modal.Current.BoundingRectangle; } catch { }
-                    List<UEl> hits = AiElements(window).FindAll(u => Same(u.Name, name) && (kind == null || u.Type.ProgrammaticName == kind) && u.E.Current.IsEnabled && !u.E.Current.IsOffscreen
+                    List<UEl> hits = AiElements(window).FindAll(u => (kind == "ControlType.MenuItem" ? u.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase) : Same(u.Name, name)) && (kind == null || u.Type.ProgrammaticName == kind) && u.E.Current.IsEnabled && !u.E.Current.IsOffscreen
                         && (mr.Contains(u.R) || (!zone.IsEmpty && zone.IntersectsWith(u.R))));
                     // a menu choice is often also plain text somewhere: with no type given, take the one that can be pressed
                     if (hits.Count > 1 && kind == null)
@@ -393,7 +537,7 @@ namespace IRDeck
                         if (pressable.Count == 1) hits = pressable;
                     }
                     if (hits.Count != 1) { Log("airace survey-ai: " + name + " matches " + hits.Count + " controls - skipped"); File.AppendAllText(dump, "SKIPPED " + name + " (" + hits.Count + " matches)" + Environment.NewLine); continue; }
-                    aiSurveyName = name; bool ok = AiPress(hits[0]); aiSurveyName = "";
+                    aiSurveyName = hits[0].Name; bool ok = AiPress(hits[0]); aiSurveyName = "";
                     if (hits[0].Type == ControlType.Edit) zone = new Rect(hits[0].R.X - 80, hits[0].R.Y - 60, hits[0].R.Width + 500, 760); else zone = Rect.Empty;
                     Thread.Sleep(900); modal = AiModal(window); if (modal == null) break;
                     AiDump(modal, dump, "after pressing " + asked + (ok ? "" : " (the press failed)"));
@@ -402,7 +546,7 @@ namespace IRDeck
                         // everything drawn around the field (the open dropdown): type | name | id | place, whoever owns it
                         StringBuilder zb = new StringBuilder("ZONE after pressing " + asked + Environment.NewLine);
                         foreach (UEl u in AiElements(window))
-                            if (zone.IntersectsWith(u.R) && (u.Name.Length > 0 || u.Id.Length > 0))
+                            if (zone.IntersectsWith(u.R) && (u.Type == ControlType.Menu || u.Type == ControlType.MenuItem || u.Type == ControlType.List || u.Type == ControlType.ListItem || u.Id.StartsWith("menu-")))
                                 zb.AppendLine("  " + u.Type.ProgrammaticName + "|" + u.Name.Replace("|", "/") + "|" + u.Id + "|[" + (int)u.R.X + "," + (int)u.R.Y + " " + (int)u.R.Width + "x" + (int)u.R.Height + "]");
                         File.AppendAllText(dump, zb.ToString());
                     }
@@ -487,6 +631,15 @@ namespace IRDeck
                     modal = AiModal(window); if (AiPickRow(modal, combo.Track, false, null, rs => BestTrackRow(rs, u => AiRowName(u.Name), combo.Track)) == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
                 }
                 if (aiSurveyAi) return AiSurveyAiStep(window);
+                bool levelSet = AiApplyLevel(window);
+                if (aiApplyOnly)
+                {
+                    string dumpf = Path.Combine(Root, @"docs\research\ai-apply-level-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt");
+                    try { AiDump(AiModal(window), dumpf, "after apply-level"); AiScreenshot(tdUi, Path.Combine(Root, @"tests\shots\ai-apply-level.png")); } catch { }
+                    AiCleanup(window);
+                    return levelSet ? 0 : 3;
+                }
+                if (!levelSet) Say("wait", "AI level could not be set - iRacing's own level is used");
                 // Car and track are set: press Continue until the wizard closes (each press moves one step; the last starts the race).
                 // The step's elements are replaced after every press, so read them fresh each time and treat a vanished element as "not yet".
                 for (int press = 0; press < 12; press++)
