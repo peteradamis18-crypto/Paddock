@@ -40,7 +40,7 @@ class Driver {
       case "hook": Console.WriteLine(DeckRules.HookPasses(uint.Parse(a[1], c), B(a[2]), B(a[3]))); break;
       case "chat": Console.WriteLine(DeckRules.ChatIsRepeat(S(a[1]).Replace("<T>", "\t"), a[2], long.Parse(a[3], c), int.Parse(a[4]))); break;
       case "stamp": Console.WriteLine(DeckRules.ChatStamp(a[1], long.Parse(a[2], c)).Replace("\t", "<T>")); break;
-      case "next": Console.WriteLine(DeckRules.SecondNextDue(B(a[1]), int.Parse(a[2]), int.Parse(a[3]), B(a[4]))); break;
+      case "next": Console.WriteLine(DeckRules.SecondNextDue(B(a[1]), int.Parse(a[2]), int.Parse(a[3]), B(a[4]), a.Length > 5 ? int.Parse(a[5]) : 1)); break;
       case "qual": Console.WriteLine(DeckRules.IsQualify(a[1])); break;
       case "race": Console.WriteLine(DeckRules.IsRaceType(S(a[1]))); break;
     }
@@ -102,7 +102,9 @@ Check 'NEXT: AI Qualify, one click, nothing moved after 10 s -> click again' ((R
 Check 'NEXT: not yet 10 s -> wait' ((Rule next 1 1 9000 0) -eq 'False')
 Check 'NEXT: already advanced -> no second click' ((Rule next 1 1 12000 1) -eq 'False')
 Check 'NEXT: only one extra click, never a third' ((Rule next 1 2 30000 0) -eq 'False')
-Check 'NEXT: practice is not retried' ((Rule next 0 1 30000 0) -eq 'False')
+Check 'NEXT: practice is not retried when the sim did ask (a question was answered)' ((Rule next 0 1 30000 0 1) -eq 'False')
+Check 'NEXT: a click that never brought up the sim''s question is repeated after 6 s, in any session type' ((Rule next 0 1 6000 0 0) -eq 'True' -and (Rule next 1 1 6000 0 0) -eq 'True')
+Check 'NEXT: ... but not before 6 s, not after it advanced, and never a fourth click' ((Rule next 0 1 5000 0 0) -eq 'False' -and (Rule next 0 1 9000 1 0) -eq 'False' -and (Rule next 0 3 30000 0 0) -eq 'False')
 Check 'qualify names: Open Qualify / Lone Qualify / Qualify' ((Rule qual 'Open Qualify') -eq 'True' -and (Rule qual 'Lone Qualify') -eq 'True' -and (Rule qual 'Qualify') -eq 'True')
 Check 'qualify names: Practice and Race are not' ((Rule qual 'Practice') -eq 'False' -and (Rule qual 'Race') -eq 'False')
 Check 'RACE NOW: Race is the race; Practice, Open Qualify, Warmup are not' ((Rule race 'Race') -eq 'True' -and (Rule race ' race ') -eq 'True' -and (Rule race 'Practice') -eq 'False' -and (Rule race 'Open Qualify') -eq 'False' -and (Rule race 'Warmup') -eq 'False' -and (Rule race '<empty>') -eq 'False')

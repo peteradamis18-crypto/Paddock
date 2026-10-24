@@ -1340,7 +1340,7 @@ namespace IRDeck
             // An AI Qualify sometimes ignores the first Next (iRacing then moves you to the race grid on the next one):
             // if nothing moved after 10 s, click Next once more and give it up to 40 s.
             bool qualify = DeckRules.IsQualify(s0.Type);
-            int clicks = 0;
+            int clicks = 0, dialogsSeen = 0;
             Stopwatch sinceClick = Stopwatch.StartNew();
             Func<bool> advanced = delegate { SessSnap n = Snap(); return !n.Live || n.Num != s0.Num; };
             if (PrevNext() != null)
@@ -1348,7 +1348,7 @@ namespace IRDeck
                 int rc = ClickPrevNext(1, "skip");
                 if (rc != 0) return rc;
                 clicks = 1; sinceClick.Reset(); sinceClick.Start();
-                ConfirmDialogs(advanced, 8000, "skip");
+                dialogsSeen = ConfirmDialogs(advanced, 8000, "skip");
             }
             else { Log("skip refused: no verified next-session control"); return 3; }
             DateTime end = DateTime.Now.AddSeconds(40);
@@ -1357,13 +1357,13 @@ namespace IRDeck
                 SessSnap n = Snap();
                 if (!n.Live) { Log("skip: the event is over, the sim left"); return 0; }
                 if (n.Num != s0.Num) { Log("skip: now in session " + n.Num + " (" + n.Type + ")" + (clicks > 1 ? " - the second Next did it" : " - the first Next did it")); return 0; }
-                if (DeckRules.SecondNextDue(qualify, clicks, (int)sinceClick.ElapsedMilliseconds, false))
+                if (DeckRules.SecondNextDue(qualify, clicks, (int)sinceClick.ElapsedMilliseconds, false, dialogsSeen))
                 {
-                    Log("skip: Qualify did not move on within 10 s - clicking Next once more");
+                    Log(dialogsSeen == 0 ? "skip: the sim never asked to confirm - the click did not land - clicking Next again" : "skip: Qualify did not move on within 10 s - clicking Next once more");
                     int rc2 = ClickPrevNext(1, "skip");
                     if (rc2 != 0) return rc2;
-                    clicks = 2; sinceClick.Reset(); sinceClick.Start();
-                    ConfirmDialogs(advanced, 8000, "skip");
+                    clicks++; sinceClick.Reset(); sinceClick.Start();
+                    dialogsSeen += ConfirmDialogs(advanced, 8000, "skip");
                     end = DateTime.Now.AddSeconds(40);
                     continue;
                 }
@@ -2003,6 +2003,9 @@ namespace IRDeck
             i[0].u.ki.wVk = vk;
             i[0].u.ki.wScan = (ushort)Native.MapVirtualKey(vk, 0);
             i[0].u.ki.dwFlags = 0x0008u | (ext ? 0x0001u : 0u) | (up ? 0x0002u : 0u);
+            // The Pause key has no scan code Windows can map (MapVirtualKey gives 0, so the press went nowhere: live 2026-10-23, PAUSE "did not pause").
+            // It is sent by its virtual-key code instead.
+            if (vk == 0x13) { i[0].u.ki.wScan = 0x45; i[0].u.ki.dwFlags = up ? 0x0002u : 0u; }
             Native.SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
         }
 

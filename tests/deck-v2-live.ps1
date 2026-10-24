@@ -75,6 +75,7 @@ function Said($r, $text) { $r.msgKey -eq $r.key -and $r.msg -eq $text }
 
 'Deck v2 live keys'
 if ((Ir state).out -match 'telemetry=on') { 'iRacing is in a session - run this when nobody is in the car.'; exit 1 }
+if (-not (UiHome)) { $null = Ir nav Home; Start-Sleep -Seconds 3 }   # an earlier AI RACE leaves the UI on the AI Single Player page: go Home first
 if (-not (UiHome)) { 'The iRacing UI is not on Home - start from Home.'; exit 1 }
 try {
   Section '1. GET IN with nothing running starts your last drive (the Test Drive of the car and track chosen on CAR TRACK)'

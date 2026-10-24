@@ -74,9 +74,14 @@ namespace IRDeck
         {
             return (sessionType ?? "").IndexOf("qualif", StringComparison.OrdinalIgnoreCase) >= 0;
         }
-        public static bool SecondNextDue(bool qualify, int clicks, int msSinceClick, bool advanced)
+        public const int NextNeverLandedMs = 6000;   // no "Skip to Next Session?" question after this long: the click did not reach the sim
+        // dialogsSeen = how many of the sim's own questions were answered after the click. None at all means the click never landed (live 2026-10-23:
+        // one Next in a Practice did nothing for 48 s, no question ever came up), and a second click is safe: nothing is pending that it could double.
+        public static bool SecondNextDue(bool qualify, int clicks, int msSinceClick, bool advanced, int dialogsSeen)
         {
-            return qualify && clicks == 1 && !advanced && msSinceClick >= SecondNextMs;
+            if (advanced || clicks < 1 || clicks >= 3) return false;
+            if (dialogsSeen == 0) return msSinceClick >= NextNeverLandedMs;
+            return qualify && clicks == 1 && msSinceClick >= SecondNextMs;
         }
 
         // RACE NOW: keep skipping until the session is the race.
