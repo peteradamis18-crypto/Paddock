@@ -1596,36 +1596,90 @@ namespace IRDash
             catch (Exception ex) { Log.W("watchdog: sim check: " + ex.Message); }
         }
 
-        static DateTime lastDeckCheck = DateTime.MinValue, deckLostSince = DateTime.MinValue, lastDeckRestart = DateTime.MinValue;
+        static DateTime deckLostSince = DateTime.MinValue, lastDeckRestart = DateTime.MinValue, lastTickAt = DateTime.MinValue;
+        static ulong lastAwake;   // QueryUnbiasedInterruptTime at the last tick (100 ns units; stops while Windows sleeps)
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool QueryUnbiasedInterruptTime(out ulong t);
+        static int deckWork;   // 1 while a restart (or the wake restart) runs on its own thread: the 2 s timer never blocks on it
 
-        static void CheckDeckDevice(DateTime now)
+        static string DeckLogTail()
         {
-            if ((now - lastDeckCheck).TotalSeconds < 10 || !Running("StreamDeck")) return;
-            lastDeckCheck = now;
             string logFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Elgato\StreamDeck\logs\StreamDeck.log");
-            if (!File.Exists(logFile)) return;
-            string tail;
+            if (!File.Exists(logFile)) return null;
             using (FileStream fs = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
-                long start = Math.Max(0, fs.Length - 200000); fs.Position = start;
+                // the whole current log (the app starts a new one each run, ~40 KB a day): a tail could lose the "connected" line on a
+                // long day and make the "never found the deck" rule restart the app mid-race
+                long start = Math.Max(0, fs.Length - 4000000); fs.Position = start;
                 byte[] b = new byte[fs.Length - start]; int n = fs.Read(b, 0, b.Length);
-                tail = Encoding.UTF8.GetString(b, 0, n);
+                return Encoding.UTF8.GetString(b, 0, n);
             }
-            int conn = tail.LastIndexOf("Device connected, id:"), disc = tail.LastIndexOf("Device disconnected, id:");
-            if (disc < 0 || disc < conn) { deckLostSince = DateTime.MinValue; return; }      // last event was a connect
-            if (deckLostSince == DateTime.MinValue) { deckLostSince = now; return; }
-            if ((now - deckLostSince).TotalSeconds < 15 || (now - lastDeckRestart).TotalMinutes < 2) return;
-            // is the Stream Deck (USB VID 0FD9) actually plugged in?
-            bool present = false;
+        }
+
+        // is the Stream Deck (USB VID 0FD9) plugged in and seen by Windows
+        static bool DeckPresent()
+        {
             using (var q = new System.Management.ManagementObjectSearcher("SELECT DeviceID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\\\VID_0FD9%'"))
-                foreach (var o in q.Get()) { present = true; break; }
-            if (!present) return;
-            lastDeckRestart = now; deckLostSince = DateTime.MinValue;
-            foreach (Process p in Process.GetProcessesByName("StreamDeck")) { try { p.Kill(); } catch { } }
-            Thread.Sleep(2000);
-            string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
-            Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
-            Note("Stream Deck lost its USB connection: restarted the Stream Deck app");
+                foreach (var o in q.Get()) return true;
+            return false;
+        }
+
+        static bool DeckBuilding()
+        {
+            string lk = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "deck-build.lock");
+            return File.Exists(lk) && (DateTime.Now - File.GetLastWriteTime(lk)).TotalMinutes < 5;
+        }
+
+        // kill + start the app, then wait (up to 20 s) for it to log the deck as connected again. Runs on its own thread.
+        static void RestartDeck(string why)
+        {
+            if (System.Threading.Interlocked.CompareExchange(ref deckWork, 1, 0) != 0) return;
+            lastDeckRestart = DateTime.Now; deckLostSince = DateTime.MinValue;
+            Thread t = new Thread(delegate ()
+            {
+                try
+                {
+                    if (why == "wake")
+                    {
+                        // wait for Windows to bring the deck back on USB, then a moment for it to settle
+                        for (int i = 0; i < 40 && !DeckPresent(); i++) Thread.Sleep(500);
+                        Thread.Sleep(2500);
+                        if (DeckBuilding()) return;
+                    }
+                    foreach (Process p in Process.GetProcessesByName("StreamDeck")) { try { p.Kill(); } catch { } }
+                    for (int i = 0; i < 20 && Running("StreamDeck"); i++) Thread.Sleep(100);
+                    Thread.Sleep(800);
+                    string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
+                    Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
+                    DateTime t0 = DateTime.Now; bool back = false;
+                    for (int i = 0; i < 40 && !back; i++) { Thread.Sleep(500); try { back = Running("StreamDeck") && DeckWatch.Connected(DeckLogTail()); } catch { } }
+                    string what = why == "wake" ? "the PC woke from sleep, which resets the deck's USB connection" : why == "never" ? "the Stream Deck app started but never found the deck" : "the Stream Deck app lost the deck's USB connection";
+                    Note(what + ": restarted the Stream Deck app - " + (back ? "deck back after " + (DateTime.Now - t0).TotalSeconds.ToString("0", CultureInfo.InvariantCulture) + " s" : "deck NOT back after 20 s (unplug and replug its USB cable)"));
+                    lastDeckRestart = DateTime.Now;
+                }
+                catch (Exception ex) { Log.W("watchdog: deck restart: " + ex.Message); }
+                finally { deckWork = 0; }
+            });
+            t.IsBackground = true; t.Name = "DeckRestart"; t.Start();
+        }
+
+        // every 2 s: a wake (the timer's own gap) restarts the app; otherwise a lost or never-seen deck restarts it at once
+        static void CheckDeckDevice(DateTime now)
+        {
+            ulong awakeNow; QueryUnbiasedInterruptTime(out awakeNow);
+            double gap = lastTickAt == DateTime.MinValue ? 0 : (now - lastTickAt).TotalSeconds;
+            double awake = lastAwake == 0 ? gap : (awakeNow - lastAwake) / 1e7;
+            lastTickAt = now; lastAwake = awakeNow;
+            if (deckWork != 0 || !File.Exists(@"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe")) return;
+            if (DeckWatch.IsWake(gap, awake)) { Log.W("watchdog: the PC woke up (asleep about " + (gap - awake).ToString("0", CultureInfo.InvariantCulture) + " s)"); RestartDeck("wake"); return; }
+            Process[] sd = Process.GetProcessesByName("StreamDeck");
+            if (sd.Length == 0 || DeckBuilding()) return;
+            string tail = DeckLogTail();
+            if (DeckWatch.Connected(tail)) { deckLostSince = DateTime.MinValue; return; }
+            int disc = tail == null ? -1 : tail.LastIndexOf("Device disconnected, id:", StringComparison.Ordinal);
+            if (disc >= 0 && deckLostSince == DateTime.MinValue) deckLostSince = now;
+            double age = 0; try { age = (now - sd[0].StartTime).TotalSeconds; } catch { }
+            string act = DeckWatch.Action(tail, true, age, DeckPresent(), deckLostSince == DateTime.MinValue ? 0 : (now - deckLostSince).TotalSeconds, (now - lastDeckRestart).TotalSeconds);
+            if (act != "") RestartDeck(act);
         }
 
         static void Recover(string why)
