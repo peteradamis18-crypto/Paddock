@@ -69,8 +69,8 @@ Check 'GET OUT wait: still rolling at 15 s -> time is up (refusal)' ((Rule stop 
 Check 'GET OUT wait: out of the car already -> go on whatever the speed' ((Rule stop 0 30 0 15000) -eq '0')
 
 # kids allow-list
-$allowed = @(@('smart'), @('tow'), @('restartrace'), @('kids'), @('kids', 'off'), @('confirm', 'restart-race', 'restartrace'), @('appvol', 'game', '-10'), @('appvol', 'game', '+10'))
-$blocked = @(@('state'), @('getout'), @('confirm', 'quit-main', 'quitmain'), @('confirm', 'sleep', 'power', 'sleep'), @('key', '--sim', 'f1'), @('chat', 'say', 'GG'), @('appvol', 'game', '+5'), @('appvol', 'music', '+10'),
+$allowed = @(@('smart'), @('tow'), @('restartrace'), @('kids'), @('kids', 'off'), @('confirm', 'restart-race', 'restartrace'), @('appvol', 'game', '-5'), @('appvol', 'game', '+5'), @('appvol', 'game', '-10'), @('appvol', 'game', '+10'))
+$blocked = @(@('state'), @('getout'), @('confirm', 'quit-main', 'quitmain'), @('confirm', 'sleep', 'power', 'sleep'), @('key', '--sim', 'f1'), @('chat', 'say', 'GG'), @('appvol', 'game', '+25'), @('appvol', 'music', '+10'),
              @('media', 'mute'), @('skip'), @('rigon'), @('startlast', 'td'), @('mydrive', 'start'), @('confirm', 'restart-race', 'quitmain'), @('confirm', 'restart-race'), @('power', 'off'))
 foreach ($k in $allowed) { Check "kids lock lets '$($k -join ' ')' through" ((Rule kids @k) -eq 'True') }
 foreach ($k in $blocked) { Check "kids lock still blocks '$($k -join ' ')'" ((Rule kids @k) -eq 'False') }

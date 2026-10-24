@@ -107,11 +107,14 @@ Check "MAIN has keys ($($main.Count)), MORE has keys ($($more.Count)) and LEAVE 
 Check 'every key sits inside the 8 x 4 grid, one key per cell' (@($deck | Where-Object { $_.col -lt 0 -or $_.col -gt 7 -or $_.row -lt 0 -or $_.row -gt 3 }).Count -eq 0 -and @($deck | Group-Object { $_.page + ':' + $_.col + ',' + $_.row } | Where-Object { $_.Count -gt 1 }).Count -eq 0)
 
 # MAIN is the DECK v2 grid (docs\design\deck-v2\deck-plan.html, approved by Peter 2026-10-23): same cell, same word
+# AI LEVEL (an add-on screen) is on the deck only once the installed add-on has it; until then LAST DRIVE holds that cell (build-deck.ps1)
+$sdManifest = Join-Path $env:APPDATA 'Elgato\StreamDeck\Plugins\com.peter.rigintro.sdPlugin\manifest.json'
+$aiLevelOn = (Test-Path $sdManifest) -and ((Get-Content $sdManifest -Raw) -match 'rigintro\.ailevel') -and ((ReadText 'src\testdrive.cs') -match 'static \w+ AiApplyLevel\(')
 $approved = [ordered]@{
-  '0,0' = 'HOME'; '1,0' = 'LAST DRIVE'; '2,0' = 'AI RACE'; '3,0' = 'CAR TRACK'; '4,0' = 'OFFICIAL'; '5,0' = 'FRIENDS'; '6,0' = 'KIDS'; '7,0' = 'MORE'
-  '0,1' = 'GET IN'; '1,1' = 'GET OUT'; '2,1' = 'RESET CAR'; '3,1' = 'RESTART'; '4,1' = 'NEXT SESSION'; '5,1' = 'RACE NOW'; '6,1' = 'INSTANT REPLAY'; '7,1' = 'LEAVE'
-  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'VAULT'; '7,2' = 'live:laps-to-empty'
-  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SORRY'; '4,3' = 'THANKS'; '5,3' = 'RELATIVE'; '6,3' = 'live:position'; '7,3' = 'live:incidents' }
+  '0,0' = 'HOME'; '1,0' = 'AI RACE'; '2,0' = $(if ($aiLevelOn) { 'AI LEVEL' } else { 'LAST DRIVE' }); '3,0' = 'CAR TRACK'; '4,0' = 'OFFICIAL'; '5,0' = 'FRIENDS'; '6,0' = 'KIDS'; '7,0' = 'MORE'
+  '0,1' = 'GET IN'; '1,1' = 'GET OUT'; '2,1' = 'RESET CAR'; '3,1' = 'RESTART'; '4,1' = 'NEXT SESSION'; '5,1' = 'RACE NOW'; '6,1' = 'PAUSE'; '7,1' = 'LEAVE'
+  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'VAULT'; '7,2' = 'REPLAY'
+  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SORRY'; '4,3' = 'THANKS'; '5,3' = 'SAVE SPOT'; '6,3' = 'BACK TO SPOT'; '7,3' = 'GHOST' }
 $bad = @()
 foreach ($pos in $approved.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -124,10 +127,10 @@ foreach ($pos in $approved.Keys) {
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
 Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
 $moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
-  '0,1' = 'MARK SPOT'; '1,1' = 'BACK TO SPOT'; '2,1' = 'REPLAY'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
+  '0,1' = 'RELATIVE'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
   '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
 # the AC keys are on MORE's bottom row only once the AC is connected (ac\ac.json)
-if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC'; $moreWant['1,3'] = 'AC COOLER'; $moreWant['2,3'] = 'AC WARMER'; $moreWant['3,3'] = 'AC FAN' }
+if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC' }   # one key: it opens the AC screen
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -136,7 +139,7 @@ foreach ($pos in $moreWant.Keys) {
   if ($k.label -ne $moreWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($moreWant[$pos])'" }
 }
 foreach ($k in $more) { if (-not $moreWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the MORE plan" } }
-Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, the AC keys on the bottom row)' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, SAVE/BACK TO SPOT and REPLAY moved to MAIN, the AC keys on the bottom row)' ($bad.Count -eq 0) ($bad -join '; ')
 
 # LEAVE: the page before MAIN. Opening it is the check, so the keys that end things are one press here.
 $leaveWant = [ordered]@{ '0,0' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '0,3' = 'KIDS MODE'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
@@ -177,7 +180,7 @@ Check 'src\irdeck.cs: the command switch, pit toggles, media, chat, power and ke
 
 # what irdash accepts from the deck (/api/do): the command sets of each module, Guest.Do's switch, Tv view and Nav
 $handled = @{}
-foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'official', 'sound', 'deckfeed') {
+foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'official', 'sound', 'deckfeed', 'ac') {
   $m = [regex]::Match((ReadText "dash\src\$f.cs"), '(?s)HashSet<string>\s+Commands\s*=\s*new HashSet<string>\s*\{(.*?)\};')
   foreach ($x in [regex]::Matches($m.Groups[1].Value, '"([A-Za-z0-9_-]+)"')) { $handled[$x.Groups[1].Value] = $f }
 }
@@ -270,7 +273,7 @@ foreach ($k in $deck) {
 }
 Check 'every key on MAIN, MORE and LEAVE resolves to a real irdeck command, add-on screen, page switch or live mode' ($bad.Count -eq 0) ($bad -join '; ')
 $later = @($deck | Where-Object { $_.kind -eq 'later' })
-Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" (@($later | Where-Object { $_.label -eq 'INSTANT REPLAY' -and $_.page -eq 'MAIN' }).Count -eq $later.Count -and $later.Count -ge 1 -and $later.Count -le 2)
+Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" ($later.Count -eq 0)   # nothing is waiting for a feature: INSTANT REPLAY was dropped (2026-10-23), every key on the device does something
 Check 'build-deck.ps1 leaves a not-built key out of the profile when it is not a preview' ($bp -match 'if \(-not \$Preview\) \{ continue \}')
 
 # the lead's requirements, one by one
@@ -278,17 +281,18 @@ $deckKeys = @($deck | Where-Object { $_.kind -eq 'key' })
 function Cmd-Of($label) { $k = $deckKeys | Where-Object { $_.label -like $label } | Select-Object -First 1; if ($k) { return ($k.what -split '=', 2)[1] } return '' }
 Check 'RESET CAR runs tow, which waits for the car to stop (C-26)' ((Cmd-Of 'RESET CAR*') -eq 'tow' -and $irSrc -match 'TowWaitLive\(ref inCar, ref speed\)' -and $irSrc -match 'TowLimitMs')
 $vd = (Cmd-Of 'VOL -*'), (Cmd-Of 'VOL +*')
-Check 'VOL - / VOL + are appvol game -10 / +10, and game covers the sim, its menu and CrewChief' ($vd[0] -eq 'appvol game -10' -and $vd[1] -eq 'appvol game +10' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI", "CrewChiefV4"')
+Check 'VOL - / VOL + are appvol game -5 / +5 (5 % a press), and game covers the sim, its menu and CrewChief' ($vd[0] -eq 'appvol game -5' -and $vd[1] -eq 'appvol game +5' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI", "CrewChiefV4"')
 # deck v2 (2026-10-23): every key is one press from any state. Their behaviour is tested in tests\deck-behaviour-test.ps1;
 # here each key must point at the right command.
-Check 'GET IN is smart (any state), GET OUT is getout (waits for the car), LAST DRIVE is mydrive start' ((Cmd-Of 'GET IN') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and (Cmd-Of 'LAST DRIVE') -eq 'mydrive start' -and $irSrc -match 'case "mydrive"')
+Check 'GET IN is smart (any state: with no sim it starts the last drive), GET OUT is getout (waits for the car)' ((Cmd-Of 'GET IN') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and $irSrc -match 'case "mydrive"' -and ($aiLevelOn -or (Cmd-Of 'LAST DRIVE') -eq 'mydrive start') -and (Get-Body $irSrc 'static int SmartGetIn()') -match 'MdStart')
 Check 'RESTART is restartrace, NEXT SESSION is skip, RACE NOW is racenow: one press each' ((Cmd-Of 'RESTART') -eq 'restartrace' -and (Cmd-Of 'NEXT SESSION') -eq 'skip' -and (Cmd-Of 'RACE NOW') -eq 'racenow' -and $irSrc -match 'case "restartrace"' -and $irSrc -match 'case "racenow"')
 Check 'MUTE SPOTTER is appvol mute spotter, and irdeck mutes only CrewChief''s own mixer entry' ((Cmd-Of 'MUTE SPOTTER') -eq 'appvol mute spotter' -and $irSrc -match 'static int AppMuteToggle\(string who\)' -and $irSrc -match 'who\.Equals\("spotter"[^)]*\) \? "CrewChiefV4"')
 Check 'KIDS (6,0) is the kids command; HOME (0,0) is the second key of the unlock' ((Cmd-Of 'KIDS') -eq 'kids' -and @($main | Where-Object { $_.col -eq 6 -and $_.row -eq 0 -and $_.label -eq 'KIDS' }).Count -eq 1 -and $irSrc -match 'case "kids"')
 $ini = ReadText 'dash\irdash.ini'
 # KEEP LAP / SAVE / TV left the deck in v2. Their irdash commands stay (the Vault and the phone still use them).
 Check 'irdash still accepts vkkeep and recsave (the Vault is on, vault=1), although no deck key sends them now' ($handled['vkkeep'] -eq 'vault' -and $handled['recsave'] -eq 'vault' -and $ini -match '(?m)^\s*vault\s*=\s*1')
-Check 'INSTANT REPLAY is a Later key on MAIN at 6,1: drawn on the picture, absent from the device' (@($main | Where-Object { $_.col -eq 6 -and $_.row -eq 1 -and $_.label -eq 'INSTANT REPLAY' -and $_.kind -eq 'later' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.label -like 'INSTANT*' }).Count -eq 0)
+Check 'the practice loop and PAUSE: SAVE SPOT is spot save, BACK TO SPOT is spot back, GHOST is Ctrl+C (iRacing reference car), PAUSE is pause' ((Cmd-Of 'SAVE SPOT') -eq 'spot save' -and (Cmd-Of 'BACK TO SPOT') -eq 'spot back' -and (Cmd-Of 'GHOST') -eq 'key --sim ctrl+c' -and (Cmd-Of 'PAUSE') -eq 'pause' -and $irSrc -match 'case "spot"' -and $irSrc -match 'case "pause"')
+Check 'the dead keys are gone: LAPS TO EMPTY, POSITION, INCIDENTS, INSTANT REPLAY, and RELATIVE is not on MAIN' (@($main | Where-Object { $_.label -match 'LAPS TO|POSITION|INCIDENTS|INSTANT|RELATIVE' -or $_.what -match 'live' }).Count -eq 0)
 Check 'KEEP LAP, SAVE, TV, TEST DRIVE, MY DRIVE, SKIP SESSION and QUIT are no longer keys on any page' (@($deck | Where-Object { $_.label -in 'KEEP LAP', 'SAVE', 'TV', 'TEST DRIVE', 'MY DRIVE', 'SKIP SESSION', 'QUIT' }).Count -eq 0)
 Check 'HOME is a real command and sits at 0,0 (the up key on every screen)' ((Cmd-Of 'HOME*') -eq 'rigon' -and @($main | Where-Object { $_.col -eq 0 -and $_.row -eq 0 -and $_.label -like 'HOME*' }).Count -eq 1)
 Check 'AI RACE is the airace command the sim tree has' ((Cmd-Of 'AI RACE*') -eq 'airace start' -and $irSrc -match 'case "airace"')
@@ -386,7 +390,7 @@ $names = @($plan.Keys); $dupNames = @($names | Group-Object | Where-Object { $_.
 Check 'every key has its own exe name' ($dupNames.Count -eq 0)
 
 # ================= 5. the add-on screens =================
-Section '5. add-on screens (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND): every action is handled'
+Section '5. add-on screens (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND, AC): every action is handled'
 $screens = @(
   @{ name = 'FRIENDS';  start = 'const Friends = new class extends Screen';  end = '// ---------------- Rig Doctor key';        guest = $true;  route = '/guest';    own = 'dash\src\irdash.cs'
      fields = 'session', 'driving', 'driverId', 'drivers', 'driver', 'car', 'track', 'carList', 'trackList', 'wheel', 'line', 'coach', 'board', 'voiceDraft', 'event' },
@@ -398,8 +402,10 @@ $screens = @(
      fields = 'ready', 'inSession', 'driving', 'mode', 'raw', 'live', 'session', 'watch', 'nextSession', 'camera', 'me', 'ahead', 'behind', 'leader', 'cars', 'photo', 'replays', 'multiClass' },
   @{ name = 'ANALYSIS'; start = 'const Analysis = new class extends Screen'; end = '// ---------------- Sound screen';           guest = $false; route = '/workbench/state'; own = 'dash\src\deckfeed.cs'
      fields = 'open', 'driving', 'page', 'pages', 'playing', 'speed', 'tile', 'mapColour', 'zoomed', 'offset', 'id', 'lap', 'ref', 'laps', 'events', 'corners', 'lapTime', 'refTime' },
-  @{ name = 'SOUND';    start = 'const Sound = new class extends Screen';    end = '// The deck key presses and the profile tiles'; guest = $false; route = '/sound'; own = @('src\sound.cs', 'dash\src\sound.cs')
-     fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' } )
+  @{ name = 'SOUND';    start = 'const Sound = new class extends Screen';    end = '// ---------------- AC screen'; guest = $false; route = '/sound'; own = @('src\sound.cs', 'dash\src\sound.cs')
+     fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' },
+  @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = '// The deck key presses and the profile tiles'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
+     fields = 'connected', 'read', 'on', 'mode', 'fan', 'target_f', 'room_f', 'auto', 'paused', 'on_above_f', 'off_below_f', 'busy' } )
 $unionCmds = @($handled.Keys); $guestSet = @($guestCmds)
 $addonRows = New-Object Collections.Generic.List[object]
 $deadKnown = @(); $longLabels = @()

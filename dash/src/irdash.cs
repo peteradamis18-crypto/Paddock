@@ -612,7 +612,7 @@ namespace IRDash
                         if (dc == "tvview") { Send(s, 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("TV view rebuild")); return; }
                         if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
                         bool ok = TvView.Handles(dc ?? "") ? TvView.Do(dc, da) : Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
-                            : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : Guest.Do(dc ?? "", da);
+                            : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
@@ -649,6 +649,8 @@ namespace IRDash
                     }
                     if (method == "GET" && path == "/workbench/cmd") { DeckFeed.Workbench(ParseQuery(query)); Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Workbench.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the deck's last wb-* command for the page (the page's own state rides on the query: deckfeed.cs)
                     if (method == "GET" && path == "/workbench/state") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(DeckFeed.WorkbenchJson()), "Access-Control-Allow-Origin: *\r\n"); return; }   // what the ANALYSIS deck screen reads
+                    if (method == "GET" && path == "/ac") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AcAuto.Json(ParseQuery(query).ContainsKey("live"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AC screen (ac.cs)
+                    if (method == "GET" && path == "/ailevel") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AiLevel.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AI LEVEL deck screen (ailevel.cs)
                     if (method == "GET" && path == "/sound") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Sound.Json(!ParseQuery(query).ContainsKey("peek"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the SOUND deck screen (sound.cs); ?peek=1 = the opener key, no refresh
                     if (method == "GET" && (path == "/analysis/race" || path == "/field/status" || path.StartsWith("/api/test/field", StringComparison.Ordinal)))      // the race field log (field.cs, W6): every car's laps, gaps, pits, passes; test hook routes check Sdk.TestHook themselves
                     { int fc; string fj = RaceField.Route(path, ParseQuery(query), out fc); Send(s, fc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(fj), "Access-Control-Allow-Origin: *\r\n"); return; }
@@ -779,6 +781,13 @@ namespace IRDash
                         kq.TryGetValue("key", out kk); kq.TryGetValue("text", out kt); kq.TryGetValue("kind", out kd);
                         string kept = KeyMsg.Set(kk, kt, kd);
                         Send(s, kept.Length > 0 ? 200 : 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(kept.Length > 0 ? "ok" : "no text"));
+                        return;
+                    }
+                    if (method == "GET" && path == "/api/spot")
+                    {
+                        // irdeck's SAVE SPOT / BACK TO SPOT keys (spot.cs). This PC only. Reads the car, presses nothing in the sim.
+                        if (!local || query.Contains("asphone=1")) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
+                        Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Spot.Route(ParseQuery(query))));
                         return;
                     }
                     if (method == "GET" && path == "/api/kids")
@@ -2672,6 +2681,7 @@ namespace IRDash
                 if (cfg.OpenOnStart && !noBrowser) OpenDashboard();
                 try { DeltaBar.Start(); } catch (Exception ex) { Log.W("delta bar: could not start: " + ex.Message); }
                 try { Gallery.Start(); } catch (Exception ex) { Log.W("gallery: could not start: " + ex.Message); }
+                try { Spot.Start(); } catch (Exception ex) { Log.W("spot: could not start: " + ex.Message); }
             };
             first.Start();
 

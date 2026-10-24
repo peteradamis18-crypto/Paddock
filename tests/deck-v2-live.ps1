@@ -1,4 +1,4 @@
-# Deck v2, live: every new one-press key, pressed through its REAL key exe (keys\<name>.exe, the same path as a Stream Deck
+﻿# Deck v2, live: every new one-press key, pressed through its REAL key exe (keys\<name>.exe, the same path as a Stream Deck
 # press), in real sessions. After each press: the sim's telemetry (irdeck-cli sess), what irdeck logged for that press, and the
 # message the top screen shows (GET /keymsg), plus a picture of the real top screen (tests\shots\v2-*.png).
 #   Test Drive (LAST DRIVE): GET OUT, GET IN from the replay screen, RESTART (back in the pits), kids lock / blocked key /
@@ -53,6 +53,7 @@ function UiHome {
   }
   return $false
 }
+function Shot-Sim($name) { try { $b = [System.Windows.Forms.Screen]::AllScreens | Where-Object { $_.Bounds.X -eq 0 -and $_.Bounds.Y -eq 0 } | Select-Object -First 1; $bmp = New-Object System.Drawing.Bitmap $b.Bounds.Width, $b.Bounds.Height; $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Bounds.Location, [System.Drawing.Point]::Empty, $b.Bounds.Size); $s = New-Object System.Drawing.Bitmap $bmp, 1280, 720; $s.Save((Join-Path $shots "v2-$name.png")); $g.Dispose(); $bmp.Dispose(); $s.Dispose() } catch { } }
 function KeyMsg { try { (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/keymsg' -TimeoutSec 3).Content | ConvertFrom-Json } catch { $null } }
 # press a deck key: run its exe, wait for it, return what it logged and what the top screen says
 function Press($key, $secs = 300) {
@@ -76,11 +77,11 @@ function Said($r, $text) { $r.msgKey -eq $r.key -and $r.msg -eq $text }
 if ((Ir state).out -match 'telemetry=on') { 'iRacing is in a session - run this when nobody is in the car.'; exit 1 }
 if (-not (UiHome)) { 'The iRacing UI is not on Home - start from Home.'; exit 1 }
 try {
-  Section '1. LAST DRIVE (Test Drive of the last car and track)'
+  Section '1. GET IN with nothing running starts your last drive (the Test Drive of the car and track chosen on CAR TRACK)'
   $env:RIG_TEST_OWNS_SIM = '1'
-  $r = Press 'last-drive' 400
+  $r = Press 'smart' 400
   $s = WaitSess { param($x) $x.onTrack } 20
-  Check "LAST DRIVE ends in the car, in a test drive ($($r.secs) s)" ($s.live -and $s.onTrack -and -not $s.ai)
+  Check "GET IN ends in the car, in a test drive ($($r.secs) s)" ($s.live -and $s.onTrack -and -not $s.ai)
   Check "the top screen says 'In the car'" (Said $r 'In the car')
   TopShot 'last-drive'
 
@@ -103,6 +104,33 @@ try {
   $s = WaitSess { param($x) $x.onTrack } 10
   Check "RESTART in a test drive ends in the car on pit road ($($r.secs) s)" ($s.onTrack -and $s.onPit)
   Check "the top screen says 'Back in the pits, in the car'" (Said $r 'Back in the pits, in the car')
+
+  Section '3b. the practice loop (Test Drive): SAVE SPOT, BACK TO SPOT, GHOST, PAUSE'
+  $r = Press 'spot-save' 60
+  Check 'SAVE SPOT saves the spot (the dashboard finds the track corner it times to)' ($r.log -match 'spot: ok - Spot saved')
+  Check "the top screen says 'Spot saved - tries are timed ...'" ($r.msgKey -eq 'spot-save' -and $r.msg -like 'Spot saved*')
+  $st = (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8199/api/spot?cmd=status' -TimeoutSec 5).Content | ConvertFrom-Json
+  Check "the dashboard holds the spot and says where tries end ('$($st.where)')" ($st.saved -eq $true -and $st.where.Length -gt 0)
+  $r = Press 'spot-back' 60
+  Check 'BACK TO SPOT puts the car back (the dashboard saw the reset and started a try)' ($r.log -match 'spot: ok - back at the spot' -and (Sess).onTrack)
+  Check "the top screen says 'Back at the spot - timing ...'" ($r.msgKey -eq 'spot-back' -and $r.msg -like 'Back at the spot*')
+  Shot-Sim 'spot-back'
+  $r = Press 'ghost' 30
+  Check 'GHOST sends iRacing''s reference-car key' ($r.log -match 'key ctrl\+c sent')
+  Shot-Sim 'ghost-on'
+  $t0 = (Sess).time
+  $r = Press 'pause' 30
+  Start-Sleep -Milliseconds 800
+  $a = (Sess).time; Start-Sleep -Milliseconds 1200; $b = (Sess).time
+  Check "PAUSE freezes the sim's clock ($a -> $b)" ($r.log -match 'pause: ok - Paused' -and $a -eq $b)
+  Check "the top screen says 'Paused - press again to carry on'" (Said $r 'Paused - press again to carry on')
+  Shot-Sim 'paused'
+  $r = Press 'pause' 30
+  Start-Sleep -Milliseconds 800
+  $a = (Sess).time; Start-Sleep -Milliseconds 1500; $b = (Sess).time
+  Check "PAUSE again carries on ($a -> $b)" ($r.log -match 'pause: ok - Running again' -and $b -gt $a)
+  Check "the top screen says 'Running again'" (Said $r 'Running again')
+  $null = Press 'ghost' 30      # back to how it was
 
   Section '4. kids mode while in the car'
   $r = Press 'kids' 30
@@ -154,6 +182,14 @@ try {
   $s = Sess
   Check "AI RACE starts an AI event, in the car ($($r.secs) s, $($s.type))" ($s.live -and $s.ai -and $s.onTrack -and $s.num -eq 0)
   $firstType = $s.type
+  $r = Press 'spot-save' 30
+  Check 'SAVE SPOT in an AI race says it is for Test Drives only' ($r.rc -eq 3 -and $r.log -match 'this is for a Test Drive' -and (Said $r 'Test Drive only (Active Reset)'))
+  $r = Press 'pause' 30
+  Start-Sleep -Milliseconds 800
+  $a = (Sess).time; Start-Sleep -Milliseconds 1200; $b = (Sess).time
+  $paused = ($a -eq $b)
+  if ($r.log -match 'pause: ok - Paused') { Check 'PAUSE in an AI race freezes the clock (and it is un-paused again below)' $paused } else { "  info  PAUSE in an AI race: $($r.msg) (the sim clock moved: $a -> $b)" }
+  if ($paused) { $null = Press 'pause' 30; Start-Sleep -Milliseconds 800; Check 'PAUSE again carries on in the AI race' ((Sess).time -ne $a) }
   Start-Sleep -Seconds 8
   $s0 = Sess
   $r = Press 'restart-race' 180

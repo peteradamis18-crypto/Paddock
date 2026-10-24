@@ -357,6 +357,8 @@ namespace IRDeck
                 case "doctor": return CmdDoctor();            // overlays.cs: Rig Doctor on the top screen
                 case "tunerbox": return CmdTunerBox(Slice(a, 1));   // tunerbox.cs: hide the Simucube Tuner's blank grey box (never closes the Tuner)
                 case "kids": return CmdKids(Slice(a, 1));             // kids.cs: one key locks the keyboard and mouse
+                case "spot": return CmdSpot(Slice(a, 1));             // spot.cs: SAVE SPOT / BACK TO SPOT (Test Drive practice loop, tries timed by irdash)
+                case "pause": return CmdPause();                      // spot.cs: pause the sim and say whether it really stopped
             }
             Log("unknown command " + a[0]);
             return 1;
@@ -1968,6 +1970,7 @@ namespace IRDeck
             switch (n)
             {
                 case "esc": vk = 0x1B; return true;
+                case "pause": vk = 0x13; return true;
                 case "enter": vk = 0x0D; return true;
                 case "tab": vk = 0x09; return true;
                 case "space": vk = 0x20; return true;

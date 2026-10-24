@@ -1518,8 +1518,59 @@ const Ac = new class extends Screen {
     return R;
   }
 };
+// ---------------- AI LEVEL screen (the AI LEVEL key on MAIN): how hard the AI is for the next AI RACE ----------------
+// A plain screen: irdash (dash\src\ailevel.cs) says what every key shows and does (GET /ailevel -> regions), this only paints them and sends
+// the presses back (/api/do?c=ailevel&a=<arg>). So changing the screen needs a dashboard update, not another add-on install.
+const AiLevel = new class extends Screen {
+  constructor() {
+    super('ailevel', FCOLORS);
+    this.s = null;                 // the last /ailevel
+    this.interval = 700;
+  }
+  hasState() { return !!this.s && !!this.s.ready; }
+
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('AI', 72, 62);
+    g.fillStyle = INK; g.font = '600 26px ' + FONT; g.fillText('LEVEL', 72, 98);
+    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+  }
+  async keyTick() { this.keyIcon(false); }
+
+  async open() {
+    if (!deviceId) return;
+    Perf.begin('ailevel');
+    this.switchTo('RigAiLevel'); Perf.mark('ailevel', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.s) this.warm();
+  }
+  exit() { this.switchTo(''); }
+
+  async poll() {
+    try { this.s = await this.get('/ailevel'); } catch (e) { this.s = { ready: false, offline: true }; }
+    this.relayout();
+  }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(150);
+  }
+
+  build() {
+    const s = this.s, R = [];
+    if (!s.ready) {
+      R.push({ c: 0, r: 0, w: 8, h: 3, text: 'AI LEVEL NOT READY', sub: 'Needs the dashboard update', style: 'amber', wrap: 2, size: 38 });
+      R.push({ c: 7, r: 3, w: 1, h: 1, text: 'EXIT', sub: 'AI LEVEL', act: 'exit', style: 'stop', wrap: 2 });
+      return R;
+    }
+    for (const g of (s.regions || [])) R.push({ c: g.c, r: g.r, w: g.w, h: g.h, text: g.text, sub: g.sub, act: g.act, arg: g.arg, style: g.style || '', wrap: g.wrap || 0, once: true });
+    return R;
+  }
+};
 // The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
-const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac };
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel };
 
 // ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
 // irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.

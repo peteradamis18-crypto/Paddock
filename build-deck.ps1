@@ -140,13 +140,20 @@ $minus = [string][char]0x2212   # a real minus sign for VOL; the script file its
 #   One key = one finished job. A key whose live state the add-on draws (DK-4) carries no static subtitle
 #   (no "on / off", no "last settings"). Keys that end something sit right, red, and need a second press (x2).
 #   DK-2 left cell 7,3 empty. K-01 uses it for KIDS. DK-2b (Peter, 2026-10-11) filled 6,0 (OFFICIAL) and 6,2 (CAR TRACK).
+# AI LEVEL is an add-on screen: its key goes on the deck only once the INSTALLED add-on has that action (a key for a screen that is not
+# installed would be dead, and Stream Deck may drop a page with one). Until then LAST DRIVE holds the cell.
+$sdPlugin = Join-Path $env:APPDATA 'Elgato\StreamDeck\Plugins\com.peter.rigintro.sdPlugin\manifest.json'
+# ... and only once AI RACE can really apply the choice (src\testdrive.cs AiApplyLevel): a screen that saves a level nothing uses would be a lie
+$aiApplyBuilt = ((Get-Content (Join-Path $here 'src\testdrive.cs') -Raw) -match 'static \w+ AiApplyLevel\(')
+$aiLevelOn = (Test-Path $sdPlugin) -and ((Get-Content $sdPlugin -Raw) -match 'rigintro\.ailevel') -and $aiApplyBuilt
 $main = [ordered]@{
   # DECK v2 (2026-10-23, docs\design\deck-v2\deck-plan.html, Peter: "yes, build it"). Every key is ONE press from any state:
   # the key works out where he is. No x2 keys: the thing that ends a session sits behind the LEAVE page, and opening that page is the check.
   # row 1 - start something
   '0,0' = K 'HOME' '' 'go' 'power'                             (L 'rig-on'          'rigon')          # rig up: RIG ON; rig already up: HOME. Also the 2nd key of the kids unlock (KIDS, then HOME)
-  '1,0' = K 'LAST' 'DRIVE' 'go' $null                           (L 'last-drive'      'mydrive start')  # your last car + track as a test drive (MY DRIVE's choice), same as HOME's gold button
-  '2,0' = K 'AI RACE' '' 'go' 'play'                           (L 'ai-race'         'airace start')
+  # (no LAST DRIVE key: GET IN already starts your last drive when nothing is running, and it was pressed 0 times in 4 days)
+  '1,0' = K 'AI RACE' '' 'go' 'play'                           (L 'ai-race'         'airace start')
+  '2,0' = $(if ($aiLevelOn) { K 'AI' 'LEVEL' 'go' 'wheel' @{ plugin = 'com.peter.rigintro.ailevel'; name = 'AI Level' } } else { K 'LAST' 'DRIVE' 'go' $null (L 'last-drive' 'mydrive start') })   # AI LEVEL: second screen, how hard the AI is for the next AI RACE (adaptive low / medium / high, or a fixed skill range)
   '3,0' = K 'CAR' 'TRACK' 'nav' 'folder'                        @{ plugin = 'com.peter.rigintro.mydrive'; name = 'Car Track' }   # change the car & track LAST DRIVE / AI RACE use
   '4,0' = K 'OFFICIAL' '' 'go' 'flag'                          (L 'official'        'official')
   '5,0' = K 'FRIENDS' '' 'go' 'wheel'                          @{ plugin = 'com.peter.rigintro.friends'; name = 'Friends mode' }
@@ -160,7 +167,7 @@ $main = [ordered]@{
   '3,1' = K 'RESTART' '' 'ses' 'restart'                       (L 'restart-race'    'restartrace')    # AI race: out, restart, back in. Test drive: pits + in the car
   '4,1' = K 'NEXT' 'SESSION' 'ses' 'next'                       (L 'skip-session'    'skip')           # practice -> qualify -> race; test drive: back to the menu
   '5,1' = K 'RACE' 'NOW' 'go' 'flag'                            (L 'race-now'        'racenow')        # from practice or qualify straight to the race
-  '6,1' = K 'INSTANT' 'REPLAY' 'nav' 'camera'                   (Later 'instant replay of the last 30 s: not built yet')
+  '6,1' = K 'PAUSE' '' 'ses' 'pp'                              (L 'pause'           'pause')          # freezes an AI race or a Test Drive, press again to carry on; says when the sim did not pause
   '7,1' = K 'LEAVE' '' 'stop' 'home'                           @{ page = 'previous' }               # opens the LEAVE page (QUIT TO MENU is one press there)
   # row 3 - pit and car, and the screens
   '0,2' = K 'FUEL TO' 'FINISH' 'car' 'pump'                     (L 'fuel-finish'     'chat say #autofuel')
@@ -170,16 +177,17 @@ $main = [ordered]@{
   '4,2' = K 'OVERLAYS' '' 'nav' 'eye'                          @{ plugin = 'com.peter.rigintro.overlays'; name = 'Overlays' }
   '5,2' = K 'REVIEW' '' 'nav' 'info'                           (L 'debrief'         'dash debrief')
   '6,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')
-  '7,2' = K 'LAPS TO' 'EMPTY' 'car' $null                      (Live 'laps-to-empty' @{} '12' 'laps left')
+  '7,2' = K 'REPLAY' '' 'nav' 'camera'                         @{ plugin = 'com.peter.rigintro.replay'; name = 'Replay' }
   # row 4 - sound, talk, live numbers
-  '0,3' = K ('VOL ' + $minus) '' 'talk' 'speaker'              (L 'vol-down'        'appvol game -10')   # the sim, its menu and the spotter, together
-  '1,3' = K 'VOL +' '' 'talk' 'speaker'                        (L 'vol-up'          'appvol game +10')
+  '0,3' = K ('VOL ' + $minus) '' 'talk' 'speaker'              (L 'vol-down'        'appvol game -5')   # 5 % a press (was 10: 17 of his 90 volume presses undid the one before, he kept hunting between two steps). The sim, its menu and the spotter, together
+  '1,3' = K 'VOL +' '' 'talk' 'speaker'                        (L 'vol-up'          'appvol game +5')
   '2,3' = K 'MUTE' 'SPOTTER' 'talk' 'mute'                      (L 'mute-spotter'    'appvol mute spotter')
   '3,3' = K 'SORRY' '' 'talk' 'chat'                           (L 'say-sorry'       'chat say Sorry!')
   '4,3' = K 'THANKS' '' 'talk' 'chat'                          (L 'say-thanks'      'chat say Thanks!')
-  '5,3' = K 'RELATIVE' '' 'talk' $null                         (L 'bb-f3'           'key --sim f3')
-  '6,3' = K 'POSITION' 'CLASS' 'talk' $null                    (Live 'position' @{ positionType = 'class'; positionShowTotal = 'true' } 'P4' 'of 18')
-  '7,3' = K 'INCIDENTS' '' 'talk' $null                        (Live 'incidents' @{} '2' 'incidents')
+  # the practice loop (Test Drive): SAVE SPOT where you want to come back to, BACK TO SPOT as often as you like; every try is timed to the next corner exit on the top screen
+  '5,3' = K 'SAVE' 'SPOT' 'ses' 'flag'                          (L 'spot-save'       'spot save')
+  '6,3' = K 'BACK TO' 'SPOT' 'ses' 'restart'                     (L 'spot-back'       'spot back')
+  '7,3' = K 'GHOST' '' 'nav' 'eye'                              (L 'ghost'           'key --sim ctrl+c')   # iRacing's reference car (your best lap) on or off
 }
 
 # LEAVE (the page BEFORE MAIN: MAIN's LEAVE key is "previous page", this page's BACK is "next page"). One big QUIT, no second press.
@@ -192,7 +200,7 @@ $leave = [ordered]@{
   '7,3' = K 'SLEEP' 'PC' 'stop' 'moon'                          (L 'sleep'           'power sleep')
 }
 # MORE (page 2): the rare keys and the ones that end something, plus the MAIN keys the new grid drops. BACK returns
-# to MAIN. Nothing is lost: MARK SPOT / BACK TO SPOT are the old reset points, WIPE is the windscreen tear-off.
+# to MAIN. Nothing is lost: SAVE SPOT / BACK TO SPOT moved to MAIN (they time every try), WIPE is the windscreen tear-off.
 $more = [ordered]@{
   '0,0' = $back
   '2,0' = K 'GOOD' 'RACE' 'talk' 'chat'                           (L 'say-gg'          'chat say GG')
@@ -200,9 +208,7 @@ $more = [ordered]@{
   '4,0' = K 'SHOWCASE' '' 'nav' 'play'                         (L 'showcase'        'showcase')
   '5,0' = K 'SOUND' '' 'talk' 'speaker'                        @{ plugin = 'com.peter.rigintro.sound'; name = 'Sound' }   # the SOUND screen (C-39): game, spotter, music, speakers, ButtKicker, presets
   '7,0' = K 'LOCK' '' 'stop' 'lock'                            (L 'lock'            'power lock')   # one press, like every v2 key; it only locks Windows and sits on MORE, never on MAIN
-  '0,1' = K 'MARK' 'SPOT' 'ses' 'flag'                         (L 'reset-save'      'key --sim ctrl+shift+f1')
-  '1,1' = K 'BACK TO' 'SPOT' 'ses' 'restart'                   (L 'reset-run'       'key --sim ctrl+shift+f2')
-  '2,1' = K 'REPLAY' '' 'nav' 'camera'                         @{ plugin = 'com.peter.rigintro.replay'; name = 'Replay' }
+  '0,1' = K 'RELATIVE' '' 'talk' $null                         (L 'bb-f3'           'key --sim f3')   # the F3 box (was on MAIN: 0 presses)
   '4,1' = K 'WIPE' '' 'car' $null                              (L 'pit-ws'          'pittoggle ws')   # windscreen tear-off
   '5,1' = K 'SEAT' 'LOWER' 'car' 'down'                        (L 'seat-down'       'key --sim ctrl+[')
   '6,1' = K 'SEAT' 'HIGHER' 'car' 'up'                         (L 'seat-up'         'key --sim ctrl+]')
@@ -217,10 +223,9 @@ $more = [ordered]@{
 # the rig room's Midea AC (src\ac.cs -> ac\ac.py): the keys appear only once the AC is connected (ac\ac.json exists), so the
 # deck never shows keys that can't work (2026-10-23: connected through the Midea Air route, ac\cloud.bin)
 if ((Test-Path (Join-Path $here 'ac\ac.json')) -or (Test-Path (Join-Path $here 'ac\cloud.bin'))) {   # connected: local key or the Midea Air login
-  $more['0,3'] = K 'AC' '' 'nav' 'power'                      (L 'ac-toggle'       'ac toggle')
-  $more['1,3'] = K 'AC' 'COOLER' 'nav' 'down'                 (L 'ac-cooler'       'ac cooler')
-  $more['2,3'] = K 'AC' 'WARMER' 'nav' 'up'                   (L 'ac-warmer'       'ac warmer')
-  $more['3,3'] = K 'AC' 'FAN' 'nav' $null                     (L 'ac-fan'          'ac fan')
+  # one key opens the AC screen (deck-intro\plugin.html, like SOUND): power, temperature, mode, fan, presets, auto-cool. Its picture
+  # shows ON / OFF and the room temperature. The ac-* key exes (ac toggle/cooler/warmer/fan) still work from irdeck-cli and tests.
+  $more['0,3'] = K 'AC' '' 'nav' 'power'                      @{ plugin = 'com.peter.rigintro.ac'; name = 'AC' }
 }
 # ---------- write the profile ----------
 if (-not $Preview) {

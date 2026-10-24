@@ -134,6 +134,9 @@ iRacing's own files stay where iRacing put them: `Documents\iRacing\` (telemetry
 
 6. **A test.** The script calls `Assert-RigFree`, writes `dash\deploy.lock`, and for a pretend session creates `dash\test-hook.on`. irdash then accepts `/api/test/...` and does not broadcast replay messages. The script deletes both files when it finishes. `dash\build.ps1` will not replace irdash while the lock is under 15 minutes old or while the rig is busy.
 
+7. **A practice loop (Test Drive).** SAVE SPOT / BACK TO SPOT run `irdeck spot save|back` (`src\spot.cs`): iRacing's own Active Reset keys (Ctrl+Shift+F1 / F2) are pressed in the sim, and irdeck tells irdash (`GET /api/spot`, this PC only, always 127.0.0.1: "localhost" costs 2 s from a fresh process). irdash's `spot.cs` watches every telemetry frame; `spotcore.cs` (pure, tested on made-up laps by `tests\spot-test.ps1`) notices the reset, times the car from the spot to the exit of the next corner (the corner list from `corners.cs`; 300 m on when a track has none) and puts "Try 3: 9.82 s - best 9.61 (+0.21)" on the top screen through `KeyMsg`. PAUSE (`irdeck pause`) presses iRacing's Pause key and reads the sim's clock to say whether it really stopped.
+
+8. **AI level.** The AI LEVEL key opens a screen whose key list comes from irdash (`GET /ailevel`, `dash\src\ailevel.cs`; the add-on only paints it). The choice lives in `ai\level.json`. AI RACE reads it at the wizard's AI Opponents step (`src\testdrive.cs`). iRacing's own start-up setting there is Adaptive AI, Low challenge (`docs\research\ai-opponents-dump-*.txt`).
 ## Names that stay
 
 Do not rename: folder `iRacingDeck`, `irdeck.exe`, `irdeck-cli.exe`, `irdash.exe`, port 8199, add-on UUID `com.peter.rigintro`, profile names `RigIntro`, `RigFriends`, `RigOverlays`, `RigMyDrive`, `RigReplay`, logon task "iRacing Rig", dashboard window title "iRacing Dash".

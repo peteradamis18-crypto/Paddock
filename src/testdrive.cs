@@ -153,7 +153,9 @@ namespace IRDeck
             try { object p; if (u.E.TryGetCurrentPattern(InvokePattern.Pattern, out p)) { ((InvokePattern)p).Invoke(); return true; } } catch { }
             return ClickEl(u);
         }
-        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace;
+        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace, aiSurveyAi;
+        static string aiSurveyName = "";                         // survey-ai: the one control named on the command line that may be pressed right now
+        static readonly List<string> aiSurveyPresses = new List<string>();
         static string aiLayoutName = "";
         static bool AiPressAllowed(string id, string name)
         {
@@ -164,7 +166,8 @@ namespace IRDeck
                 || Same(name, "Last Settings") || Same(name, "Close") || Same(name, "Back") || Same(name, "Select") || Same(name, "Add a Car")
                 || (aiAllowNew && Same(name, "New Race")) || (aiAllowRace && Same(name, "Race"))
                 || (aiAllowContinue && Same(name, "Continue"))
-                || (aiAllowLayout && Same(name, aiLayoutName));
+                || (aiAllowLayout && Same(name, aiLayoutName))
+                || (aiSurveyName.Length > 0 && Same(name, aiSurveyName));
         }
         static bool AiChooserValid(bool last, bool newRace, bool close)
         {
@@ -264,6 +267,8 @@ namespace IRDeck
                 try { if (u.E.TryGetCurrentPattern(TogglePattern.Pattern, out p)) state += " toggle=" + ((TogglePattern)p).Current.ToggleState; } catch { }
                 try { if (u.E.TryGetCurrentPattern(ValuePattern.Pattern, out p)) state += " value=" + ((ValuePattern)p).Current.Value; } catch { }
                 try { if (u.E.TryGetCurrentPattern(SelectionItemPattern.Pattern, out p)) state += " selected=" + ((SelectionItemPattern)p).Current.IsSelected; } catch { }
+                try { if (u.E.TryGetCurrentPattern(RangeValuePattern.Pattern, out p)) { RangeValuePattern rv = (RangeValuePattern)p; state += " range=" + rv.Current.Minimum + ".." + rv.Current.Maximum + " now=" + rv.Current.Value + " readonly=" + rv.Current.IsReadOnly; } } catch { }
+                try { if (u.E.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out p)) state += " expand=" + ((ExpandCollapsePattern)p).Current.ExpandCollapseState; } catch { }
                 b.AppendLine(u.Type.ProgrammaticName + "|" + u.Name.Replace("|", "/") + "|" + u.Id + "|enabled=" + u.E.Current.IsEnabled + state);
             }
             File.AppendAllText(path, b.ToString());
@@ -291,6 +296,16 @@ namespace IRDeck
             string op = args.Length == 0 ? "start" : args[0].ToLowerInvariant(), output = null;
             aiAllowNew = false; aiAllowContinue = false;
             for (int i = 0; i < args.Length; i++) { if (args[i] == "--out" && i + 1 < args.Length) output = args[++i]; else if (args[i] != "--dry" && args[i] != "--new") op = args[i].ToLowerInvariant(); }
+            if (args.Length > 0 && args[0].Equals("survey-ai", StringComparison.OrdinalIgnoreCase))
+            {
+                // Reads the wizard's AI Opponents step (AI type, strength / skill range, field size...) and writes it to docs\research\ai-opponents-dump-*.txt.
+                // Sets the car and track like AI RACE (the step stays locked until then), opens that step, dumps it, then presses each control named
+                // after survey-ai (never Race or Continue) and dumps again, and leaves with Back / Close. Nothing is started or saved. Out of the car only.
+                aiSurveyPresses.Clear();
+                for (int i = 1; i < args.Length; i++) if (!args[i].StartsWith("--")) aiSurveyPresses.Add(args[i]);
+                aiSurveyAi = true;
+                try { return CmdAiraceStart(false); } finally { aiSurveyAi = false; aiSurveyName = ""; }
+            }
             if (op == "start") return CmdAiraceStart(dry);
             if (op == "save") { Log("airace save: not available on the New Race path"); return 1; }
             if (op != "survey") { Log("airace: use start [--dry] or survey [--out file] [--dry]"); return 1; }
@@ -342,6 +357,62 @@ namespace IRDeck
                 Log("airace survey: saved scoped modal dump " + dump); return 0;
             }
             catch (Exception ex) { Log("airace survey: " + ex.Message); AiCleanup(window); return 1; }
+        }
+
+        static int AiSurveyAiStep(AutomationElement window)
+        {
+            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            string dump = Path.Combine(Root, @"docs\research\ai-opponents-dump-" + stamp + ".txt");
+            try
+            {
+                File.WriteAllText(dump, "AI Opponents step survey " + stamp + Environment.NewLine);
+                AutomationElement modal = AiModal(window);
+                UEl step = modal == null ? null : AiById(AiElements(modal), "wizard-sidebar-link-set-ai");
+                if (step == null || !AiPress(step)) return AiStop("UI CHANGED", "the AI Opponents step is missing or locked", window);
+                Thread.Sleep(900); modal = AiModal(window);
+                if (modal == null) return AiStop("UI CHANGED", "the wizard closed", window);
+                AiDump(modal, dump, "ai-opponents (as the wizard opens it)");
+                try { AiScreenshot(tdUi, Path.Combine(Root, @"tests\shots\ai-opponents-0.png")); } catch { }
+                int n = 0; Rect zone = Rect.Empty;     // where a dropdown opened: its choices are drawn outside the wizard's own tree, near the field
+                foreach (string asked in aiSurveyPresses)
+                {
+                    n++;
+                    // "Edit:AI Type" = the control of that type with that name (the same words are also plain text on the page)
+                    string name = asked, kind = null;
+                    Match km = Regex.Match(asked, "^(Edit|Hyperlink|Text|ListItem|DataItem|Group|Button|Slider):(.+)$");
+                    if (km.Success) { kind = "ControlType." + km.Groups[1].Value; name = km.Groups[2].Value; }
+                    if (Same(name, "Race") || Same(name, "Continue")) { Log("airace survey-ai: will not press " + name); continue; }
+                    modal = AiModal(window); if (modal == null) break;
+                    Rect mr = Rect.Empty; try { mr = modal.Current.BoundingRectangle; } catch { }
+                    List<UEl> hits = AiElements(window).FindAll(u => Same(u.Name, name) && (kind == null || u.Type.ProgrammaticName == kind) && u.E.Current.IsEnabled && !u.E.Current.IsOffscreen
+                        && (mr.Contains(u.R) || (!zone.IsEmpty && zone.IntersectsWith(u.R))));
+                    // a menu choice is often also plain text somewhere: with no type given, take the one that can be pressed
+                    if (hits.Count > 1 && kind == null)
+                    {
+                        List<UEl> pressable = hits.FindAll(u => u.Type != ControlType.Text && u.Type != ControlType.Group && u.Type != ControlType.Pane && u.Type != ControlType.Image);
+                        if (pressable.Count == 1) hits = pressable;
+                    }
+                    if (hits.Count != 1) { Log("airace survey-ai: " + name + " matches " + hits.Count + " controls - skipped"); File.AppendAllText(dump, "SKIPPED " + name + " (" + hits.Count + " matches)" + Environment.NewLine); continue; }
+                    aiSurveyName = name; bool ok = AiPress(hits[0]); aiSurveyName = "";
+                    if (hits[0].Type == ControlType.Edit) zone = new Rect(hits[0].R.X - 80, hits[0].R.Y - 60, hits[0].R.Width + 500, 760); else zone = Rect.Empty;
+                    Thread.Sleep(900); modal = AiModal(window); if (modal == null) break;
+                    AiDump(modal, dump, "after pressing " + asked + (ok ? "" : " (the press failed)"));
+                    if (!zone.IsEmpty)
+                    {
+                        // everything drawn around the field (the open dropdown): type | name | id | place, whoever owns it
+                        StringBuilder zb = new StringBuilder("ZONE after pressing " + asked + Environment.NewLine);
+                        foreach (UEl u in AiElements(window))
+                            if (zone.IntersectsWith(u.R) && (u.Name.Length > 0 || u.Id.Length > 0))
+                                zb.AppendLine("  " + u.Type.ProgrammaticName + "|" + u.Name.Replace("|", "/") + "|" + u.Id + "|[" + (int)u.R.X + "," + (int)u.R.Y + " " + (int)u.R.Width + "x" + (int)u.R.Height + "]");
+                        File.AppendAllText(dump, zb.ToString());
+                    }
+                    try { AiScreenshot(tdUi, Path.Combine(Root, @"tests\shots\ai-opponents-" + n + ".png")); } catch { }
+                }
+                Log("airace survey-ai: saved " + dump);
+                AiCleanup(window);
+                return 0;
+            }
+            catch (Exception ex) { Log("airace survey-ai: " + ex.Message); return AiStop("UI CHANGED", "survey failed", window); }
         }
 
         static MdCombo AiCombo()
@@ -415,6 +486,7 @@ namespace IRDeck
                     UEl trackStep = AiById(AiElements(modal), "wizard-sidebar-link-set-track"); if (trackStep == null || !AiPress(trackStep)) return AiStop("UI CHANGED", "Tracks step missing", window);
                     modal = AiModal(window); if (AiPickRow(modal, combo.Track, false, null, rs => BestTrackRow(rs, u => AiRowName(u.Name), combo.Track)) == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
                 }
+                if (aiSurveyAi) return AiSurveyAiStep(window);
                 // Car and track are set: press Continue until the wizard closes (each press moves one step; the last starts the race).
                 // The step's elements are replaced after every press, so read them fresh each time and treat a vanished element as "not yet".
                 for (int press = 0; press < 12; press++)

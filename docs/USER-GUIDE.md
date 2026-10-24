@@ -10,9 +10,9 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | Key | What it does |
 |---|---|
 | **HOME** | Starts anything the rig needs that is not running yet (Stream Deck, the dashboard, wheel and haptics apps, the iRacing app) and puts the iRacing app on the middle screen. The PC does this by itself at start-up, so you only need it if something did not come up. During a session it does nothing, so it cannot cover the sim. It is also the second key to unlock **KIDS**. |
-| **LAST DRIVE** | Starts your last car and track as a Test Drive and puts you in the car. It uses the car and track you chose last on **CAR TRACK**. |
 | **AI RACE** | An AI race with the car and track you chose last. It loads and puts you in the car. |
-| **CAR TRACK** | Opens the car and track picker on the deck. It sets what **LAST DRIVE** and **AI RACE** use. |
+| **AI LEVEL** | Opens the AI level screen: how hard the AI is for the next AI race (ADAPTIVE low, medium or high, or a fixed skill range). Until the add-on that has it is installed, this cell holds **LAST DRIVE** (your last car and track as a Test Drive). |
+| **CAR TRACK** | Opens the car and track picker on the deck. It sets what **GET IN** (with nothing running) and **AI RACE** use. |
 | **OFFICIAL** | Opens the iRacing app on its Official racing page. It does nothing while a session is running. |
 | **FRIENDS** | Opens the friends screen on the deck. |
 | **KIDS** | Locks the keyboard and mouse so the kids cannot break anything. It works while they drive. The deck then answers only **GET IN**, **RESET CAR**, **RESTART** and **VOL**. To unlock: press **KIDS**, then **HOME** within 4 seconds. |
@@ -21,13 +21,13 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 ## Main page, row 2 — in a session
 | Key | What it does |
 |---|---|
-| **GET IN** | Always gets you in the car. If nothing is running, it starts your last drive. If you are on the session screen or watching a replay, it presses Drive. If you are in the car already, it does nothing. |
+| **GET IN** | Always gets you in the car. If nothing is running, it starts your last drive (the Test Drive of the car and track you chose on **CAR TRACK**). If you are on the session screen or watching a replay, it presses Drive. If you are in the car already, it does nothing. |
 | **GET OUT** | Gets you out of the car. If the car is still rolling, it waits for it to stop (up to 15 seconds), then gets out. |
 | **RESET CAR** | If the car is still moving, waits until it stops, then tows you to the pits and back into the car. Instant in practice. In a race, iRacing adds its tow time. |
 | **RESTART** | Restarts the AI race and puts you back in the car. In a Test Drive it takes you back to the pits instead. Official sessions cannot be restarted. |
 | **NEXT SESSION** | Moves to the next session (practice, then qualifying, then the race), including iRacing's own "are you sure". In a Test Drive it takes you back to the menu. Official sessions cannot be skipped. |
 | **RACE NOW** | From practice or qualifying, goes straight to the race and puts you in the car. A Test Drive has no race, and it says so. |
-| **INSTANT REPLAY** | Not on the deck yet. It will show the last 30 seconds. |
+| **PAUSE** | Freezes an AI race or a Test Drive. Press again to carry on. The top screen says Paused or Running again. iRacing does not allow it online, and the key says so. |
 | **LEAVE** | Opens the **LEAVE** page (below). |
 
 ## Main page, row 3 — pit and car (pit keys only work while you are in the car)
@@ -40,17 +40,17 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **OVERLAYS** | Opens the overlays screen on the deck. |
 | **REVIEW** | Opens the review of your last outing on the top screen. |
 | **VAULT** | Opens the Vault on the top screen. |
-| **LAPS TO EMPTY** | Live: how many laps your fuel lasts. |
+| **REPLAY** | Opens the replay screen on the deck. |
 
-## Main page, row 4 — sound, talk and live numbers
+## Main page, row 4 — sound, talk, and the practice loop
 | Key | What it does |
 |---|---|
-| **VOL − / VOL +** | Turns the sim, the iRacing app and the spotter down or up together. It does not touch the PC's main volume. |
+| **VOL − / VOL +** | Turns the sim, the iRacing app and the spotter down or up together, 5 % a press. It does not touch the PC's main volume. |
 | **MUTE SPOTTER** | Mutes the spotter's voice. Press again to bring it back. The sim and the music keep playing. |
 | **SORRY / THANKS** | Sends "Sorry!" or "Thanks!" in the race chat. |
-| **RELATIVE** | Shows iRacing's Relative box (the cars around you). |
-| **POSITION · CLASS** | Live: your position in your class, and how many cars. |
-| **INCIDENTS** | Live: your incident points this session. |
+| **SAVE SPOT** | Test Drive practice loop. Remembers exactly where the car is: speed, gear, fuel, tyres (iRacing's Active Reset). Press it just before the corner you want to work on. |
+| **BACK TO SPOT** | Puts the car straight back at the saved spot, as many times as you like. Paddock times every try from the spot to the exit of the corner, and the top screen says it: Try 3: 9.82 s - best 9.61 (+0.21). Saving a new spot starts the count over. Works in a Test Drive only. |
+| **GHOST** | Shows or hides iRacing's reference car (your best lap) on the track. |
 
 ## The LEAVE page (one step left of the main page)
 | Key | What it does |
@@ -70,17 +70,28 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **SHOWCASE** | Replays the gold start-up animation on the top screen. Only for show. |
 | **SOUND** | Opens the sound screen: game, spotter, music, speakers and ButtKicker levels, and presets. |
 | **LOCK** | Locks the PC (Windows sign-in screen). It does not stop iRacing. |
-| **MARK SPOT / BACK TO SPOT** | In Test Drive: remembers where you are on track, and puts you back there so you can practise one corner again. |
-| **REPLAY** | Opens the replay screen on the deck. |
+| **RELATIVE** | Shows iRacing's Relative box (the cars around you). |
 | **WIPE** | Switches a windscreen tear-off at your next stop on or off. |
 | **SEAT LOWER** / **SEAT HIGHER** | Moves your view down or up. |
 | **TIMING, STANDINGS, FUEL BOX, TIRE BOX, IN-CAR, WEATHER** | Shows that iRacing box (F1, F2, F4, F5, F8, F11) while you are in the sim. |
 | **ANALYSIS** | Opens the analysis screen on the deck. |
-| **AC** | Turns the room AC on or off, like the remote's power button (it keeps its own mode and temperature). Turning it off, here or with the remote or app, pauses auto-cool for an hour. |
-| **AC COOLER** / **AC WARMER** | Sets the AC about 1 °F cooler or warmer (turns it on if it was off). |
-| **AC FAN** | Steps the AC fan: low, medium, high, auto. If the AC is in Auto mode it switches to Cool first, because Auto locks the fan. |
+| **AC** | Opens the **AC screen**. The key itself shows whether the AC is on and the room temperature. |
 
-**Auto-cool.** While the PC is on, Paddock checks the room every 2 minutes using the AC's own thermometer. At 76 °F or warmer it turns the AC on, cooling to 70 °F. At 72 °F or cooler it turns it off again, but only if auto-cool turned it on. SLEEP PC and SHUT DOWN PC also turn off cooling that auto-cool started. The top screen says what the AC is doing whenever a key is pressed or auto-cool switches it. Each AC key takes about 7 seconds, because the command goes through Midea's server, the same way the Midea Air app does it.
+## The AC screen (the AC key on MORE)
+Everything for the room AC on one page. A press shows on the keys at once; the AC follows a few seconds later, because the command goes through Midea's server the same way the Midea Air app does. While it is on its way, the ROOM key says SENDING. Several quick presses go out together.
+
+| Key | What it does |
+|---|---|
+| **AC ON / AC OFF** | Turns the AC on or off, like the remote's power button. Turning it off pauses auto-cool for an hour (the remote or the app counts too). |
+| **ROOM** | The room temperature from the AC's own thermometer, and what the AC is doing. |
+| **− COOLER / TARGET / + WARMER** | The temperature the AC aims for, about 1 °F per press. |
+| **MAX COOL / COMFORT / QUIET** | One press sets everything: 64 °F fan high / 72 °F fan auto / 72 °F fan low. |
+| **COOL, AUTO, DRY, FAN ONLY, HEAT** | The mode. The lit one is what the AC is doing. |
+| **LOW, MEDIUM, HIGH, AUTO** | The fan. In Auto or Dry mode the AC locks its fan, so picking a speed switches it to Cool. |
+| **AUTO-COOL ON / OFF** | Lets Paddock cool the room while the PC is on (below). |
+| **− START / STARTS AT / + START** | The room temperature at which auto-cool starts. It stops 4 °F lower. |
+| **EXIT** | Back to your keys. |
+**Auto-cool.** While the PC is on, Paddock checks the room every 2 minutes using the AC's own thermometer. At 76 °F or warmer (change it on the AC screen) it turns the AC on, cooling to 70 °F. At 72 °F or cooler it turns it off again, but only if auto-cool turned it on. SLEEP PC and SHUT DOWN PC also turn off cooling that auto-cool started. The top screen says what the AC is doing whenever a key is pressed or auto-cool switches it. Each AC key takes about 7 seconds, because the command goes through Midea's server, the same way the Midea Air app does it.
 
 
 ## Screens on the deck
@@ -90,6 +101,8 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 **Overlays.** Switch each overlay on or off. Choose a preset: RACE, PRACTICE, QUALI, MINIMAL or FRIENDS. Move them with EDIT LAYOUT. The delta bar is on this screen too: on or off, and which lap it compares (below).
 
 **My Drive.** Choose any car and track you own, then START. Recent drives and favourites are at the top. Search by typing on the deck. Damage on or off. It sets up the Test Drive, launches, and puts you in the car. Open it with the **CAR TRACK** key.
+
+**AI level.** How hard the AI is for your next AI RACE. iRacing has two ways to set it, and both are here. **ADAPTIVE** (the AI follows your pace and keeps the race close): LOW, MEDIUM or HIGH is how hard it pushes you. **RANGE**: you give a slowest and a fastest AI skill and every AI driver is spread inside it (MIN and MAX, 5 points a press). The lit key is the one AI RACE will use. Until this screen existed, every AI race used iRacing's own start-up setting, which is Adaptive AI on Low. START begins an AI race at once with the level shown.
 
 **Replay.** Press REPLAY, then BACK (top left) to return to your keys. You can play and pause, rewind and fast forward, slow motion, jump to a lap or an incident, go back 10 seconds, and watch your car, the car ahead, the car behind, the leader, or any car in the list. Out of a session the screen lists your saved replays. While you are driving, the keys are dim: get out of the car before you watch a replay. BACK still works. Changing the camera group, hiding the iRacing menus, and My last incident are still being finished. A photo you take here is saved for the side screens. If the picture is too small, the key says so. If screen capture is off, the key tells you to switch it on in iRacing's settings, and it does not take the photo.
 

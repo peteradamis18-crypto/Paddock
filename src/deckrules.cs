@@ -40,7 +40,7 @@ namespace IRDeck
             string v = a[0].ToLowerInvariant();
             if (v == "kids" || v == "smart" || v == "tow" || v == "restartrace") return true;
             if (v == "confirm") return a.Length >= 3 && a[1] == "restart-race" && a[2].ToLowerInvariant() == "restartrace";
-            if (v == "appvol") return a.Length >= 3 && a[1].ToLowerInvariant() == "game" && (a[2] == "-10" || a[2] == "+10");
+            if (v == "appvol") return a.Length >= 3 && a[1].ToLowerInvariant() == "game" && (a[2] == "-5" || a[2] == "+5" || a[2] == "-10" || a[2] == "+10");
             return false;
         }
 
