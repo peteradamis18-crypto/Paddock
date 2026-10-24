@@ -130,7 +130,7 @@ $moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,
   '0,1' = 'RELATIVE'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
   '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
 # the AC keys are on MORE's bottom row only once the AC is connected (ac\ac.json)
-if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC' }   # one key: it opens the AC screen
+if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC'; $moreWant['1,3'] = 'AC COOLER'; $moreWant['2,3'] = 'AC WARMER' }   # AC opens the AC screen; COOLER / WARMER act at once
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }

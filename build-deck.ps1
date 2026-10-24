@@ -226,6 +226,9 @@ if ((Test-Path (Join-Path $here 'ac\ac.json')) -or (Test-Path (Join-Path $here '
   # one key opens the AC screen (deck-intro\plugin.html, like SOUND): power, temperature, mode, fan, presets, auto-cool. Its picture
   # shows ON / OFF and the room temperature. The ac-* key exes (ac toggle/cooler/warmer/fan) still work from irdeck-cli and tests.
   $more['0,3'] = K 'AC' '' 'nav' 'power'                      @{ plugin = 'com.peter.rigintro.ac'; name = 'AC' }
+  # and the two Peter uses most, without opening the screen (2026-10-23): about 1 °F a press; an AC that is off comes on cooling
+  $more['1,3'] = K 'AC' 'COOLER' 'nav' 'down'                 (L 'ac-cooler'       'ac cooler')
+  $more['2,3'] = K 'AC' 'WARMER' 'nav' 'up'                   (L 'ac-warmer'       'ac warmer')
 }
 # ---------- write the profile ----------
 if (-not $Preview) {

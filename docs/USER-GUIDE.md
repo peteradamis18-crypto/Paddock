@@ -76,6 +76,7 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **TIMING, STANDINGS, FUEL BOX, TIRE BOX, IN-CAR, WEATHER** | Shows that iRacing box (F1, F2, F4, F5, F8, F11) while you are in the sim. |
 | **ANALYSIS** | Opens the analysis screen on the deck. |
 | **AC** | Opens the **AC screen**. The key itself shows whether the AC is on and the room temperature. |
+| **AC COOLER** / **AC WARMER** | Sets the AC about 1 °F cooler or warmer at once, without opening the screen. If the AC is off it comes on, cooling. |
 
 ## The AC screen (the AC key on MORE)
 Everything for the room AC on one page. A press shows on the keys at once; the AC follows a few seconds later, because the command goes through Midea's server the same way the Midea Air app does. While it is on its way, the ROOM key says SENDING. Several quick presses go out together.
