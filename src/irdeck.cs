@@ -271,7 +271,11 @@ namespace IRDeck
                     // x2 keys (confirm): Peter's own double tap is 0.18-0.66 s apart (log 2026-10-11) and the 0.7 s rule ate
                     // his second tap, so QUIT never fired; a bounce is under 0.1 s (29 ms seen), so 0.12 s is the floor there
                     bool freshArmed = verb == "confirm" && ConfirmArmedFresh(a);
-                    int gapMs = 120;
+                    // on/off keys: a press that reaches us twice 1 s apart flipped them back (MUTE SPOTTER muted and unmuted itself at
+                    // 20:28:49/50 and 20:44:57/58 on 2026-10-24), so a second press within 1.5 s is ignored for them
+                    bool toggle = (verb == "appvol" && a.Length > 1 && a[1].Equals("mute", StringComparison.OrdinalIgnoreCase)) || verb == "pittoggle"
+                        || (verb == "ac" && a.Length > 1 && a[1].Equals("toggle", StringComparison.OrdinalIgnoreCase));
+                    int gapMs = toggle ? 1500 : 120;
                     if (DateTime.UtcNow.Ticks - last < TimeSpan.FromMilliseconds(gapMs).Ticks)
                     {
                         Log(tag + "repeat press ignored");
@@ -291,6 +295,9 @@ namespace IRDeck
             int rc = 9;
             try { rc = Run(a); }
             catch (Exception ex) { Log("ERROR " + ex.GetType().Name + ": " + ex.Message); }
+            // SPOTTER ALWAYS ON (Peter 2026-10-24): every key that puts him in a session makes sure CrewChief runs and is not muted.
+            // Its lines start with "[" so the top-screen message still says what the key itself did.
+            if (rc == 0 && a.Length > 0 && Array.IndexOf(SpotterVerbs, a[0].ToLowerInvariant()) >= 0) { string keep = LastLog; EnsureSpotter(); LastLog = keep; }
             if (tag.Length > 0 && rc != 4) { SayResult(rc); SayFlush(); }
             if (rc == 4) return 0;   // tow gave up, or a second press while one is already waiting: already logged, no beep
 #if !CLI
@@ -1235,7 +1242,8 @@ namespace IRDeck
         }
 
         // Click Prev (-1) or Next (+1) on the AI session bar. Gets out of a stopped car first.
-        static int ClickPrevNext(int which, string tag)
+        // fixedPlace: measure the bar from the screen (irdeck.scale) instead of the coloured button - a retry when the first click got no answer
+        static int ClickPrevNext(int which, string tag, bool fixedPlace = false)
         {
             int[] o = PrevNext();
             if (o == null) return -1;
@@ -1253,11 +1261,15 @@ namespace IRDeck
             if (inCar) Thread.Sleep(1200);   // the bar slides in
             int cx, cy; double s; bool green;
             BarAnchor(out cx, out cy, out s, out green);
+            if (fixedPlace && green) { s = LoadScale(); green = false; System.Drawing.Rectangle sa = SimArea(); cy = sa.Y + (int)Math.Round(48 * s); }
             int dx = which < 0 ? o[0] : o[2], dy = which < 0 ? o[1] : o[3];
             EnsureBar(cx, cy, s);
             ShotSim(tag + "-bar");
+            SaveSimArea("last-" + tag + "-bar");   // always: what the screen showed at the click (2026-10-24: two RESTARTs failed and nothing showed why)
+            // never click unless iRacing really is in front (a click at the bar's place on any other window does nothing, or worse)
+            if (Native.GetForegroundWindow() != SimWindow() && !FocusWindow(SimWindow())) { Log(tag + ": iRacing is not in front - not clicking"); return 3; }
             Click(cx + (int)Math.Round(dx * s), cy + (int)Math.Round(dy * s));
-            Log(tag + ": clicked " + (which < 0 ? "Prev" : "Next") + (green ? "" : " (bar found by its fixed place: no coloured button showing)"));
+            Log(tag + ": clicked " + (which < 0 ? "Prev" : "Next") + (green ? "" : " (bar found by its fixed place" + (fixedPlace ? ")" : ": no coloured button showing)")));
             return 0;
         }
 
@@ -1302,7 +1314,18 @@ namespace IRDeck
                 rc = ClickPrevNext(-1, "restartrace");
                 if (rc != 0) return rc;
                 Func<bool> restarted = delegate { SessSnap n = Snap(); return n.Live && (n.Time < s0.Time - 3 || n.Num != s0.Num); };
-                ConfirmDialogs(restarted, 8000, "restartrace");
+                // 2026-10-24 20:44 and 20:49: Prev was clicked but the sim never asked "Restart Session?" - the click did not land, so there
+                // was no second press to make. A click the sim did not answer cannot restart anything, so it is safe to click again:
+                // up to 3 clicks, the second measured from the screen's fixed place. A click that brought up the question is never repeated.
+                int seen = ConfirmDialogs(restarted, 4000, "restartrace");
+                for (int k = 2; k <= 3 && seen == 0 && !restarted(); k++)
+                {
+                    Log("restartrace: the sim never asked to confirm - the click did not land - clicking Prev again (" + k + " of 3)");
+                    rc = ClickPrevNext(-1, "restartrace", k == 2);
+                    if (rc != 0) return rc;
+                    seen += ConfirmDialogs(restarted, 4000, "restartrace");
+                }
+                if (seen > 0) ConfirmDialogs(restarted, 4000, "restartrace");   // a second question (which session) can follow the first
                 for (int i = 0; i < 40 && !restarted(); i++) Thread.Sleep(500);
                 if (!restarted()) { Log("restartrace: the session did not start over (screen saved to " + SaveSimArea("fail-restartrace") + ")"); return 1; }
                 Log("restartrace: the session started over");
@@ -1522,6 +1545,52 @@ namespace IRDeck
         // "--dry" only counts what it would change (tests\keys-test.ps1).
         // MUTE SPOTTER (deck v2): one press mutes CrewChief's voice in the Windows mixer, the next press brings it back.
         // Only that program's own mixer entry is touched; the sim, music and the PC volume stay as they are.
+        static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow" };
+
+        static void EnsureSpotter()
+        {
+            try
+            {
+                if (!SessionActive()) return;
+                if (Process.GetProcessesByName("CrewChiefV4").Length == 0)
+                {
+                    StartApp("CrewChiefV4", @"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe", false, null);
+                    Log("[spotter] CrewChief was not running - started it");
+                    return;
+                }
+                int was = AppMuteSet("CrewChiefV4", false);
+                if (was > 0) Log("[spotter] CrewChief was muted - sound back on");
+            }
+            catch (Exception ex) { Log("[spotter] " + ex.Message); }
+        }
+
+        // Every Windows mixer entry of that program muted / unmuted. Returns how many entries it changed.
+        static int AppMuteSet(string proc, bool mute)
+        {
+            int changed = 0;
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDeviceCollection devs; if (en.EnumAudioEndpoints(0, 1, out devs) != 0) return 0;
+            int n; devs.GetCount(out n); Guid iid = typeof(IAudioSessionManager2).GUID;
+            for (int i = 0; i < n; i++)
+            {
+                IMMDevice dev; if (devs.Item(i, out dev) != 0) continue;
+                object o; if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) continue;
+                IAudioSessionEnumerator se; if (((IAudioSessionManager2)o).GetSessionEnumerator(out se) != 0) continue;
+                int cnt; se.GetCount(out cnt);
+                for (int j = 0; j < cnt; j++)
+                {
+                    IAudioSessionControl2 ctl; if (se.GetSession(j, out ctl) != 0) continue;
+                    uint pid; ctl.GetProcessId(out pid);
+                    string pn = ""; try { pn = Process.GetProcessById((int)pid).ProcessName; } catch { }
+                    if (!proc.Equals(pn, StringComparison.OrdinalIgnoreCase)) continue;
+                    ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
+                    bool m; v.GetMute(out m);
+                    if (m != mute) { Guid g = Guid.Empty; v.SetMute(mute, ref g); changed++; }
+                }
+            }
+            return changed;
+        }
+
         static int AppMuteToggle(string who)
         {
             string proc = who.Equals("spotter", StringComparison.OrdinalIgnoreCase) ? "CrewChiefV4" : who;
