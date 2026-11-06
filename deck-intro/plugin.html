@@ -1569,8 +1569,114 @@ const AiLevel = new class extends Screen {
     return R;
   }
 };
+// ---------------- RACES screen (2026-11-06) ----------------
+// Peter: "full races ... delete when done so I don't nuke the hard drive, then export so I can easily go to YouTube". Paddock already
+// films every session whole, with sound (dash\src\recorder.cs). This lists them newest first, one key each; a press opens that race:
+// WATCH, YOUTUBE (a clearly named file in Videos\Paddock, shown in Explorer, YouTube's upload page open), KEEP, DELETE (asks twice).
+const RACE_MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const raceWhen = ms => {
+  const d = new Date(ms), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  return (same(d, now) ? 'TODAY' : same(d, y) ? 'YESTERDAY' : RACE_MON[d.getMonth()] + ' ' + d.getDate()) + ' ' + hm;
+};
+const raceLap = t => { if (!(t > 0)) return '--'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); };
+const raceShortType = t => /race/i.test(t || '') ? '' : /qual/i.test(t || '') ? 'QUALI · ' : /prac|warm/i.test(t || '') ? 'PRACTICE · ' : /test|offline/i.test(t || '') ? 'TEST · ' : t ? String(t).toUpperCase() + ' · ' : '';
+const Races = new class extends Screen {
+  constructor() {
+    super('races', SNDCOLORS);
+    this.s = null; this.sel = null; this.page = 0; this.armed = 0; this.msg = null;
+    this.interval = 1500;
+  }
+  hasState() { return !!this.s; }
+
+  keyIcon(force) {
+    if (!this.keys.size) return;
+    const s = this.s || {}, n = (s.races || []).length, sub = s.races ? n + (n === 1 ? ' RACE' : ' RACES') : 'VIDEO';
+    if (!force && this.keyShown === sub) return;
+    const [c, g] = this.iconCanvas();
+    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('RACES', 72, 66);
+    g.fillStyle = INK; g.font = '400 20px ' + FONT; g.fillText(sub, 72, 100);
+    this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
+  }
+  async keyTick() {
+    if (!this.keys.size || this.live) return;
+    try { this.s = await this.get('/api/rec/races'); } catch (e) { this.s = null; }
+    this.keyIcon(false);
+    if (this.s) this.warm();
+  }
+  async open() {
+    if (!deviceId) return;
+    Perf.begin('races');
+    this.sel = null; this.page = 0; this.armed = 0; this.msg = null;
+    this.switchTo('RigRaces'); Perf.mark('races', 'switchSent');
+    this.fastUntil = performance.now() + 2500;
+    if (this.s) this.warm();
+  }
+  exit() { this.sel = null; this.switchTo(''); }
+  async poll() {
+    try { this.s = await this.get('/api/rec/races'); } catch (e) { this.s = { offline: true, races: [] }; }
+    if (this.sel && !(this.s.races || []).some(r => r.id === this.sel)) this.sel = null;   // deleted (here or on the top screen)
+    this.relayout();
+  }
+  say(text, style) { this.msg = { text, style: style || 'banner', until: Date.now() + 6000 }; later(6100, () => this.relayout()); }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    if (r.act === 'pick') { this.sel = r.arg; this.armed = 0; this.msg = null; this.relayout(); return; }
+    if (r.act === 'back') { this.sel = null; this.armed = 0; this.relayout(); return; }
+    if (r.act === 'page') { this.page = Math.max(0, this.page + r.arg); this.relayout(); return; }
+    if (r.act === 'racedelete' && Date.now() > this.armed) {
+      this.armed = Date.now() + 5000; this.relayout(); later(5100, () => this.relayout());   // the first press only asks
+      return;
+    }
+    if (r.act === 'racedelete') { this.armed = 0; this.say('DELETED', 'stop'); this.sel = null; }
+    if (r.act === 'raceexport') this.say('YOUTUBE IS OPEN · DRAG THE SELECTED FILE INTO IT', 'go');
+    if (r.act === 'racewatch') this.say('PLAYING ON THE MIDDLE SCREEN', 'go');
+    if (r.act === 'recsave') this.say('KEPT FOR GOOD', 'sel');
+    this.relayout();
+    await this.cmd(r.act, r.arg);
+    await this.refreshSoon(400);
+  }
+
+  build() {
+    const s = this.s, R = [], races = s.races || [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more); R.push(o); };
+    const msg = this.msg && Date.now() < this.msg.until ? this.msg : null;
+    if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop'); return R; }
+    const race = this.sel && races.find(x => x.id === this.sel);
+    if (!race) {
+      // the list: 24 a page, newest first; gold = kept for good
+      if (!races.length) add(0, 0, 8, 3, 'NO RACE VIDEOS YET', 'Paddock films every session you drive', null, null, 'banner', 2, { size: 34 });
+      const per = 24, pages = Math.max(1, Math.ceil(races.length / per)), pg = Math.min(this.page, pages - 1);
+      races.slice(pg * per, pg * per + per).forEach((x, i) => add(i % 8, Math.floor(i / 8), 1, 1, x.track || 'RECOVERED', raceShortType(x.type) + raceWhen(x.startMs) + ' · ' + x.min + ' MIN', 'pick', x.id, x.saved ? 'sel' : '', 2));
+      if (pg > 0) add(0, 3, 1, 1, '◀', 'NEWER', 'page', -1, '', 0, { size: 44 });
+      if (pg < pages - 1) add(1, 3, 1, 1, '▶', 'OLDER', 'page', 1, '', 0, { size: 44 });
+      add(3, 3, 1, 1, s.freeGb + ' GB', 'FREE ON DISK', null, null, 'banner', 0, { size: 30 });
+      if (msg) add(4, 3, 3, 1, msg.text, '', null, null, msg.style, 2);
+      add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+      return R;
+    }
+    // one race
+    add(0, 0, 1, 1, race.track || 'RECOVERED', race.car || '', null, null, 'banner', 2);
+    add(1, 0, 1, 1, raceWhen(race.startMs), raceShortType(race.type).replace(' · ', '') || 'RACE', null, null, 'banner', 2);
+    add(2, 0, 1, 1, race.min + ' MIN', race.laps + ' LAPS', null, null, 'banner', 0, { size: 30 });
+    add(3, 0, 1, 1, raceLap(race.best), 'BEST LAP', null, null, 'banner', 0, { size: 24 });
+    add(4, 0, 1, 1, (race.mb / 1024).toFixed(1) + ' GB', 'ON DISK', null, null, 'banner', 0, { size: 28 });
+    add(0, 1, 1, 1, 'WATCH', 'MIDDLE SCREEN', 'racewatch', race.id, 'go', 2);
+    add(1, 1, 1, 1, 'YOUTUBE', race.exported ? 'FILE READY' : 'GET IT READY', 'raceexport', race.id, '', 2);
+    add(2, 1, 1, 1, race.saved ? 'KEPT' : 'KEEP', race.saved ? 'FOR GOOD' : 'FOR GOOD', race.saved ? null : 'recsave', race.id, race.saved ? 'sel' : '', 2);
+    const armed = Date.now() < this.armed;
+    add(3, 1, 1, 1, armed ? 'PRESS AGAIN' : 'DELETE', armed ? 'TO DELETE' : 'FOR GOOD', 'racedelete', race.id, armed ? 'amber' : 'stop', 2);
+    if (msg) add(4, 1, 3, 1, msg.text, '', null, null, msg.style, 2);
+    add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
+    add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+    return R;
+  }
+};
+
 // The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
-const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel };
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel, races: Races };
 
 // ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
 // irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.
@@ -1634,6 +1740,7 @@ async function pollLoop() {
     try { await Analysis.keyTick(); } catch (e) { }
     try { await Sound.keyTick(); } catch (e) { }
     try { await Ac.keyTick(); } catch (e) { }
+    try { await Races.keyTick(); } catch (e) { }
     try { await RigDoctor.tick(); } catch (e) { }
     await sleep(2000);
   }

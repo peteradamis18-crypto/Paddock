@@ -1663,6 +1663,91 @@ namespace IRDash
 
         static long SavedBytesLocked() { long b = 0; foreach (RecSess x in sessions) if (x.Saved) b += x.Bytes; return b; }
 
+        // ---------------- RACES screen (2026-11-06, Peter: "full races, delete when done so I don't nuke the hard drive, export so I
+        // can easily go to YouTube"): the whole-session videos newest first, deleted for good, or handed to YouTube ----------------
+        static string ExportDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Paddock"); } }
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        static extern bool CreateHardLink(string newName, string existing, IntPtr security);
+
+        // "2026-11-06 11.28 Road Atlanta - Porsche 718 Cayman GT4 - Race": what YouTube and Explorer show
+        static string ExportName(RecSess s)
+        {
+            DateTime t = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(s.StartMs).ToLocalTime();
+            string n = t.ToString("yyyy-MM-dd HH.mm", Inv) + " " + (s.Track.Length > 0 ? s.Track : "Recovered") + (s.Car.Length > 0 ? " - " + s.Car : "") + (s.Type.Length > 0 ? " - " + s.Type : "");
+            foreach (char c in Path.GetInvalidFileNameChars()) n = n.Replace(c, '-');
+            return n;
+        }
+
+        static RecSess FindDone(string id) { foreach (RecSess x in sessions) if (x.Id == id) return x; return null; }
+
+        // DELETE: the video, its sidecar, its YouTube copy and a pending SAVE - for good. Never the session being recorded or finished.
+        public static string Delete(string id)
+        {
+            RecSess s;
+            lock (gate)
+            {
+                if (openSess != null && openSess.Id == id) return "RECORDING";
+                foreach (RecSess x in finishing) if (x.Id == id) return "BUSY";
+                s = FindDone(id);
+                if (s == null) return "NOTHING";
+                if (s.Saving) return "BUSY";
+            }
+            string exp = Path.Combine(ExportDir, ExportName(s) + ".mp4");
+            try { if (s.File.Length > 0 && File.Exists(s.File)) File.Delete(s.File); }
+            catch (Exception ex) { Log.W("recorder: could not delete session " + s.Id + " (" + ex.Message + ") - is it playing?"); return "IN USE"; }
+            lock (gate) sessions.Remove(s);
+            try { string j = Path.ChangeExtension(s.File, ".json"); if (File.Exists(j)) File.Delete(j); } catch { }
+            try { if (File.Exists(exp)) File.Delete(exp); } catch { }      // the YouTube copy is the same file (a hard link): it must go too to free the space
+            try { string w = WishPath(s.Id); if (File.Exists(w)) File.Delete(w); } catch { }
+            Log.W("recorder: session " + s.Id + " deleted from the RACES screen (" + (s.Bytes / 1048576) + " MB freed)");
+            return "DELETED";
+        }
+
+        // YOUTUBE: the video under a clear name in Videos\Paddock. A hard link on the same drive (instant, no extra space), else a copy.
+        public static string Export(string id, out string path)
+        {
+            path = "";
+            RecSess s; lock (gate) s = FindDone(id);
+            if (s == null || s.File.Length == 0 || !File.Exists(s.File)) return "NOTHING";
+            string dst = Path.Combine(ExportDir, ExportName(s) + ".mp4");
+            path = dst;
+            if (File.Exists(dst)) return "EXPORTED";
+            try
+            {
+                Directory.CreateDirectory(ExportDir);
+                if (CreateHardLink(dst, s.File, IntPtr.Zero)) { Log.W("recorder: session " + s.Id + " ready for YouTube: " + dst); return "EXPORTED"; }
+                File.Copy(s.File, dst);   // another drive: a real copy
+                Log.W("recorder: session " + s.Id + " copied for YouTube: " + dst);
+                return "EXPORTED";
+            }
+            catch (Exception ex) { Log.W("recorder: could not export session " + s.Id + " (" + ex.Message + ")"); return "FAILED"; }
+        }
+
+        public static string FileOf(string id) { lock (gate) { RecSess s = FindDone(id); return s != null && s.File.Length > 0 && File.Exists(s.File) ? s.File : null; } }
+
+        // GET /api/rec/races: the finished videos, newest first, with what the deck shows on a key, and the disk space left
+        public static string RacesJson()
+        {
+            List<RecSess> all;
+            lock (gate) all = new List<RecSess>(sessions);
+            all.Sort(delegate (RecSess a, RecSess b) { return b.StartMs.CompareTo(a.StartMs); });
+            StringBuilder sb = new StringBuilder("{\"freeGb\":" + (FreeBytes(SessDir) / 1073741824.0).ToString("0", Inv) + ",\"races\":[");
+            bool first = true;
+            foreach (RecSess s in all)
+            {
+                if (s.File.Length == 0 || s.Duration < 30) continue;
+                double best = 0;
+                foreach (double[] r in s.LapRows) if (r.Length > 2 && r[0] >= 1 && r[2] > 0 && (best == 0 || r[2] < best)) best = r[2];
+                if (!first) sb.Append(','); first = false;
+                sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"car\":" + Json_.S(s.Car) + ",\"type\":" + Json_.S(s.Type) +
+                          ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(s.Duration / 60.0).ToString("0", Inv) + ",\"laps\":" + s.LapRows.Count +
+                          ",\"best\":" + best.ToString("0.000", Inv) + ",\"mb\":" + (s.Bytes / 1048576) + ",\"saved\":" + (s.Saved ? "true" : "false") +
+                          ",\"exported\":" + (File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4")) ? "true" : "false") + "}");
+            }
+            sb.Append("]}");
+            return sb.ToString();
+        }
+
         public static string SessionsJson()
         {
             lock (gate)

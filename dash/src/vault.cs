@@ -1133,7 +1133,28 @@ namespace IRDash
         }
 
         // ---------------- the deck keys ----------------
-        static readonly HashSet<string> Commands = new HashSet<string> { "vkkeep", "vkclip", "vkopen", "vkclose", "vkdelete", "vkkeepall", "vkchoose", "wheelteach", "recsave", "db-save", "db-share", "db-cosworth", "db-deepdive" };
+        static bool RaceIdOk(string id) { return id != null && Regex.IsMatch(id, "^[A-Za-z0-9._-]{1,80}$"); }
+
+        // YOUTUBE on the RACES screen: the video under a clear name in Videos\Paddock, shown selected in Explorer, and YouTube's upload
+        // page open, so it is one drag into the browser. Never while he drives (it opens windows on his screens).
+        static bool RaceExport(string id)
+        {
+            if (Program.IsDriving) return false;
+            string path; string st = Recorder.Export(id, out path);
+            if (st != "EXPORTED") return false;
+            try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true }); } catch (Exception ex) { Log.W("races: explorer: " + ex.Message); }
+            try { Process.Start(new ProcessStartInfo("https://www.youtube.com/upload") { UseShellExecute = true }); } catch (Exception ex) { Log.W("races: browser: " + ex.Message); }
+            return true;
+        }
+
+        // WATCH: the race in Windows' own video player (never while he drives)
+        static bool RaceWatch(string id)
+        {
+            if (Program.IsDriving) return false;
+            string f = Recorder.FileOf(id); if (f == null) return false;
+            try { Process.Start(new ProcessStartInfo(f) { UseShellExecute = true }); return true; } catch (Exception ex) { Log.W("races: watch: " + ex.Message); return false; }
+        }
+        static readonly HashSet<string> Commands = new HashSet<string> { "vkkeep", "vkclip", "vkopen", "vkclose", "vkdelete", "vkkeepall", "vkchoose", "wheelteach", "recsave", "racedelete", "raceexport", "racewatch", "db-save", "db-share", "db-cosworth", "db-deepdive" };
         public static bool Handles(string c) { return Serving && c != null && Commands.Contains(c); }
         public static readonly List<string> TestEvents = new List<string>();
         static DateTime lastKeep = DateTime.MinValue, lastClip = DateTime.MinValue;
@@ -1158,7 +1179,11 @@ namespace IRDash
                     Wheel.CancelForChoose();
                     TestEvents.Add("choose");
                     return NavSet("vault");
-                case "recsave": { string st = Recorder.Save(a ?? ""); return st == "SAVED" || st == "SAVING"; }   // the key lights only for a real save, not SAVED FULL / SAVE FAILED / NOTHING
+                case "recsave": { string st = Recorder.Save(a ?? ""); return st == "SAVED" || st == "SAVING"; }
+                // the RACES screen on the deck (2026-11-06). The deck asks twice before DELETE; these only check the id.
+                case "racedelete": return RaceIdOk(a) && Recorder.Delete(a) == "DELETED";
+                case "raceexport": return RaceIdOk(a) && RaceExport(a);
+                case "racewatch": return RaceIdOk(a) && RaceWatch(a);   // the key lights only for a real save, not SAVED FULL / SAVE FAILED / NOTHING
                 case "wheelteach": return Wheel.Teach(10000).Length > 0;
                 case "vkdelete":
                     {
@@ -1535,6 +1560,8 @@ namespace IRDash
                     case "/api/rec/sessions": j = Recorder.SessionsJson(); break;
                     case "/api/rec/for": j = Debrief.RecordingFor(Q(q, "id"), Q(q, "lap")); break;              // the verified recording of one telemetry session (debrief.cs)
                     case "/api/rec/save": j = "{\"state\":" + Json_.S(Recorder.Save(Q(q, "id"))) + "}"; break;
+                case "/api/rec/races": j = Recorder.RacesJson(); break;
+                case "/api/rec/delete": j = "{\"state\":" + Json_.S(Q(q, "confirm") == "yes" && RaceIdOk(Q(q, "id")) ? Recorder.Delete(Q(q, "id")) : "ASK") + "}"; break;   // confirm=yes: the caller asked Peter
                     case "/api/rec/session-video": return Recorder.ServeSession(s, Q(q, "id"), hdr);
                     case "/vault/thumb": return ServeThumb(s, Q(q, "id"));
                     case "/vault/frame": return ServeFrame(s, Q(q, "id"));                                   // a real picture from the lap's own recording (made in the background, 404 until then)

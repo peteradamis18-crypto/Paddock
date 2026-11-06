@@ -63,7 +63,8 @@
     const u = String(url), path = u.replace('http://localhost:8199', '');
     M.fetchLog.push({ t: performance.now(), u: path });
     if (M.cfg.fakeFetch) {
-      if (path.startsWith('/api/')) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response('ok')); }));
+      // an /api/ path the test gave data for is a read (the RACES list: /api/rec/races); any other /api/ path is a command
+      if (path.startsWith('/api/') && M.fx[path.split('?')[0]] === undefined) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response('ok')); }));
       const fx = M.fx[path.split('?')[0]];
       if (fx !== undefined) return new Promise(res => later(M.cfg.getMs, () => res(new Response(JSON.stringify(typeof fx === 'function' ? fx() : fx), { headers: { 'Content-Type': 'application/json' } }))));
     }
