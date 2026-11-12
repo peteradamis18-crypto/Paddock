@@ -1426,6 +1426,10 @@ namespace IRDash
                 List<double[]> inc = new List<double[]>();
                 foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
+                // every RACE of 5 minutes or more is kept for good by itself and put in Videos\Paddock (Peter 2026-11-12: last night's GR Cup
+                // race was one session away from being cleared by the keep-the-last-8 rule, and finding it in the Vault drove him mad)
+                bool autoRace = AutoKeep(s.Type, s.Duration);
+                if (autoRace && !s.SaveWhenDone) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " is a race - kept for good by itself"); }
                 lock (gate)
                 {
                     long budget = savedBudgetBytes >= 0 ? savedBudgetBytes : (long)(SavedBudgetGb * 1024 * 1024 * 1024);
@@ -1462,6 +1466,7 @@ namespace IRDash
                 foreach (RecSeg g in sel) { try { File.Delete(Path.Combine(RecDir, g.Name)); } catch { } }
                 if (s.Gaps.Count > 0) Log.W("recorder: session " + s.Id + " is partial - " + s.Gaps.Count + " gap(s) where segments were missing; laps inside a gap have no video");
                 Log.W("recorder: session " + s.Id + " written (" + s.Duration.ToString("0.0", Inv) + " s, " + (s.Bytes / 1048576) + " MB, " + s.LapRows.Count + " laps, joined in " + sw.ElapsedMilliseconds + " ms, picture not re-encoded, " + (s.Audio == "ok" ? "with sound" : s.Audio == "partial" ? "sound for part of it" : "no sound") + (s.Saved ? ", SAVED" : "") + ")");
+                if (autoRace) { string ep; Export(s.Id, out ep); }   // a normal file in Videos\Paddock: YouTube's "Select files" opens there
                 RetainSessions();
             }
             catch (Exception ex) { lock (gate) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 60000; if (wallIncidents != null) s.Incidents = wallIncidents; } Log.W("recorder: session " + s.Id + ": " + ex.Message); }
@@ -1676,6 +1681,28 @@ namespace IRDash
             string n = t.ToString("yyyy-MM-dd HH.mm", Inv) + " " + (s.Track.Length > 0 ? s.Track : "Recovered") + (s.Car.Length > 0 ? " - " + s.Car : "") + (s.Type.Length > 0 ? " - " + s.Type : "");
             foreach (char c in Path.GetInvalidFileNameChars()) n = n.Replace(c, '-');
             return n;
+        }
+
+        // a race of 5 minutes or more (not "Lone Qualify", not practice): kept for good and put in Videos\Paddock without a press
+        public static bool AutoKeep(string type, double durationSec)
+        {
+            string t = type ?? "";
+            return durationSec >= 300 && t.IndexOf("race", StringComparison.OrdinalIgnoreCase) >= 0 && t.IndexOf("qual", StringComparison.OrdinalIgnoreCase) < 0 && t.IndexOf("prac", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        // the races from before AutoKeep: keep them and put them in Videos\Paddock too (GET /api/rec/backfill, once). Opens nothing.
+        public static string Backfill()
+        {
+            List<string> ids = new List<string>();
+            lock (gate) foreach (RecSess x in sessions) if (AutoKeep(x.Type, x.Duration)) ids.Add(x.Id);
+            int kept = 0, put = 0;
+            foreach (string id in ids)
+            {
+                string st = Save(id); if (st == "SAVED") kept++;
+                string p; if (Export(id, out p) == "EXPORTED") put++;
+            }
+            Log.W("recorder: backfill - " + ids.Count + " races kept and put in Videos\\Paddock");
+            return "{\"races\":" + ids.Count + ",\"kept\":" + kept + ",\"inVideos\":" + put + "}";
         }
 
         static RecSess FindDone(string id) { foreach (RecSess x in sessions) if (x.Id == id) return x; return null; }

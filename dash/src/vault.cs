@@ -1561,6 +1561,7 @@ namespace IRDash
                     case "/api/rec/for": j = Debrief.RecordingFor(Q(q, "id"), Q(q, "lap")); break;              // the verified recording of one telemetry session (debrief.cs)
                     case "/api/rec/save": j = "{\"state\":" + Json_.S(Recorder.Save(Q(q, "id"))) + "}"; break;
                 case "/api/rec/races": j = Recorder.RacesJson(); break;
+                case "/api/rec/backfill": j = Recorder.Backfill(); break;   // the races from before every race was kept by itself
                 case "/api/rec/delete": j = "{\"state\":" + Json_.S(Q(q, "confirm") == "yes" && RaceIdOk(Q(q, "id")) ? Recorder.Delete(Q(q, "id")) : "ASK") + "}"; break;   // confirm=yes: the caller asked Peter
                     case "/api/rec/session-video": return Recorder.ServeSession(s, Q(q, "id"), hdr);
                     case "/vault/thumb": return ServeThumb(s, Q(q, "id"));

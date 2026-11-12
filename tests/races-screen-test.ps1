@@ -1,4 +1,4 @@
-# RACES screen test (2026-11-06): the deck add-on's RACES screen (deck-intro\plugin.html, class Races) in headless Chrome with a pretend
+﻿# RACES screen test (2026-11-06): the deck add-on's RACES screen (deck-intro\plugin.html, class Races) in headless Chrome with a pretend
 # Stream Deck app and a pretend irdash (tests\deck-harness.ps1). OFFLINE: nothing reaches the running irdash, a video or Stream Deck.
 #   1. the RACES key opens RigRaces: the races newest first, one key each, kept ones gold, free disk space, EXIT
 #   2. a race opens on a press: track, when, length, best lap, size; WATCH / YOUTUBE / KEEP send their command
@@ -52,9 +52,13 @@ try {
   Start-Sleep -Milliseconds 1500
   Check 'RACES opens the RigRaces profile and all 32 keys get a picture' ((Cur) -eq 'RigRaces' -and (Sheet 'deck-races') -eq 32)
   $r = Reg 0 0; Check 'newest first: ROAD ATLANTA, TODAY, 20 MIN, gold because it is kept' ($r.t -eq 'Road Atlanta' -and $r.s -match '^TODAY \d\d:\d\d . 20 MIN$' -and $r.st -eq 'sel' -and $r.a -eq 'pick' -and $r.g -eq 'r-today') ($r | ConvertTo-Json -Compress)
-  $r = Reg 1 0; Check 'a qualifying says QUALI, not kept = plain' ($r.s -match '^QUALI . TODAY' -and $r.st -eq '') ($r | ConvertTo-Json -Compress)
-  $r = Reg 2 0; Check 'an older one shows its date' ($r.t -eq 'Road America' -and $r.s -match '^[A-Z]{3} \d{1,2} \d\d:\d\d . 19 MIN$') ($r | ConvertTo-Json -Compress)
-  Check 'free disk space and EXIT on the bottom row; no page keys for 3 races' ((Reg 3 3).t -eq '298 GB' -and (Reg 7 3).a -eq 'exit' -and -not (Reg 0 3) -and -not (Reg 1 3))
+  $r = Reg 1 0; Check 'races only: the qualifying is not in the list, the older race is next' ($r.g -eq 'r-old') ($r | ConvertTo-Json -Compress)
+  $r = Reg 1 0; Check 'an older one shows its date' ($r.t -eq 'Road America' -and $r.s -match '^[A-Z]{3} \d{1,2} \d\d:\d\d . 19 MIN$') ($r | ConvertTo-Json -Compress)
+  Check 'ALL SESSIONS, free disk space and EXIT on the bottom row; no page keys' ((Reg 2 3).t -eq 'ALL SESSIONS' -and (Reg 3 3).t -eq '298 GB' -and (Reg 7 3).a -eq 'exit' -and -not (Reg 0 3) -and -not (Reg 1 3))
+  Press 2 3 500
+  $r = Reg 1 0; Check 'ALL SESSIONS shows the qualifying too, marked QUALI, and the key turns into RACES ONLY' ($r.s -match '^QUALI . TODAY' -and $r.st -eq '' -and (Reg 2 3).t -eq 'RACES ONLY') ($r | ConvertTo-Json -Compress)
+  $null = Sheet 'deck-races-all'
+  Press 2 3 500
   Check 'every key is ONE key (text over two keys is cut by the bezels)' ((Invoke-DeckJs $page "Races.regions.every(x => (x.w === 1 && x.h === 1) || !x.act)") -eq $true)
 
   Assert-RigFree -Where '2. one race'
@@ -79,7 +83,7 @@ try {
   Press 1 0 400; Start-Sleep -Milliseconds 800; ClearApis; Press 3 1 400; Start-Sleep -Milliseconds 5600
   Check 'DELETE not pressed again within 5 s: it calms down and nothing was deleted' ((Reg 3 1).t -eq 'DELETE' -and (Sent 'racedelete') -eq 0)
   Start-Sleep -Milliseconds 800
-  ClearApis; Press 2 1 700; Check 'KEEP on a race not kept -> recsave with its id' ((Sent 'c=recsave&a=r-quali') -eq 1)
+  ClearApis; Press 2 1 700; Check 'KEEP on a race not kept -> recsave with its id' ((Sent 'c=recsave&a=r-old') -eq 1)
   Press 0 3 500; Check 'BACK returns to the list' ((Reg 0 0).a -eq 'pick')
 
   Assert-RigFree -Where '4. pages'
@@ -91,7 +95,7 @@ try {
   $null = Sheet 'deck-races-page2'
   Press 0 3 400
   Fx 'm.races = []'
-  Check 'no races: one plain message, EXIT still there' ((Reg 0 0).t -eq 'NO RACE VIDEOS YET' -and (Reg 7 3).a -eq 'exit')
+  Check 'no races: one plain message, EXIT still there' ((Reg 0 0).t -eq 'NO RACES YET' -and (Reg 7 3).a -eq 'exit')
   Press 7 3 700
   Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
 }
