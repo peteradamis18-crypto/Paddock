@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Races</title>
+<link rel="stylesheet" href="races.css">
+</head>
+<body>
+<!-- MY RACES (Peter 2026-11-12: "i need access from paddock screen make it clear"): every whole-race video, each with
+     WATCH / SHARE ON YOUTUBE / DELETE FROM PC. Same backend as the deck's RACES screen (/api/rec/races, vault.cs). -->
+<div id="app">
+  <header>
+    <h1>My races</h1>
+    <div class="sub" id="sub">&nbsp;</div>
+  </header>
+  <div class="how">
+    <div><b>Share on YouTube</b>YouTube opens, with the race file next to it. Drag the file onto YouTube.</div>
+    <div><b>Delete from PC</b>Click it, then click again. The space is free straight away.</div>
+  </div>
+  <div class="tabs">
+    <button type="button" class="tab on" id="tabRaces">Races</button>
+    <button type="button" class="tab" id="tabAll">Practice and qualifying too</button>
+  </div>
+  <div id="list" class="list"></div>
+  <div id="msg" role="status" hidden></div>
+</div>
+<script src="races.js"></script>
+</body>
+</html>

@@ -15,6 +15,8 @@ const PageHost = {
     coach: { id: 'coachHost', src: 'coach.html?id=last', title: 'Review', nav: '/nav', open: '/api/nav?to=coach', close: '/api/nav?to=home', z: 948 },
     vault: { id: 'vaultHost', src: 'vault.html?embed=1', title: 'Vault', nav: '/vault/nav', open: '/api/do?c=vkopen', close: '/api/do?c=vkclose', z: 947 },
     perf: { id: 'perfHost', src: 'perf.html?embed=1', title: 'Performance', nav: '/perf/nav', open: '/api/do?c=perf', close: '/api/do?c=perfclose', z: 946 },
+    // MY RACES (top bar of HOME): the whole-race videos. Opened only from this screen, so irdash keeps no flag for it.
+    races: { id: 'racesHost', src: 'races.html', title: 'Races', nav: '', open: '', close: '', z: 948 },
   },
   cur: '', el: null, seen: {}, busy: false,
 
@@ -31,7 +33,7 @@ const PageHost = {
     window.addEventListener('message', e => {
       if (e.origin !== location.origin || !e.data) return;
       const m = e.data.irdash;
-      if (m === 'sessions-close' || m === 'vault-close' || m === 'perf-close' || (m === 'coach-close' && this.cur === 'coach')) this.close(true);
+      if (m === 'sessions-close' || m === 'races-close' || m === 'vault-close' || m === 'perf-close' || (m === 'coach-close' && this.cur === 'coach')) this.close(true);
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.cur) { e.preventDefault(); this.close(true); } }, true);
     this.poll(); setInterval(() => this.poll(), 1500);
@@ -39,11 +41,14 @@ const PageHost = {
     if (/[?&]sessions=1/.test(q)) this.open('sessions', false);
     else if (/[?&]vault=1/.test(q)) this.open('vault', false);
     else if (/[?&]perf=1/.test(q)) this.open('perf', false);
+    else if (/[?&]races=1/.test(q)) this.open('races', false);
+    const rl = document.getElementById('idleRaces');
+    if (rl) { rl.addEventListener('click', () => this.open('races', true)); rl.addEventListener('keydown', e => { if (e.key === 'Enter') this.open('races', true); }); }
   },
 
   driving() { return !!(typeof UI !== 'undefined' && UI.live && UI.live() && typeof L !== 'undefined' && L.v && L.v.IsOnTrack); },
   isOpen(name) { return this.cur === name; },
-  send(url) { fetch(url, { cache: 'no-store' }).catch(() => { }); },
+  send(url) { if (url) fetch(url, { cache: 'no-store' }).catch(() => { }); },
 
   // Three things can sit over the dashboard: this manager's pages, the after-session coach (debrief-v4.js) and HOME's
   // REVIEW (home.js). Only one at a time, or a new page opens UNDER an old one and looks like the key did nothing
@@ -86,6 +91,7 @@ const PageHost = {
     this.busy = true;
     try {
       for (const name of Object.keys(this.PAGES)) {
+        if (!this.PAGES[name].nav) continue;
         let n; try { n = await (await fetch(this.PAGES[name].nav, { cache: 'no-store' })).json(); } catch (e) { continue; }
         if (!n || typeof n.seq !== 'number') continue;
         if (n.enabled === false) { if (this.cur === name) this.close(false); this.seen[name] = n.seq; continue; }

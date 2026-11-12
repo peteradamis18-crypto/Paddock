@@ -29,6 +29,9 @@
 #overlay .idle-top .idle-name { margin-right: auto; font-size: 24px; font-weight: 600; letter-spacing: .5em; text-transform: uppercase; color: var(--h-ink); }
 #overlay .idle-top .idle-link { padding: 14px 0; font-size: 22px; letter-spacing: .26em; text-transform: uppercase; color: rgba(244, 241, 234, .6); cursor: pointer; }
 #overlay .idle-top .idle-link:hover, #overlay .idle-top .idle-link:focus-visible { color: var(--h-ink); outline: none; }
+/* MY RACES: the one link that must be found at a glance (Peter 2026-11-12), so a gold button, not grey text */
+#overlay .idle-top .idle-races { padding: 12px 28px; border: 2px solid var(--gold, #f2c230); border-radius: 6px; color: var(--gold, #f2c230); font-weight: 600; }
+#overlay .idle-top .idle-races:hover, #overlay .idle-top .idle-races:focus-visible { background: var(--gold, #f2c230); color: #0a0905; }
 #overlay .idle-top #idleDate { margin-left: 24px; font-size: var(--body); color: var(--h-mute); letter-spacing: 0; text-transform: none; }
 #overlay .idle-top #idleClock { font-size: var(--body); color: var(--h-ink); letter-spacing: .04em; }
 
