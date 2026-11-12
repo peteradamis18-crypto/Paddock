@@ -66,24 +66,26 @@ try {
   ClearApis; Press 0 0 500
   Check 'pressing a race opens it and sends nothing' ((Reg 0 0).t -eq 'Road Atlanta' -and (Reg 0 0).a -eq $null -and (Sent '.') -eq 0)
   Check 'its facts: TODAY, 20 MIN / 12 LAPS, best lap 1:27.102, 1.1 GB' ((Reg 1 0).t -match '^TODAY' -and (Reg 2 0).t -eq '20 MIN' -and (Reg 2 0).s -eq '12 LAPS' -and (Reg 3 0).t -eq '1:27.102' -and (Reg 4 0).t -eq '1.1 GB')
-  Check 'a kept race says KEPT and its key does nothing' ((Reg 2 1).t -eq 'KEPT' -and -not (Reg 2 1).a)
+  Check 'SHARE ON YOUTUBE first, DELETE FROM PC next, WATCH third - plain words' ((Reg 0 1).t -eq 'SHARE' -and (Reg 0 1).s -eq 'ON YOUTUBE' -and (Reg 1 1).t -eq 'DELETE' -and (Reg 1 1).s -eq 'FROM PC' -and (Reg 2 1).t -eq 'WATCH')
+  Check 'a race that is kept has no KEEP key (races are kept by themselves)' (-not (Reg 3 1))
   $null = Sheet 'deck-races-one'
-  ClearApis; Press 0 1 700; Check 'WATCH -> racewatch with its id' ((Sent 'c=racewatch&a=r-today') -eq 1)
-  ClearApis; Press 1 1 700; Check 'YOUTUBE -> raceexport with its id, and the screen says what to do next' ((Sent 'c=raceexport&a=r-today') -eq 1 -and (Reg 4 1).t -match 'YOUTUBE IS OPEN')
+  ClearApis; Press 2 1 700; Check 'WATCH -> racewatch with its id' ((Sent 'c=racewatch&a=r-today') -eq 1)
+  Start-Sleep -Milliseconds 800
+  ClearApis; Press 0 1 700; Check 'SHARE -> raceexport with its id, and the screen says what to do next' ((Sent 'c=raceexport&a=r-today') -eq 1 -and (Reg 4 1).t -match 'YOUTUBE IS OPEN')
 
   Assert-RigFree -Where '3. delete'
   ''; '3. DELETE asks first'
   Start-Sleep -Milliseconds 800
-  ClearApis; Press 3 1 500
-  Check 'the first DELETE sends nothing and asks: PRESS AGAIN' ((Sent '.') -eq 0 -and (Reg 3 1).t -eq 'PRESS AGAIN' -and (Reg 3 1).st -eq 'amber')
+  ClearApis; Press 1 1 500
+  Check 'the first DELETE sends nothing and asks: PRESS AGAIN' ((Sent '.') -eq 0 -and (Reg 1 1).t -eq 'PRESS AGAIN' -and (Reg 1 1).st -eq 'amber')
   $null = Sheet 'deck-races-delete-armed'
   Start-Sleep -Milliseconds 800
-  ClearApis; Press 3 1 700
+  ClearApis; Press 1 1 700
   Check 'the second DELETE within 5 s -> racedelete with its id, and back to the list' ((Sent 'c=racedelete&a=r-today') -eq 1 -and (Reg 0 0).a -eq 'pick')
-  Press 1 0 400; Start-Sleep -Milliseconds 800; ClearApis; Press 3 1 400; Start-Sleep -Milliseconds 5600
-  Check 'DELETE not pressed again within 5 s: it calms down and nothing was deleted' ((Reg 3 1).t -eq 'DELETE' -and (Sent 'racedelete') -eq 0)
+  Press 1 0 400; Start-Sleep -Milliseconds 800; ClearApis; Press 1 1 400; Start-Sleep -Milliseconds 5600
+  Check 'DELETE not pressed again within 5 s: it calms down and nothing was deleted' ((Reg 1 1).t -eq 'DELETE' -and (Sent 'racedelete') -eq 0)
   Start-Sleep -Milliseconds 800
-  ClearApis; Press 2 1 700; Check 'KEEP on a race not kept -> recsave with its id' ((Sent 'c=recsave&a=r-old') -eq 1)
+  ClearApis; Press 3 1 700; Check 'KEEP on a race not kept -> recsave with its id' ((Sent 'c=recsave&a=r-old') -eq 1)
   Press 0 3 500; Check 'BACK returns to the list' ((Reg 0 0).a -eq 'pick')
 
   Assert-RigFree -Where '4. pages'
@@ -100,5 +102,16 @@ try {
   Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
 }
 finally { Stop-DeckBrowser $b }
+''; '5. deleting a race in Videos\Paddock frees the space (dash\src\recorder.cs SyncExports)'
+$rec = [IO.File]::ReadAllText((Join-Path $root 'dash\src\recorder.cs'))
+$i5 = $rec.IndexOf('static void SyncExports()'); $sync = if ($i5 -ge 0) { $rec.Substring($i5, 1800) } else { '' }
+Check 'only races that were seen in Videos\Paddock before count (vault\exported.txt)' ($sync -match 'if \(there\) \{ seen\.Add\(s\.Id\); continue; \}' -and $sync -match 'if \(seen\.Contains\(s\.Id\)\) gone\.Add\(s\)')
+Check 'Paddock''s copy goes only when Windows says no other name points at it (Recycle Bin, renamed, moved = still kept)' ($sync -match 'if \(links != 1\) continue;' -and $rec -match 'catch \{ return 0; \}')
+Check 'the check runs when the list is read and in the recorder''s housekeeping, at most every 15 s' ($sync -match 'now - lastExportSync < 15000' -and $rec -match 'try \{ SyncExports\(\); \} catch \(Exception ex\)' -and $rec -match 'RetainSessions\(\); \} catch \{ \} try \{ SyncExports\(\); \} catch \{ \}')
+$ld = Join-Path $env:TEMP ('linktest-' + $PID); New-Item -ItemType Directory -Force "$ld\sub" | Out-Null
+Set-Content "$ld\v.mp4" 'x'; $null = fsutil hardlink create "$ld\e.mp4" "$ld\v.mp4"
+$n2 = @(fsutil hardlink list "$ld\v.mp4").Count; Move-Item "$ld\e.mp4" "$ld\sub\r.mp4"; $nMoved = @(fsutil hardlink list "$ld\v.mp4").Count; Remove-Item "$ld\sub\r.mp4"; $n1 = @(fsutil hardlink list "$ld\v.mp4").Count
+Remove-Item $ld -Recurse -Force -ErrorAction SilentlyContinue
+Check "Windows counts names the way the rule needs: both 2, renamed/moved 2, deleted for good 1 (got $n2 / $nMoved / $n1)" ($n2 -eq 2 -and $nMoved -eq 2 -and $n1 -eq 1)
 "$pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

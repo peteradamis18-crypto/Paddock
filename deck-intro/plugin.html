@@ -1635,7 +1635,7 @@ const Races = new class extends Screen {
       return;
     }
     if (r.act === 'racedelete') { this.armed = 0; this.say('DELETED', 'stop'); this.sel = null; }
-    if (r.act === 'raceexport') this.say('YOUTUBE IS OPEN · DRAG THE SELECTED FILE INTO IT', 'go');
+    if (r.act === 'raceexport') this.say('YOUTUBE IS OPEN: DRAG THE SELECTED FILE INTO IT', 'go');
     if (r.act === 'racewatch') this.say('PLAYING ON THE MIDDLE SCREEN', 'go');
     if (r.act === 'recsave') this.say('KEPT FOR GOOD', 'sel');
     this.relayout();
@@ -1668,11 +1668,12 @@ const Races = new class extends Screen {
     add(2, 0, 1, 1, race.min + ' MIN', race.laps + ' LAPS', null, null, 'banner', 0, { size: 30 });
     add(3, 0, 1, 1, raceLap(race.best), 'BEST LAP', null, null, 'banner', 0, { size: 24 });
     add(4, 0, 1, 1, (race.mb / 1024).toFixed(1) + ' GB', 'ON DISK', null, null, 'banner', 0, { size: 28 });
-    add(0, 1, 1, 1, 'WATCH', 'MIDDLE SCREEN', 'racewatch', race.id, 'go', 2);
-    add(1, 1, 1, 1, 'YOUTUBE', race.exported ? 'FILE READY' : 'GET IT READY', 'raceexport', race.id, '', 2);
-    add(2, 1, 1, 1, race.saved ? 'KEPT' : 'KEEP', race.saved ? 'FOR GOOD' : 'FOR GOOD', race.saved ? null : 'recsave', race.id, race.saved ? 'sel' : '', 2);
+    // what to do with it, in plain words (Peter 2026-11-12: "still can't easily see how to share a full race ... same with deleting")
+    add(0, 1, 1, 1, 'SHARE', 'ON YOUTUBE', 'raceexport', race.id, 'sel', 2, { size: 26 });
     const armed = Date.now() < this.armed;
-    add(3, 1, 1, 1, armed ? 'PRESS AGAIN' : 'DELETE', armed ? 'TO DELETE' : 'FOR GOOD', 'racedelete', race.id, armed ? 'amber' : 'stop', 2);
+    add(1, 1, 1, 1, armed ? 'PRESS AGAIN' : 'DELETE', armed ? 'TO DELETE IT' : 'FROM PC', 'racedelete', race.id, armed ? 'amber' : 'stop', 2, { size: armed ? 19 : 26 });
+    add(2, 1, 1, 1, 'WATCH', 'ON MIDDLE SCREEN', 'racewatch', race.id, 'go', 2, { size: 26 });
+    if (!race.saved) add(3, 1, 1, 1, 'KEEP', 'FOR GOOD', 'recsave', race.id, '', 2);
     if (msg) add(4, 1, 3, 1, msg.text, '', null, null, msg.style, 2);
     add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
     add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');

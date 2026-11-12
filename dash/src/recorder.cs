@@ -683,7 +683,7 @@ namespace IRDash
             PruneSegs(now);
             if (now - lastAudPrune > 2000) { lastAudPrune = now; PruneAudio(now); }
             if (ff == null) QueueFinishing();
-            if (now - lastSessHk > 5000) { lastSessHk = now; try { RetainSessions(); } catch { } }
+            if (now - lastSessHk > 5000) { lastSessHk = now; try { RetainSessions(); } catch { } try { SyncExports(); } catch { } }
             if (r != null && ff != null && !r.FirstSeg && !r.StuckSaid && now - r.StartMs > 30000)
             {
                 r.StuckSaid = true; black = true; note = "no picture came from the screen";
@@ -1705,6 +1705,50 @@ namespace IRDash
             return "{\"races\":" + ids.Count + ",\"kept\":" + kept + ",\"inVideos\":" + put + "}";
         }
 
+        // ---- Videos\Paddock is the place Peter uses (2026-11-12: "deleting from HD needs to be easy and clear") ----
+        // A race whose file there is gone FOR GOOD (deleted and the Recycle Bin emptied) is deleted from Paddock too, so deleting it in
+        // Windows really frees the space. "For good" = Windows says no other name points at the video any more: a file still in the
+        // Recycle Bin, renamed, or moved on the same drive is still a link, so nothing is deleted then. Only races that were seen
+        // in the folder before (vault\exported.txt) count: a race never put there is never touched.
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct ByHandleInfo { public uint Attr; public long Created, Accessed, Written; public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow; }
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle h, out ByHandleInfo info);
+
+        // how many names (hard links) the file has; 0 = could not tell (then nothing is ever deleted)
+        static uint LinkCount(string path)
+        {
+            try { using (FileStream f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) { ByHandleInfo i; return GetFileInformationByHandle(f.SafeFileHandle, out i) ? i.Links : 0; } }
+            catch { return 0; }
+        }
+
+        static string ExportedList { get { return Path.Combine(VaultRoot, "exported.txt"); } }
+        static double lastExportSync;
+
+        static void SyncExports()
+        {
+            double now = WallMs(); if (now - lastExportSync < 15000) return; lastExportSync = now;
+            HashSet<string> seen = new HashSet<string>();
+            try { if (File.Exists(ExportedList)) foreach (string l in File.ReadAllLines(ExportedList)) if (l.Trim().Length > 0) seen.Add(l.Trim()); } catch { return; }
+            int before = seen.Count; List<RecSess> gone = new List<RecSess>();
+            lock (gate)
+                foreach (RecSess s in sessions)
+                {
+                    if (s.File.Length == 0 || !File.Exists(s.File)) continue;
+                    bool there = File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4"));
+                    if (there) { seen.Add(s.Id); continue; }
+                    if (seen.Contains(s.Id)) gone.Add(s);
+                }
+            foreach (RecSess s in gone)
+            {
+                uint links = LinkCount(s.File);
+                if (links != 1) continue;   // still in the Recycle Bin, renamed or moved: not gone for good (or Windows could not tell)
+                Log.W("recorder: " + s.Id + " was deleted from Videos\\Paddock - deleting Paddock's copy too, so the space is free");
+                if (Delete(s.Id) == "DELETED") seen.Remove(s.Id);
+            }
+            if (seen.Count != before || gone.Count > 0) { try { File.WriteAllLines(ExportedList, new List<string>(seen).ToArray()); } catch { } }
+        }
+
         static RecSess FindDone(string id) { foreach (RecSess x in sessions) if (x.Id == id) return x; return null; }
 
         // DELETE: the video, its sidecar, its YouTube copy and a pending SAVE - for good. Never the session being recorded or finished.
@@ -1755,6 +1799,7 @@ namespace IRDash
         // GET /api/rec/races: the finished videos, newest first, with what the deck shows on a key, and the disk space left
         public static string RacesJson()
         {
+            try { SyncExports(); } catch (Exception ex) { Log.W("recorder: Videos\\Paddock check: " + ex.Message); }
             List<RecSess> all;
             lock (gate) all = new List<RecSess>(sessions);
             all.Sort(delegate (RecSess a, RecSess b) { return b.StartMs.CompareTo(a.StartMs); });
