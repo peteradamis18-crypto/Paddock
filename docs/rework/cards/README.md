@@ -21,7 +21,7 @@ apply to you exactly as written. Peter is disabled: everything must be one press
   move windows or click. Never write `Documents\iRacing\*`.
 - Never use the live irdash's test hook (`/api/test/*`, `/vault/test/*`, `/perf/test/*`, `/share/test/*`,
   `dash\test-hook.on`) and never call `/api/do` or any POST on `http://localhost:8199`. Read-only GETs on the live
-  irdash are fine **only** when `irdeck-cli.exe state` (worktrees have no exes: run the live checkout's `C:SERSPETERIRACINGDECKIRDECK-CLI.EXE STATE`, READ-ONLY) shows `sim=False`.
+  irdash are fine **only** when `irdeck-cli.exe state` shows `sim=False` (worktrees have no exes: run the live checkout's `C:UserspeteriRacingDeckirdeck-cli.exe state`, read-only).
 - Never run `tests\run-all.ps1`. Run only offline tests: pure compile tests, headless Chrome with fixtures, pretend
   servers on ports other than 8199. Anything that needs the real rig goes in your report under **LIVE checks for
   the lead**, with the exact command.
