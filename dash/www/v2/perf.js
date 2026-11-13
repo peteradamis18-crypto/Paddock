@@ -4,7 +4,7 @@
 // Paddock's own cost) and /perf/checklist. core.js and map.js are loaded only for their helpers and the corner names (TrackInfo).
 const PF = {
   EMBED: /[?&]embed=1/.test(location.search),
-  GOLD: '#f2c230', INK: '#f4f1ea', MUTE: '#8d8a82', LOW: '#a9a59b', GRID: 'rgba(244,241,234,.07)', AMBER: '#e0a23a',
+  GOLD: '#C9A24B', INK: '#f4f1ea', MUTE: '#8d8a82', LOW: '#a9a59b', GRID: 'rgba(244,241,234,.07)', AMBER: '#e0a23a',
   FONT: 'Bahnschrift, "Segoe UI", sans-serif',
   d: null, check: null, sig: '', checkSig: '', track: null, car: null, field: null, pts: [], marks: [], hover: null, geo: null, corners: -1, sel: null, selData: null,
 };
@@ -227,9 +227,9 @@ function pfDraw() {
     if (k === 0) continue;                                              // before everything shown
     const x = k >= n ? X(n - 1) + W / n / 2 : (X(k - 1) + X(k)) / 2;
     PF.marks.push({ x, ep });
-    g.strokeStyle = 'rgba(242,194,48,.55)'; g.lineWidth = 1.5; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(Math.round(x) + .5, T0 - 8); g.lineTo(Math.round(x) + .5, T0 + H); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = 'rgba(201, 162, 75,.55)'; g.lineWidth = 1.5; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(Math.round(x) + .5, T0 - 8); g.lineTo(Math.round(x) + .5, T0 + H); g.stroke(); g.setLineDash([]);
     const kind = ep.kinds[0], lab = ({ graphics: 'Graphics', overlays: 'Overlays', iracing: 'iRacing update', driver: 'Driver', windows: 'Windows', priority: 'Priority', 'delta bar': 'Delta bar', paddock: 'Paddock' }[kind] || 'Change') + (ep.items.length > 1 && ep.kinds.length === 1 ? ' ×' + ep.items.length : '');
-    g.fillStyle = 'rgba(242,194,48,.85)'; g.font = '13px ' + PF.FONT; g.textAlign = x > w - 120 ? 'right' : 'left'; g.fillText(lab, x + (x > w - 120 ? -5 : 5), T0 - 18 + (row++ % 2) * 15); g.font = '15px ' + PF.FONT;
+    g.fillStyle = 'rgba(201, 162, 75,.85)'; g.font = '13px ' + PF.FONT; g.textAlign = x > w - 120 ? 'right' : 'left'; g.fillText(lab, x + (x > w - 120 ? -5 : 5), T0 - 18 + (row++ % 2) * 15); g.font = '15px ' + PF.FONT;
   }
   // the two lines
   const draw = (key, color, wd, r) => {

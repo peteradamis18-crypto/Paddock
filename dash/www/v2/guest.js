@@ -215,8 +215,8 @@ const Guest = {
       if (closed) g.closePath();
       g.strokeStyle = color; g.lineWidth = width; g.stroke();
     };
-    stroke(scr, true, 'rgba(242,194,48,0.22)', 12);
-    stroke(scr, true, '#f2c230', 2.5);
+    stroke(scr, true, 'rgba(201, 162, 75,0.22)', 12);
+    stroke(scr, true, '#C9A24B', 2.5);
     const pct = v.LapDistPct;
     if (!isNum(pct)) { this.dot = null; return; }
     const at = p => this.mapScr(TrackMap.at(p), vw);
@@ -224,7 +224,7 @@ const Guest = {
     const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1, nx = -dy / m, ny = dx / m;
     g.beginPath();
     g.moveTo(a[0] - nx * 16, a[1] - ny * 16); g.lineTo(a[0] + nx * 16, a[1] + ny * 16);
-    g.strokeStyle = '#f2c230'; g.lineWidth = 4; g.stroke();
+    g.strokeStyle = '#C9A24B'; g.lineWidth = 4; g.stroke();
     if (this.trailPct == null || pct + 0.5 < this.trailPct) this.trail = [];
     this.trailPct = pct;
     const here = at(((pct % 1) + 1) % 1);
@@ -234,8 +234,8 @@ const Guest = {
     const prev2 = this.trail.length ? this.trail[this.trail.length - 1] : null;
     if (!prev2 || Math.hypot(here[0] - prev2[0], here[1] - prev2[1]) > 4) this.trail.push([here[0], here[1]]);
     if (this.trail.length > 400) this.trail.shift();
-    if (this.trail.length >= 2) stroke(this.trail, false, 'rgba(242,194,48,0.35)', 3);
-    g.beginPath(); g.arc(here[0], here[1], 8, 0, Math.PI * 2); g.fillStyle = '#f2c230'; g.fill();
+    if (this.trail.length >= 2) stroke(this.trail, false, 'rgba(201, 162, 75,0.35)', 3);
+    g.beginPath(); g.arc(here[0], here[1], 8, 0, Math.PI * 2); g.fillStyle = '#C9A24B'; g.fill();
     this.dot = { x: here[0], y: here[1] };
   },
 };

@@ -542,7 +542,7 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
 
 ## 10. Decisions for Peter
 
-1. **Gold:** today's bright `#f2c230` or the softer broadcast `#C9A24B`? W0-7 makes both; one contact sheet, he picks.
+1. **Gold:** DECIDED 2026-11-13: the softer broadcast `#C9A24B` (Peter picked B from the W0-7 contact sheet). The bright `#f2c230` stays only as `data-gold="bright"` for comparison.
 2. **The deck MAIN map** in 4.6 (what goes: the seven sim boxes, SORRY/GOOD RACE, SEAT keys, MUTE, SHOWCASE, VAULT,
    ANALYSIS; what merges: NEXT SESSION + RACE NOW, AI LEVEL + CAR TRACK into AI RACE, SPOTTER −/+ into SOUND).
 3. **YouTube:** the 10-minute Google setup, when? And default privacy after the first checked upload: private or

@@ -3,13 +3,13 @@
    gold (the one accent) + gold-ink (text ON gold) + gold-dim (gold borders), gain/loss (better/worse than a
    reference), purple (session best), amber, cyan, danger (delete / cannot undo), focus (keyboard ring).
    Flag colours are NOT here: they show only when a real flag shows (flaglow.js keeps its own).
-   Two golds: the default is the bright one; <html data-gold="soft"> swaps in the broadcast one. Nothing else differs.
+   Two golds: the default is the broadcast gold (Peter picked it, 2026-11-13); <html data-gold="bright"> brings back the old bright one for comparison.
    RULES (tests\design-lint-test.ps1 enforces them): 1. no colour literal (#hex, rgb, hsl) outside this file;
    2. seat pages never go under --t-body (24 px), lean-in pages never under --t-label (20 px). */
 :root {
   --bg: #050505; --panel: #0E0E0E; --line: rgba(242, 238, 228, .16);
   --ink: #F2EEE4; --muted: rgba(242, 238, 228, .55); --dim: rgba(242, 238, 228, .30);
-  --gold: #f2c230; --gold-ink: #0A0A0A; --gold-dim: rgba(242, 194, 48, .50);
+  --gold: #C9A24B; --gold-ink: #0A0A0A; --gold-dim: rgba(201, 162, 75, .50);
   --gain: #4CD07D; --loss: #FF6B5E; --purple: #B36BFF; --amber: #FFA630; --cyan: #3CCBEA;
   --danger: #FF5A4D; --focus: #FFFFFF;
 
@@ -19,7 +19,7 @@
   --fast: .2s; --enter: .5s; --press: .7s;     /* state change / entrance / button press flash */
   --ease: cubic-bezier(.2, .8, .2, 1);         /* slow in, fast out; no bounce */
 }
-:root[data-gold="soft"] { --gold: #C9A24B; --gold-ink: #0A0A0A; --gold-dim: rgba(201, 162, 75, .50); }
+:root[data-gold="bright"] { --gold: #F2C230; --gold-ink: #0A0A0A; --gold-dim: rgba(242, 194, 48, .50); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;

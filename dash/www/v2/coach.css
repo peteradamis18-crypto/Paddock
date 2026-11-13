@@ -3,7 +3,7 @@
    red tint = the phase where time is lost; amber = a caution (one-off losses); nothing under 20 px. */
 :root {
   --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --hair: rgba(244, 241, 234, .12); --hair2: rgba(244, 241, 234, .22);
-  --gold: #f2c230; --amber: #ffb21e; --red: #ff5a4d; --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --gold: #C9A24B; --amber: #ffb21e; --red: #ff5a4d; --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
 }
 html, body { margin: 0; height: 100%; background: #040404; overflow: hidden; }
 body { font-family: var(--font); color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -14,7 +14,7 @@ button { font-family: inherit; cursor: pointer; }
 .btn { height: 64px; padding: 0 32px; border: 1px solid var(--hair2); border-radius: 6px; background: transparent; color: var(--ink); font-size: 22px; letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; }
 .btn:hover, .btn:focus-visible { border-color: var(--ink); background: rgba(244, 241, 234, .06); outline: none; }
 .btn[disabled] { color: var(--dim); border-color: var(--hair); cursor: default; background: transparent; }
-.go { border: 0; border-radius: 8px; color: #0d0b05; background: linear-gradient(180deg, #f6cd4c 0%, #e2b42a 100%); box-shadow: 0 20px 60px rgba(242, 194, 48, .14), inset 0 1px 0 rgba(255, 255, 255, .3); text-align: left; }
+.go { border: 0; border-radius: 8px; color: #0d0b05; background: linear-gradient(180deg, #f6cd4c 0%, #e2b42a 100%); box-shadow: 0 20px 60px rgba(201, 162, 75, .14), inset 0 1px 0 rgba(255, 255, 255, .3); text-align: left; }
 .go:hover, .go:focus-visible { filter: brightness(1.06); outline: none; }
 .go[disabled] { background: #2a2620; color: #8d8468; box-shadow: none; cursor: default; filter: none; }
 

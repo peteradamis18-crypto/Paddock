@@ -7,14 +7,14 @@
   --text: #f4f1ea;
   --muted: #8d8a82;
   --dim: #5d5a54;
-  --gold: #f2c230;
+  --gold: #C9A24B;
   --ref: #cfd8e3;
   --gain: #2fe07a;
   --loss: #ff5a4d;
   --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   /* Which top-screen page this is: Vault and Performance must not look alike (P0-06). */
   --id-vault-bg: #201908;
-  --id-vault-edge: #f2c230;
+  --id-vault-edge: #C9A24B;
   --id-perf-bg: #0d1420;
   --id-perf-edge: #cfd8e3;
 }

@@ -26,9 +26,9 @@ const PageHost = {
       '.pg-host { position: fixed; inset: 0; background: #060606; opacity: 0; transition: opacity .4s ease; }' +
       '.pg-host.on { opacity: 1; }' +
       '.pg-host iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #060606; }' +
-      '.pg-close { position: absolute; top: 14px; right: 20px; z-index: 2; height: 56px; min-width: 168px; padding: 0 28px; border: 1px solid #f2c230; border-radius: 6px;' +
-      ' background: rgba(6, 6, 6, .92); color: #f2c230; font: 600 20px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .24em; text-transform: uppercase; cursor: pointer; }' +
-      '.pg-close:hover, .pg-close:focus-visible { background: #f2c230; color: #0a0905; outline: none; }';
+      '.pg-close { position: absolute; top: 14px; right: 20px; z-index: 2; height: 56px; min-width: 168px; padding: 0 28px; border: 1px solid #C9A24B; border-radius: 6px;' +
+      ' background: rgba(6, 6, 6, .92); color: #C9A24B; font: 600 20px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .24em; text-transform: uppercase; cursor: pointer; }' +
+      '.pg-close:hover, .pg-close:focus-visible { background: #C9A24B; color: #0a0905; outline: none; }';
     document.head.appendChild(st);
     window.addEventListener('message', e => {
       if (e.origin !== location.origin || !e.data) return;

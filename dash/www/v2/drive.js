@@ -362,7 +362,7 @@ const Drive = {
     }
     this.tags = tags;
     // Peter last, on top: gold dot and ring
-    const p = sp(me.pct), gold = dim ? '#5d5a54' : '#f2c230';
+    const p = sp(me.pct), gold = dim ? '#5d5a54' : '#C9A24B';
     this.mePt = [p[0] * dpr, p[1] * dpr];
     g.beginPath(); g.arc(p[0], p[1], 18, 0, Math.PI * 2); g.lineWidth = 2.5; g.strokeStyle = gold; g.stroke();
     g.beginPath(); g.arc(p[0], p[1], 11, 0, Math.PI * 2); g.fillStyle = gold; g.fill();

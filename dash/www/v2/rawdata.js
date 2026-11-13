@@ -12,7 +12,7 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const DOT = ' · ', DASH = '–';
   const P = new URLSearchParams(location.search), ID = P.get('id') || '', DATA = P.get('data') || '';
-  const C = { gold: '#f2c230', ink: '#f4f1ea', mute: '#8d8a82', dim: '#5d5a54', line: '#26262a', hair: 'rgba(244,241,234,.12)', green: '#3ccf7e', red: '#ff5a4d', amber: '#ffb21e', steel: '#7fa6c9', band: '#101012' };
+  const C = { gold: '#C9A24B', ink: '#f4f1ea', mute: '#8d8a82', dim: '#5d5a54', line: '#26262a', hair: 'rgba(244,241,234,.12)', green: '#3ccf7e', red: '#ff5a4d', amber: '#ffb21e', steel: '#7fa6c9', band: '#101012' };
   const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
   const stage = $('stage');
   let O = null, Dt = null, V = { a: 0, b: 1 }, cur = 0, pend = 0, want = null, scale = 1;
@@ -29,7 +29,7 @@
   const localIso = s => { const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)$/.exec(s || ''); return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).toISOString() : ''; };
   const typeTxt = t => /offline testing/i.test(t || '') ? 'Test' : /open qualify|lone qualify/i.test(t || '') ? 'Qualify' : (t || '');
   const KIND = { full: 'LAP', off: 'LAP', out: 'OUT-LAP', in: 'IN-LAP', pit: 'PIT', partial: 'PART LAP' };
-  const KCOL = { full: 'rgba(242,194,48,.30)', off: 'rgba(255,178,30,.26)', out: 'rgba(127,166,201,.30)', in: 'rgba(127,166,201,.30)', pit: 'rgba(141,138,130,.22)', partial: 'rgba(255,178,30,.30)' };
+  const KCOL = { full: 'rgba(201, 162, 75,.30)', off: 'rgba(255,178,30,.26)', out: 'rgba(127,166,201,.30)', in: 'rgba(127,166,201,.30)', pit: 'rgba(141,138,130,.22)', partial: 'rgba(255,178,30,.30)' };
 
   // ---------- canvases (stage pixels; the stage itself is scaled to the screen) ----------
   function canvas(id, w, h) {
@@ -233,7 +233,7 @@
     g.lineCap = 'round'; g.lineJoin = 'round';
     g.lineWidth = 6; g.strokeStyle = '#2a2a2e'; g.beginPath(); MP.pts.forEach((p, k) => { if (k && O.t[p[0]] - O.t[MP.pts[k - 1][0]] < 3) g.lineTo(p[1], p[2]); else g.moveTo(p[1], p[2]); }); g.stroke();
     // the window in gold
-    g.lineWidth = 3; g.strokeStyle = 'rgba(242,194,48,.7)'; g.beginPath(); let on = false, lt = -1;
+    g.lineWidth = 3; g.strokeStyle = 'rgba(201, 162, 75,.7)'; g.beginPath(); let on = false, lt = -1;
     MP.pts.forEach(p => { const t = O.t[p[0]]; if (t < V.a || t > V.b) { on = false; return; } if (on && t - lt < 3) g.lineTo(p[1], p[2]); else g.moveTo(p[1], p[2]); on = true; lt = t; });
     g.stroke();
     const la = d.lat ? d.lat[i] : null, lo = d.lon ? d.lon[i] : null;
