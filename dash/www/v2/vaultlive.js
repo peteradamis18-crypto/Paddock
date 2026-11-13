@@ -7,7 +7,7 @@ const VaultLive = {
 
   init() {
     const st = document.createElement('style');
-    st.textContent = '#dbVault { color: #f2c230; letter-spacing: .22em; cursor: pointer; } #dbVault:hover { color: #f4f1ea; }';
+    st.textContent = '#dbVault { color: #C9A24B; letter-spacing: .22em; cursor: pointer; } #dbVault:hover { color: #f4f1ea; }';
     document.head.appendChild(st);
     const sess = document.getElementById('idleSessions');
     if (sess && sess.parentNode && !document.getElementById('idleVault')) {

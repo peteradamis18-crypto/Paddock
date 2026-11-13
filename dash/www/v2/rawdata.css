@@ -3,7 +3,7 @@
    Big targets: every button is 88 px tall. Throttle green, brake red (the workbench's colours). */
 :root {
   --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --hair: rgba(244, 241, 234, .12); --hair2: rgba(244, 241, 234, .22);
-  --gold: #f2c230; --amber: #ffb21e; --red: #ff5a4d; --green: #3ccf7e; --steel: #7fa6c9;
+  --gold: #C9A24B; --amber: #ffb21e; --red: #ff5a4d; --green: #3ccf7e; --steel: #7fa6c9;
   --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
 }
 html, body { margin: 0; height: 100%; background: #040404; overflow: hidden; }

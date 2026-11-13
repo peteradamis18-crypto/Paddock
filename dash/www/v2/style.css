@@ -85,13 +85,13 @@ button { font-family: inherit; }
 #toast b { color: var(--amber); margin-right: 10px; }
 /* One line while RESET CAR waits. Above the normal dashboard and the Friends drive view. Not a popup. */
 #towWait { position: fixed; left: 0; right: 0; top: 0; z-index: 955; height: 36px; display: flex; align-items: center; justify-content: center;
-  pointer-events: none; background: rgba(6, 6, 6, .94); color: #f2c230; font-size: 18px; letter-spacing: .08em;
-  border-bottom: 1px solid rgba(242, 194, 48, .35); }
+  pointer-events: none; background: rgba(6, 6, 6, .94); color: #C9A24B; font-size: 18px; letter-spacing: .08em;
+  border-bottom: 1px solid rgba(201, 162, 75, .35); }
 #towWait[hidden] { display: none !important; }
 /* K-01. One line while the rig is locked. Above the idle screen and the tow line. Not a popup. */
 #kidsMode { position: fixed; left: 0; right: 0; top: 0; z-index: 956; height: 36px; display: flex; align-items: center; justify-content: center;
-  pointer-events: none; background: rgba(6, 6, 6, .94); color: #f2c230; font-size: 18px; letter-spacing: .08em;
-  border-bottom: 1px solid rgba(242, 194, 48, .35); }
+  pointer-events: none; background: rgba(6, 6, 6, .94); color: #C9A24B; font-size: 18px; letter-spacing: .08em;
+  border-bottom: 1px solid rgba(201, 162, 75, .35); }
 #kidsMode[hidden] { display: none !important; }
 
 /* ---------- layout ---------- */
@@ -243,7 +243,7 @@ h2 .sub { color: var(--dim); letter-spacing: .04em; text-transform: none; font-s
 .kv .warn { color: var(--red); }
 
 /* ---------- between sessions: quiet garage screen (covers the race strip) ---------- */
-#overlay { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
+#overlay { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
   position: fixed; inset: 0; z-index: 900; display: none; overflow: hidden; color: var(--ink);
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 30% 40%, #101010 0%, #060606 55%, #020202 100%); }

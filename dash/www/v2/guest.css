@@ -1,5 +1,5 @@
 /* Friends mode screens: same black-and-gold broadcast look as the intro and debrief. */
-#guest { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --green: #1fbf5f; --red: #e0483c; --purple: #c46cff;
+#guest { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --green: #1fbf5f; --red: #e0483c; --purple: #c46cff;
   position: fixed; inset: 0; z-index: 930; color: var(--ink); overflow: hidden;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }
@@ -13,7 +13,7 @@
 .g-foot b { color: var(--ink); }
 
 /* celebrations: new record, personal best, tonight's podium */
-#gcele { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; position: fixed; inset: 0; z-index: 960; overflow: hidden; color: var(--ink);
+#gcele { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; position: fixed; inset: 0; z-index: 960; overflow: hidden; color: var(--ink);
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: radial-gradient(90% 90% at 50% 45%, #1b1606 0%, #070604 60%, #020202 100%); opacity: 0; transition: opacity .6s ease; cursor: pointer; }
 #gcele.on { opacity: 1; }
@@ -23,7 +23,7 @@
 #gcele > span { font-size: 92px; font-weight: 400; color: var(--gold); font-variant-numeric: tabular-nums; margin-top: 6px; }
 #gcele > small { font-size: 22px; letter-spacing: .2em; text-transform: uppercase; color: var(--mute); margin-top: 26px; }
 #gcele.pb label { color: #1fbf5f; } #gcele.pb > span { color: #1fbf5f; }
-#gcele .sweep { position: absolute; top: 0; bottom: 0; width: 30%; left: -40%; background: linear-gradient(90deg, transparent, rgba(242, 194, 48, .18), transparent); animation: gSweep 1.6s ease .2s; }
+#gcele .sweep { position: absolute; top: 0; bottom: 0; width: 30%; left: -40%; background: linear-gradient(90deg, transparent, rgba(201, 162, 75, .18), transparent); animation: gSweep 1.6s ease .2s; }
 @keyframes gSweep { to { left: 110%; } }
 #gcele .pods { display: flex; align-items: flex-end; gap: 36px; margin-top: 40px; }
 #gcele .pod { width: 420px; display: flex; flex-direction: column; align-items: center; text-align: center; }

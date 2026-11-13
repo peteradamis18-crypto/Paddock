@@ -11,7 +11,7 @@
 
 const CORNER_FONT = '"Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI", sans-serif';
 const CORNER_COL = {
-  gold: '#f2c230', ring: '#07090c', centre: '#0d1116', name: '#d9dde3', halo: '#07090c', sector: '#77828f', sf: '#ffffff', pit: '#b8c1cb', credit: '#4b5562',
+  gold: '#C9A24B', ring: '#07090c', centre: '#0d1116', name: '#d9dde3', halo: '#07090c', sector: '#77828f', sf: '#ffffff', pit: '#b8c1cb', credit: '#4b5562',
 };
 
 const Corners = {

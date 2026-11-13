@@ -120,3 +120,6 @@ goes next to real screenshots of the tools it learns from.
    data and coaching, then the deck. Every wave: tests pass, screenshots reviewed by Claude, then Peter.
 - **Who does what:** cheap fast models gather research and screenshots; strong models build; Claude writes the specs,
   reviews everything and checks it live. Spending is checked as we go, against Peter's cap.
+
+## Peter's decisions during wave 0 (2026-11-13)
+- Gold: B, the softer broadcast gold `#C9A24B`, everywhere (top screen, phone, deck keys at the next deck rebuild).

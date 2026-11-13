@@ -261,7 +261,7 @@ function New-LiveIcon($path, $big, $small) {
   $g = [Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'AntiAliasGridFit'
   $g.Clear([Drawing.Color]::Black)
-  $gold = Hex '#F2C230'
+  $gold = Hex '#C9A24B'
   $pen = New-Object Drawing.Pen((Hex '#5A4A1A'), 3); $g.DrawRectangle($pen, 5, 5, 134, 134)
   $fmt = New-Object Drawing.StringFormat; $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
   $fb = Fit $g $big 64 24 124; $g.DrawString($big, $fb, (New-Object Drawing.SolidBrush $gold), (New-Object Drawing.RectangleF 0, 18, 144, 70), $fmt)
@@ -326,7 +326,7 @@ function Write-Page($pageId, $name, $keysDef) {
       $im = [Drawing.Image]::FromFile("$dir\key_$($pos.Replace(',','_')).png"); $sg.DrawImage($im, 10+$col*150, 10+$row*150, 140, 140); $im.Dispose()
       if ($soon -contains $pos) {
         $sg.FillRectangle((New-Object Drawing.SolidBrush ([Drawing.Color]::FromArgb(230, 0, 0, 0))), 10+$col*150+82, 10+$row*150+6, 52, 20)
-        $sg.DrawString('SOON', $badge, (New-Object Drawing.SolidBrush (Hex '#F2C230')), 10+$col*150+88, 10+$row*150+8)
+        $sg.DrawString('SOON', $badge, (New-Object Drawing.SolidBrush (Hex '#C9A24B')), 10+$col*150+88, 10+$row*150+8)
       }
     }
     $sg.Dispose(); $sheet.Save((Join-Path $previewRun "$name.png"), [Drawing.Imaging.ImageFormat]::Png); $sheet.Dispose()
@@ -345,7 +345,7 @@ if ($Preview) {
   $pv = New-Object Drawing.Bitmap (8*150+10), (4*150+10)
   $pg = [Drawing.Graphics]::FromImage($pv); $pg.Clear([Drawing.Color]::Black)
   $pg.SmoothingMode = 'AntiAlias'; $pg.TextRenderingHint = 'AntiAliasGridFit'
-  $gold = New-Object Drawing.SolidBrush (Hex '#F2C230')
+  $gold = New-Object Drawing.SolidBrush (Hex '#C9A24B')
   $edge = New-Object Drawing.Pen((Hex '#3A2F12'), 2)
   $pf = New-Object Drawing.StringFormat; $pf.Alignment = 'Center'; $pf.LineAlignment = 'Center'
   for ($cc = 0; $cc -lt 8; $cc++) { for ($rr = 0; $rr -lt 4; $rr++) { $pg.DrawRectangle($edge, 10+$cc*150, 10+$rr*150, 139, 139) } }

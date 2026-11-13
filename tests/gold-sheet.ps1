@@ -23,7 +23,7 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 $common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--virtual-time-budget=3000')
 foreach ($g in 'bright', 'soft') {
   Assert-RigFree -Where "gold $g"
-  $h = $src.Replace('<head>', '<head>' + $base + $stub).Replace('<html lang="en">', $(if ($g -eq 'soft') { '<html lang="en" data-gold="soft">' } else { '<html lang="en">' })).Replace('</body>', $act + '</body>')
+  $h = $src.Replace('<head>', '<head>' + $base + $stub).Replace('<html lang="en">', $(if ($g -eq 'bright') { '<html lang="en" data-gold="bright">' } else { '<html lang="en">' })).Replace('</body>', $act + '</body>')
   [IO.File]::WriteAllText("$tmp\$g.html", $h, $utf8)
   $png = Join-Path $shots "races-gold-$g.png"; Remove-Item $png -ErrorAction SilentlyContinue
   Start-Process -FilePath $chrome -ArgumentList ($common + @("--screenshot=$png", ('file:///' + ("$tmp\$g.html" -replace '\\', '/')))) -NoNewWindow -Wait
@@ -34,7 +34,7 @@ $sheet = New-Object Drawing.Bitmap 1920, 1080
 $gr = [Drawing.Graphics]::FromImage($sheet)
 $gr.Clear([Drawing.Color]::FromArgb(5, 5, 5)); $gr.InterpolationMode = 'HighQualityBicubic'; $gr.TextRenderingHint = 'AntiAliasGridFit'
 $font = New-Object Drawing.Font('Bahnschrift', 26); $brush = New-Object Drawing.SolidBrush ([Drawing.Color]::FromArgb(242, 238, 228))
-$labels = @{ bright = 'A  Bright gold #F2C230 (today)'; soft = 'B  Broadcast gold #C9A24B (softer)' }
+$labels = @{ bright = 'A  Bright gold #F2C230 (before)'; soft = 'B  Broadcast gold #C9A24B (chosen 2026-11-13)' }
 $x = 0
 foreach ($g in 'bright', 'soft') {
   $img = [Drawing.Image]::FromFile((Join-Path $shots "races-gold-$g.png"))
