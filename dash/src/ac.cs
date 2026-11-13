@@ -135,7 +135,7 @@ namespace IRDash
                     if (a != "+1" && a != "-1") return false;
                     args = "startat " + ((int)Num(s0, "on_above_f", 76) + (a == "+1" ? 1 : -1)).ToString(CultureInfo.InvariantCulture);
                 }
-                new Thread(delegate () { RunPy(args); }) { IsBackground = true }.Start();
+                new Thread(Crash.Guard("ac setting", delegate () { RunPy(args); })) { IsBackground = true }.Start();      // W0-2: a failure is logged, irdash stays
                 return true;
             }
             lock (gate)
@@ -147,7 +147,7 @@ namespace IRDash
                     case "actemp":
                         {
                             if (a != "+1" && a != "-1") return false;
-                            double t = double.Parse(Cur(st, "temp"), CultureInfo.InvariantCulture) + (a == "+1" ? 0.5 : -0.5);   // 0.5 °C = about 1 °F
+                            double t; if (!double.TryParse(Cur(st, "temp"), NumberStyles.Float, CultureInfo.InvariantCulture, out t)) t = 22; t += a == "+1" ? 0.5 : -0.5;   // 0.5 °C = about 1 °F; a bad stored value starts from 22
                             want["temp"] = Math.Max(16.0, Math.Min(30.0, t)).ToString("0.0", CultureInfo.InvariantCulture);
                             if (Cur(st, "power") != "1") want["power"] = "1";
                             break;
@@ -176,7 +176,7 @@ namespace IRDash
                         break;
                     default: return false;
                 }
-                if (!working) { working = true; new Thread(Send) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start(); }
+                if (!working) { working = true; new Thread(Crash.Guard("ac send", Send)) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start(); }
             }
             return true;
         }
@@ -198,7 +198,8 @@ namespace IRDash
                     foreach (KeyValuePair<string, string> kv in sending) b.Append(' ').Append(kv.Key).Append('=').Append(kv.Value);
                     args = b.ToString();
                 }
-                string last = RunPy(args);
+                string last = "";
+                try { last = RunPy(args); } catch (Exception ex) { Log.W("ac screen: " + ex.Message); }      // W0-2: python missing or locked: log it, keep the loop (and `working`) right
                 Log.W("ac screen: " + args + " -> " + (last.Length > 0 ? last : "no answer"));
                 lock (gate) { sending.Clear(); }
             }
@@ -228,7 +229,7 @@ namespace IRDash
             Dictionary<string, object> st = State();
             string power, mode, temp, fan; bool busy;
             lock (gate) { power = Cur(st, "power"); mode = Cur(st, "mode"); temp = Cur(st, "temp"); fan = Cur(st, "fan"); busy = working || want.Count > 0; }
-            double tc = double.Parse(temp, CultureInfo.InvariantCulture);
+            double tc; if (!double.TryParse(temp, NumberStyles.Float, CultureInfo.InvariantCulture, out tc)) { tc = 22; temp = "22.0"; }      // W0-2: a bad value must not throw
             double at = Num(st, "at", 0), age = at > 0 ? (DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds - at : -1;
             CultureInfo ci = CultureInfo.InvariantCulture;
             return "{\"connected\":true,\"read\":" + (st.Count > 0 ? "true" : "false") +

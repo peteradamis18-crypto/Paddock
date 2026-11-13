@@ -40,6 +40,7 @@ namespace IRDash
             lock (gate)
             {
                 if (show && !Program.IsDriving) { showUntil = DateTime.Now.AddSeconds(60); showSeq++; }
+                if (RigState.SessionOn) { RigState.Refuse("Rig Doctor check (showing the last one)"); return; }     // W0-2: its fixes start and close apps
                 if (running) return;
                 running = true;
             }
@@ -80,7 +81,7 @@ namespace IRDash
                 // The Simucube Tuner's blank grey box: hidden (never closed). ShowWindowAsync is posted, so this is safe while you drive too.
                 try { TunerBox.HideNow(); } catch (Exception ex) { Log.W("doctor: tuner box: " + ex.Message); }
             }
-            if (Program.IsDriving) return;      // never while you drive
+            if (RigState.SessionOn) return;      // never while a session is on (W0-2: it used to wait only while on track)
             double age = (DateTime.Now - Program.StartedAt).TotalSeconds;
             if (!auto1 && age >= 100) { auto1 = true; Run(false); }
             else if (!auto2 && age >= 300) { auto2 = true; lock (gate) autoShow = true; Run(false); }

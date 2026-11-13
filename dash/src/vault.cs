@@ -435,8 +435,7 @@ namespace IRDash
         static bool SimRunning()
         {
             if (sandbox && pretendSim) return true;
-            try { if (Process.GetProcessesByName("iRacingSim64DX11").Length > 0) return true; } catch { }
-            return false;
+            return RigState.SimRunning;
         }
 
         // ---- C-27: the newest telemetry file of a session that is OVER while the sim program is still open (results, replay) ----
@@ -1154,7 +1153,10 @@ namespace IRDash
             try { Process.Start(new ProcessStartInfo(f) { UseShellExecute = true }); return true; } catch (Exception ex) { Log.W("races: watch: " + ex.Message); return false; }
         }
         static readonly HashSet<string> Commands = new HashSet<string> { "vkkeep", "vkclip", "vkopen", "vkclose", "vkdelete", "vkkeepall", "vkchoose", "wheelteach", "recsave", "racedelete", "raceexport", "racewatch", "db-save", "db-share", "db-cosworth", "db-deepdive" };
-        public static bool Handles(string c) { return Serving && c != null && Commands.Contains(c); }
+        public static bool Handles(string c) { return (Serving || RecorderCommand(c)) && c != null && Commands.Contains(c); }
+        // W0-2: the recorder's routes and the deck's RACES keys belong to the recorder, so they answer whether the Vault is on or off
+        static bool RecorderCommand(string c) { return c == "recsave" || c == "racedelete" || c == "raceexport" || c == "racewatch"; }
+        public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
         public static readonly List<string> TestEvents = new List<string>();
         static DateTime lastKeep = DateTime.MinValue, lastClip = DateTime.MinValue;
         public static string LastClipKey = "";
@@ -1163,7 +1165,7 @@ namespace IRDash
 
         public static bool Do(string c, string a)
         {
-            if (!Serving) return false;
+            if (!Serving && !RecorderCommand(c)) return false;
             switch (c)
             {
                 case "db-save": case "db-share": case "db-cosworth": case "db-deepdive": return Debrief.Do(c, a);
@@ -1535,7 +1537,7 @@ namespace IRDash
         public static bool Handle(NetworkStream s, string path, Dictionary<string, string> q, Dictionary<string, string> hdr)
         {
             if (path != "/vault" && !path.StartsWith("/vault/", StringComparison.Ordinal) && !path.StartsWith("/api/rec/", StringComparison.Ordinal)) return false;
-            if (!Serving && !(path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook)) { try { Reply(s, 200, "{\"enabled\":false}"); } catch { } return true; }
+            if (!Serving && !RecorderRoute(path) && !(path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook)) { try { Reply(s, 200, "{\"enabled\":false}"); } catch { } return true; }
             try
             {
                 int code = 200; string j = null;
