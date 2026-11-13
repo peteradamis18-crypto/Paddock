@@ -116,3 +116,4 @@ __pycache__/
 
 # Peter's one-time YouTube sign-in file (client id and secret live here: never commit)
 dash/yt/
+/dash/data/laps/
