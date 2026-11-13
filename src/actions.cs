@@ -424,7 +424,7 @@ namespace IRDeck
         static int LeaveToHome(string tag, int settleSecs)
         {
             IntPtr ui = UiWindow();
-            if (ui == IntPtr.Zero) { Log(tag + ": iRacing UI is not running (press RIG ON)"); return 2; }
+            if (ui == IntPtr.Zero) { Log(tag + ": iRacing UI is not running (press HOME)"); return 2; }
             PlaceOnCentre(ui); FocusWindow(ui);
             AutomationElement root = FindUiWindow();
             DateTime end = DateTime.Now.AddSeconds(75), homeAt = DateTime.MinValue, quiet = DateTime.Now; int stable = 0, windows = 0; bool shotResults = false;

@@ -141,8 +141,8 @@ try {
   $pollScript = {
     param($B, $shared)
     # the top screen while driving: /keymsg 0.4 s, /mydrive 1.2 s, /guest 1 s, /race 2 s, /perf/live 4 s, /home 5 s, /overlays 6 s,
-    # /version 15 s, /trackmap and /deck/state as the deck asks (~3 a second)
-    $plan = @(@('/keymsg', 400), @('/mydrive', 1200), @('/guest', 1000), @('/race', 2000), @('/perf/live', 4000), @('/home', 5000), @('/overlays', 6000), @('/version', 15000), @('/deck/state', 350), @('/trackmap?key=t127-roadatlanta-full&id=127&name=roadatlanta+full', 10000), @('/health', 6000), @('/vault/recorder', 5000))
+    # /version 15 s, /trackmap
+    $plan = @(@('/keymsg', 400), @('/mydrive', 1200), @('/guest', 1000), @('/race', 2000), @('/perf/live', 4000), @('/home', 5000), @('/overlays', 6000), @('/version', 15000), @('/trackmap?key=t127-roadatlanta-full&id=127&name=roadatlanta+full', 10000), @('/health', 6000), @('/vault/recorder', 5000))
     $next = @{}; foreach ($x in $plan) { $next[$x[0]] = 0 }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while (-not $shared.stop) {

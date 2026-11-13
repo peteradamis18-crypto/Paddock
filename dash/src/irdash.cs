@@ -609,34 +609,13 @@ namespace IRDash
             { ".jpg", "image/jpeg" }, { ".webmanifest", "application/manifest+json" }
         };
 
-        static int testOrAiVer = -1; static string testOrAiYaml; static bool testOrAi;
-        static string DeckStateJson()
+        static readonly IRDeck.DeckGuard.DoMemory DeckDo = new IRDeck.DeckGuard.DoMemory();   // /api/do repeat guard (W0-1)
+        static readonly IRDeck.DeckGuard.PowerGate PowerGate = new IRDeck.DeckGuard.PowerGate();   // SHUT DOWN / SLEEP arm window (W0-1)
+        static bool StartIrdeck(string args)
         {
-            Frame f = Sdk.Latest;
-            IRDeck.Snapshot s = new IRDeck.Snapshot();
-            s.Sim = RigState.SimRunning;
-            s.Ui = Proc.RunningCached("iRacingUI", 2);      // W0-3: the deck asks ~3 times a second; a held handle or a 2 s old answer, no scan per request
-            s.Fresh = Sdk.FreshDeck;
-            s.Connected = f.Connected && f.Vars != null && f.Vars.ContainsKey("IsOnTrack") && f.Vars.ContainsKey("Speed") && f.Vars.ContainsKey("IsReplayPlaying");
-            s.SessionKnown = !string.IsNullOrEmpty(f.SessionYaml);
-            s.OnTrack = f.Num("IsOnTrack") != 0; s.Speed = f.Num("Speed"); s.Replay = f.Num("IsReplayPlaying") != 0;
-            string info = f.SessionYaml ?? "";
-            // W0-3: the deck asks ~3 times a second; the regex over the whole session text (tens of KB) is done once per session version
-            if (f.SessionVersion != testOrAiVer || !ReferenceEquals(info, testOrAiYaml)) { testOrAi = Regex.IsMatch(info, @"(?m)^\s*EventType:\s*(Test|AI)\s*$", RegexOptions.IgnoreCase); testOrAiVer = f.SessionVersion; testOrAiYaml = info; }
-            s.TestOrAi = testOrAi;
-            IRDeck.DeckState state = IRDeck.DeckStateResolver.Resolve(s);
-            return "{\"primary\":\"" + state.Primary + "\",\"label\":\"" + state.Label + "\",\"reason\":\"" + state.Reason + "\",\"armed\":{\"quit\":" + ArmedSeconds("quit-main") + ",\"restart\":" + ArmedSeconds("restart-race") + ",\"skip\":" + Math.Max(ArmedSeconds("skip"), ArmedSeconds("skip-session")) + "}}";
-        }
-        static int ArmedSeconds(string name)
-        {
-            try
-            {
-                string p = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "armed-" + name + ".txt");
-                if (!File.Exists(p)) return 0;
-                double left = 3.0 - (DateTime.UtcNow - File.GetLastWriteTimeUtc(p)).TotalSeconds;
-                return left <= 0 ? 0 : (int)Math.Ceiling(left);
-            }
-            catch { return 0; }
+            if (Watch.IrdeckPath == null || !File.Exists(Watch.IrdeckPath)) { Log.W("api/do: irdeck.exe not found"); return false; }
+            try { Process.Start(new ProcessStartInfo(Watch.IrdeckPath, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(Watch.IrdeckPath) }); Log.W("api/do: irdeck " + args); return true; }
+            catch (Exception ex) { Log.W("api/do: irdeck " + args + ": " + ex.Message); return false; }
         }
 
         void Handle(TcpClient c)
@@ -676,7 +655,6 @@ namespace IRDash
                         return;
                     }
 
-                    if (method == "GET" && path == "/deck/state") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(DeckStateJson()), "Access-Control-Allow-Origin: *\r\n"); return; }
 
                     // The phone's gate (phone.cs): anything not from this PC needs a pairing token, and the test hooks are never reachable
                     // from the LAN. ?asphone=1 asks for the same treatment from this PC (stricter only; tests\phone-test.ps1).
@@ -762,6 +740,23 @@ namespace IRDash
                         if (dg == null && asPhone && RigState.SessionOn && !Gate.PhoneMayWhileSession(dc, da)) dg = RigState.Refuse("phone " + dc + (dc == "key" ? " " + da : ""));
                         if (dg != null) { KeyMsg.Set(Regex.IsMatch(dc ?? "", "^[a-z0-9_-]{1,40}$") ? dc : "", dg, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(dg), "Access-Control-Allow-Origin: *\r\n"); return; }
                         Vault.Refused = null;
+                        // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
+                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with an X-Paddock header
+                        // that W0-2's Gate (above, rigstate.cs) already accepted (the add-on's secret, or 1 from a local program),
+                        // kids lock off, within 5 s of that arm (DeckGuard.PowerGate). irdeck then quits iRacing, sends the deck to MAIN, powers off.
+                        // The old one-press key exes (c=key&a=shutdown|sleep) are refused outright.
+                        string xp; hdr.TryGetValue("X-Paddock", out xp); bool xpOk = !string.IsNullOrEmpty(xp);   // the value was checked by Gate.HeaderRefusal
+                        bool here = !asPhone;   // never from the phone or the LAN
+                        if (dc == "key" && (da == "shutdown" || da == "sleep")) { Log.W("api/do: key " + da + " refused (only the CONFIRM screen ends the PC)"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Not done: SHUT DOWN and SLEEP ask on the deck first."), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (dc == "confirmarm") { bool ak = here && xpOk && PowerGate.Arm(da, DateTime.UtcNow.Ticks); Send(s, ak ? 200 : 409, "text/plain", Encoding.ASCII.GetBytes(ak ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (IRDeck.DeckGuard.IsPowerCommand(dc))
+                        {
+                            string why = PowerGate.Check(dc, xpOk, here, KidsLockOn(), DateTime.UtcNow.Ticks);
+                            bool pk = why == "ok" && StartIrdeck(dc == "shutdown" ? "power off --confirmed" : "power sleep --confirmed");
+                            if (why != "ok") Log.W("api/do: " + dc + " refused (" + why + ")");
+                            Send(s, pk ? 200 : 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "Not done: the PC is turned off or put to sleep only from the CONFIRM screen on the deck (" + why + ")."), "Access-Control-Allow-Origin: *\r\n"); return;
+                        }
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         if (!ok && Vault.Refused != null) { KeyMsg.Set(dc, Vault.Refused, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(Vault.Refused), "Access-Control-Allow-Origin: *\r\n"); return; }      // KEEP in a session: say why
@@ -1657,7 +1652,7 @@ namespace IRDash
                 string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
                 if ((now - deckMissingSince).TotalSeconds > 10 && (now - lastDeckStart).TotalSeconds > 60 && File.Exists(exe))
                 {
-                    lastDeckStart = now;
+                    lastDeckStart = now; DeckToMain("start");   // W0-1: it opens on MAIN, never on the page it was last left on
                     if (RigState.SessionOn) Log.W("watchdog: Stream Deck restarted during a session (it was not running; the deck is his controls, so this one stays allowed)");
                     try { Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) }); Note("Stream Deck was not running: restarted it"); }
                     catch (Exception ex) { Log.W("watchdog: Stream Deck start failed: " + ex.Message); }
@@ -1750,6 +1745,13 @@ namespace IRDash
             return File.Exists(lk) && (DateTime.Now - File.GetLastWriteTime(lk)).TotalMinutes < 5;
         }
 
+        // W0-1: before the watchdog starts Stream Deck, its profile's saved page goes back to MAIN (src\deckprofile.cs; refuses while it runs)
+        static void DeckToMain(string why)
+        {
+            try { string r = IRDeck.DeckProfile.SetCurrentToMain(IRDeck.DeckProfile.ProfileDir()); if (r != "already") Log.W("watchdog: deck page before the " + why + " start: " + r); }
+            catch (Exception ex) { Log.W("watchdog: deck page: " + ex.Message); }
+        }
+
         // kill + start the app, then wait (up to 20 s) for it to log the deck as connected again. Runs on its own thread.
         static void RestartDeck(string why)
         {
@@ -1769,6 +1771,7 @@ namespace IRDash
                     }
                     foreach (Process p in Process.GetProcessesByName("StreamDeck")) { try { p.Kill(); } catch { } }
                     for (int i = 0; i < 20 && Running("StreamDeck"); i++) Thread.Sleep(100);
+                    DeckToMain(why);   // W0-1: the app is stopped now, so the page it opens on can be set to MAIN
                     Thread.Sleep(800);
                     string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
                     Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });

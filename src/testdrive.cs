@@ -330,7 +330,7 @@ namespace IRDeck
                 aiApplyOnly = true;
                 try { return CmdAiraceStart(false); } finally { aiApplyOnly = false; }
             }
-            if (op == "start") return CmdAiraceStart(dry);
+            if (op == "start") { if (!dry) MarkStart("airace start"); return CmdAiraceStart(dry); }   // guard.ps1 sees "about to race" before the sim appears
             if (op == "save") { Log("airace save: not available on the New Race path"); return 1; }
             if (op != "survey") { Log("airace: use start [--dry] or survey [--out file] [--dry]"); return 1; }
             if (Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { Log("airace survey: sim=True; stopped"); return 3; }
@@ -1089,7 +1089,7 @@ namespace IRDeck
             TdWhy = "";
             if (SessionActive()) { TdWhy = "A session is running. Get out of it first."; Log("tdfind: a session is running - stopped"); return null; }
             AutomationElement root = FindUiWindow();
-            if (root == null) { TdWhy = "The iRacing screen isn't open (press RIG ON)."; Log("tdfind: iRacing UI is not running"); return null; }
+            if (root == null) { TdWhy = "The iRacing screen isn't open (press HOME)."; Log("tdfind: iRacing UI is not running"); return null; }
             List<UEl> els = TdOpenDialog(root, "tdfind"); if (els == null) return null;
             els = EnsurePanel(root, kind == "car"); if (els == null) return null;
             UEl edit = Find(els, u => u.Type == ControlType.Edit && u.Name == "Search");
@@ -1136,7 +1136,7 @@ namespace IRDeck
             TdWhy = "";
             if (SessionActive()) { TdWhy = "A session is running. Get out of it first."; Log("tdfind: a session is running - stopped"); return null; }
             AutomationElement root = FindUiWindow();
-            if (root == null) { TdWhy = "The iRacing screen isn't open (press RIG ON)."; Log("tdfind: iRacing UI is not running"); return null; }
+            if (root == null) { TdWhy = "The iRacing screen isn't open (press HOME)."; Log("tdfind: iRacing UI is not running"); return null; }
             List<UEl> els = TdOpenDialog(root, "tdfind"); if (els == null) return null;
             if (EnsurePanel(root, false) == null) return null;
             UEl tsel = PickRow(root, track, track + " button", 20, rs => BestTrackRow(rs, u => u.Name, track));
@@ -1198,7 +1198,7 @@ namespace IRDeck
             TdPickedLayout = "";
             if (SessionActive()) { TdWhy = "A session is already running."; Log("tdsetup: a session is running - leave it first"); return 3; }
             AutomationElement root = FindUiWindow();
-            if (root == null) { TdWhy = "The iRacing screen isn't open (press RIG ON)."; Log("tdsetup: iRacing UI is not running (press RIG ON)"); return 2; }
+            if (root == null) { TdWhy = "The iRacing screen isn't open (press HOME)."; Log("tdsetup: iRacing UI is not running (press HOME)"); return 2; }
             IntPtr uh = new IntPtr(root.Current.NativeWindowHandle);
             tdUi = uh;
             if (Native.IsIconic(uh)) Native.ShowWindow(uh, 9);

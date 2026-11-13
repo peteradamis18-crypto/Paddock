@@ -74,7 +74,7 @@ Useful routes (all GET):
 | `/health` | watchdog JSON |
 | `/version` | the page, to decide when to reload |
 | `/stream` | live telemetry (server-sent events) |
-| `/api/do?c=<command>&a=<arg>` | add-on screens. Whitelisted. Friends, overlays, My Drive, replay, gallery, performance, and the same friends commands as below. |
+| `/api/do?c=<command>&a=<arg>` | add-on screens. Whitelisted. Friends, overlays, My Drive, replay, gallery, performance, and the same friends commands as below. One repeat guard first (`src/deckguard.cs`): the same command + argument within 0.7 s is dropped (steps such as deltaup, sndvol, rp*, wb-* and screen housekeeping are free). `shutdown` / `sleep` are taken only from this PC with the `X-Paddock: 1` header, kids lock off, within 5 s of the CONFIRM screen's `confirmarm` (`DeckGuard.PowerGate`); they start `irdeck power off --confirmed` / `power sleep --confirmed` (irdeck refuses `power off/sleep` without `--confirmed` or from a key exe). `key`shutdown` / `sleep` (only the CONFIRM screen sends them) start `irdeck power off` / `power sleep`. |a=shutdown|sleep` is refused. |
 | `/api/guest/do?c=&a=` | friends screen |
 | `/guest`, `/overlays`, `/replay`, `/gallery`, `/mydrive`, `/doctor`, `/career` | JSON for those screens |
 | `/api/doctor/run` | run Rig Doctor (`?quiet=1` checks without showing the list) |
@@ -124,7 +124,7 @@ iRacing's own files stay where iRacing put them: `Documents\iRacing\` (telemetry
 
 1. **Boot.** Windows logs on. Task "iRacing Rig" runs `irdeck.exe rigon --boot`. Stream Deck comes up, then irdash, wheel and haptics apps, overlays, CrewChief, and the iRacing UI on the centre screen. irdash opens the top-screen dashboard.
 
-2. **A MAIN key.** Stream Deck runs `keys\<name>.exe`. That process reads `keys\keys.map`, ignores a repeat of the same key within 0.7 seconds (volume and seat keys are exempt), runs one command, appends a line to `irdeck.log`, and exits. A key that ends something and is marked x2 (`confirm` in `keys.map`) needs a second press within 3 seconds. The first press beeps twice.
+2. **A MAIN key.** Stream Deck runs `keys\<name>.exe`. That process reads `keys\keys.map`, ignores a repeat of the same key while it still runs or within 0.7 seconds of its last start (1.5 s for on/off keys; only VOL, SPOTTER level and SEAT are exempt, by name; `src/deckguard.cs`, every verb including `key` and `media`), runs one command, appends a line to `irdeck.log`, and exits. No key exe ends the PC: SHUT DOWN PC / SLEEP PC open the add-on CONFIRM screen, whose YES (within 5 s) is the only thing that sends `/api/do?c=shutdown` or `sleep`.
 
 3. **A live deck screen** (FRIENDS, OVERLAYS, MY DRIVE, REPLAY). The add-on draws the 32 keys. A press is `GET http://localhost:8199/api/do?c=...` or, for friends, `/api/guest/do`. irdash runs a whitelisted command. Overlay and friends actions that must change another app call `irdeck.exe`. Replay actions send iRacing SDK broadcast messages from irdash. No mouse click for those.
 
