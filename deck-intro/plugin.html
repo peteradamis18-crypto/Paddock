@@ -1773,10 +1773,12 @@ const Confirm = new class extends Screen {
     add(0, 0, 8, 1, w.ask, 'Press YES within 5 seconds. Nothing happens if you wait.', null, 'banner', { wrap: 1, size: 30, noflash: true });
     // the count is painted big on the YES key itself (sub carries it, so each second is a new look)
     const n = String(this.secondsLeft() || 1);
-    add(2, 1, 4, 2, w.yes, n, 'yes', 'sel', { paint: (x, px, py, pw, ph, bg, fg) => {
+    // 3 keys wide: the count sits in the middle of one key (on a 4-wide key it fell on the gap), and a smaller target is harder to hit by accident
+    add(2, 1, 3, 2, w.yes, n, 'yes', 'sel', { paint: (x, px, py, pw, ph, bg, fg) => {
       x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = '600 40px ' + FONT; x.fillText(w.yes, px + pw / 2, py + 48, pw - 20);
-      x.font = '700 92px ' + FONT; x.fillText(n, px + pw / 2, py + ph - 62);
+      // words on the top row of keys, the count on the bottom row: neither is cut by the gap between the keys
+      x.font = '600 40px ' + FONT; x.fillText(w.yes, px + pw / 2, py + PX / 2 - 3, pw - 20);
+      x.font = '700 74px ' + FONT; x.fillText(n, px + pw / 2, py + PX + PX / 2 - 3);
     } });
     add(7, 3, 1, 1, 'EXIT', '', 'exit', 'stop');
     return R;
