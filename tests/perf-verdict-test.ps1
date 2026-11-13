@@ -67,7 +67,7 @@ if ($chrome) {
   $m = [regex]::Match([string]$dom, '<div class="verdict" id="bbLine"[^>]*>(.*?)</div>')
   $shown = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
   ok "the top line of the last-session card is the sentence: $shown" ($m.Success -and $shown -eq $sentence) "dom $([string]$dom.Length) chars"
-  ok 'a freeze line is drawn in gold' ($m.Success -and $m.Value -match 'color:#f2c230')
+  ok 'a freeze line is drawn in gold' ($m.Success -and $m.Value -match 'color:var\(--gold\)')
   $png = Join-Path $shots 'perf-freeze.png'; Remove-Item $png -ErrorAction SilentlyContinue
   $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=5000', "--screenshot=$png", ('file:///' + ("$tmp2\p.html" -replace '\\', '/')))) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp2\out2.txt" -RedirectStandardError "$tmp2\err2.txt" -Wait
   ok "picture: $png" (Test-Path $png)

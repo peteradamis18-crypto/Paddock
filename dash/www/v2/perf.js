@@ -102,7 +102,7 @@ function pfRenderLast() {
   ];
   if (l.net) facts.push('<span>Ping<b>' + pfR(l.net.ping) + ' ms</b></span>', '<span>Connection<b>' + pfR(l.net.quality * 100) + ' %</b></span>');
   // W0-9 top line: the last race in one sentence (the black box's freeze line, "No freezes ...", or "still being processed")
-  const top = !PF.selData && d.summary ? '<div class="verdict" id="bbLine" style="margin:0 0 14px;max-width:none' + (/froze/.test(d.summary) ? ';color:#f2c230' : '') + '">' + esc(d.summary) + '</div>' : '';
+  const top = !PF.selData && d.summary ? '<div class="verdict" id="bbLine" style="margin:0 0 14px;max-width:none' + (/froze/.test(d.summary) ? ';color:var(--gold)' : '') + '">' + esc(d.summary) + '</div>' : '';
   let h = top + '<div class="lbl"><span>' + (PF.selData ? 'Session <button class="back" type="button" id="backBtn">Back to the latest &rsaquo;</button>' : 'Last session') + '</span><em>' + esc(pfDay(l.ts) + ', ' + pfClock(l.ts)) + (l.type ? ' · ' + esc(pfTypeTxt(l.type)) : '') + '</em></div>' +
     '<h1>' + esc(l.track) + (l.config ? ' <span style="color:#8d8a82;font-size:22px">' + esc(l.config) + '</span>' : '') + '<small>' + esc(l.car || '') + '</small></h1>' +
     '<div class="big"><div class="avg"><b>' + pfR(l.avg) + '</b><label>Average fps</label></div><div class="low"><b>' + pfR(l.low1) + '</b><label>1 % low fps</label></div>' +
