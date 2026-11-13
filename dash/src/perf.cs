@@ -44,6 +44,7 @@ namespace IRDash
             PerfChanges.Init(Dir);
             PerfSampler.Init(Dir);
             PerfPrio.Init(Dir);
+            WireBlackBox();
         }
 
         // background threads; called once at startup
@@ -52,6 +53,30 @@ namespace IRDash
             if (started) return; started = true;
             PerfReports.Start();
             PerfSampler.Start();
+            BlackBox.Start();
+        }
+
+        // the black box (blackbox.cs) reads the SDK frame irdash already has and gets PerfSampler's 5 s look at the programs
+        static void WireBlackBox()
+        {
+            BlackBox.Dir = Path.Combine(Dir, "blackbox");
+            BlackBox.Running = delegate { return PerfSampler.SimRunning || Sdk.Latest.Connected; };   // RigState.SimRunning once W0-2 lands
+            BlackBox.IsTest = delegate { return Sdk.Pretend; };
+            BlackBox.GroupOf = delegate (string name, int pid) { return PerfSampler.GroupOf(name, pid, SimPriority.ProcName); };
+            BlackBox.ReadSdk = delegate
+            {
+                Frame f = Sdk.Latest; BbSdk s = new BbSdk(); s.Connected = f.Connected;
+                if (!f.Connected) return s;
+                s.SessTime = f.Num("SessionTime"); s.Lap = f.Num("Lap"); s.Pct = f.Num("LapDistPct"); s.Speed = f.Num("Speed");
+                s.Fps = f.Num("FrameRate"); s.CpuFG = f.Num("CpuUsageFG"); s.CpuBG = f.Num("CpuUsageBG"); s.Gpu = f.Num("GpuUsage"); s.PageFaults = f.Num("MemPageFaultSec");
+                return s;
+            };
+            List<string> drives = new List<string>();
+            foreach (string p in new string[] { Program.RootDir, @"C:\Program Files (x86)\iRacing", TrackMaps.TelemetryDir })
+            {
+                try { if (string.IsNullOrEmpty(p)) continue; string r = Path.GetPathRoot(p).TrimEnd('\\'); if (r.Length == 2 && !drives.Contains(r.ToUpperInvariant())) drives.Add(r.ToUpperInvariant()); } catch { }
+            }
+            BlackBox.Drives = drives.ToArray();
         }
 
         // GET /perf and /perf/... ; return null when the path is not ours
@@ -133,14 +158,48 @@ namespace IRDash
         }
 
         // one plain sentence for Rig Doctor and the deck
+        // Always about the session just driven (09 1b: it once named an older file right after the 12 Nov freeze), with its track and date.
         public static string Summary()
         {
-            PerfRow last = PerfJson.LastRow(PerfStore.All());
+            string pending;
+            PerfRow last = LastSession(PerfStore.All(), PerfFiles.List(), PerfReports.SimBusy, out pending);
+            if (pending != null) return pending;
             if (last == null) return PerfReports.State == "done" ? "No frame-rate report yet" : "Frame-rate reports are being prepared.";
-            string s = "Last session " + (int)Math.Round(last.Avg) + " fps average, " + (int)Math.Round(last.Low1) + " at the low end. " + PerfText.Short(last);
+            string s = PerfText.LastLine(last);
             int look = PerfCheck.AttentionCount();
             if (look > 0) s += " " + look + (look == 1 ? " thing" : " things") + " to look at on the Performance page.";
             return s;
+        }
+
+        // true when the last session had a freeze (Rig Doctor shows its line in amber)
+        public static bool LastFroze()
+        {
+            string pending; PerfRow last = LastSession(PerfStore.All(), PerfFiles.List(), PerfReports.SimBusy, out pending);
+            return pending == null && last != null && last.FrzLen > 0;
+        }
+
+        // The newest session file decides (pure: tests\perf-verdict-test.ps1). Newest first: a file without a report (or with a report of
+        // another size) means "still being processed"; a file with no driving in it (a replay, a quick menu visit) is passed over.
+        internal static PerfRow LastSession(List<PerfRow> rows, List<PerfFile> files, bool simBusy, out string pending)
+        {
+            pending = null;
+            Dictionary<string, PerfRow> by = new Dictionary<string, PerfRow>(StringComparer.OrdinalIgnoreCase);
+            foreach (PerfRow r in rows) by[r.File] = r;
+            List<PerfFile> l = new List<PerfFile>(files);
+            l.Sort(delegate (PerfFile a, PerfFile b) { return b.Start.CompareTo(a.Start); });
+            int looked = 0;
+            foreach (PerfFile f in l)
+            {
+                PerfRow r;
+                if (!by.TryGetValue(f.Name, out r) || r.Size != f.Size)
+                {
+                    pending = "Your last session (" + PerfText.When(f.Start) + ") is still being processed" + (simBusy ? ": its report comes once the sim is closed." : ".");
+                    return null;
+                }
+                if (r.Secs >= 60 && r.Avg > 1) return r;
+                if (++looked >= 40) break;           // forty files with no driving in a row: fall back to the newest report
+            }
+            return PerfJson.LastRow(rows);
         }
     }
 
@@ -152,10 +211,14 @@ namespace IRDash
         public bool Online;
         public double Dur, Secs, Cars = -1, Field, Avg, Low1, Worst, Cap, Below, Dip, CpuAvg, CpuPeak, GpuAvg, GpuPeak,
                       BgAvg = -1, BgPeak = -1, LatAvg = -1, LatMax = -1, Qual = -1, Partner = -1, PfAvg = -1, PfPeak = -1;
+        // v2 (W0-9): the worst stretch when it was a freeze (under half the average): lap, lap fraction, clock time (unix), length (s);
+        // Limit = the sim's own frame limit when the report was made (0 = none or unknown). "Held" is measured against Limit, not the highest sample.
+        public double FrzLap = -1, FrzPct = -1, FrzAt, FrzLen, Limit;
+        public int V = Version;
 
-        public const int Version = 1;
+        public const int Version = 2;
         public static readonly string Header = "# file\tsize\tstart\tdur\tsecs\ttrack\tconfig\ttrackKey\ttrackRaw\tcar\ttype\tbuild\tonline\tfield\tcars\tavg\tlow1\tworst\tcap\tbelowPct\tdipPct\t" +
-            "cpuAvg\tcpuPeak\tgpuAvg\tgpuPeak\tbgAvg\tbgPeak\tverdict\tlatMs\tlatMax\tqual\tpartner\tpfAvg\tpfPeak\tworstPlaces\tcomputed\tv";
+            "cpuAvg\tcpuPeak\tgpuAvg\tgpuPeak\tbgAvg\tbgPeak\tverdict\tlatMs\tlatMax\tqual\tpartner\tpfAvg\tpfPeak\tworstPlaces\tcomputed\tv\tfrzLap\tfrzPct\tfrzAt\tfrzLen\tlimit";
 
         static string D(double v) { return v.ToString("0.###", CultureInfo.InvariantCulture); }
         static string T(string s) { return (s ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' '); }
@@ -164,7 +227,8 @@ namespace IRDash
         {
             return string.Join("\t", new string[] { T(File), Size.ToString(), Start.ToString(), D(Dur), D(Secs), T(Track), T(Config), T(TrackKey), T(TrackRaw), T(Car), T(Type), T(Build), Online ? "1" : "0",
                 D(Field), D(Cars), D(Avg), D(Low1), D(Worst), D(Cap), D(Below), D(Dip), D(CpuAvg), D(CpuPeak), D(GpuAvg), D(GpuPeak), D(BgAvg), D(BgPeak), T(Verdict),
-                D(LatAvg), D(LatMax), D(Qual), D(Partner), D(PfAvg), D(PfPeak), T(Worst3), Computed.ToString(), Version.ToString() });
+                D(LatAvg), D(LatMax), D(Qual), D(Partner), D(PfAvg), D(PfPeak), T(Worst3), Computed.ToString(), V.ToString(),
+                D(FrzLap), D(FrzPct), D(FrzAt), D(FrzLen), D(Limit) });
         }
 
         public static PerfRow Parse(string line)
@@ -181,6 +245,8 @@ namespace IRDash
             r.CpuAvg = d(21); r.CpuPeak = d(22); r.GpuAvg = d(23); r.GpuPeak = d(24); r.BgAvg = d(25); r.BgPeak = d(26); r.Verdict = f[27];
             r.LatAvg = d(28); r.LatMax = d(29); r.Qual = d(30); r.Partner = d(31); r.PfAvg = d(32); r.PfPeak = d(33); r.Worst3 = f[34];
             long.TryParse(f[35], out r.Computed);
+            int ver; r.V = int.TryParse(f[36], out ver) ? ver : 1;
+            if (f.Length >= 42 && r.V >= 2) { r.FrzLap = d(37); r.FrzPct = d(38); r.FrzAt = d(39); r.FrzLen = d(40); r.Limit = d(41); }
             return r;
         }
 
@@ -251,6 +317,13 @@ namespace IRDash
             lock (gate) { Load(); PerfRow r; return rows.TryGetValue(file, out r) && r.Size == size; }
         }
 
+        // a report made before the freeze columns (v1) of a session from the last two weeks: done again once, so the last races name their freezes
+        public static bool Stale(string file, DateTime lastWrite)
+        {
+            if ((DateTime.Now - lastWrite).TotalDays > 14) return false;
+            lock (gate) { Load(); PerfRow r; return rows.TryGetValue(file, out r) && r.V < PerfRow.Version && r.Secs > 0; }
+        }
+
         public static PerfRow Get(string file) { lock (gate) { Load(); PerfRow r; return file != null && rows.TryGetValue(file, out r) ? r : null; } }
 
         public static void Put(PerfRow r)
@@ -319,8 +392,22 @@ namespace IRDash
         static double Mean(List<float> l) { if (l.Count == 0) return 0; double s = 0; foreach (float f in l) s += f; return s / l.Count; }
         static double Max(List<float> l) { double m = double.MinValue; foreach (float f in l) if (f > m) m = f; return l.Count == 0 ? 0 : m; }
 
+        // when the session started (unix): the file's header, else the time in its name, else when it was last written (never the
+        // creation time: a copied or restored file is "created" today and would become the last session)
+        internal static long StartOf(string name, long header, DateTime lastWriteUtc)
+        {
+            if (header > 1000000000L && header < 4000000000L) return header;
+            Match m = Regex.Match(name ?? "", @"(\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2})");
+            DateTime t;
+            if (m.Success && DateTime.TryParseExact(m.Groups[1].Value, "yyyy-MM-dd HH-mm-ss", Perf.Inv, DateTimeStyles.AssumeLocal, out t)) return Perf.ToUnix(t.ToUniversalTime());
+            return Perf.ToUnix(lastWriteUtc);
+        }
+
         // throws when the file cannot be read; a file with no driving gives a row with Secs = 0
-        public static PerfRow Compute(string path)
+        public static PerfRow Compute(string path) { return Compute(path, SimSettings.FpsCapNow()); }
+
+        // limit: the sim's own frame limit (0 = none or unknown)
+        public static PerfRow Compute(string path, double limit)
         {
             FileInfo fi = new FileInfo(path);
             TrackMaps.Ibt t = TrackMaps.OpenIbt(path, true);
@@ -344,13 +431,15 @@ namespace IRDash
                 byte[] h = new byte[144]; t.fs.Position = 0; t.fs.Read(h, 0, 144);
                 int tick = BitConverter.ToInt32(h, 8); if (tick <= 0) tick = 60;
                 long startUnix = BitConverter.ToInt64(h, 112);
-                row.Start = startUnix > 1000000000L && startUnix < 4000000000L ? startUnix : Perf.ToUnix(fi.CreationTimeUtc);
+                double startSess = BitConverter.ToDouble(h, 120);       // the session time of the first record: clock = Start + (SessionTime - startSess)
+                row.Start = StartOf(fi.Name, startUnix, fi.LastWriteTimeUtc);
                 int rc = BitConverter.ToInt32(h, 140);
                 long n = rc > 0 ? Math.Min((long)rc, t.records) : t.records;
                 row.Dur = n / (double)tick;
 
                 VarDef vOn = V(t, "IsOnTrack"), vFps = V(t, "FrameRate"), vCpu = V(t, "CpuUsageFG"), vGpu = V(t, "GpuUsage"), vPct = V(t, "LapDistPct"), vBg = V(t, "CpuUsageBG"),
-                       vLat = V(t, "ChanLatency"), vQ = V(t, "ChanQuality"), vPq = V(t, "ChanPartnerQuality"), vPf = V(t, "MemPageFaultSec"), vSurf = V(t, "CarIdxTrackSurface");
+                       vLat = V(t, "ChanLatency"), vQ = V(t, "ChanQuality"), vPq = V(t, "ChanPartnerQuality"), vPf = V(t, "MemPageFaultSec"), vSurf = V(t, "CarIdxTrackSurface"),
+                       vLap = V(t, "Lap"), vSt = V(t, "SessionTime");
                 if (vOn == null || vFps == null) throw new IOException("this file has no frame-rate channel");
                 if (vSurf != null && (vSurf.Count < 2 || vSurf.Type != 2)) vSurf = null;
 
@@ -358,6 +447,7 @@ namespace IRDash
                 List<float> fps = new List<float>(), cpu = new List<float>(), gpu = new List<float>(), pct = new List<float>(), bg = new List<float>(),
                             lat = new List<float>(), qual = new List<float>(), par = new List<float>(), pf = new List<float>();
                 List<int> carsOn = new List<int>();
+                List<float> laps = new List<float>(); List<double> sts = new List<double>();      // for the freeze: which lap, and when
                 int per = Math.Max(1, (1 << 20) / t.bufLen);
                 byte[] buf = new byte[per * t.bufLen];
                 t.fs.Position = t.dataOff;
@@ -378,6 +468,7 @@ namespace IRDash
                         fps.Add(f);
                         cpu.Add(vCpu != null ? (float)Rd(buf, o, vCpu) : 0); gpu.Add(vGpu != null ? (float)Rd(buf, o, vGpu) : 0);
                         pct.Add(vPct != null ? (float)Rd(buf, o, vPct) : 0);
+                        laps.Add(vLap != null ? (float)Rd(buf, o, vLap) : -1); sts.Add(vSt != null ? Rd(buf, o, vSt) : k / (double)tick);
                         if (vBg != null) bg.Add((float)Rd(buf, o, vBg));
                         if (vLat != null) lat.Add((float)Rd(buf, o, vLat));
                         if (vQ != null) qual.Add((float)Rd(buf, o, vQ));
@@ -412,8 +503,20 @@ namespace IRDash
                 if (carsOn.Count > 0) { double s = 0; foreach (int c in carsOn) s += c; row.Cars = s / carsOn.Count; }
                 // the connection only means something online (offline, iRacing reports a fixed 33 ms)
                 if (row.Online && lat.Count > 0) { row.LatAvg = Mean(lat) * 1000; row.LatMax = Max(lat) * 1000; if (qual.Count > 0) row.Qual = Mean(qual); if (par.Count > 0) row.Partner = Mean(par); }
-                // the verdict, with fps-report.ps1's thresholds
-                if (avg >= cap - 3 && gpuP < 0.7 && cpuP < 0.7) row.Verdict = "held";
+                // the worst stretch, when it was a freeze (under half the average): where it started, when, and for how long
+                if (sorted[0] < avg * 0.5)
+                {
+                    int wi = 0; for (int i = 1; i < cntS; i++) if (fps[i] < fps[wi]) wi = i;
+                    int a = wi, z = wi;
+                    while (a > 0 && fps[a - 1] < avg * 0.5 && sts[a] - sts[a - 1] < 0.5) a--;
+                    while (z + 1 < cntS && fps[z + 1] < avg * 0.5 && sts[z + 1] - sts[z] < 0.5) z++;
+                    row.FrzLap = laps[a]; row.FrzPct = pct[a]; row.FrzLen = sts[z] - sts[a] + step / (double)tick;
+                    row.FrzAt = row.Start + (startSess >= 0 && startSess <= sts[a] ? sts[a] - startSess : 0);
+                }
+                // the verdict, with fps-report.ps1's thresholds; "held" against the sim's own frame limit (the highest sample when there is none)
+                row.Limit = limit > 0 ? limit : 0;
+                double lim = limit > 0 ? limit : cap;
+                if (avg >= lim - 3 && gpuP < 0.7 && cpuP < 0.7) row.Verdict = "held";
                 else if (gpuP >= 0.9) row.Verdict = "gpu";
                 else if (cpuP >= 0.85) row.Verdict = "cpu";
                 else row.Verdict = "close";
@@ -461,10 +564,62 @@ namespace IRDash
     {
         static string P(double v) { return ((int)Math.Round(v)).ToString(Perf.Inv); }
 
-        // one sentence: what limited the frame rate
+        // "12 Nov 09:28" (local)
+        public static string When(long unix) { return new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(unix).ToLocalTime().ToString("d MMM HH:mm", Perf.Inv); }
+
+        // "Lap 9, start/finish: the picture froze for 4 s (worst second 23.7 fps). Likely cause: ..." or "" when the worst second
+        // was not under half the average. The cause comes from the black box when it recorded that session.
+        public static string Freeze(PerfRow r)
+        {
+            if (r.FrzLen <= 0) return "";
+            string cause = "";
+            try { BbFreeze b = BlackBox.FreezeNear(r.FrzAt, 20); if (b != null) cause = b.Cause; } catch { }
+            string clock = r.FrzAt > 1000000000 ? new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(r.FrzAt).ToLocalTime().ToString("HH:mm:ss", Perf.Inv) : "";
+            return BlackBox.Sentence(r.FrzLap, PlaceOf(r, r.FrzPct), r.FrzLen, r.Worst, clock, cause);
+        }
+
+        // the place on the lap, with the corner names when Paddock knows them (corners.cs); asked once per track per 10 minutes
+        static readonly Dictionary<string, KeyValuePair<DateTime, CornerSet>> cornerCache = new Dictionary<string, KeyValuePair<DateTime, CornerSet>>();
+        static string PlaceOf(PerfRow r, double pct)
+        {
+            if (pct < 0) return "";
+            if (pct >= 0.97 || pct <= 0.03) return BlackBox.Place(pct, null, null, null);
+            CornerSet cs = null;
+            try
+            {
+                lock (cornerCache)
+                {
+                    KeyValuePair<DateTime, CornerSet> c;
+                    if (cornerCache.TryGetValue(r.TrackKey, out c) && (DateTime.Now - c.Key).TotalMinutes < 10) cs = c.Value;
+                    else { cs = Corners.Resolve(r.Track, r.Config, "", r.TrackKey, false); cornerCache[r.TrackKey] = new KeyValuePair<DateTime, CornerSet>(DateTime.Now, cs); }
+                }
+            }
+            catch { }
+            if (cs == null || cs.Turns.Count == 0) return BlackBox.Place(pct, null, null, null);
+            double[] p0 = new double[cs.Turns.Count], p1 = new double[cs.Turns.Count]; string[] nm = new string[cs.Turns.Count];
+            for (int i = 0; i < cs.Turns.Count; i++) { CornerTurn t = cs.Turns[i]; p0[i] = t.P0; p1[i] = t.P1; nm[i] = t.Name.Length > 0 ? t.Name : "Turn " + t.N; }
+            return BlackBox.Place(pct, p0, p1, nm);
+        }
+
+        // the one line for Rig Doctor and the top of the Performance page: track and date, then the freeze or "no freezes"
+        public static string LastLine(PerfRow r)
+        {
+            string where = (r.Track.Length > 0 ? r.Track : "Last session") + ", " + When(r.Start);
+            string frz = Freeze(r);
+            if (frz.Length > 0) return where + ". " + frz + " Average " + P(r.Avg) + " fps.";
+            return "No freezes in your last race (avg " + P(r.Avg) + " fps): " + where + ". " + Short(r);
+        }
+
+        // one sentence: what limited the frame rate (a freeze comes first)
         public static string Verdict(PerfRow r)
         {
             if (r.Secs < 1) return "No driving in this file.";
+            string frz = Freeze(r);
+            return frz.Length > 0 ? frz + " " + Limit(r) : Limit(r);
+        }
+
+        static string Limit(PerfRow r)
+        {
             string s;
             switch (r.Verdict)
             {
@@ -531,14 +686,19 @@ namespace IRDash
             SimBusy = false;
             string[] all = Directory.GetFiles(dir, "*.ibt");
             List<FileInfo> todo = new List<FileInfo>();
+            List<PerfFile> seen = new List<PerfFile>(all.Length);
             int waiting = 0;
             foreach (string f in all)
             {
                 FileInfo fi = new FileInfo(f);
-                if (PerfStore.Has(fi.Name, fi.Length)) continue;
-                if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 120 || Career.OnlineOnly(fi)) { waiting++; continue; }
+                bool online = Career.OnlineOnly(fi);
+                seen.Add(PerfFiles.Of(fi, online));
+                if (PerfStore.Has(fi.Name, fi.Length) && !PerfStore.Stale(fi.Name, fi.LastWriteTime)) continue;
+                // the sim is closed here, so its file is complete: 20 s is enough (it was 120 s, which held the 12 Nov race back 4 minutes)
+                if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 20 || online) { waiting++; continue; }
                 todo.Add(fi);
             }
+            PerfFiles.Set(seen);
             todo.Sort(delegate (FileInfo a, FileInfo b) { return b.LastWriteTime.CompareTo(a.LastWriteTime); });
             Files = all.Length; Waiting = waiting; Pending = todo.Count; LastPass = DateTime.Now;
             if (todo.Count == 0) { State = "done"; return; }
@@ -554,7 +714,7 @@ namespace IRDash
                     int n; fails.TryGetValue(fi.Name, out n); n++; fails[fi.Name] = n;
                     bool noChannel = ex.Message.IndexOf("no frame-rate channel", StringComparison.Ordinal) >= 0 || ex.Message.IndexOf("not a telemetry file", StringComparison.Ordinal) >= 0;
                     Log.W("perf: " + fi.Name + ": " + ex.Message + (noChannel || n >= 3 ? " (noted as empty, not tried again)" : " (will try again)"));
-                    if (noChannel || n >= 3) { r = new PerfRow(); r.File = fi.Name; r.Size = fi.Length; r.Start = Perf.ToUnix(fi.CreationTimeUtc); r.Computed = Perf.Now(); Failed++; }
+                    if (noChannel || n >= 3) { r = new PerfRow(); r.File = fi.Name; r.Size = fi.Length; r.Start = PerfReport.StartOf(fi.Name, 0, fi.LastWriteTimeUtc); r.Computed = Perf.Now(); Failed++; }
                 }
                 if (r != null) { PerfStore.Put(r); added++; Reported++; Pending--; }
                 Thread.Sleep(30);
@@ -566,6 +726,50 @@ namespace IRDash
             }
             State = SimBusy ? "waiting" : Pending <= 0 ? "done" : "waiting";
         }
+    }
+
+    // ---------------- the telemetry folder's list, cached (09: /perf/status listed about 590 files on every call) ----------------
+    sealed class PerfFile { public string Name = ""; public long Size, Start; public bool Online; }
+
+    static class PerfFiles
+    {
+        static readonly object gate = new object();
+        static List<PerfFile> list; static DateTime at = DateTime.MinValue;
+
+        public static PerfFile Of(FileInfo fi, bool online)
+        {
+            PerfFile p = new PerfFile(); p.Name = fi.Name; p.Size = fi.Length; p.Online = online;
+            p.Start = PerfReport.StartOf(fi.Name, 0, fi.LastWriteTimeUtc);      // the name carries the start; the header is read only by the report
+            return p;
+        }
+
+        // from the report worker's own listing (every minute out of the sim)
+        public static void Set(List<PerfFile> l) { lock (gate) { list = l; at = DateTime.Now; } }
+
+        // online-only files are left out: they wait for OneDrive and must not hold "still being processed" for ever.
+        // Older than 2 minutes and not driving: listed again here (no file is opened).
+        public static List<PerfFile> List()
+        {
+            lock (gate)
+            {
+                if ((list == null || (DateTime.Now - at).TotalSeconds > 120) && !Program.IsDriving)
+                {
+                    List<PerfFile> l = new List<PerfFile>();
+                    try
+                    {
+                        string dir = TrackMaps.TelemetryDir;
+                        if (dir != null && Directory.Exists(dir)) foreach (string f in Directory.GetFiles(dir, "*.ibt")) { FileInfo fi = new FileInfo(f); l.Add(Of(fi, Career.OnlineOnly(fi))); }
+                    }
+                    catch { }
+                    list = l; at = DateTime.Now;
+                }
+                List<PerfFile> res = new List<PerfFile>();
+                if (list != null) foreach (PerfFile p in list) if (!p.Online) res.Add(p);
+                return res;
+            }
+        }
+
+        public static int Count() { lock (gate) return list == null ? -1 : list.Count; }
     }
 
     // ---------------- F2: what the sampler wrote about one drive (data\perf-procs.tsv) ----------------
@@ -803,6 +1007,7 @@ namespace IRDash
             double fps = f.Num("FrameRate");
             if (dt > 0)
             {
+                BlackBox.Procs(g);                    // the black box's "3 busiest programs" (it looks itself only during a dip)
                 lock (gate) { recent.Add(g); while (recent.Count > 3) recent.RemoveAt(0); }
                 LastAt = now;
                 Update(on, fps, g, f);
@@ -969,10 +1174,11 @@ namespace IRDash
         {
             double lifeMs = (DateTime.Now - threadStart).TotalMilliseconds, lifeCpu = (ThreadCpu() - threadStartCpu) / 1e4;
             double runWall = SimRunning ? (DateTime.Now - RunStart).TotalMilliseconds : RunWallMs;
+            int known; lock (gate) known = procsList.Count;
             return "{\"running\":" + Perf.B(SimRunning) + ",\"ticks\":" + Ticks + ",\"avgMs\":" + (Ticks > 0 ? Perf.N(CostCpuMs / Ticks, "0.00") : "null") + ",\"medianWallMs\":" + Perf.N(MedianMs(), "0.00") + ",\"worstMs\":" + Perf.N(CostWorstMs, "0.0") +
                    ",\"pctOfCore\":" + (runWall > 0 && Ticks > 0 ? Perf.N(CostCpuMs / runWall * 100, "0.0000") : "null") + ",\"lifetimePctOfCore\":" + Perf.N(lifeMs > 0 ? lifeCpu / lifeMs * 100 : 0, "0.0000") +
                    ",\"classified\":" + Classified + ",\"classifyMs\":" + Perf.N(ClassifyMs, "0.0") + ",\"classifyCpuMs\":" + Perf.N(ClassifyCpuMs, "0.0") + ",\"drives\":" + Segments + ",\"inDrive\":" + Perf.B(seg != null) + ",\"open\":" + (seg != null ? seg.N : 0) +
-                   ",\"known\":" + procsList.Count + "}";
+                   ",\"known\":" + known + "}";
         }
     }
 
@@ -1284,25 +1490,9 @@ namespace IRDash
             return l;
         }
 
-        internal static Dictionary<string, string> GfxOptions(string path)
-        {
-            Dictionary<string, string> d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string text;
-            using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            using (StreamReader r = new StreamReader(fs, Encoding.GetEncoding(28591))) text = r.ReadToEnd();
-            bool inSec = false;
-            foreach (string raw in text.Split('\n'))
-            {
-                string l = raw.Trim();
-                if (l.StartsWith("[", StringComparison.Ordinal)) { inSec = l == "[Graphics Options]"; continue; }
-                if (!inSec) continue;
-                Match m = Regex.Match(l, @"^(\w+)=([^;\s]*)");
-                if (m.Success) d[m.Groups[1].Value] = m.Groups[2].Value;
-            }
-            return d;
-        }
+        internal static Dictionary<string, string> GfxOptions(string path) { return SimSettings.Graphics(path); }
 
-        internal static string CurrentIni { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"iRacing\rendererDX11Monitor.ini"); } }
+        internal static string CurrentIni { get { return SimSettings.GraphicsFile; } }
 
         // keys whose value differs (present in both), most telling first: "frame limit 120 to 160"
         static List<string> Diff(Dictionary<string, string> a, Dictionary<string, string> b)
@@ -1698,7 +1888,8 @@ namespace IRDash
             return "{\"file\":" + Json_.S(r.File) + ",\"ts\":" + r.Start * 1000 + ",\"dur\":" + Perf.N(r.Dur, "0") + ",\"secs\":" + Perf.N(r.Secs, "0") + ",\"track\":" + Json_.S(r.Track) + ",\"config\":" + Json_.S(r.Config) +
                    ",\"key\":" + Json_.S(r.TrackKey) + ",\"trackName\":" + Json_.S(r.TrackRaw) + ",\"car\":" + Json_.S(r.Car) + ",\"type\":" + Json_.S(r.Type) + ",\"field\":" + Perf.N2(r.Field) + ",\"cars\":" + (r.Cars >= 0 ? Perf.N(r.Cars, "0.#") : "null") +
                    ",\"online\":" + Perf.B(r.Online) + ",\"build\":" + Json_.S(r.Build) + ",\"avg\":" + Perf.N(r.Avg, "0.0") + ",\"low1\":" + Perf.N(r.Low1, "0.0") + ",\"worst\":" + Perf.N(r.Worst, "0.0") +
-                   ",\"cap\":" + Perf.N(r.Cap, "0") + ",\"belowPct\":" + Perf.N(r.Below, "0") + ",\"dip\":" + Perf.N(r.Dip, "0.0") + ",\"cpu\":" + Perf.N(r.CpuAvg, "0") + ",\"cpuPeak\":" + Perf.N(r.CpuPeak, "0") +
+                   ",\"cap\":" + Perf.N(r.Cap, "0") + ",\"limit\":" + (r.Limit > 0 ? Perf.N(r.Limit, "0") : "null") +
+                   ",\"freeze\":" + (r.FrzLen > 0 ? "{\"lap\":" + Perf.N(r.FrzLap, "0") + ",\"pct\":" + Perf.N(r.FrzPct, "0.000") + ",\"ts\":" + Perf.N(r.FrzAt * 1000, "0") + ",\"secs\":" + Perf.N(r.FrzLen, "0.0") + "}" : "null") + ",\"belowPct\":" + Perf.N(r.Below, "0") + ",\"dip\":" + Perf.N(r.Dip, "0.0") + ",\"cpu\":" + Perf.N(r.CpuAvg, "0") + ",\"cpuPeak\":" + Perf.N(r.CpuPeak, "0") +
                    ",\"gpu\":" + Perf.N(r.GpuAvg, "0") + ",\"gpuPeak\":" + Perf.N(r.GpuPeak, "0") + ",\"bg\":" + (r.BgAvg >= 0 ? Perf.N(r.BgAvg, "0") : "null") + ",\"bgPeak\":" + (r.BgPeak >= 0 ? Perf.N(r.BgPeak, "0") : "null") +
                    ",\"verdict\":" + Json_.S(r.Verdict) + ",\"text\":" + Json_.S(PerfText.Verdict(r)) + ",\"usual\":" + (usual > 0 ? Perf.N(usual, "0.0") : "null") +
                    ",\"net\":" + (r.LatAvg >= 0 ? "{\"ping\":" + Perf.N(r.LatAvg, "0") + ",\"pingMax\":" + Perf.N(r.LatMax, "0") + ",\"quality\":" + Perf.N(r.Qual, "0.00") + ",\"partner\":" + Perf.N(r.Partner, "0.00") + "}" : "null") +
@@ -1716,12 +1907,11 @@ namespace IRDash
         {
             List<PerfRow> rows = PerfStore.All(); int counted = 0, empty = 0;
             foreach (PerfRow r in rows) { if (r.Counts) counted++; if (r.Secs < 1) empty++; }
-            string[] files = new string[0];
-            try { if (TrackMaps.TelemetryDir != null && Directory.Exists(TrackMaps.TelemetryDir)) files = Directory.GetFiles(TrackMaps.TelemetryDir, "*.ibt"); } catch { }
+            int files = PerfFiles.Count(); if (files < 0) { PerfFiles.List(); files = Math.Max(0, PerfFiles.Count()); }    // the cached listing (the worker refreshes it every minute)
             int dup = 0; HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (PerfRow r in rows) if (!seen.Add(r.File)) dup++;
-            return "{\"state\":" + Json_.S(PerfReports.State) + ",\"files\":" + files.Length + ",\"reports\":" + rows.Count + ",\"counted\":" + counted + ",\"empty\":" + empty + ",\"duplicates\":" + dup +
+            return "{\"state\":" + Json_.S(PerfReports.State) + ",\"files\":" + files + ",\"reports\":" + rows.Count + ",\"counted\":" + counted + ",\"empty\":" + empty + ",\"duplicates\":" + dup +
                    ",\"waiting\":" + PerfReports.Waiting + ",\"pending\":" + PerfReports.Pending + ",\"added\":" + PerfReports.Reported + ",\"failed\":" + PerfReports.Failed +
-                   ",\"changes\":" + PerfChanges.All().Count + ",\"sampler\":" + PerfSampler.StatusJson() + ",\"prio\":" + PerfPrio.Json() + "}";
+                   ",\"changes\":" + PerfChanges.All().Count + ",\"sampler\":" + PerfSampler.StatusJson() + ",\"prio\":" + PerfPrio.Json() + ",\"blackbox\":" + BlackBox.StatusJson() + "}";
         }
 
         static string Own(List<PerfRow> rows)
@@ -2154,11 +2344,7 @@ namespace IRDash
         public static string Route(string path, Dictionary<string, string> q, out int code)
         {
             code = 200; string v;
-            if (path == "/perf/test/friendly")        // pure naming, harmless
-            {
-                q.TryGetValue("name", out v);
-                return "{\"group\":" + Json_.S(PerfSampler.GroupOf(v ?? "", 0, "iRacingSim64DX11")) + "}";
-            }
+            // every test route (and PerfPrio.SetNamed behind /prio) only with dash\test-hook.on and no real session (09: test code in the product)
             if (!Sdk.TestHook)
             {
                 string busy = Sdk.RealBusy();
@@ -2167,6 +2353,9 @@ namespace IRDash
             }
             switch (path)
             {
+                case "/perf/test/friendly":            // pure naming
+                    q.TryGetValue("name", out v);
+                    return "{\"group\":" + Json_.S(PerfSampler.GroupOf(v ?? "", 0, "iRacingSim64DX11")) + "}";
                 case "/perf/test/drives":
                     {
                         StringBuilder sb = new StringBuilder("[");
