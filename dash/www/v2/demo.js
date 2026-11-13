@@ -81,7 +81,6 @@ const Demo = {
       const pos = T.posAt(pct);
       const curLap = t - lapStartT;
       const delta = best > 0 ? curLap - best * T.timeFrac(pct) : 0;
-      const tire = (base) => base + 6 * Math.sin(t / 60);
       // cars alongside: real proximity on the demo track, plus a scripted cycle so every state shows up
       let nl = 0, nr = 0;
       for (const c of cars) {
@@ -113,10 +112,6 @@ const Demo = {
         CarIdxLapDistPct: pctA, CarIdxLap: lapA, CarIdxLapCompleted: lcA, CarIdxPosition: posA, CarIdxClassPosition: cposA,
         CarIdxOnPitRoad: pitA, CarIdxTrackSurface: surfA, CarIdxEstTime: estA, CarIdxF2Time: f2A, CarIdxLastLapTime: lastA, CarIdxBestLapTime: bestA,
       };
-      [['LF', 0], ['RF', 4], ['LR', -3], ['RR', 1]].forEach(([c, o]) => {
-        val[c + 'tempCL'] = tire(82 + o); val[c + 'tempCM'] = tire(86 + o); val[c + 'tempCR'] = tire(90 + o);
-        val[c + 'wearL'] = 0.93 - o * 0.004; val[c + 'wearM'] = 0.91; val[c + 'wearR'] = 0.94; val[c + 'coldPressure'] = 165 + o;
-      });
       onFrame(val);
     };
     setInterval(tick, 1000 / 30);

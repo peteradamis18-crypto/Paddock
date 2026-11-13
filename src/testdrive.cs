@@ -811,6 +811,86 @@ namespace IRDeck
         }
         static string PickedName = "";
 
+        // Layout names differ between the session info and iRacing's Test Drive menu: the telemetry says "Sports Car Course",
+        // the menu says "Sportscar" (2026-11-01: START stopped at Sonoma with "not offered"). Compare on a key without case,
+        // spaces, punctuation and filler words (course, circuit, layout ...).
+        internal static string LayoutKey(string s)
+        {
+            string low = (s ?? "").ToLowerInvariant();
+            string k = Regex.Replace(Regex.Replace(low, @"\b(course|circuit|configuration|config|layout|track)\b", ""), "[^a-z0-9]", "");
+            return k.Length > 0 ? k : Regex.Replace(low, "[^a-z0-9]", "");
+        }
+
+        // The menu entry for a layout: the exact name, else the ONE entry with the same key, else the ONE entry whose key
+        // starts with the wanted key (or the other way round). Two candidates = null: stop rather than drive the wrong layout.
+        internal static T BestLayout<T>(List<T> items, Func<T, string> name, string want) where T : class
+        {
+            if ((want ?? "").Trim().Length == 0) return null;
+            T exact = items.Find(u => Same(name(u), want));
+            if (exact != null) return exact;
+            string wk = LayoutKey(want);
+            if (wk.Length == 0) return null;
+            List<T> same = items.FindAll(u => LayoutKey(name(u)) == wk);
+            if (same.Count > 0) return same.Count == 1 ? same[0] : null;
+            List<T> near = items.FindAll(u => { string k = LayoutKey(name(u)); return k.Length > 0 && (k.StartsWith(wk) || wk.StartsWith(k)); });
+            return near.Count == 1 ? near[0] : null;
+        }
+
+        static string TdPickedLayout = "";   // iRacing's menu name of the layout the last tdsetup drove on ("" = not known)
+
+        // Some names cannot be matched by spelling (Sonoma: the session says "Long", the menu has "Cup Long" and "Cup Short").
+        // After a START the session info tells which session name the chosen menu entry has; that pair is kept in
+        // mydrive\layout-names.tsv (track TAB session name TAB menu name) and used first the next time.
+        static string LayoutAlias(string track, string sessionName)
+        {
+            try
+            {
+                string f = Path.Combine(Root, @"mydrive\layout-names.tsv");
+                if (File.Exists(f))
+                    foreach (string l in File.ReadAllLines(f))
+                    {
+                        string[] p = l.Split('\t');
+                        if (p.Length >= 3 && Same(p[0], track) && Same(p[1], sessionName) && p[2].Trim().Length > 0) return p[2].Trim();
+                    }
+            }
+            catch { }
+            return sessionName;
+        }
+        static void LearnLayoutAlias(string track, string sessionName, string menuName)
+        {
+            if (string.IsNullOrEmpty(track) || string.IsNullOrEmpty(sessionName) || string.IsNullOrEmpty(menuName)) return;
+            if (LayoutKey(sessionName) == LayoutKey(menuName) || Same(LayoutAlias(track, sessionName), menuName)) return;
+            try
+            {
+                string f = Path.Combine(Root, @"mydrive\layout-names.tsv");
+                Directory.CreateDirectory(Path.GetDirectoryName(f));
+                var lines = File.Exists(f) ? new List<string>(File.ReadAllLines(f)) : new List<string>();
+                lines.RemoveAll(l => { string[] p = l.Split('\t'); return l.Trim().Length == 0 || (p.Length >= 2 && Same(p[0], track) && Same(p[1], sessionName)); });
+                lines.Add(track.Trim() + "\t" + sessionName.Trim() + "\t" + menuName.Trim());
+                File.WriteAllText(f, string.Join("\r\n", lines.ToArray()) + "\r\n");
+                Log("tdsetup: learned that layout '" + sessionName + "' at " + track + " is '" + menuName + "' in iRacing's menu");
+            }
+            catch { }
+        }
+
+        // Every layout list iRacing shows is kept in mydrive\track-layouts.tsv (track TAB layout | layout ...), keyed by the
+        // track name the deck uses, so the deck's LAYOUTS page offers all of a track's layouts, not only the ones driven.
+        static void TdRememberLayouts(string track, List<string> names)
+        {
+            if (string.IsNullOrEmpty(track) || names == null || names.Count == 0) return;
+            try
+            {
+                string f = Path.Combine(Root, @"mydrive\track-layouts.tsv");
+                Directory.CreateDirectory(Path.GetDirectoryName(f));
+                var lines = File.Exists(f) ? new List<string>(File.ReadAllLines(f)) : new List<string>();
+                lines.RemoveAll(l => l.Trim().Length == 0 || l.Split('\t')[0].Equals(track.Trim(), StringComparison.OrdinalIgnoreCase));
+                lines.Add(track.Trim() + "\t" + string.Join(" | ", names.ToArray()));
+                lines.Sort(StringComparer.OrdinalIgnoreCase);
+                File.WriteAllText(f, string.Join("\r\n", lines.ToArray()) + "\r\n");
+            }
+            catch (Exception ex) { Log("tdsetup: could not save the layouts of " + track + ": " + ex.Message); }
+        }
+
         // iRacing's own long names for the cars the telemetry names shorter. The Test Drive card already shows the last car, in iRacing's
         // words ('Porsche 718 Cayman GT4 Clubsport MR'), so comparing it with the telemetry name made LAST DRIVE open the picker for a car
         // that was already chosen, and the picker's search then found nothing (live 2026-10-19). Seeded from what iRacing showed; every
@@ -900,6 +980,9 @@ namespace IRDeck
             if (Find(els, u => u.Type == ControlType.Text && u.Name == title) != null) return els;
             if (!DialogOpen(els)) { TdWhy = "The Test Drive window isn't open in iRacing."; Log("tdsetup: the Test Drive dialog is not showing - stopped"); return null; }
             Cards cards = ReadCards(els);
+            // 2026-11-01 13:28: the cards were read fine a moment earlier, then this read missed them (iRacing still drawing) and
+            // START stopped. Look a few more times before giving up.
+            for (int i = 0; i < 8 && cards == null; i++) { Thread.Sleep(300); els = UiAll(root); if (!DialogOpen(els)) break; cards = ReadCards(els); }
             if (cards == null) { TdWhy = "iRacing's Test Drive window doesn't look the way it should."; Log("tdsetup: Test Drive cards not found - stopped"); return null; }
             bool clicked = car ? TdClick((int)(cards.CarInfo.R.X - 60), (int)(cards.CarInfo.R.Y - 110)) : TdClick((int)(cards.TrackInfo.R.X - 200), (int)(cards.TrackInfo.R.Y - 110));
             if (!clicked) return null;
@@ -1061,6 +1144,7 @@ namespace IRDeck
             List<UEl> items = TdLayoutMenu(root, tsel, 12);
             var names = new List<string>();
             foreach (UEl u in items) if (!names.Contains(u.Name)) names.Add(u.Name);
+            TdRememberLayouts(track, names);
             if (names.Count > max) names = names.GetRange(0, max);
             return names;
         }
@@ -1111,6 +1195,7 @@ namespace IRDeck
             TdWhy = "";
             if (words.Count < 2) { Log("tdsetup: need \"car\" \"track\" [\"layout\"]"); return 1; }
             string car = words[0], track = words[1], layout = words.Count > 2 ? words[2] : "";
+            TdPickedLayout = "";
             if (SessionActive()) { TdWhy = "A session is already running."; Log("tdsetup: a session is running - leave it first"); return 3; }
             AutomationElement root = FindUiWindow();
             if (root == null) { TdWhy = "The iRacing screen isn't open (press RIG ON)."; Log("tdsetup: iRacing UI is not running (press RIG ON)"); return 2; }
@@ -1180,7 +1265,9 @@ namespace IRDeck
             }
             // 4. track and layout
             els = UiAll(root); cards = ReadCards(els);
-            bool trackOk = cards != null && Same(cards.TrackName.Name, track) && (layout == "" || (cards.Layout != null && Same(cards.Layout.Name, layout)));
+            string layoutMenu = layout != "" ? LayoutAlias(words[1], layout) : "";   // iRacing's menu name, when a START taught it
+            bool trackOk = cards != null && Same(cards.TrackName.Name, track) && (layout == "" || (cards.Layout != null && (Same(cards.Layout.Name, layoutMenu) || LayoutKey(cards.Layout.Name) == LayoutKey(layout))));
+            if (trackOk && cards.Layout != null) TdPickedLayout = cards.Layout.Name;
             string trackShown = track;   // iRacing's own name for the track once picked
             if (!trackOk && cards != null)
             {
@@ -1217,10 +1304,11 @@ namespace IRDeck
                     // the layout list drops down under that Select cell, right-aligned with it
                     var items = TdMenuItems(els, tsel);
                     offered = items.ConvertAll(u => u.Name);
-                    item = layout != "" ? items.Find(u => Same(u.Name, layout)) : null;
-                    if (item == null && layout != "") item = items.Find(u => u.Name.IndexOf(layout, StringComparison.OrdinalIgnoreCase) >= 0 || layout.IndexOf(u.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+                    item = layout != "" ? BestLayout(items, u => u.Name, LayoutAlias(words[1], layout)) : null;
+                    if (item == null && layout != "") item = BestLayout(items, u => u.Name, layout);
                     if (item == null && layout == "" && items.Count > 0) item = items[0];
                 }
+                TdRememberLayouts(words[1], offered);
                 if (item == null)
                 {
                     // a track with a single layout may have been chosen by the Select press itself
@@ -1228,7 +1316,7 @@ namespace IRDeck
                     // (no layout list at all = the track has just one layout, so the one asked for is the one it has)
                     if (cards == null || !(Same(cards.TrackName.Name, trackShown) || Same(cards.TrackName.Name, track)) || (layout != "" && offered.Count > 0))
                     {
-                        TdWhy = layout != "" ? "iRacing doesn't offer the " + layout + " layout at " + track + "." : "iRacing didn't show the layouts for " + track + ".";
+                        TdWhy = layout != "" ? "iRacing names the " + track + " layouts differently. Pick one on the LAYOUTS page." : "iRacing didn't show the layouts for " + track + ".";
                         Log("tdsetup: layout '" + layout + "' not offered for " + track + (offered.Count > 0 ? " (offered: " + string.Join(", ", offered.ToArray()) + ")" : ""));
                         return 1;
                     }
@@ -1236,6 +1324,7 @@ namespace IRDeck
                 else
                 {
                     if (layout != "" && !Same(item.Name, layout)) Log("tdsetup: layout '" + layout + "' taken as '" + item.Name + "'");
+                    TdPickedLayout = item.Name;
                     try { ((InvokePattern)item.E.GetCurrentPattern(InvokePattern.Pattern)).Invoke(); } catch { ClickEl(item); }
                     Thread.Sleep(900);
                 }

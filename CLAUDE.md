@@ -19,7 +19,7 @@ Explain things to him in plain English, short, no jargon.
 - Three 2560×1440 165 Hz race screens (Windows rotation 180°, physically upside down) at x −2560 / 0 / 2560, y 0; the
   **middle one is the Windows primary**. A 1920×1080 dashboard monitor above at 320,−1080. Find screens by POSITION,
   never by `\\.\DISPLAYn` (Windows renumbers them).
-- RTX 4080, Ryzen 9800X3D, Simucube wheelbase, ButtKicker, Stream Deck XL (32 keys), CrewChief spotter, irdashies
+- RTX 4080, Ryzen 9800X3D, Simucube wheelbase, ButtKicker, SSG DF-8 LED flag box (driven by SimHub, profile "SSG 8x8 Matrix - Flags Only", script `tools\df8-flags.js`, loaded with `tools\df8-apply.ps1`, matrix limit 100%, rotation 90°; no gear/shift (too distracting) but flags must be LOUD: 35% and slow blinks "barely lit up", Peter 2026-11-01; it shows the same flag as Paddock for as long as iRacing does, from the raw SessionFlags and the same table as `dash/www/v2/ui.js`, Peter 2026-11-02; irdashies' on-screen flag stays off, and so does iRacing's own (`tools\hud-flag.ps1`, undo `tools\digital-flag-back-on.cmd`); second box away for repair), Stream Deck XL (32 keys), CrewChief spotter, irdashies
   overlays. Graphics settled at ~104 fps in a full race (cap 160, Reflex off, 2 pre-rendered frames).
 
 ## The parts (details in docs/ARCHITECTURE.md)
@@ -31,6 +31,7 @@ Explain things to him in plain English, short, no jargon.
 | Replay controls (SDK broadcast, no clicks) and the side-screen gallery | `dash/src/replay.cs`, `dash/src/gallery.cs` | part of irdash |
 | MAIN deck page | `build-deck.ps1` | Stream Deck profile "iRacing GT3" |
 | Settings/state | `guest/`, `overlays/`, `mydrive/`, `dash/irdash.ini` | |
+| Track maps | telemetry (`dash/maps`), else iRacing's own drawing by track id (`data/iracing-maps`, copied from irdashies by `tools/extract-iracing-maps.ps1`; rerun after an irdashies update; never push it) | |
 | Tests | `tests/*.ps1` | ok/FAIL lines + `tests/shots/*.png` |
 
 ## Build (C# 5 with Windows' own csc — no SDK, no NuGet)

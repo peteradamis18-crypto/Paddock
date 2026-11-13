@@ -113,8 +113,8 @@ $aiLevelOn = (Test-Path $sdManifest) -and ((Get-Content $sdManifest -Raw) -match
 $approved = [ordered]@{
   '0,0' = 'HOME'; '1,0' = 'AI RACE'; '2,0' = $(if ($aiLevelOn) { 'AI LEVEL' } else { 'LAST DRIVE' }); '3,0' = 'CAR TRACK'; '4,0' = 'OFFICIAL'; '5,0' = 'FRIENDS'; '6,0' = 'KIDS'; '7,0' = 'MORE'
   '0,1' = 'GET IN'; '1,1' = 'GET OUT'; '2,1' = 'RESET CAR'; '3,1' = 'RESTART'; '4,1' = 'NEXT SESSION'; '5,1' = 'RACE NOW'; '6,1' = 'PAUSE'; '7,1' = 'LEAVE'
-  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'VAULT'; '7,2' = 'REPLAY'
-  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SORRY'; '4,3' = 'THANKS'; '5,3' = 'SAVE SPOT'; '6,3' = 'BACK TO SPOT'; '7,3' = 'GHOST' }
+  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'RACES'; '7,2' = 'REPLAY'
+  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SPOTTER -'; '4,3' = 'SPOTTER +'; '5,3' = 'SAVE SPOT'; '6,3' = 'BACK TO SPOT'; '7,3' = 'GHOST' }
 $bad = @()
 foreach ($pos in $approved.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -126,9 +126,9 @@ foreach ($pos in $approved.Keys) {
 }
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
 Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
-$moreWant = [ordered]@{ '0,0' = 'BACK'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
-  '0,1' = 'RELATIVE'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
-  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS' }
+$moreWant = [ordered]@{ '0,0' = 'BACK'; '1,0' = 'SORRY'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
+  '0,1' = 'RELATIVE'; '1,1' = 'THANKS'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
+  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS'; '3,3' = 'VAULT' }
 # the AC keys are on MORE's bottom row only once the AC is connected (ac\ac.json)
 if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC'; $moreWant['1,3'] = 'AC COOLER'; $moreWant['2,3'] = 'AC WARMER' }   # AC opens the AC screen; COOLER / WARMER act at once
 $bad = @()
@@ -216,7 +216,7 @@ function Test-IrCommand([string]$line) {
     'media'     { if ($t.Count -lt 2 -or $script:mediaCmds -notcontains $t[1].ToLowerInvariant()) { return "media '$($t[1])' is not a media command" } }
     'power'     { if ($t.Count -lt 2 -or $script:powerCmds -notcontains $t[1].ToLowerInvariant()) { return "power '$($t[1])' is not a power command" } }
     'appvol'    { if ($t.Count -ge 3 -and $t[1].ToLowerInvariant() -eq 'mute') { if ($t[2] -notmatch '^[A-Za-z0-9_]+$') { return 'appvol mute needs spotter or a program name' } }   # MUTE SPOTTER: appvol mute <spotter|program>
-                  elseif ($t.Count -lt 3 -or @('game', 'music') -notcontains $t[1].ToLowerInvariant() -or $t[2] -notmatch '^[+-]\d+$') { return 'appvol needs game|music and a step like +10, or mute spotter' } }
+                  elseif ($t.Count -lt 3 -or @('game', 'music', 'spotter') -notcontains $t[1].ToLowerInvariant() -or $t[2] -notmatch '^[+-]\d+$') { return 'appvol needs game|music and a step like +10, or mute spotter' } }
     'dash'      { if ($t.Count -lt 2) { return 'dash needs a command' }
                   $dc = $t[1].ToLowerInvariant()
                   if (-not $script:handled.ContainsKey($dc)) {
@@ -281,7 +281,7 @@ $deckKeys = @($deck | Where-Object { $_.kind -eq 'key' })
 function Cmd-Of($label) { $k = $deckKeys | Where-Object { $_.label -like $label } | Select-Object -First 1; if ($k) { return ($k.what -split '=', 2)[1] } return '' }
 Check 'RESET CAR runs tow, which waits for the car to stop (C-26)' ((Cmd-Of 'RESET CAR*') -eq 'tow' -and $irSrc -match 'TowWaitLive\(ref inCar, ref speed\)' -and $irSrc -match 'TowLimitMs')
 $vd = (Cmd-Of 'VOL -*'), (Cmd-Of 'VOL +*')
-Check 'VOL - / VOL + are appvol game -5 / +5 (5 % a press), and game covers the sim, its menu and CrewChief' ($vd[0] -eq 'appvol game -5' -and $vd[1] -eq 'appvol game +5' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI", "CrewChiefV4"')
+Check 'VOL - / VOL + are appvol game -5 / +5 (5 % a press), and game covers the sim and its menu, never CrewChief' ($vd[0] -eq 'appvol game -5' -and $vd[1] -eq 'appvol game +5' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI" }')
 # deck v2 (2026-10-23): every key is one press from any state. Their behaviour is tested in tests\deck-behaviour-test.ps1;
 # here each key must point at the right command.
 Check 'GET IN is smart (any state: with no sim it starts the last drive), GET OUT is getout (waits for the car)' ((Cmd-Of 'GET IN') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and $irSrc -match 'case "mydrive"' -and ($aiLevelOn -or (Cmd-Of 'LAST DRIVE') -eq 'mydrive start') -and (Get-Body $irSrc 'static int SmartGetIn()') -match 'MdStart')
@@ -390,7 +390,7 @@ $names = @($plan.Keys); $dupNames = @($names | Group-Object | Where-Object { $_.
 Check 'every key has its own exe name' ($dupNames.Count -eq 0)
 
 # ================= 5. the add-on screens =================
-Section '5. add-on screens (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND, AC): every action is handled'
+Section '5. add-on screens (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND, AC, RACES): every action is handled'
 $screens = @(
   @{ name = 'FRIENDS';  start = 'const Friends = new class extends Screen';  end = '// ---------------- Rig Doctor key';        guest = $true;  route = '/guest';    own = 'dash\src\irdash.cs'
      fields = 'session', 'driving', 'driverId', 'drivers', 'driver', 'car', 'track', 'carList', 'trackList', 'wheel', 'line', 'coach', 'board', 'voiceDraft', 'event' },
@@ -404,8 +404,10 @@ $screens = @(
      fields = 'open', 'driving', 'page', 'pages', 'playing', 'speed', 'tile', 'mapColour', 'zoomed', 'offset', 'id', 'lap', 'ref', 'laps', 'events', 'corners', 'lapTime', 'refTime' },
   @{ name = 'SOUND';    start = 'const Sound = new class extends Screen';    end = '// ---------------- AC screen'; guest = $false; route = '/sound'; own = @('src\sound.cs', 'dash\src\sound.cs')
      fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' },
-  @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = '// The deck key presses and the profile tiles'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
-     fields = 'connected', 'read', 'on', 'mode', 'fan', 'target_f', 'room_f', 'auto', 'paused', 'on_above_f', 'off_below_f', 'busy' } )
+  @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = 'const AiLevel = new class extends Screen'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
+     fields = 'connected', 'read', 'on', 'mode', 'fan', 'target_f', 'room_f', 'auto', 'paused', 'on_above_f', 'off_below_f', 'busy' },
+  @{ name = 'RACES';    start = 'const Races = new class extends Screen';    end = '// The deck key presses and the profile tiles'; guest = $false; route = '/api/rec/races'; own = @('dash\src\recorder.cs', 'dash\src\vault.cs')
+     fields = 'races', 'freeGb', 'track', 'car', 'type', 'startMs', 'min', 'laps', 'best', 'mb', 'saved', 'exported' } )
 $unionCmds = @($handled.Keys); $guestSet = @($guestCmds)
 $addonRows = New-Object Collections.Generic.List[object]
 $deadKnown = @(); $longLabels = @()
@@ -468,12 +470,13 @@ foreach ($sc in $screens) {
   $read = @($sc.fields | Where-Object { $text -match "\.$_\b" })
   $missing = @($read | Where-Object { $ownSrc -notmatch ('\\"' + $_ + '\\"') -and $ownSrc -notmatch ('"' + $_ + '"') })
   Check "$($sc.name): the $($read.Count) fields its keys read are in irdash's $($sc.route) JSON ($($sc.own))" ($missing.Count -eq 0 -and $read.Count -ge 5) ('missing: ' + ($missing -join ', '))
-  Check "$($sc.name): irdash serves $($sc.route)" ($irdash.Contains('"' + $sc.route + '"'))
+  Check "$($sc.name): irdash serves $($sc.route)" ($irdash.Contains('"' + $sc.route + '"') -or (ReadText 'dash\src\vault.cs').Contains('case "' + $sc.route + '"'))   # the Vault's /api routes have their own table (vault.cs)
   if ($sc.name -eq 'MY DRIVE') { Note 'MY DRIVE: MOST TO GAIN is drawn only when /mydrive carries a gain object; irdash sends one since P5 (dash\src\gain.cs, tests\rig-leftovers-test.ps1) once it knows one, otherwise that cell stays empty on the deck (no dead key)' }
 }
 # routes the add-on calls that are not screens
 $routes = @([regex]::Matches($plug, "'(/api/[a-z/]+)") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-$noRoute = @($routes | Where-Object { -not $irdash.Contains('"' + $_ + '"') })
+$vaultRoutes = ReadText 'dash\src\vault.cs'
+$noRoute = @($routes | Where-Object { -not $irdash.Contains('"' + $_ + '"') -and -not $vaultRoutes.Contains('case "' + $_ + '"') })
 Check "irdash has every /api route the add-on calls ($($routes -join ', '))" ($noRoute.Count -eq 0) ($noRoute -join ', ')
 $docCmd = [regex]::Matches($plug, "c=([a-z]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 $noCmd = @($docCmd | Where-Object { $unionCmds -notcontains $_ })

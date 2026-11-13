@@ -56,13 +56,14 @@
 .sof .up { color: var(--green); } .sof .down { color: var(--red); }
 
 /* ---- flag glow: a soft coloured edge while a session is live ---- */
-#flagGlow { position: fixed; inset: 0; z-index: 800; pointer-events: none; opacity: 0; transition: opacity 1s ease; mix-blend-mode: screen; --c: 255, 204, 0; }
+#flagGlow { position: fixed; inset: 0; z-index: 800; pointer-events: none; opacity: 0; transition: opacity .2s ease; mix-blend-mode: screen; --c: 255, 204, 0; }
 #flagGlow.on { opacity: 1; }
 #flagGlow::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 70px 2px rgba(var(--c), .40), inset 0 0 0 2px rgba(var(--c), .70); }
 #flagGlow.yellow { --c: 255, 204, 0; }
 #flagGlow.blue { --c: 60, 140, 255; }
 #flagGlow.white { --c: 225, 225, 225; } #flagGlow.white::after { box-shadow: inset 0 0 60px 0 rgba(var(--c), .26), inset 0 0 0 2px rgba(var(--c), .55); }
 #flagGlow.green { --c: 47, 224, 122; }
+#flagGlow.orange { --c: 255, 122, 26; }
 #flagGlow.red { --c: 255, 40, 40; animation: flagPulse 2.4s ease-in-out infinite; }
 #flagGlow.red::after { box-shadow: inset 0 0 90px 6px rgba(var(--c), .55), inset 0 0 0 3px rgba(var(--c), .85); }
 #flagGlow.black { --c: 235, 235, 235; animation: flagPulse 1.6s ease-in-out infinite; }

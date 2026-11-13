@@ -173,23 +173,35 @@ const UI = {
   },
 
   flags(f) {
-    const F = { checkered: 0x1, white: 0x2, green: 0x4, yellow: 0x8, red: 0x10, blue: 0x20, debris: 0x40, crossed: 0x80,
-      yellowWaving: 0x100, oneToGreen: 0x200, greenHeld: 0x400, tenToGo: 0x800, fiveToGo: 0x1000, caution: 0x4000, cautionWaving: 0x8000,
-      black: 0x10000, dq: 0x20000, furled: 0x80000, repair: 0x100000 };
+    const F = { yellowWaving: 0x100, oneToGreen: 0x200, debris: 0x40, caution: 0x4000, cautionWaving: 0x8000, dq: 0x20000 };
     const has = k => (f & F[k]) !== 0;
-    if (has('dq')) return this.setFlag('black', 'Disqualified');
-    if (has('black')) return this.setFlag('black', 'Black flag', true);
-    if (has('repair')) return this.setFlag('meatball', 'Repair');
-    if (has('furled')) return this.setFlag('black', 'Warning');
-    if (has('checkered')) return this.setFlag('checkered', 'Finish');
-    if (has('red')) return this.setFlag('red', 'Red flag');
-    if (has('caution') || has('cautionWaving')) return this.setFlag('yellow', 'Caution', has('cautionWaving'));
-    if (has('yellow') || has('yellowWaving') || has('debris')) return this.setFlag('yellow', has('debris') ? 'Debris' : 'Yellow', has('yellowWaving'));
-    if (has('blue')) return this.setFlag('blue', 'Blue flag', true);
-    if (has('white')) return this.setFlag('white', 'Last lap');
-    if (has('oneToGreen')) return this.setFlag('green', 'One to green');
-    if (has('green') || has('greenHeld')) return this.setFlag('green', 'Green');
-    this.setFlag('', isRace() ? 'Grid' : 'Running');
+    // the light box (tools\df8-flags.js) decides with this same table, so Paddock and the lights always show the same flag
+    // FLAG TABLE START - the same text is in tools\df8-flags.js
+    const FLAG_MIN_MS = 3000;       // a 1 s blue is real: every flag shows at least this long
+    const FLAG_ORDER = [['black', 0x30000], ['orange', 0x100000], ['warning', 0x80000], ['checkered', 0x1], ['red', 0x10], ['yellow', 0xC148], ['blue', 0x20], ['white', 0x2], ['green', 0x4]];
+    // FLAG TABLE END
+    const st = this.flagSt || (this.flagSt = { was: {}, until: {} }), now = Date.now();
+    let flag = '';
+    for (const [name, mask] of FLAG_ORDER) {
+      const on = (f & mask) !== 0;
+      if (on && !st.was[name]) st.until[name] = now + FLAG_MIN_MS;
+      st.was[name] = on;
+      if (!flag && (on || now < (st.until[name] || 0))) flag = name;
+    }
+    this.flagName = flag;           // the edge glow (flaglow.js) shows this same flag
+    if (flag === 'black') return has('dq') ? this.setFlag('black', 'Disqualified') : this.setFlag('black', 'Black flag', true);
+    if (flag === 'orange') return this.setFlag('meatball', 'Repair');
+    if (flag === 'warning') return this.setFlag('black', 'Warning');
+    if (flag === 'checkered') return this.setFlag('checkered', 'Finish');
+    if (flag === 'red') return this.setFlag('red', 'Red flag');
+    if (flag === 'yellow') {
+      if (has('caution') || has('cautionWaving')) return this.setFlag('yellow', 'Caution', has('cautionWaving'));
+      return this.setFlag('yellow', has('debris') ? 'Debris' : 'Yellow', has('yellowWaving'));
+    }
+    if (flag === 'blue') return this.setFlag('blue', 'Blue flag', true);
+    if (flag === 'white') return this.setFlag('white', 'Last lap');
+    if (flag === 'green') return this.setFlag('green', 'Green');
+    this.setFlag('', has('oneToGreen') ? 'One to green' : isRace() ? 'Grid' : 'Running');   // not green yet: the box is dark too
   },
   setFlag(cls, text, blink) {
     setCls('flag', 'flag ' + cls + (blink ? ' blink' : ''));
@@ -333,16 +345,6 @@ const UI = {
 
   car() {
     const v = L.v;
-    let h = '';
-    for (const c of ['LF', 'RF', 'LR', 'RR']) {
-      const temps = [v[c + 'tempCL'], v[c + 'tempCM'], v[c + 'tempCR']];
-      if (c[0] === 'R') temps.reverse();   // keep the outside edge on the outside
-      const wear = Math.min(v[c + 'wearL'], v[c + 'wearM'], v[c + 'wearR']);
-      h += '<div class="tire"><div class="tt">' + temps.map(x => '<i style="background:' + this.tempColor(x) + '">' + (isNum(x) ? Units.temp(x).replace('°', '') : '–') + '</i>').join('') + '</div>' +
-        '<div class="tw"><span>' + c + '</span><span>' + (isNum(wear) ? Math.round(wear * 100) + '%' : '–') + '</span><span>' + Units.press(v[c + 'coldPressure']) + '</span></div></div>';
-    }
-    setHTML('tires', h);
-    $('tires').title = 'Values from the last pit stop';
     const w = v.EngineWarnings >>> 0;
     const row = (k, val, warn) => '<div><label>' + k + '</label><span class="' + (warn ? 'warn' : '') + '">' + val + '</span></div>';
     setHTML('carKv',
@@ -371,16 +373,9 @@ const UI = {
     setText('windTxt', spd + ' from ' + COMPASS[Math.round(fromDeg / 45) % 8]);
     const rot = Math.round(TrackMap.northDeg() + fromDeg + 180);
     const a = $('windArrow');
+    // iRacing's drawing is not turned to north like a telemetry map, so an arrow on it would point the wrong way; the words stay right
+    a.style.display = TrackMap.source === 'iracing' ? 'none' : '';
     if (a._r !== rot) { a._r = rot; a.setAttribute('transform', 'rotate(' + rot + ')'); }
-  },
-
-  tempColor(c) {
-    if (!isNum(c) || c <= 0) return '#26303c';
-    if (c < 60) return '#4d8eff';
-    if (c < 75) return '#86c8ff';
-    if (c < 95) return '#2fe07a';
-    if (c < 105) return '#ffb21e';
-    return '#ff3d3d';
   },
 
   /* ---------- every frame ---------- */

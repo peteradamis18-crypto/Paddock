@@ -72,3 +72,16 @@ the matching session; no completed lap → no review; getting back in cancels.
 Open failures: tv-test "CHASE replaces BATTLE" is pre-existing (also in tests\last\tv.txt). home-test has 3 state
 checks failing that look unrelated to the schedule-text change (not verified against the old build) (START label with the iRacing UI open; PB/long-name fixtures
 overwritten by the live refresh). Real-world data note: today's series name "SENSIT!" trips the copy rule on HOME.
+
+## Drive v1: in-car fourth screen, "eye-line pit wall" (PX-06, 2026-10-17)
+
+Lead's process (2026-10-17): strongest model for design only, cheap builders, one Opus review, lead oversight. Costs are rough estimates.
+
+| Step | Who / model / effort | Rough cost | Result |
+|---|---|---|---|
+| Design: mockup + spec, 5 states (`docs/design/drive-v1`) | side session, Opus 5.5, low effort | ~$3 | approved by the lead with 6 changes |
+| Build: drive.js/css, index/ui/core/tv hooks (dade78d) | same session, Opus 5.5. **Not per process**: done before the process note arrived | ~$5 | offline test 95/95 |
+| Tests: tests/drive-v1-test.ps1 (new), tv-test sections 3/4b | same session, Opus 5.5 (same caveat) | ~$2 | drive-v1 95/95, home-v3 79/79; tv-test not run (sim=True) |
+| Safety gate: Drive off unless ?drive=1 or TV VIEW (35f8a50) | Opus 5.5, one line | <$0.1 | Peter's screen stays on the old grid until sign-off |
+| Review: read-only adversarial review of the diff | Opus subagent | ~$1-2 | pending |
+| Fixes: lead critique (6 points) + review findings | Sonnet subagent | pending | pending |

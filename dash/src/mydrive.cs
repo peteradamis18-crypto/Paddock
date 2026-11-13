@@ -328,14 +328,16 @@ namespace IRDash
         }
 
         // The picker catalog comes from Career's cache, which only contains .ibt headers read while the sim was free.
-        static DateTime listsStamp = DateTime.MinValue; static string listsJsonCached;
+        static DateTime listsStamp = DateTime.MinValue, listsInvStamp = DateTime.MinValue; static string listsJsonCached;
         public static string ListsJson()
         {
             try
             {
                 string cacheFile = Path.Combine(rootDir, @"dash\career-cache.tsv");
                 DateTime currentStamp = File.Exists(cacheFile) ? File.GetLastWriteTimeUtc(cacheFile) : DateTime.MinValue;
-                if (listsJsonCached != null && currentStamp == listsStamp) return listsJsonCached;
+                string invFile = Path.Combine(rootDir, @"mydrive\track-layouts.tsv");
+                DateTime invStamp = File.Exists(invFile) ? File.GetLastWriteTimeUtc(invFile) : DateTime.MinValue;
+                if (listsJsonCached != null && currentStamp == listsStamp && invStamp == listsInvStamp) return listsJsonCached;
                 List<Combo> all = Recents(Int32.MaxValue);
                 List<string> recent = new List<string>(), cars = new List<string>(), tracks = new List<string>();
                 Dictionary<string, Combo> byCar = new Dictionary<string, Combo>(StringComparer.OrdinalIgnoreCase);
@@ -366,6 +368,22 @@ namespace IRDash
                     }
                 }
                 catch (Exception ex) { Log.W("mydrive lists: cache layouts: " + ex.Message); }
+                // every layout iRacing's own menu offered for a track (irdeck writes it each time it opens that menu)
+                try
+                {
+                    if (File.Exists(invFile))
+                        foreach (string line in File.ReadAllLines(invFile))
+                        {
+                            string[] p = line.Split('\t');
+                            if (p.Length < 2 || p[0].Trim().Length == 0) continue;
+                            // iRacing's own list is the whole truth for that track: a session-only name (Sonoma "Long") would be a
+                            // key that cannot be started, so the list replaces what the drives said
+                            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (string raw in p[1].Split('|')) { string l = raw.Trim(); if (l.Length > 0) set.Add(l); }
+                            if (set.Count > 0) layouts[p[0].Trim()] = set;
+                        }
+                }
+                catch (Exception ex) { Log.W("mydrive lists: track layouts: " + ex.Message); }
                 int n = 0;
                 foreach (Combo c in all)
                 {
@@ -391,7 +409,7 @@ namespace IRDash
                     tracks.Add("{\"id\":" + Json_.S(Id('t', c.Track)) + ",\"name\":" + Json_.S(c.Track) + ",\"short\":" + Json_.S(ShortTrack(c.Track)) + ",\"layouts\":[" + string.Join(",", lj.ToArray()) + "],\"last\":" + Json_.S(c.When.ToString("o", CultureInfo.InvariantCulture)) + ",\"count\":" + count + "}");
                 }
                 listsJsonCached = "{\"recent\":[" + string.Join(",", recent.ToArray()) + "],\"cars\":[" + string.Join(",", cars.ToArray()) + "],\"tracks\":[" + string.Join(",", tracks.ToArray()) + "]}";
-                listsStamp = currentStamp;
+                listsStamp = currentStamp; listsInvStamp = invStamp;
                 return listsJsonCached;
             }
             catch (Exception ex) { Log.W("mydrive lists: " + ex.Message); return "{\"recent\":[],\"cars\":[],\"tracks\":[]}"; }

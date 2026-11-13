@@ -103,8 +103,6 @@ function parseYaml(text) {
 }
 
 /* ---------------- variables we ask irdash for ---------------- */
-const TIRE_VARS = [];
-for (const c of ['LF', 'RF', 'LR', 'RR']) TIRE_VARS.push(c + 'tempCL', c + 'tempCM', c + 'tempCR', c + 'wearL', c + 'wearM', c + 'wearR', c + 'coldPressure');
 const VARS = [
   'SessionTime', 'SessionNum', 'SessionUniqueID', 'SessionState', 'SessionFlags', 'SessionTimeRemain', 'SessionLapsRemainEx', 'SessionTimeOfDay',
   'PlayerCarIdx', 'PlayerCarPosition', 'PlayerCarClassPosition', 'PlayerCarMyIncidentCount', 'PlayerTrackSurface',
@@ -120,7 +118,7 @@ const VARS = [
   'dcBrakeBias', 'dcABS', 'dcTractionControl', 'dcTractionControl2',
   'CarIdxLapDistPct', 'CarIdxLap', 'CarIdxLapCompleted', 'CarIdxPosition', 'CarIdxClassPosition', 'CarIdxOnPitRoad',
   'CarIdxTrackSurface', 'CarIdxEstTime', 'CarIdxF2Time', 'CarIdxLastLapTime', 'CarIdxBestLapTime',
-].concat(TIRE_VARS);
+];
 
 /* ---------------- session info (YAML) ---------------- */
 const S = {

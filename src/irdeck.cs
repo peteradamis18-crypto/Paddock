@@ -337,6 +337,7 @@ namespace IRDeck
                 case "restart": return CmdRestart(Slice(a, 1));
                 case "media": return CmdMedia(Slice(a, 1));
                 case "appvol": return CmdAppVol(Slice(a, 1));
+                case "spotter": return CmdSpotter();
                 case "sound": return CmdSound(Slice(a, 1));   // sound.cs: the SOUND deck screen (levels, mute, presets; never the default device)
                 case "dash": return CmdDash(Slice(a, 1));     // a key that irdash handles (TV VIEW, KEEP LAP)
                 case "ffb": return CmdFfb(Slice(a, 1));
@@ -1541,11 +1542,12 @@ namespace IRDeck
         }
 
         // appvol game|music +10 / -10 : change just that app's volume in the Windows mixer, on every output device.
-        // "game" = the sim, its menu app and the spotter (CrewChief), so VOL - / VOL + on the deck move them together.
+        // "game" = the sim and its menu app, so VOL - / VOL + on the deck move them together. Not the spotter: it has its own level (2026-11-02).
         // "--dry" only counts what it would change (tests\keys-test.ps1).
         // MUTE SPOTTER (deck v2): one press mutes CrewChief's voice in the Windows mixer, the next press brings it back.
         // Only that program's own mixer entry is touched; the sim, music and the PC volume stay as they are.
         static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow" };
+        const float SpotterMinLevel = 0.02f;   // SPOTTER - / + set the level; this only stops it being lost (Peter kept pressing - at 10% in a race, 2026-11-02)
 
         static void EnsureSpotter()
         {
@@ -1560,8 +1562,46 @@ namespace IRDeck
                 }
                 int was = AppMuteSet("CrewChiefV4", false);
                 if (was > 0) Log("[spotter] CrewChief was muted - sound back on");
+                AppVolFloor("CrewChiefV4", SpotterMinLevel);
             }
             catch (Exception ex) { Log("[spotter] " + ex.Message); }
+        }
+
+        // irdash (dash\src\spotterguard.cs) calls this when the sim connects, for every way into a session. Exit 0 = CrewChief's mixer entry was there.
+        static int CmdSpotter()
+        {
+            if (!SessionActive()) return 1;
+            EnsureSpotter();
+            return AppVolFloor("CrewChiefV4", SpotterMinLevel) > 0 ? 0 : 1;
+        }
+
+        // Raises that program's mixer entries to the minimum, never lowers them. Returns how many entries it found.
+        // Why a minimum: VOL - used to pull the spotter down with the game, as low as 5 %, too quiet to hear over the car.
+        static int AppVolFloor(string proc, float floor)
+        {
+            int found = 0;
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDeviceCollection devs; if (en.EnumAudioEndpoints(0, 1, out devs) != 0) return 0;
+            int n; devs.GetCount(out n); Guid iid = typeof(IAudioSessionManager2).GUID;
+            for (int i = 0; i < n; i++)
+            {
+                IMMDevice dev; if (devs.Item(i, out dev) != 0) continue;
+                object o; if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) continue;
+                IAudioSessionEnumerator se; if (((IAudioSessionManager2)o).GetSessionEnumerator(out se) != 0) continue;
+                int cnt; se.GetCount(out cnt);
+                for (int j = 0; j < cnt; j++)
+                {
+                    IAudioSessionControl2 ctl; if (se.GetSession(j, out ctl) != 0) continue;
+                    uint pid; ctl.GetProcessId(out pid);
+                    string pn = ""; try { pn = Process.GetProcessById((int)pid).ProcessName; } catch { }
+                    if (!proc.Equals(pn, StringComparison.OrdinalIgnoreCase)) continue;
+                    found++;
+                    ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
+                    float cur; v.GetMasterVolume(out cur);
+                    if (cur < floor) { Guid g = Guid.Empty; v.SetMasterVolume(floor, ref g); Log(string.Format(CultureInfo.InvariantCulture, "[spotter] level {0:0}% -> {1:0}%", cur * 100, floor * 100)); }
+                }
+            }
+            return found;
         }
 
         // Every Windows mixer entry of that program muted / unmuted. Returns how many entries it changed.
@@ -1631,7 +1671,7 @@ namespace IRDeck
             if (which == "mute") return AppMuteToggle(a[1]);
             bool dry = Array.IndexOf(a, "--dry") >= 0;
             double step = double.Parse(a[1], CultureInfo.InvariantCulture) / 100.0;
-            string[] procs = which == "game" ? new string[] { "iRacingSim64DX11", "iRacingUI", "CrewChiefV4" } : which == "music" ? new string[] { "Spotify" } : new string[] { a[0] };
+            string[] procs = which == "game" ? new string[] { "iRacingSim64DX11", "iRacingUI" } : which == "music" ? new string[] { "Spotify" } : which == "spotter" ? new string[] { "CrewChiefV4" } : new string[] { a[0] };
             int touched = 0; float last = -1;
             try
             {
@@ -1655,7 +1695,7 @@ namespace IRDeck
                         if (!match) continue;
                         ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
                         float cur; v.GetMasterVolume(out cur);
-                        float nv = (float)Math.Max(0.0, Math.Min(1.0, cur + step));
+                        float nv = (float)Math.Max(which == "spotter" ? SpotterMinLevel : 0.0, Math.Min(1.0, cur + step));   // the key can quieten the spotter, not lose it: MUTE SPOTTER is for silence
                         if (!dry) { Guid g = Guid.Empty; v.SetMasterVolume(nv, ref g); }
                         touched++; last = nv;
                     }
@@ -1817,7 +1857,7 @@ namespace IRDeck
         }
 
         // RIG ON (also runs at logon): Simucube Tuner window (shows firmware/update notices), then the
-        // iRacing UI on the centre screen. (SimHub dropped 2026-10-09: not used.)
+        // iRacing UI on the centre screen. (SimHub back 2026-11-01: it drives the two SSG DF-8 flag boxes.)
         // Also the rig launcher: the "iRacing Rig" logon task runs "rigon --boot". Order matters: Stream Deck first so
         // the keys work at once, then the dashboard, wheel and haptics apps, and the iRacing UI last.
         static int CmdRigOn(string[] a)
@@ -1837,6 +1877,8 @@ namespace IRDeck
             StartApp("irdash", Path.Combine(Root, @"dash\irdash.exe"), true, null);
             StartApp("sc-tuner", @"C:\Program Files\SimucubeTuner\sc-tuner.exe", false, "--tray");
             StartApp("bk-connect", @"C:\Program Files\ButtKicker\connect\bk-connect.exe", false, "--minimized");
+            // SimHub drives the two SSG DF-8 flag boxes (marshal flags, gear, spotter); they stay dark without it
+            StartApp("SimHubWPF", @"C:\Program Files (x86)\SimHub\SimHubWPF.exe", false, null);
             // race-screen overlays (irdashies starts minimized to the tray; overlays show only while you drive)
             string irdRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "irdashies");
             if (Directory.Exists(irdRoot))

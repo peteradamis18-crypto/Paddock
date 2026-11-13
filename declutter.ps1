@@ -1,5 +1,5 @@
 # Uninstalls apps this rig does not use (checked 2026-10-09: no Fanatec, SteelSeries or NZXT hardware
-# is plugged in; the wheel is a Simucube; SimHub is not used). Asks once, then runs each app's own
+# is plugged in; the wheel is a Simucube; SimHub stays: it drives the SSG flag boxes). Asks once, then runs each app's own
 # uninstaller silently. Log: backup\declutter.log. Asks for administrator approval once.
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -21,7 +21,8 @@ function RunLine([string]$line, [string]$extra) {
 }
 # name shown, uninstall-entry match, processes to close first, silent uninstall command
 $apps = @(
-  @{ Name = 'SimHub';                 Match = '^SimHub';                Procs = 'SimHubWPF';                          Cmd = { param($e) RunLine $e.UninstallString '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' } },
+  # SimHub kept (2026-11-01, SSG flag boxes)
+  #@{ Name = 'SimHub';                 Match = '^SimHub';                Procs = 'SimHubWPF';                          Cmd = { param($e) RunLine $e.UninstallString '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' } },
   @{ Name = 'Fanatec App';            Match = '^FanatecApp$';           Procs = 'FanatecApp','FanatecService';        Cmd = { param($e) RunLine $e.QuietUninstallString '/norestart' } },
   @{ Name = 'FanaLab';                Match = '^FanaLab$';              Procs = 'FanaLab';                            Cmd = { param($e) Start-Process 'msiexec.exe' ('/x ' + ($e.UninstallString -replace '^.*(\{[0-9A-F-]+\}).*$', '$1') + ' /qn /norestart') -Wait -PassThru } },
   @{ Name = 'Fanatec wheel driver';   Match = '^FANATEC driver package'; Procs = 'FWPnpService';                      Cmd = { param($e) Start-Process 'msiexec.exe' ('/x ' + ($e.UninstallString -replace '^.*(\{[0-9A-F-]+\}).*$', '$1') + ' /qn /norestart') -Wait -PassThru } },
