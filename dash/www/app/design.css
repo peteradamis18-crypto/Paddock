@@ -1,0 +1,77 @@
+/* PADDOCK design system: the ONE place that owns colours, sizes and the shared parts.
+   Colours: bg (page), panel (cards), line (hairline on a panel), ink (text), muted/dim (ink at 55 % / 30 %),
+   gold (the one accent) + gold-ink (text ON gold) + gold-dim (gold borders), gain/loss (better/worse than a
+   reference), purple (session best), amber, cyan, danger (delete / cannot undo), focus (keyboard ring).
+   Flag colours are NOT here: they show only when a real flag shows (flaglow.js keeps its own).
+   Two golds: the default is the bright one; <html data-gold="soft"> swaps in the broadcast one. Nothing else differs.
+   RULES (tests\design-lint-test.ps1 enforces them): 1. no colour literal (#hex, rgb, hsl) outside this file;
+   2. seat pages never go under --t-body (24 px), lean-in pages never under --t-label (20 px). */
+:root {
+  --bg: #050505; --panel: #0E0E0E; --line: rgba(242, 238, 228, .16);
+  --ink: #F2EEE4; --muted: rgba(242, 238, 228, .55); --dim: rgba(242, 238, 228, .30);
+  --gold: #f2c230; --gold-ink: #0A0A0A; --gold-dim: rgba(242, 194, 48, .50);
+  --gain: #4CD07D; --loss: #FF6B5E; --purple: #B36BFF; --amber: #FFA630; --cyan: #3CCBEA;
+  --danger: #FF5A4D; --focus: #FFFFFF;
+
+  --t-hero: 240px; --t-display: 96px; --t-title: 56px; --t-read: 36px; --t-body: 24px; --t-label: 20px;
+  --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --track: .08em;                              /* caps labels */
+  --fast: .2s; --enter: .5s; --press: .7s;     /* state change / entrance / button press flash */
+  --ease: cubic-bezier(.2, .8, .2, 1);         /* slow in, fast out; no bounce */
+}
+:root[data-gold="soft"] { --gold: #C9A24B; --gold-ink: #0A0A0A; --gold-dim: rgba(201, 162, 75, .50); }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+  font-family: var(--font); font-size: var(--t-body); font-weight: 400; font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased; color-scheme: dark; }
+button { font-family: inherit; cursor: pointer; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+b, strong { font-weight: 600; }
+
+/* type roles */
+.t-hero { font-size: var(--t-hero); line-height: 1; }
+.t-display { font-size: var(--t-display); line-height: 1.05; }
+.t-title { font-size: var(--t-title); line-height: 1.1; }
+.t-read { font-size: var(--t-read); line-height: 1.2; }
+.t-body { font-size: var(--t-body); line-height: 1.35; }
+.t-label { font-size: var(--t-label); line-height: 1.2; letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; }
+.muted { color: var(--muted); } .dim { color: var(--dim); } .gold { color: var(--gold); }
+
+/* the one button: at least 64 px tall; it flashes on press and fades back over 0.7 s */
+.btn { min-height: 64px; padding: 0 28px; border-radius: 6px; border: 2px solid var(--line); background: transparent; color: var(--ink);
+  font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; white-space: nowrap;
+  transition: background var(--press) var(--ease), color var(--press) var(--ease), border-color var(--fast) var(--ease); }
+.btn:hover, .btn:focus-visible { border-color: var(--ink); }
+.btn:active { transition: none; background: var(--ink); color: var(--bg); }
+.btn.gold { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); }
+.btn.gold:hover, .btn.gold:focus-visible { background: color-mix(in srgb, var(--gold) 82%, white); border-color: color-mix(in srgb, var(--gold) 82%, white); }
+.btn.gold:active { background: var(--ink); border-color: var(--ink); color: var(--gold-ink); }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover, .btn.danger:focus-visible { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+.btn.danger.armed { background: var(--danger); border-color: var(--danger); color: var(--bg); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+/* the one header: title left, clock or state right, one CLOSE */
+.hdr { display: flex; align-items: center; gap: 24px; min-height: 96px; }
+.hdr h1 { margin: 0; flex: 1; font-size: var(--t-title); font-weight: 400; line-height: 1.1; }
+.hdr .hdr-r { font-size: var(--t-body); color: var(--muted); }
+
+/* the one table */
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--t-body); }
+.tbl th { text-align: left; font-size: var(--t-label); letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; color: var(--muted); padding: 10px 12px; border-bottom: 2px solid var(--line); }
+.tbl td { padding: 14px 12px; border-bottom: 2px solid var(--line); }
+.tbl .num { text-align: right; }
+
+/* the one empty state: one sentence, one action */
+.empty { padding: 56px 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; font-size: var(--t-read); color: var(--muted); }
+
+/* the one banner line: offline, kids, key message */
+.banner { padding: 16px 24px; border-radius: 6px; background: var(--panel); border: 2px solid var(--gold-dim); font-size: var(--t-body); color: var(--ink); }
+.banner.bad { border-color: var(--danger); }
+
+/* entrance: fades in and rises 16 px (never more than 24) */
+@keyframes enter { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.enter { animation: enter var(--enter) var(--ease) both; }
+@media (prefers-reduced-motion: reduce) { .enter { animation: none; } .btn { transition: none; } }
