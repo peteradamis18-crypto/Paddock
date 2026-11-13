@@ -47,7 +47,9 @@ namespace IRDash
             Set(true, true, false, true, null);
             Check("on track: Driving and SessionOn", RigState.Driving && RigState.SessionOn && RigState.BusyWhy == "Peter is driving");
             Set(true, true, false, false, null);
-            Check("SDK says connected but the sim is gone (stale memory): no session, not driving", !RigState.SessionOn && !RigState.Driving && !RigState.Busy && RigState.BusyWhy == null);
+            Check("frames arriving but no program by that name (a renamed sim build): still a session, still driving", RigState.SessionOn && RigState.Driving);
+            Tick(3);
+            Check("SDK says connected but the sim is gone and no frame for 3 s (stale memory): no session, not driving", !RigState.SessionOn && !RigState.Driving && !RigState.Busy && RigState.BusyWhy == null);
             Set(false, true, false, true, null);
             Check("on track without a connection is not driving", !RigState.Driving && !RigState.SessionOn && RigState.Busy);
             Set(false, false, false, false, Mark(2, "START"));

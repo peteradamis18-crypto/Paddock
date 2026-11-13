@@ -2,7 +2,7 @@
 // official's Busy, realworld's BusyWhy by reflection, Sdk.Latest.Connected, inline process lookups) and several actions that click,
 // launch or delete used the wrong one (IsOnTrack is false in the garage with a session connected).
 //   SimRunning   the sim program exists (checked every 2 s on a small background thread, never on the SDK or UI thread)
-//   SessionOn    the SDK is connected and the sim program exists (or the test hook's pretend session is on)
+//   SessionOn    the SDK is connected and the sim program exists or its frames are still arriving (or the test hook's pretend session)
 //   Driving      SessionOn and IsOnTrack (fed from every SDK frame)
 //   StartPressed a START key was pressed in the last 10 minutes (dash\start-mark.txt; "TEST" marks do not count)
 //   Busy         SessionOn || SimRunning || StartPressed (the same rule as tests\guard.ps1 Get-RigBusy), BusyWhy says why in one sentence
@@ -27,6 +27,7 @@ namespace IRDash
         static volatile bool connected, onTrack, pretend, sim, start;
         static DateTime connectedSince = DateTime.MinValue, drivingSince = DateTime.MinValue, simSince = DateTime.MinValue, startSince = DateTime.MinValue;
         static DateTime lastProbe = DateTime.MinValue;
+        static long lastFrameTicks;      // the last connected frame: frames still arriving means the sim is there, whatever its program is called
         static Thread prober;
 
         // test seams: a pretend sim process and clock (tests only; null = the real ones)
@@ -40,6 +41,7 @@ namespace IRDash
         // every SDK frame (Sdk.Publish): cheap, no scans, no files
         public static void Feed(bool isConnected, bool isOnTrack, bool isPretend)
         {
+            if (isConnected) lastFrameTicks = Now.Ticks;
             bool track = isConnected && isOnTrack;
             if (isConnected != connected || track != onTrack)
             {
@@ -122,7 +124,9 @@ namespace IRDash
 
         // ---- answers ----
         public static bool SimRunning { get { if (!sim) FreshIfFree(); return sim; } }
-        public static bool SessionOn { get { if (!connected) return false; if (pretend) return true; if (!sim) FreshIfFree(); return sim; } }
+        // Connected AND (frames are still arriving OR the sim program exists). A sim that died leaves the SDK memory saying
+        // "connected" with no new frames: that is not a session. A renamed sim program (a future DX12 build) with frames flowing still is.
+        public static bool SessionOn { get { if (!connected) return false; if (pretend || (Now.Ticks - lastFrameTicks) < 2 * TimeSpan.TicksPerSecond) return true; if (!sim) FreshIfFree(); return sim; } }
         public static bool Driving { get { return onTrack && SessionOn; } }
         public static bool StartPressed { get { if (!start) FreshIfFree(); return start; } }
         public static bool Busy { get { return SessionOn || SimRunning || StartPressed; } }
