@@ -114,7 +114,8 @@ namespace IRDash
             return r;
         }
 
-        public void Reset() { pending = false; lastSeen = double.NaN; }
+        public void Reset() { pending = false; lastSeen = double.NaN; }      // a new session or a new connection
+        public void Cancel() { pending = false; }                             // the lap was decided another way (no time): keep the last lap seen
     }
 
     // The laps of one .ibt file.
@@ -173,6 +174,23 @@ namespace IRDash
                 return f;
             }
             catch (Exception ex) { try { Log.W("lap store " + Path.GetFileName(path) + ": " + ex.Message); } catch { } return null; }
+        }
+
+        // The laps of a file only if they are already worked out (memory or cache file): never reads the .ibt. For request threads.
+        public static FileLaps Peek(string path)
+        {
+            try
+            {
+                FileInfo fi = new FileInfo(path);
+                if (!fi.Exists) return null;
+                string sig = fi.Name.ToLowerInvariant() + "|" + fi.Length;
+                FileLaps f;
+                lock (gate) if (mem.TryGetValue(sig, out f)) return f;
+                f = LoadCache(fi);
+                if (f != null) lock (gate) { mem[sig] = f; if (mem.Count > 400) mem.Clear(); }
+                return f;
+            }
+            catch { return null; }
         }
 
         static string CachePath(string name) { return Path.Combine(Dir, Path.GetFileNameWithoutExtension(name) + ".json"); }

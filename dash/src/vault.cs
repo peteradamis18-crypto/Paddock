@@ -118,7 +118,7 @@ namespace IRDash
         }
     }
 
-    // Valid = the lap iRacing counted (L-1): not through the pits, and the LapRules verdict ("counted" in IbtLaps.LapsJson: timed by iRacing, its own best lap decides, the off-track record only where that says nothing)
+    // Valid = the lap iRacing counted: "counted" in IbtLaps.LapsJson, which is the lap store's verdict (lapstore.cs, W0-6)
     sealed class VLap { public int N; public double Time, T0, T1; public bool Pit, Off, Official, Counted = true; public bool Valid { get { return Time > 15 && !Pit && Counted; } } }
     sealed class VMark { public long Ms; public string Kind = "", Car = "", Track = "", Config = ""; public int Lap; public double Pct, St; public bool Used; }
 
@@ -161,8 +161,11 @@ namespace IRDash
             List<VLap> valid = new List<VLap>();
             foreach (VLap l in laps) if (l.Valid) valid.Add(l);
             valid.Sort(delegate (VLap a, VLap b) { int c = a.Time.CompareTo(b.Time); return c != 0 ? c : a.N.CompareTo(b.N); });
-            s.ValidLaps = valid.Count;
-            if (valid.Count > 0) { s.BestValid = valid[0].Time; s.BestLap = valid[0].N; }
+            // W0-6: the best and the counted laps are the lap store's (LapStore.Best = the quickest counted lap); the lap list above comes from it too
+            FileLaps truth = LapStore.ForFile(path);
+            LapRec tb = truth != null ? truth.BestLap : null;
+            s.ValidLaps = truth != null ? truth.CountedLaps : valid.Count;
+            if (tb != null) { s.BestValid = tb.Time; s.BestLap = tb.N; }
             for (int i = 0; i < valid.Count; i++) s.Top.Add(new[] { (double)valid[i].N, valid[i].Time });
             Result(path, s);
             return s;

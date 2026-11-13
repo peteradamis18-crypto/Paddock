@@ -908,22 +908,37 @@ namespace IRDash
             string newest = null; DateTime nt = DateTime.MinValue;
             foreach (string f in all) { DateTime w = File.GetLastWriteTime(f); if (newest == null || w > nt) { newest = f; nt = w; } }
             bool sim = liveRules && (Program.IsDriving || Process.GetProcessesByName("iRacingSim64DX11").Length > 0);
-            int extra = 0;
+            // W0-6 (N6): every file of this car and track is SEEN through the lap cache (LapStore, no 40-file cap), so the PB is the real one.
+            // The full traces (74 MB files) are loaded only for the 40 with the quickest counted laps (the PB always among them); files not yet in
+            // the lap cache fill the rest, newest first.
+            List<KeyValuePair<double, string>> known = new List<KeyValuePair<double, string>>(); List<string> unknown = new List<string>();
+            long mainLen = new FileInfo(mainPath).Length;
             foreach (string f in all)
             {
-                if (extra >= 40) break;
                 string full = Path.GetFullPath(f);
                 if (string.Equals(full, Path.GetFullPath(mainPath), StringComparison.OrdinalIgnoreCase)) continue;
                 FileInfo fi = new FileInfo(f);
                 if (Career.OnlineOnly(fi)) continue;
                 if (liveRules && fi.LastWriteTime > DateTime.Now.AddMinutes(-2)) continue;
                 if (sim && newest != null && string.Equals(full, Path.GetFullPath(newest), StringComparison.OrdinalIgnoreCase)) continue;
+                FileLaps fl = LapStore.Peek(f);
+                if (fl != null)
+                {
+                    if (fl.Car != main.Car || fl.Track != main.Track || fl.Config != main.Config) continue;
+                    if (fl.Size == mainLen && main.HeaderTicks > 0 && fl.StartUtc == new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(main.HeaderTicks)) continue;   // a copy of the same session
+                    LapRec b = fl.BestLap;
+                    if (b != null) known.Add(new KeyValuePair<double, string>(b.Time, f));
+                    continue;
+                }
                 long ticks, size;
                 if (!HeaderMatch(f, main.Car, main.Track, main.Config, out ticks, out size)) continue;
-                if (ticks == main.HeaderTicks && size == new FileInfo(mainPath).Length) continue;
-                list.Add(Get(f));
-                extra++;
+                if (ticks == main.HeaderTicks && size == mainLen) continue;
+                unknown.Add(f);
             }
+            known.Sort(delegate (KeyValuePair<double, string> a, KeyValuePair<double, string> b) { return a.Key.CompareTo(b.Key); });
+            int extra = 0;
+            foreach (KeyValuePair<double, string> kv in known) { if (extra >= 40) break; list.Add(Get(kv.Value)); extra++; }
+            foreach (string f in unknown) { if (extra >= 40) break; list.Add(Get(f)); extra++; }      // `all` is newest first
             return list;
         }
 
