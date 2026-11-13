@@ -1067,7 +1067,7 @@ namespace IRDash
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
             StateBuilder.AddDeck("replay", 1000, Replay.Json);
             StateBuilder.AddDeck("races", 10000, Recorder.RacesJson);
-            StateBuilder.AddDeck("workbench", 1000, DeckFeed.WorkbenchJson);
+            StateBuilder.AddDeck("deckWorkbench", 1000, DeckFeed.WorkbenchJson);
             StateBuilder.AddDeck("sound", 2000, delegate () { return Sound.Json(false); });
             StateBuilder.AddDeck("ac", 2000, delegate () { return AcAuto.Json(false); });
             StateBuilder.WatchWww(www);

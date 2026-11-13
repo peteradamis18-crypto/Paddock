@@ -199,12 +199,14 @@ namespace IRDash
             {
                 StringBuilder sb = new StringBuilder(16384);
                 sb.Append("{\"seq\":").Append(seq).Append(",\"now\":").Append(UnixMs).Append(",\"showcase\":").Append(string.IsNullOrEmpty(showcase) ? "null" : showcase);
-                foreach (string n in DeckParts) { Part p; sb.Append(",\"").Append(n).Append("\":").Append(byName.TryGetValue(n, out p) ? p.Json : "null"); }
+                foreach (string[] n in DeckParts) { Part p; sb.Append(",\"").Append(n[0]).Append("\":").Append(byName.TryGetValue(n[1], out p) ? p.Json : "null"); }
                 return sb.Append('}').ToString();
             }
         }
-        // the shared parts the deck reads, then its own
-        static readonly string[] DeckParts = { "overlays", "guest", "mydrive", "doctor", "replay", "races", "workbench", "sound", "ac" };
+        // the summary's name -> the part: the shared parts the deck reads, then its own ("deckWorkbench" is what the ANALYSIS key shows,
+        // /workbench/state; the page's "workbench" part is the deck's last command for the page)
+        static readonly string[][] DeckParts = { new[] { "overlays", "overlays" }, new[] { "guest", "guest" }, new[] { "mydrive", "mydrive" }, new[] { "doctor", "doctor" },
+            new[] { "replay", "replay" }, new[] { "races", "races" }, new[] { "workbench", "deckWorkbench" }, new[] { "sound", "sound" }, new[] { "ac", "ac" } };
 
         // ---- the lists an open page shows (Sessions, Vault, My Races, Performance): a number that rises when the list may have changed ----
         static long lSessions, lVault, lRaces, lPerf, lastBackstop;
