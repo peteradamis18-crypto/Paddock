@@ -52,13 +52,13 @@ namespace IRDeck
             { "flatmap", new[] { 880, 1180 } }, { "weather", new[] { 2346, 300 } }, { "cornername", new[] { 1105, 1090 } }, { "laptimelog", new[] { 520, 960 } },
             { "battle", new[] { 1050, 980 } }, { "slowcarahead", new[] { 1055, 380 } } };
 
-        // The starting presets. RACE is what you run today.
+        // The starting presets. RACE is what you run today. No on-screen flag: the light box and Paddock show it (Peter 2026-11-02).
         static readonly Dictionary<string, string[]> OvlStart = new Dictionary<string, string[]> {
-            { "race", new[] { "flag", "relative", "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed" } },
-            { "practice", new[] { "flag", "relative", "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed", "input", "laptimelog", "cornername", "fuel" } },
-            { "quali", new[] { "flag", "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed", "laptimelog", "input" } },
-            { "minimal", new[] { "flag", "blindspotmonitor", "pitlanehelper" } },
-            { "friends", new[] { "flag", "blindspotmonitor", "pitlanehelper", "cornername", "input" } } };
+            { "race", new[] { "relative", "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed" } },
+            { "practice", new[] { "relative", "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed", "input", "laptimelog", "cornername", "fuel" } },
+            { "quali", new[] { "blindspotmonitor", "pitlanehelper", "sectordelta", "deltaspeed", "laptimelog", "input" } },
+            { "minimal", new[] { "blindspotmonitor", "pitlanehelper" } },
+            { "friends", new[] { "blindspotmonitor", "pitlanehelper", "cornername", "input" } } };
 
         static string IrdConfig { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"irdashies\config.json"); } }
         static string OvlDir { get { return Path.Combine(Root, "overlays"); } }

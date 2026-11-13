@@ -234,6 +234,7 @@ namespace IRDeck
                     Log("mydrive: choices cleared");
                     return 0;
                 case "start": return MdStart(a);
+                case "layouts-all": return MdLayoutsAll();
             }
             Log("mydrive: unknown '" + sub + "'");
             return 1;
@@ -284,6 +285,25 @@ namespace IRDeck
                         if (p.Length >= 17 && p[16].Length > 0 && string.Equals(p[7], chosen.Track, StringComparison.OrdinalIgnoreCase) && MdId('l', p[7] + "|" + p[16]) == id)
                         {
                             string layout = p[16]; MdUpdate(delegate (Dictionary<string, string> st) { st["layout"] = layout; });
+                            MdClearResults(); MdClearAiStatus(); Log("mydrive: chose layout " + layout); return 0;
+                        }
+                    }
+                }
+                catch { }
+                // or one of the layouts iRacing's own menu offered for that track (mydrive\track-layouts.tsv, see TdRememberLayouts)
+                try
+                {
+                    string inv = MdPath("track-layouts.tsv");
+                    if (chosen.Track.Length > 0 && File.Exists(inv))
+                    foreach (string line in File.ReadAllLines(inv))
+                    {
+                        string[] p = line.Split('\t');
+                        if (p.Length < 2 || !string.Equals(p[0].Trim(), chosen.Track, StringComparison.OrdinalIgnoreCase)) continue;
+                        foreach (string raw in p[1].Split('|'))
+                        {
+                            string layout = raw.Trim();
+                            if (layout.Length == 0 || MdId('l', chosen.Track + "|" + layout) != id) continue;
+                            MdUpdate(delegate (Dictionary<string, string> st) { st["layout"] = layout; });
                             MdClearResults(); MdClearAiStatus(); Log("mydrive: chose layout " + layout); return 0;
                         }
                     }
@@ -397,6 +417,22 @@ namespace IRDeck
             finally { try { ui.ReleaseMutex(); } catch { } ui.Dispose(); }
         }
 
+        // Opens iRacing's layout menu for every track Peter has driven, so mydrive\track-layouts.tsv lists all their layouts
+        // (TdLayouts saves each list). UI automation: only with the rig free and nobody at the PC ("irdeck-cli mydrive layouts-all").
+        static int MdLayoutsAll()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase); int ok = 0, bad = 0;
+            foreach (MdCombo r in MdRecents(500))
+            {
+                if (!seen.Add(r.Track)) continue;
+                List<string> rows = TdLayouts(r.Track, 50);
+                if (rows == null) { bad++; Log("mydrive layouts-all: " + r.Track + " - " + TdWhy); if (SessionActive()) break; continue; }
+                ok++; Log("mydrive layouts-all: " + r.Track + ": " + (rows.Count == 0 ? "one layout" : string.Join(", ", rows.ToArray())));
+            }
+            Log("mydrive layouts-all: " + ok + " tracks read, " + bad + " failed");
+            return bad == 0 ? 0 : 1;
+        }
+
         // ---- START ----
         static int MdStart(string[] a)
         {
@@ -438,6 +474,9 @@ namespace IRDeck
                 MdPhase("loading", "iRacing is loading the session");
                 for (int i = 0; i < 480 && !SessionActive(); i++) Thread.Sleep(500);   // the sim can take a few minutes to load
                 if (!SessionActive()) { MdPhase("failed", "The session didn't load - look at the iRacing screen."); Log("mydrive: the session did not load"); return 1; }
+                // the session info now says what iRacing calls that layout internally: remember the pair (Sonoma "Long" = menu "Cup Long")
+                MdCombo running = MdCurrent();
+                if (running != null) LearnLayoutAlias(c.Track, running.Layout, TdPickedLayout);
                 MdPhase("joining", "Getting in the car");
                 Thread.Sleep(3000);
                 rc = CmdGo();

@@ -236,12 +236,7 @@ h2 .sub { color: var(--dim); letter-spacing: .04em; text-transform: none; font-s
 .wheel .rim { fill: none; stroke: #3a4553; stroke-width: 7; }
 .wheel .spoke { stroke: #3a4553; stroke-width: 6; stroke-linecap: round; }
 .wheel .mark { stroke: var(--accent); stroke-width: 7; stroke-linecap: round; }
-.carrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; flex: none; }
-.tires { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-.tire { background: var(--panel2); border-radius: 4px; padding: 3px 5px; }
-.tire .tt { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
-.tire .tt i { font-style: normal; text-align: center; border-radius: 2px; font-size: 13px; line-height: 17px; color: #0a0a0a; }
-.tire .tw { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+.carrow { flex: none; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-content: start; }
 .kv div { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 15px; border-bottom: 1px solid #141920; padding: 2px 0; white-space: nowrap; }
 .kv label { font-size: 10px; }

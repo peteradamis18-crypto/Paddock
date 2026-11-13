@@ -66,6 +66,7 @@ namespace IRDeck
             new[] { @"pit: (.+)", "ok", "Pit: $1" },
             new[] { @"only takes pit commands while you are in the car", "wait", "Get in the car first" },
             new[] { @"appvol game: (\d+)%", "ok", "Game volume $1 %" },
+            new[] { @"appvol spotter: (\d+)%", "ok", "Spotter volume $1 %" },
             new[] { @"appvol mute: \S+ muted", "ok", "Spotter muted" },
             new[] { @"appvol mute: \S+ sound back on", "ok", "Spotter on" },
             new[] { @"not making sound right now|no audio from", "no", "No game sound right now" },

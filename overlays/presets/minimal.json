@@ -1,6 +1,6 @@
 {"name":"minimal","saved":"2026-10-09T20:24:23","widgets":[
 {"id":"standings","enabled":false,"layout":{"x":326,"y":-1070,"width":560,"height":774}},
-{"id":"flag","enabled":true,"layout":{"x":2330,"y":40,"width":190,"height":240}},
+{"id":"flag","enabled":false,"layout":{"x":2330,"y":40,"width":190,"height":240}},
 {"id":"input","enabled":false,"layout":{"x":942,"y":-216,"width":396,"height":92}},
 {"id":"tachometer","enabled":false,"layout":{"x":942,"y":-216,"width":496,"height":50}},
 {"id":"relative","enabled":false,"layout":{"x":40,"y":960,"width":460,"height":340}},

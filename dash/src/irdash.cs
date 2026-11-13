@@ -1047,7 +1047,7 @@ namespace IRDash
             {
                 // the offline library copy is one small local file: cheap enough for the request, so a cold start still has a map
                 // no lock: BuildAll may hold the builder lock for minutes at startup; a clashing Save just fails and the builder writes it later
-                try { json = FromLibrary(key, name, true); if (json != null) Save(file, json); } catch (Exception ex) { Log.W("maps: " + key + ": " + ex.Message); }
+                try { json = FromIracing(key, name) ?? FromLibrary(key, name, true); if (json != null) Save(file, json); } catch (Exception ex) { Log.W("maps: " + key + ": " + ex.Message); }
             }
             if (json == null || !json.Contains("\"source\":\"ibt\"")) QueueBuild(key, name);
             return AddGps(key, json);
@@ -1406,6 +1406,28 @@ namespace IRDash
                 }
             sb.Append("]}");
             return sb.ToString();
+        }
+
+        // ---- iRacing's own drawing of the track (tools\extract-iracing-maps.ps1), so every track has a map from the first
+        // lap, new builds of a track included (2026-11-01 Laguna "lagunaseca 2026": no telemetry yet, library 404, no map).
+        // 720 points by lap percentage, same as a telemetry map; the builder still replaces it once clean laps exist.
+        static string FromIracing(string key, string trackName)
+        {
+            Match id = Regex.Match(key ?? "", "^t(\\d+)-");
+            if (!id.Success) return null;
+            string f = Path.Combine(Program.RootDir, @"data\iracing-maps\" + id.Groups[1].Value + ".json");
+            if (!File.Exists(f)) return null;
+            MatchCollection pts = Regex.Matches(File.ReadAllText(f), "\\[(-?[0-9.]+),(-?[0-9.]+)\\]");
+            if (pts.Count != N) { Log.W("iracing map " + id.Groups[1].Value + ": " + pts.Count + " points, expected " + N); return null; }
+            double[] lat = new double[N], lon = new double[N];
+            for (int i = 0; i < N; i++)
+            {
+                // drawing units go into ToJson as if metres near lat 0; its y runs down the page
+                lon[i] = double.Parse(pts[i].Groups[1].Value, CultureInfo.InvariantCulture) / 111320;
+                lat[i] = -double.Parse(pts[i].Groups[2].Value, CultureInfo.InvariantCulture) / 110540;
+            }
+            Log.W("map " + key + ": using iRacing's own drawing");
+            return ToJson("iracing", "iRacing's track drawing", key, trackName, lat, lon, null);
         }
 
         // ---- SIMRacingApps library (only files whose outline is keyed by lap percentage) ----
@@ -2672,6 +2694,7 @@ namespace IRDash
             Thread sdk = new Thread(Sdk.Run);
             sdk.IsBackground = true;
             sdk.Start();
+            SpotterGuard.Start();
             // career stats for the intro: first read two minutes after start, so it never competes with boot
             Career.TelemetryDir = TrackMaps.TelemetryDir;
             Career.CacheFile = Path.Combine(Dir, "career-cache.tsv");

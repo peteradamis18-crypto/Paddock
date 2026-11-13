@@ -115,6 +115,34 @@ for ($i = 0; $i -lt [Math]::Min($out.Count, $cases.Count); $i++) { $cs = [IdC]::
 Check "all $($cases.Count) ids agree (js = c#)" (@(0..([Math]::Min($out.Count, $cases.Count) - 1) | Where-Object { $out[$_].Trim() -ne [IdC]::MdId([char]'r', $cases[$_]) }).Count -eq 0)
 Remove-Item $wsh -ErrorAction SilentlyContinue
 
+'5. layouts: the session info''s name against iRacing''s Test Drive menu (2026-11-01: Sonoma "Sports Car Course" vs "Sportscar")'
+$lk = [regex]::Match($src, '(?s)internal static string LayoutKey\(string s\).*?\r?\n        \}').Value
+$bl = [regex]::Match($src, '(?s)internal static T BestLayout<T>.*?\r?\n        \}').Value
+$dashSrc = [IO.File]::ReadAllText((Join-Path $root 'dash\src\mydrive.cs'))
+Check 'LayoutKey and BestLayout found in src\testdrive.cs' ($lk.Length -gt 0 -and $bl.Length -gt 0)
+Check 'the deck''s LAYOUTS page uses iRacing''s own list when known (no session-only names that cannot start)' ($dashSrc -match 'track-layouts\.tsv' -and $dashSrc -match 'if \(set\.Count > 0\) layouts\[p\[0\]\.Trim\(\)\] = set;')
+Add-Type -Language CSharp -TypeDefinition ("using System; using System.Collections.Generic; using System.Text.RegularExpressions; public static class PickLayout { " + $same + "`n public " + ($lk -replace 'internal static', 'static') + "`n " + ($bl -replace 'internal static', 'static') + "`n public static string Pick(List<string> rows, string want) { return BestLayout(rows, s => s, want); } }")
+function L($rows, [string]$want) { $l = New-Object 'Collections.Generic.List[string]'; foreach ($r in @($rows)) { if ($r) { $l.Add([string]$r) } }; [PickLayout]::Pick($l, $want) }
+$sonoma = @('Cup Short', 'Cup Long', 'Indycar 2012-2018', 'Indycar 2008-2011', 'Indycar 2005-2007', 'Sportscar', 'Rallycross', 'Sportscar Alt', 'Short', 'Oval')
+Check 'Sonoma: "Sports Car Course" is "Sportscar" (not "Sportscar Alt")' ((L $sonoma 'Sports Car Course') -eq 'Sportscar')
+Check 'Sonoma: "Sportscar Alt" stays "Sportscar Alt"' ((L $sonoma 'Sportscar Alt') -eq 'Sportscar Alt')
+Check 'Sonoma: "Short" is "Short", not "Cup Short"' ((L $sonoma 'Short') -eq 'Short')
+Check 'Sonoma: "Indycar" alone matches three = stop, never guess' ($null -eq (L $sonoma 'Indycar'))
+Check 'Road America: "Full Course" is "Full Course"' ((L @('Full Course', 'Full Course w/Bend') 'Full Course') -eq 'Full Course')
+Check '"Grand Prix Circuit" is "Grand Prix"' ((L @('Grand Prix', 'National') 'Grand Prix Circuit') -eq 'Grand Prix')
+Check 'a layout iRacing does not offer = nothing picked' ($null -eq (L $sonoma 'Nordschleife'))
+Check 'no layout asked = nothing picked here (tdsetup takes the first one)' ($null -eq (L $sonoma ''))
+Check 'START retries the card read before giving up (2026-11-01 13:28 "cards not found")' ($src -match 'for \(int i = 0; i < 8 && cards == null; i\+\+\)')
+Check 'every layout menu iRacing shows is saved for the deck (mydrive\track-layouts.tsv)' ($src -match 'TdRememberLayouts\(words\[1\], offered\)' -and $src -match 'TdRememberLayouts\(track, names\)')
+Check 'a learned session-name -> menu-name pair is tried first, and START learns it once the session is up' ($src -match 'BestLayout\(items, u => u\.Name, LayoutAlias\(words\[1\], layout\)\)' -and [IO.File]::ReadAllText((Join-Path $root 'src\mydrive.cs')) -match 'LearnLayoutAlias\(c\.Track, running\.Layout, TdPickedLayout\)')
+Check 'Sonoma "Long" is never guessed as "Cup Long" by spelling (must be learned or picked on the deck)' ($null -eq (L $sonoma 'Long'))
+Check 'the deck''s layout pick also finds layouts from that list' ([IO.File]::ReadAllText((Join-Path $root 'src\mydrive.cs')) -match 'MdPath\("track-layouts\.tsv"\)')
+# every layout in his history must find itself in a menu that offers it once under iRacing's spelling
+foreach ($c in @($combos | Where-Object { $_.Layout })) {
+  $menu = @($c.Layout, ($c.Layout + ' Alt'))
+  Check "history layout '$($c.Layout)' ($($c.Track)) picks itself" ((L $menu $c.Layout) -eq $c.Layout)
+}
+
 ''
 '3. live findings 2026-10-19 (LAST DRIVE)'
 Check 'the Test Drive card shows iRacing''s long car name: a known pair (Porsche 718 Cayman GT4 -> ... Clubsport MR) counts as the chosen car, never a bare prefix' ($src -match 'CarAlias[^;]*Porsche 718 Cayman GT4[^;]*Clubsport MR' -and $src -match 'static bool CardIsCar' -and $src -match 'if \(!CardIsCar\(cards\.CarName\.Name, car\)\)')

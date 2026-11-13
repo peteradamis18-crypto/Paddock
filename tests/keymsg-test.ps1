@@ -1,4 +1,4 @@
-﻿# keymsg-test.ps1 - the one-line "what that deck key just did" message on the top screen (dash\src\keymsg.cs, the /api/keymsg and
+# keymsg-test.ps1 - the one-line "what that deck key just did" message on the top screen (dash\src\keymsg.cs, the /api/keymsg and
 # /keymsg routes in irdash.cs, dash\www\v2\keymsg.js + keymsg.css).
 #   1. offline, compiled copy of keymsg.cs: sanitising, 80 characters, kind, seq, valid JSON
 #   2. offline, static: the route is wired, keymsg.cs is in the build, index.html has the element, the css and the script
@@ -84,6 +84,7 @@ $cases = [ordered]@{
   'racenow: still in Practice after 4 skips - stopped' = 'no|Could not reach the race'
   'racenow: no session is running' = 'no|No race running'
   'appvol game: 40% (3 session(s))' = 'ok|Game volume 40 %'
+  'appvol spotter: 35% (1 session(s))' = 'ok|Spotter volume 35 %'
   'appvol mute: CrewChiefV4 muted (1 session(s))' = 'ok|Spotter muted'
   'appvol mute: CrewChiefV4 sound back on (1 session(s))' = 'ok|Spotter on'
   'appvol mute: CrewChiefV4 is not making sound right now' = 'no|No game sound right now'

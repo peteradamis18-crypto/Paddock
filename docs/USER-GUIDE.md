@@ -45,9 +45,9 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 ## Main page, row 4 — sound, talk, and the practice loop
 | Key | What it does |
 |---|---|
-| **VOL − / VOL +** | Turns the sim, the iRacing app and the spotter down or up together, 5 % a press. It does not touch the PC's main volume. |
+| **VOL − / VOL +** | Turns the sim and the iRacing app down or up, 5 % a press. The spotter keeps its own level, so it never goes quiet with the game. It does not touch the PC's main volume. |
+| **SPOTTER - / SPOTTER +** | The spotter's own volume, 5 % a press. It never goes below 2 %, so it can't get lost. The game's volume stays as it is. |
 | **MUTE SPOTTER** | Mutes the spotter's voice. Press again to bring it back. The sim and the music keep playing. |
-| **SORRY / THANKS** | Sends "Sorry!" or "Thanks!" in the race chat. |
 | **SAVE SPOT** | Test Drive practice loop. Remembers exactly where the car is: speed, gear, fuel, tyres (iRacing's Active Reset). Press it just before the corner you want to work on. |
 | **BACK TO SPOT** | Puts the car straight back at the saved spot, as many times as you like. Paddock times every try from the spot to the exit of the corner, and the top screen says it: Try 3: 9.82 s - best 9.61 (+0.21). Saving a new spot starts the count over. Works in a Test Drive only. |
 | **GHOST** | Shows or hides iRacing's reference car (your best lap) on the track. |
@@ -65,6 +65,7 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | Key | What it does |
 |---|---|
 | **BACK** | Back to the main page. |
+| **SORRY / THANKS** | Sends "Sorry!" or "Thanks!" in the race chat. |
 | **GOOD RACE** | Sends "GG" in the race chat. |
 | **MUTE** | Mutes or un-mutes the PC's sound. |
 | **SHOWCASE** | Replays the gold start-up animation on the top screen. Only for show. |
@@ -77,6 +78,23 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **ANALYSIS** | Opens the analysis screen on the deck. |
 | **AC** | Opens the **AC screen**. The key itself shows whether the AC is on and the room temperature. |
 | **AC COOLER** / **AC WARMER** | Sets the AC about 1 °F cooler or warmer at once, without opening the screen. If the AC is off it comes on, cooling. |
+| **RACES** | Opens the **RACES screen**: every race Paddock filmed, newest first. Press one to WATCH it, get it ready for **YOUTUBE**, KEEP it for good, or DELETE it (press DELETE twice). |
+
+## The RACES screen (the RACES key on the main page)
+Paddock films every session you drive, start to finish, with the game and spotter sound. The RACES screen lists them, newest first; gold ones are kept for good.
+
+| Key | What it does |
+|---|---|
+| a race | Opens it: track, day and time, length and laps, best lap, size on disk. |
+| **SHARE ON YOUTUBE** | Opens YouTube's upload page and shows the race's file selected in **Videos\Paddock**: drag the file into YouTube. |
+| **DELETE FROM PC** | Press twice: the video is gone for good, so the space is free again. |
+| **WATCH** | Plays it on the middle screen. |
+| **KEEP** | Only on a practice or qualifying video: keeps it for good. Races are kept by themselves. |
+
+**On the top screen:** click the gold **MY RACES** button at the top. Every race has **WATCH**, **SHARE ON YOUTUBE** and **DELETE FROM PC** (click twice).
+
+**Without the deck:** every race is also a normal file in **Videos\Paddock**, named by date, track and car. On YouTube press **Select files**, open **Videos** then **Paddock**, and pick it. Delete a race there like any file: once the Recycle Bin is emptied, Paddock frees its space too.
+| **BACK / EXIT** | Back to the list / back to your keys. |
 
 ## The AC screen (the AC key on MORE)
 Everything for the room AC on one page. A press shows on the keys at once; the AC follows a few seconds later, because the command goes through Midea's server the same way the Midea Air app does. While it is on its way, the ROOM key says SENDING. Several quick presses go out together.

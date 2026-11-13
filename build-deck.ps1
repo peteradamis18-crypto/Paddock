@@ -176,14 +176,16 @@ $main = [ordered]@{
   '3,2' = K 'CLEAR' 'PIT' 'ses' 'clear'                         (L 'pit-clear'       'pit clear')
   '4,2' = K 'OVERLAYS' '' 'nav' 'eye'                          @{ plugin = 'com.peter.rigintro.overlays'; name = 'Overlays' }
   '5,2' = K 'REVIEW' '' 'nav' 'info'                           (L 'debrief'         'dash debrief')
-  '6,2' = K 'VAULT' '' 'nav' 'folder'                          (L 'vault'           'dash vault')
+  # RACES on MAIN (Peter 2026-11-12: "still can't easily see how to share a full race"): every race video - SHARE, DELETE, WATCH.
+  # The Vault (laps, data) moved to MORE.
+  '6,2' = K 'RACES' '' 'nav' 'camera'                          @{ plugin = 'com.peter.rigintro.races'; name = 'Races' }
   '7,2' = K 'REPLAY' '' 'nav' 'camera'                         @{ plugin = 'com.peter.rigintro.replay'; name = 'Replay' }
   # row 4 - sound, talk, live numbers
   '0,3' = K ('VOL ' + $minus) '' 'talk' 'speaker'              (L 'vol-down'        'appvol game -5')   # 5 % a press (was 10: 17 of his 90 volume presses undid the one before, he kept hunting between two steps). The sim, its menu and the spotter, together
   '1,3' = K 'VOL +' '' 'talk' 'speaker'                        (L 'vol-up'          'appvol game +5')
   '2,3' = K 'MUTE' 'SPOTTER' 'talk' 'mute'                      (L 'mute-spotter'    'appvol mute spotter')
-  '3,3' = K 'SORRY' '' 'talk' 'chat'                           (L 'say-sorry'       'chat say Sorry!')
-  '4,3' = K 'THANKS' '' 'talk' 'chat'                          (L 'say-thanks'      'chat say Thanks!')
+  '3,3' = K 'SPOTTER' $minus 'talk' 'speaker'                  (L 'spot-down'       'appvol spotter -5')   # its own level, beside MUTE SPOTTER (Peter 2026-11-02); SORRY and THANKS moved to MORE
+  '4,3' = K 'SPOTTER' '+' 'talk' 'speaker'                     (L 'spot-up'         'appvol spotter +5')
   # the practice loop (Test Drive): SAVE SPOT where you want to come back to, BACK TO SPOT as often as you like; every try is timed to the next corner exit on the top screen
   '5,3' = K 'SAVE' 'SPOT' 'ses' 'flag'                          (L 'spot-save'       'spot save')
   '6,3' = K 'BACK TO' 'SPOT' 'ses' 'restart'                     (L 'spot-back'       'spot back')
@@ -203,12 +205,14 @@ $leave = [ordered]@{
 # to MAIN. Nothing is lost: SAVE SPOT / BACK TO SPOT moved to MAIN (they time every try), WIPE is the windscreen tear-off.
 $more = [ordered]@{
   '0,0' = $back
+  '1,0' = K 'SORRY' '' 'talk' 'chat'                           (L 'say-sorry'       'chat say Sorry!')
   '2,0' = K 'GOOD' 'RACE' 'talk' 'chat'                           (L 'say-gg'          'chat say GG')
   '3,0' = K 'MUTE' '' 'talk' 'mute'                            (L 'mute'            'media mute')
   '4,0' = K 'SHOWCASE' '' 'nav' 'play'                         (L 'showcase'        'showcase')
   '5,0' = K 'SOUND' '' 'talk' 'speaker'                        @{ plugin = 'com.peter.rigintro.sound'; name = 'Sound' }   # the SOUND screen (C-39): game, spotter, music, speakers, ButtKicker, presets
   '7,0' = K 'LOCK' '' 'stop' 'lock'                            (L 'lock'            'power lock')   # one press, like every v2 key; it only locks Windows and sits on MORE, never on MAIN
   '0,1' = K 'RELATIVE' '' 'talk' $null                         (L 'bb-f3'           'key --sim f3')   # the F3 box (was on MAIN: 0 presses)
+  '1,1' = K 'THANKS' '' 'talk' 'chat'                          (L 'say-thanks'      'chat say Thanks!')
   '4,1' = K 'WIPE' '' 'car' $null                              (L 'pit-ws'          'pittoggle ws')   # windscreen tear-off
   '5,1' = K 'SEAT' 'LOWER' 'car' 'down'                        (L 'seat-down'       'key --sim ctrl+[')
   '6,1' = K 'SEAT' 'HIGHER' 'car' 'up'                         (L 'seat-up'         'key --sim ctrl+]')
@@ -220,6 +224,8 @@ $more = [ordered]@{
   '5,2' = K 'WEATHER' '' 'talk' $null                          (L 'bb-f11'          'key --sim f11')
   '6,2' = K 'ANALYSIS' '' 'nav' 'info'                         @{ plugin = 'com.peter.rigintro.analysis'; name = 'Analysis' }   # moved off MAIN (DK-2), same screen
 }
+# the Vault (laps, clips, data) - RACES took its place on MAIN (2026-11-12)
+$more['3,3'] = K 'VAULT' '' 'nav' 'folder'                    (L 'vault'           'dash vault')
 # the rig room's Midea AC (src\ac.cs -> ac\ac.py): the keys appear only once the AC is connected (ac\ac.json exists), so the
 # deck never shows keys that can't work (2026-10-23: connected through the Midea Air route, ac\cloud.bin)
 if ((Test-Path (Join-Path $here 'ac\ac.json')) -or (Test-Path (Join-Path $here 'ac\cloud.bin'))) {   # connected: local key or the Midea Air login
