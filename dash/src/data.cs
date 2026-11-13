@@ -279,7 +279,7 @@ namespace IRDash
                     if (!first) sb.Append(','); first = false;
                     sb.Append("{\"file\":").Append(Json_.S(r.FileName)).Append(",\"ts\":").Append(Ms(r.Date)).Append(",\"car\":").Append(Json_.S(r.Car))
                       .Append(",\"track\":").Append(Json_.S(r.Track)).Append(",\"config\":").Append(Json_.S(r.Config)).Append(",\"type\":").Append(Json_.S(TypeOf(r)))
-                      .Append(",\"laps\":").Append(r.Laps).Append(",\"best\":").Append(r.Best > 0 ? N3(r.Best) : "null").Append(",\"secs\":").Append(Math.Round(r.Secs).ToString(Inv))
+                      .Append(",\"laps\":").Append(r.Laps).Append(",\"counted\":").Append(r.Counted).Append(",\"best\":").Append(r.Best > 0 ? N3(r.Best) : "null").Append(",\"secs\":").Append(Math.Round(r.Secs).ToString(Inv))
                       .Append(",\"km\":").Append((r.Meters / 1000).ToString("0.0", Inv)).Append(",\"fuel\":").Append(r.Fuel > 0 ? N3(r.Fuel) : "null")
                       .Append(",\"short\":").Append(r.Short ? "true" : "false").Append(",\"gone\":").Append(have.Contains(r.FileName) ? "false" : "true").Append('}');
                     if (r.Short || r.Car.Length == 0) continue;
@@ -525,7 +525,11 @@ namespace IRDash
             lock (gate)
             {
                 foreach (Chan c in cache) if (c.Sig == sig) { cache.Remove(c); cache.Insert(0, c); return c; }
-                Chan n = Load(path); n.Sig = sig;
+            }
+            Chan n = Load(path); n.Sig = sig;          // loaded outside the lock: a 74 MB file must not hold up every other caller
+            lock (gate)
+            {
+                foreach (Chan c in cache) if (c.Sig == sig) return c;
                 cache.Insert(0, n); while (cache.Count > 4) cache.RemoveAt(cache.Count - 1);
                 return n;
             }
@@ -545,10 +549,7 @@ namespace IRDash
                 if (me.Length > 0 && block.Success) c.Car = TrackMaps.YamlValue(block.Groups[1].Value, "CarScreenName");
                 Match len = Regex.Match(TrackMaps.YamlValue(t.yaml, "TrackLength"), @"^([\d.]+)\s*(km|mi)");
                 double L; if (len.Success && double.TryParse(len.Groups[1].Value, NumberStyles.Float, Inv, out L)) c.LengthM = L * (len.Groups[2].Value == "mi" ? 1609.344 : 1000);
-                byte[] h = new byte[144]; t.fs.Position = 0; t.fs.Read(h, 0, 144);
-                c.Rate = BitConverter.ToInt32(h, 8); if (c.Rate <= 0) c.Rate = 60;
-                long sd = BitConverter.ToInt64(h, 112);
-                if (sd > 1000000000L && sd < 4000000000L) c.Start = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(sd);
+                c.Rate = t.File.Tick; c.Start = t.File.StartUtc;      // W0-6: IbtFile reads the header (start: the header, then the file name)
                 VarDef vSt = Var(t, "SessionTime"), vPct = Var(t, "LapDistPct"), vLap = Var(t, "Lap"), vOn = Var(t, "IsOnTrack"), vPit = Var(t, "OnPitRoad"), vSurf = Var(t, "PlayerTrackSurface"),
                        vSpd = Var(t, "Speed"), vThr = Var(t, "Throttle"), vBrk = Var(t, "Brake"), vGear = Var(t, "Gear"), vSteer = Var(t, "SteeringWheelAngle"), vLlt = Var(t, "LapLastLapTime"), vInc = Var(t, "PlayerCarMyIncidentCount"), vBest = Var(t, "LapBestLapTime");
                 if (vSt == null || vPct == null || vLap == null || vOn == null) throw new IOException("this file has no lap data");
@@ -579,7 +580,7 @@ namespace IRDash
                     if (recs < want) break;
                 }
                 c.N = i;
-                Segment(c);
+                Segment(c, path);
                 return c;
             }
         }
@@ -596,8 +597,9 @@ namespace IRDash
 
         // Cuts the file into laps: a run is one lap counter value while on track. A lap is "full" when it began
         // and ended with a clean crossing of the line (not the first lap after getting in, not a tow or reset).
-        static void Segment(Chan c)
+        static void Segment(Chan c, string path)
         {
+            FileLaps truth = LapStore.ForFile(path);      // W0-6: counted, iRacing's time and the best come from the lap store, never from here
             List<Lap> runs = new List<Lap>();
             int i = 0;
             while (i < c.N)
@@ -614,33 +616,25 @@ namespace IRDash
                 bool pre = k > 0 && runs[k - 1].End == r.Start && runs[k - 1].N == r.N - 1 && c.Pct[r.Start - 1] > 0.8 && c.Pct[r.Start] < 0.2;
                 bool post = k + 1 < runs.Count && r.End == runs[k + 1].Start && runs[k + 1].N == r.N + 1 && c.Pct[r.End - 1] > 0.8 && c.Pct[r.End] < 0.2;
                 if (!(pre && post)) { c.Partial++; continue; }
+                if (r.N <= 0) continue;                                    // lap 0 (formation / out lap) is never a lap
                 r.Full = true;
                 r.T0 = Cross(c, r.Start); r.T1 = Cross(c, r.End);
-                double computed = r.T1 - r.T0, official = 0;
-                int at = Math.Min(r.End + 90, runs[k + 1].End - 1);       // iRacing announces the time a moment after the line
-                if (at >= 0 && at < c.N) official = c.Llt[at];
-                if (official > 1 && Math.Abs(official - computed) < 0.15) { r.Time = official; r.Official = true; } else r.Time = computed;
+                r.Time = r.T1 - r.T0;
                 int off = 0;
                 for (int x = r.Start; x < r.End; x++) { if ((c.Flags[x] & 2) != 0) r.Pit = true; if (c.Surf[x] == 1) off++; }   // stored +1: 1 = off track
-                r.Off = off >= 45;
-                // L-1: the lap rule, the same one as the Session Review's (LapRules.Judge): timed by iRacing, then iRacing's own best lap decides, the off-track record only where that says nothing
-                r.Counted = LapRules.Counted(r.Official && !r.Pit && r.Time >= 15 && r.Time <= 900, off > 0, c.LBest != null,
-                    c.LBest != null ? LapRules.BestBefore(c.LBest, c.N, r.End) : -1, c.LBest != null ? LapRules.BestAfter(c.LBest, c.N, r.End) : -1, r.Time);
+                r.Off = off > 0;                                           // information only: iRacing decides whether the lap counted
+                LapRec lr = LapStore.Lap(truth, r.N);
+                if (lr != null) { r.Time = lr.Time; r.Official = lr.Why != "no-time"; r.Counted = lr.Counted; }
                 r.Inc = Math.Max(0, c.Inc[r.End - 1] - c.Inc[r.Start]);
                 c.Laps.Add(r);
             }
-            // best: the quickest lap iRacing counted (L-1); when none was counted, the quickest that did not go through the pits (the lap list still needs a lap to draw against)
-            for (int k = 0; k < c.Laps.Count; k++)
-            {
-                Lap r = c.Laps[k];
-                if (r.Time < 15) continue;
-                if (c.Best < 0) { c.Best = k; continue; }
-                Lap b = c.Laps[c.Best];
-                if (r.Counted != b.Counted ? r.Counted : ((b.Pit && !r.Pit) || (b.Pit == r.Pit && r.Time < b.Time))) c.Best = k;
-            }
+            // best: LapStore.Best, the quickest COUNTED lap; none counted = no best (the page says "no clean lap")
+            LapRec best = truth != null ? truth.BestLap : null;
+            if (best != null) for (int k = 0; k < c.Laps.Count; k++) if (c.Laps[k].N == best.N) { c.Best = k; break; }
         }
 
         static string F(double d, string fmt) { return d.ToString(fmt, Inv); }
+        static int CountedOf(Chan c) { int n = 0; foreach (Lap l in c.Laps) if (l.Counted) n++; return n; }
 
         public static string LapsJson(string path)
         {
@@ -650,7 +644,7 @@ namespace IRDash
               .Append(",\"trackName\":").Append(Json_.S(c.TrackName)).Append(",\"trackId\":").Append(Json_.S(c.TrackId)).Append(",\"car\":").Append(Json_.S(c.Car)).Append(",\"type\":").Append(Json_.S(c.SType.Length > 0 ? c.SType : c.Ev))
               .Append(",\"start\":").Append(c.Start == DateTime.MinValue ? "null" : Json_.S(c.Start.ToLocalTime().ToString("s", Inv))).Append(",\"lengthM\":").Append(F(c.LengthM, "0"))
               .Append(",\"startMs\":").Append(c.Start == DateTime.MinValue ? "null" : ((long)(c.Start - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds).ToString()).Append(",\"st0\":").Append(c.N > 0 ? F(c.St[0], "0.000") : "null")   // Vault (vault.cs): wall clock of the first sample and its SessionTime
-              .Append(",\"seconds\":").Append(F(c.N / (double)c.Rate, "0")).Append(",\"partial\":").Append(c.Partial).Append(",\"best\":").Append(c.Best < 0 ? "null" : c.Laps[c.Best].N.ToString())
+              .Append(",\"seconds\":").Append(F(c.N / (double)c.Rate, "0")).Append(",\"partial\":").Append(c.Partial).Append(",\"best\":").Append(c.Best < 0 ? "null" : c.Laps[c.Best].N.ToString()).Append(",\"bestTime\":").Append(c.Best < 0 ? "null" : F(c.Laps[c.Best].Time, "0.000")).Append(",\"countedLaps\":").Append(CountedOf(c))
               .Append(",\"laps\":[");
             for (int k = 0; k < c.Laps.Count; k++)
             {

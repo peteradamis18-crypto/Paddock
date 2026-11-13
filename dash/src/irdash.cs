@@ -23,7 +23,7 @@ using System.Windows.Forms;
 
 namespace IRDash
 {
-    sealed class VarDef { public string Name; public int Type, Offset, Count; }
+    // VarDef lives in ibtfile.cs (W0-6: the one .ibt reader)
 
     sealed class Frame
     {
@@ -1250,38 +1250,17 @@ namespace IRDash
         {
             public FileStream fs; public int bufLen, dataOff; public long records; public string yaml = "";
             public Dictionary<string, VarDef> vars = new Dictionary<string, VarDef>();
+            public IbtFile File;       // the one reader underneath (ibtfile.cs): header fields, start time, IsFinished
         }
 
+        // W0-6: a thin wrapper over IbtFile.Open for the older callers (the header is parsed in one place only)
         internal static Ibt OpenIbt(string path, bool wantVars)
         {
-            FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            byte[] h = new byte[144];
-            if (fs.Read(h, 0, h.Length) < h.Length) { fs.Dispose(); return null; }
+            IbtFile f = IbtFile.Open(path, wantVars);
+            if (f == null) return null;
             Ibt t = new Ibt();
-            t.fs = fs;
-            int infoLen = BitConverter.ToInt32(h, 16), infoOff = BitConverter.ToInt32(h, 20);
-            int numVars = BitConverter.ToInt32(h, 24), varOff = BitConverter.ToInt32(h, 28);
-            t.bufLen = BitConverter.ToInt32(h, 36); t.dataOff = BitConverter.ToInt32(h, 52);
-            if (t.bufLen <= 0 || t.dataOff <= 0 || infoLen <= 0 || infoLen > 4000000) { fs.Dispose(); return null; }
-            t.records = (fs.Length - t.dataOff) / t.bufLen;
-            byte[] info = new byte[infoLen];
-            fs.Position = infoOff; fs.Read(info, 0, infoLen);
-            int z = Array.IndexOf(info, (byte)0); if (z < 0) z = infoLen;
-            t.yaml = Encoding.GetEncoding(28591).GetString(info, 0, z);
-            if (wantVars)
-            {
-                byte[] vh = new byte[numVars * 144];
-                fs.Position = varOff; fs.Read(vh, 0, vh.Length);
-                for (int i = 0; i < numVars; i++)
-                {
-                    int b = i * 144;
-                    int len = Array.IndexOf(vh, (byte)0, b + 16, 32) - (b + 16); if (len < 0) len = 32;
-                    VarDef v = new VarDef();
-                    v.Name = Encoding.ASCII.GetString(vh, b + 16, len);
-                    v.Type = BitConverter.ToInt32(vh, b); v.Offset = BitConverter.ToInt32(vh, b + 4); v.Count = BitConverter.ToInt32(vh, b + 8);
-                    t.vars[v.Name] = v;
-                }
-            }
+            t.File = f; t.fs = f.Fs; t.bufLen = f.BufLen; t.dataOff = f.DataOff; t.records = f.Records; t.yaml = f.Yaml;
+            foreach (KeyValuePair<string, VarDef> kv in f.Vars) t.vars[kv.Key] = kv.Value;
             return t;
         }
 
@@ -1972,6 +1951,7 @@ namespace IRDash
             public string Sig, Car = "", Track = "", Ev = "", Name = "", Num = "", Lic = "", Config = "", TrackId = "", SType = "";
             public DateTime When, Start; public double Secs, Meters, Best, Fuel; public int Laps, IR, Ver, FuelLaps;
             public int Rules;      // L-1: LapRules.Version the best lap was worked out under (column 21; a row without it is from before the rule and is read again if it has a best lap)
+            public int Counted;    // W0-6: laps iRacing counted (LapStore; column 23)
             public int Left = -1;  // PL-1: 2 = the car left pit road (3 s or more off it, in the world), 0 = it never did, -1 = not read yet (column 22; a row without it, or with the first draft's 1, and no laps in it is read again)
             // when the session began (format 1 rows only know when the file was last written)
             public DateTime Date { get { return Start != DateTime.MinValue ? Start : When; } }
@@ -2027,6 +2007,7 @@ namespace IRDash
                         if (f.Length >= 21) int.TryParse(f[20], out r.Rules);
                         if (f.Length >= 22 && !int.TryParse(f[21], out r.Left)) r.Left = -1;
                         if (r.Left == 1) r.Left = -1;       // the first draft (2026-10-11) wrote 1 after one frame off pit road at the very start of a session: read again
+                        if (f.Length >= 23) int.TryParse(f[22], out r.Counted);
                         // a row made under an older lap rule is read again (the rule can give a best lap as well as take one away), except one that never had a lap in it
                         if (r.Rules < LapRules.Version && r.Best <= 0 && r.Laps == 0) r.Rules = LapRules.Version;
                     }
@@ -2045,7 +2026,7 @@ namespace IRDash
                 string[] f = { r.Sig, r.When.Ticks.ToString(), r.Secs.ToString("0.#", inv), r.Meters.ToString("0", inv),
                                r.Laps.ToString(), r.IR.ToString(), r.Car, r.Track, r.Ev, r.Name, r.Num, r.Lic,
                                r.Ver >= 2 ? "2" : "", r.Ver >= 2 ? r.Best.ToString("0.000", inv) : "", r.Ver >= 2 ? r.Fuel.ToString("0.000", inv) : "", r.Ver >= 2 ? r.FuelLaps.ToString() : "",
-                               r.Config, r.TrackId, r.Start == DateTime.MinValue ? "" : r.Start.Ticks.ToString(), r.SType, r.Ver >= 2 ? r.Rules.ToString() : "", r.Ver >= 2 ? r.Left.ToString() : "" };
+                               r.Config, r.TrackId, r.Start == DateTime.MinValue ? "" : r.Start.Ticks.ToString(), r.SType, r.Ver >= 2 ? r.Rules.ToString() : "", r.Ver >= 2 ? r.Left.ToString() : "", r.Ver >= 2 ? r.Counted.ToString() : "" };
                 for (int i = 0; i < f.Length; i++) f[i] = (f[i] ?? "").Replace('\t', ' ').Replace('\n', ' ').Replace('\r', ' ');
                 sb.Append(string.Join("\t", f)).Append("\r\n");
             }
@@ -2180,32 +2161,22 @@ namespace IRDash
                     else if (lastLap >= 0 && l != lastLap) haveB = false;              // a jump (reset, tow)
                     lastLap = l; prevSt = st; prevFuel = fuel; prevPct = pct; havePrev = true;
                 }
-                // best lap: the quickest time iRacing announced, ignoring anything it did not count (faster than the
-                // session's own best lap) and anything far too short to be a real lap
-                double best = 0;
-                if (cands.Count > 0)
-                {
-                    List<double> s = new List<double>(cands); s.Sort();
-                    double med = Median(s);
-                    foreach (double c in s)
-                    {
-                        if (c < 15 || c < med * 0.7 || (sessionBest > 0 && c < sessionBest - 0.002)) continue;
-                        best = c; break;
-                    }
-                }
                 if (flaps.Count > 0)
                 {
                     double fastest = double.MaxValue;
                     foreach (double[] x in flaps) if (x[0] < fastest) fastest = x[0];
-                    if (best <= 0 && fastest > 15) best = fastest;
                     List<double> fuels = new List<double>();
                     foreach (double[] x in flaps) if (x[0] <= fastest * 1.07) fuels.Add(x[1]);
                     if (fuels.Count >= 2) { r.Fuel = Median(fuels); r.FuelLaps = fuels.Count; }
                 }
-                // L-1: the file's best is the quickest lap iRacing COUNTED (LapRules, analysis.cs), not the quickest time it announced: a lap with an off-track
-                // gets a time too, but is left out of iRacing's own best. -1 = the file could not be read as laps: the estimate above stays.
-                if (cands.Count > 0 || flaps.Count > 0) { double cb = Analysis.CountedBest(path); if (cb >= 0) best = cb; }
-                r.Best = best;
+                // W0-6: laps and the best lap are the lap store's (lapstore.cs): real laps only (lap 0 out), best = the quickest COUNTED lap.
+                // No counted lap = no best (0, shown as "no clean lap"); never the quickest time iRacing announced.
+                r.Best = 0;
+                if (cands.Count > 0 || flaps.Count > 0 || r.Laps > 0)
+                {
+                    FileLaps fl = LapStore.ForFile(path);
+                    if (fl != null) { LapRec b = fl.BestLap; r.Best = b != null ? b.Time : 0; r.Laps = fl.Laps.Count; r.Counted = fl.CountedLaps; }
+                }
                 return r;
             }
         }
