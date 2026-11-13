@@ -55,6 +55,7 @@ namespace IRDeck
             // nothing else, so the key was dead. Plain `official` now opens iRacing's Official page (same press OfMap uses), never in a session.
             if (a.Length == 0)
             {
+                MarkStart("official");   // he joins from that page: guard.ps1 sees "about to race" before the sim appears
                 if (SessionActive()) { Log("official: a session is running - not touching iRacing"); return 3; }
                 return CmdNav(new string[] { "--button", "Official" });
             }
@@ -201,7 +202,7 @@ namespace IRDeck
         {
             if (SessionActive()) { Log("official: a session is running - not touching iRacing"); return 3; }
             AutomationElement root = FindUiWindow();
-            if (root == null) { Log("official: the iRacing screen isn't open (press RIG ON)"); return 2; }
+            if (root == null) { Log("official: the iRacing screen isn't open (press HOME)"); return 2; }
             Mutex ui = new Mutex(false, "Local\\irdeck-mydrive-ui");
             bool got = false;
             try { got = ui.WaitOne(8000); } catch (AbandonedMutexException) { got = true; }

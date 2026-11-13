@@ -488,31 +488,12 @@ namespace IRDash
             { ".jpg", "image/jpeg" }, { ".webmanifest", "application/manifest+json" }
         };
 
-        static string DeckStateJson()
+        static readonly IRDeck.DeckGuard.DoMemory DeckDo = new IRDeck.DeckGuard.DoMemory();   // /api/do repeat guard (W0-1)
+        static bool StartIrdeck(string args)
         {
-            Frame f = Sdk.Latest;
-            IRDeck.Snapshot s = new IRDeck.Snapshot();
-            s.Sim = Process.GetProcessesByName("iRacingSim64DX11").Length > 0;
-            s.Ui = Process.GetProcessesByName("iRacingUI").Length > 0;
-            s.Fresh = Sdk.FreshDeck;
-            s.Connected = f.Connected && f.Vars != null && f.Vars.ContainsKey("IsOnTrack") && f.Vars.ContainsKey("Speed") && f.Vars.ContainsKey("IsReplayPlaying");
-            s.SessionKnown = !string.IsNullOrEmpty(f.SessionYaml);
-            s.OnTrack = f.Num("IsOnTrack") != 0; s.Speed = f.Num("Speed"); s.Replay = f.Num("IsReplayPlaying") != 0;
-            string info = f.SessionYaml ?? "";
-            s.TestOrAi = Regex.IsMatch(info, @"(?m)^\s*EventType:\s*(Test|AI)\s*$", RegexOptions.IgnoreCase);
-            IRDeck.DeckState state = IRDeck.DeckStateResolver.Resolve(s);
-            return "{\"primary\":\"" + state.Primary + "\",\"label\":\"" + state.Label + "\",\"reason\":\"" + state.Reason + "\",\"armed\":{\"quit\":" + ArmedSeconds("quit-main") + ",\"restart\":" + ArmedSeconds("restart-race") + ",\"skip\":" + Math.Max(ArmedSeconds("skip"), ArmedSeconds("skip-session")) + "}}";
-        }
-        static int ArmedSeconds(string name)
-        {
-            try
-            {
-                string p = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "armed-" + name + ".txt");
-                if (!File.Exists(p)) return 0;
-                double left = 3.0 - (DateTime.UtcNow - File.GetLastWriteTimeUtc(p)).TotalSeconds;
-                return left <= 0 ? 0 : (int)Math.Ceiling(left);
-            }
-            catch { return 0; }
+            if (Watch.IrdeckPath == null || !File.Exists(Watch.IrdeckPath)) { Log.W("api/do: irdeck.exe not found"); return false; }
+            try { Process.Start(new ProcessStartInfo(Watch.IrdeckPath, args) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(Watch.IrdeckPath) }); Log.W("api/do: irdeck " + args); return true; }
+            catch (Exception ex) { Log.W("api/do: irdeck " + args + ": " + ex.Message); return false; }
         }
 
         void Handle(TcpClient c)
@@ -545,7 +526,6 @@ namespace IRDash
                     if (q >= 0) { path = target.Substring(0, q); query = target.Substring(q + 1); }
                     path = Uri.UnescapeDataString(path);
 
-                    if (method == "GET" && path == "/deck/state") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(DeckStateJson()), "Access-Control-Allow-Origin: *\r\n"); return; }
 
                     // The phone's gate (phone.cs): anything not from this PC needs a pairing token, and the test hooks are never reachable
                     // from the LAN. ?asphone=1 asks for the same treatment from this PC (stricter only; tests\phone-test.ps1).
@@ -611,6 +591,10 @@ namespace IRDash
                         // the flat data-drawn TV map was rejected; the real TV view is not built yet, so this one command is off (P0-03)
                         if (dc == "tvview") { Send(s, 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("TV view rebuild")); return; }
                         if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
+                        // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
+                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // SHUT DOWN / SLEEP: only the YES key of the add-on's confirm screen sends these; irdeck quits iRacing, sends the deck to MAIN, then powers off
+                        if (dc == "shutdown" || dc == "sleep") { bool pk = StartIrdeck(dc == "shutdown" ? "power off" : "power sleep"); Send(s, pk ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(pk ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         bool ok = TvView.Handles(dc ?? "") ? TvView.Do(dc, da) : Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
@@ -1569,7 +1553,7 @@ namespace IRDash
                 string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
                 if ((now - deckMissingSince).TotalSeconds > 10 && (now - lastDeckStart).TotalSeconds > 60 && File.Exists(exe))
                 {
-                    lastDeckStart = now;
+                    lastDeckStart = now; DeckToMain("start");   // W0-1: it opens on MAIN, never on the page it was last left on
                     try { Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) }); Note("Stream Deck was not running: restarted it"); }
                     catch (Exception ex) { Log.W("watchdog: Stream Deck start failed: " + ex.Message); }
                 }
@@ -1651,6 +1635,13 @@ namespace IRDash
             return File.Exists(lk) && (DateTime.Now - File.GetLastWriteTime(lk)).TotalMinutes < 5;
         }
 
+        // W0-1: before the watchdog starts Stream Deck, its profile's saved page goes back to MAIN (src\deckprofile.cs; refuses while it runs)
+        static void DeckToMain(string why)
+        {
+            try { string r = IRDeck.DeckProfile.SetCurrentToMain(IRDeck.DeckProfile.ProfileDir()); if (r != "already") Log.W("watchdog: deck page before the " + why + " start: " + r); }
+            catch (Exception ex) { Log.W("watchdog: deck page: " + ex.Message); }
+        }
+
         // kill + start the app, then wait (up to 20 s) for it to log the deck as connected again. Runs on its own thread.
         static void RestartDeck(string why)
         {
@@ -1669,6 +1660,7 @@ namespace IRDash
                     }
                     foreach (Process p in Process.GetProcessesByName("StreamDeck")) { try { p.Kill(); } catch { } }
                     for (int i = 0; i < 20 && Running("StreamDeck"); i++) Thread.Sleep(100);
+                    DeckToMain(why);   // W0-1: the app is stopped now, so the page it opens on can be set to MAIN
                     Thread.Sleep(800);
                     string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
                     Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });

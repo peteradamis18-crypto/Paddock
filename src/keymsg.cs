@@ -92,7 +92,7 @@ namespace IRDeck
             new[] { @"^ac: (AC (on|off).*)$", "ok", "$1" },
             new[] { @"mydrive: START|starting your last drive", "wait", "Starting your last drive" },
             new[] { @"choose a car and track first", "no", "Choose a car and track first" },
-            new[] { @"The Test Drive window isn't open|iRacing UI is not running|press RIG ON", "no", "iRacing is not open" },
+            new[] { @"The Test Drive window isn't open|iRacing UI is not running|press HOME", "no", "iRacing is not open" },
             new[] { @"is not in the list|has no ", "no", "iRacing could not find that car" },
             new[] { @"pressed \[\w+\] (.+)", "ok", "Opened $1" },
             new[] { @"not found: (.+?) \(", "no", "Could not find $1" },

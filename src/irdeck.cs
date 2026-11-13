@@ -226,6 +226,28 @@ namespace IRDeck
 
         static Mutex keyMutex;   // held for the whole run of a key, so a repeat press finds it taken
 
+        // The repeat guard for a key exe (rules in DeckGuard). The stamp check and write happen under a short lock, so two copies
+        // started 29 ms apart cannot both read the old stamp.
+        static bool KeyGuardPasses(string self, string[] a)
+        {
+            bool mutexFree = true;
+            if (DeckGuard.UsesMutex(self)) keyMutex = new Mutex(true, "Local\\irdeck-key-" + self, out mutexFree);
+            if (!mutexFree) return false;
+            Mutex stampLock = new Mutex(false, "Local\\irdeck-stamp-" + self);
+            bool locked = false;
+            try
+            {
+                try { locked = stampLock.WaitOne(2000); } catch (AbandonedMutexException) { locked = true; }
+                string stamp = Path.Combine(Path.GetTempPath(), "irdeck-" + self + ".last");
+                long last = 0, now = DateTime.UtcNow.Ticks;
+                try { long.TryParse(File.ReadAllText(stamp), out last); } catch { }
+                if (!DeckGuard.KeyRuns(self, a, last, now, true)) return false;
+                try { File.WriteAllText(stamp, now.ToString(CultureInfo.InvariantCulture)); } catch { }
+                return true;
+            }
+            finally { if (locked) { try { stampLock.ReleaseMutex(); } catch { } } stampLock.Dispose(); }
+        }
+
         static int Main(string[] a)
         {
             // A copy of this exe named after a key (keys\fuel-plus1.exe) looks its command up in keys\keys.map,
@@ -256,39 +278,11 @@ namespace IRDeck
                     Say("no", "Kids mode is on"); SayFlush();
                     return 0;
                 }
-                // One press can reach us two or three times within a fraction of a second (seen 2026-10-09:
-                // QUIT TO MAIN x3 in 0.3 s, SLEEP x2 in 50 ms, which also defeated SLEEP's press-twice guard).
-                // Drop a repeat while the same key is still running or within 0.7 s of its last start.
-                // Volume and seat keys are left alone: pressing them quickly on purpose is normal.
-                string verb = a.Length > 0 ? a[0].ToLowerInvariant() : "";
-                if (verb != "media" && verb != "key")
-                {
-                    bool mine;
-                    keyMutex = new Mutex(true, "Local\\irdeck-key-" + self, out mine);
-                    string stamp = Path.Combine(Path.GetTempPath(), "irdeck-" + self + ".last");
-                    long last = 0;
-                    try { long.TryParse(File.ReadAllText(stamp), out last); } catch { }
-                    // x2 keys (confirm): Peter's own double tap is 0.18-0.66 s apart (log 2026-10-11) and the 0.7 s rule ate
-                    // his second tap, so QUIT never fired; a bounce is under 0.1 s (29 ms seen), so 0.12 s is the floor there
-                    bool freshArmed = verb == "confirm" && ConfirmArmedFresh(a);
-                    // on/off keys: a press that reaches us twice 1 s apart flipped them back (MUTE SPOTTER muted and unmuted itself at
-                    // 20:28:49/50 and 20:44:57/58 on 2026-10-24), so a second press within 1.5 s is ignored for them
-                    bool toggle = (verb == "appvol" && a.Length > 1 && a[1].Equals("mute", StringComparison.OrdinalIgnoreCase)) || verb == "pittoggle"
-                        || (verb == "ac" && a.Length > 1 && a[1].Equals("toggle", StringComparison.OrdinalIgnoreCase));
-                    int gapMs = toggle ? 1500 : 120;
-                    if (DateTime.UtcNow.Ticks - last < TimeSpan.FromMilliseconds(gapMs).Ticks)
-                    {
-                        Log(tag + "repeat press ignored");
-                        return 0;
-                    }
-                    if (!mine && !freshArmed)
-                    {
-                        Log(tag + "repeat press ignored");
-                        return 0;
-                    }
-                    try { File.WriteAllText(stamp, DateTime.UtcNow.Ticks.ToString()); } catch { }
-                    if (freshArmed && mine) { try { keyMutex.ReleaseMutex(); } catch { } }
-                }
+                // One press can reach us two or three times, 29 ms to 1.06 s apart (2026-10-09: QUIT TO MAIN x3 in 0.3 s, SLEEP x2 in 50 ms).
+                // DeckGuard (src\deckguard.cs): a repeat is dropped while the same key still runs (mutex) or within 0.7 s of its last start
+                // (1.5 s for on/off keys). Every verb, `key` and `media` included. Only VOL, SPOTTER level and SEAT, tapped quickly on purpose,
+                // skip the mutex and keep a 0.12 s bounce floor.
+                if (!KeyGuardPasses(self, a)) { Log(tag + "repeat press ignored"); return 0; }
             }
             if (!(a.Length >= 2 && a[0].Equals("sound", StringComparison.OrdinalIgnoreCase) && a[1].Equals("status", StringComparison.OrdinalIgnoreCase)))   // the SOUND screen asks every 2 s: not in the log
                 Log(tag + "> " + string.Join(" ", a));
@@ -344,7 +338,6 @@ namespace IRDeck
                 case "open": return CmdOpen(Slice(a, 1));
                 case "hotkey": return CmdHotkey(Slice(a, 1));
                 case "center": return CmdCenter();
-                case "confirm": return CmdConfirm(Slice(a, 1));
                 case "power": return CmdPower(Slice(a, 1));
                 case "ac": return CmdAc(Slice(a, 1));   // the rig room's Midea AC (src\ac.cs, ac\ac.py)
                 case "rigon": return CmdRigOn(Slice(a, 1));
@@ -549,26 +542,6 @@ namespace IRDeck
         static bool OnTrack() { Tele t = Tele.Open(); if (t == null) return false; using (t) { return t.Bool("IsOnTrack"); } }
         static List<string> L(params string[] s) { return new List<string>(s); }
 
-        static Snapshot CurrentDeckSnapshot()
-        {
-            Snapshot s = new Snapshot();
-            s.Sim = Process.GetProcessesByName("iRacingSim64DX11").Length > 0;
-            s.Ui = Process.GetProcessesByName("iRacingUI").Length > 0;
-            if (!s.Sim) return s;
-            Tele t = Tele.Open();
-            if (t == null) return s;
-            using (t)
-            {
-                s.Fresh = DeckTelemetryFresh(t.Tick);
-                s.Connected = t.Has("IsOnTrack") && t.Has("Speed") && t.Has("IsReplayPlaying");
-                s.OnTrack = t.Bool("IsOnTrack"); s.Speed = t.Num("Speed"); s.Replay = t.Bool("IsReplayPlaying");
-                string info = t.SessionInfo();
-                s.SessionKnown = !string.IsNullOrEmpty(info);
-                s.TestOrAi = System.Text.RegularExpressions.Regex.IsMatch(info, @"(?m)^\s*EventType:\s*(Test|AI)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                return s;
-            }
-        }
-        static DeckState CurrentDeckState() { return DeckStateResolver.Resolve(CurrentDeckSnapshot()); }
         static bool DeckTelemetryFresh(int tick)
         {
             if (tick < 0) return false;
@@ -583,7 +556,7 @@ namespace IRDeck
                 if (next == null) return false;
                 int current;
                 using (next) current = next.Tick;
-                if (DeckStateResolver.TelemetryAdvanced(first, current)) return true;
+                if (RigState.TelemetryAdvanced(first, current)) return true;
             }
             return false;
         }
@@ -594,12 +567,10 @@ namespace IRDeck
         //   a session (any screen)     -> press the sim's green Drive/Test/Race button until the car is on track (CmdGo)
         //   no session                 -> start the last drive: MY DRIVE's choice, else the Test Drive 'Last settings'
         //   iRacing app not open       -> open it (RIG ON) first
-        // `smart --dry` only says which of these it would do. `smart --fake <json>` is the resolver test hook (no sim).
+        // `smart --dry` only says which of these it would do.
         static int CmdSmart(string[] args)
         {
             bool dry = args != null && Array.IndexOf(args, "--dry") >= 0;
-            Snapshot fake = SmartFake(args);
-            if (fake != null) return SmartFakeRun(args, fake, dry);
             if (dry) { Log("smart --dry: get in plan = " + SmartPlan()); return 0; }
             return WithNamedLock("Local\\irdeck-getin", "smart", delegate { return SmartGetIn(); });
         }
@@ -667,27 +638,6 @@ namespace IRDeck
             return rc;
         }
 
-        // The old resolver-driven path, now only for tests: `smart --fake <json>` runs the deck-face table without a sim.
-        static int SmartFakeRun(string[] args, Snapshot fake, bool dry)
-        {
-            DeckState s = DeckStateResolver.Resolve(fake);
-            if (dry) { Log("smart --dry: " + s.Primary + " | " + s.Label + " | " + (s.Action.Length == 0 ? "none" : s.Action)); return 0; }
-            Log("smart: " + s.Primary);
-            if (s.Action.Length == 0) return 0;
-            if (s.Action == "confirm skip skip")
-            {
-                int rc;
-                if (Array.IndexOf(args, "--fake-bounce") >= 0)
-                {
-                    Thread bounce = new Thread(delegate() { Thread.Sleep(50); CmdConfirm(new string[] { "skip", "skip" }); });
-                    bounce.Start(); rc = CmdConfirm(new string[] { "skip", "skip" }); bounce.Join();
-                }
-                else rc = CmdConfirm(new string[] { "skip", "skip" });
-                return rc;
-            }
-            return 3;
-        }
-
         // One run at a time for the long keys. A repeat (the deck sends two or three) finds the lock taken and does nothing (rc 4: no beep).
         static int WithNamedLock(string mutexName, string what, Func<int> body)
         {
@@ -705,30 +655,6 @@ namespace IRDeck
                 if (mine) { try { mx.ReleaseMutex(); } catch { } }
                 mx.Dispose();
             }
-        }
-
-        static Snapshot SmartFake(string[] args)
-        {
-            if (args == null) return null;
-            int i = Array.IndexOf(args, "--fake");
-            if (i < 0 || i + 1 >= args.Length) return null;
-            try
-            {
-                System.Web.Script.Serialization.JavaScriptSerializer json = new System.Web.Script.Serialization.JavaScriptSerializer();
-                System.Collections.Generic.Dictionary<string, object> d = json.Deserialize<System.Collections.Generic.Dictionary<string, object>>(args[i + 1]);
-                Snapshot s = new Snapshot();
-                s.Sim = Convert.ToBoolean(d["sim"], CultureInfo.InvariantCulture);
-                s.Ui = Convert.ToBoolean(d["ui"], CultureInfo.InvariantCulture);
-                s.Fresh = Convert.ToBoolean(d["fresh"], CultureInfo.InvariantCulture);
-                s.Connected = Convert.ToBoolean(d["connected"], CultureInfo.InvariantCulture);
-                s.SessionKnown = Convert.ToBoolean(d["sessionKnown"], CultureInfo.InvariantCulture);
-                s.OnTrack = Convert.ToBoolean(d["onTrack"], CultureInfo.InvariantCulture);
-                s.Speed = Convert.ToDouble(d["speed"], CultureInfo.InvariantCulture);
-                s.Replay = Convert.ToBoolean(d["replay"], CultureInfo.InvariantCulture);
-                s.TestOrAi = Convert.ToBoolean(d["testOrAi"], CultureInfo.InvariantCulture);
-                return s;
-            }
-            catch { return new Snapshot(); }
         }
 
         static IntPtr SimWindow()
@@ -820,49 +746,11 @@ namespace IRDeck
             return GoUi();
         }
 
-        // SMART may press only the exact Drive control exposed by the sim UI automation tree.
-        static bool IsGetInState(DeckState d, bool garageOfTestOrAi)
-        {
-            return (d.Primary == "GETIN" && d.Action == "drive-only") || (garageOfTestOrAi && d.Primary == "SKIP");
-        }
-
-        static int GoDriveOnly(bool garageOfTestOrAi)
-        {
-            Snapshot before = CurrentDeckSnapshot();
-            DeckState beforeState = DeckStateResolver.Resolve(before);
-            if (!IsGetInState(beforeState, garageOfTestOrAi) || before.Speed >= 1.0) { Log("smart GET IN: telemetry changed or unsafe; WAIT"); return 3; }
-            IntPtr h = SimWindow();
-            if (h == IntPtr.Zero) return 3;
-            AutomationElement root;
-            try { root = AutomationElement.FromHandle(h); } catch { return 3; }
-            if (root == null) return 3;
-            List<Cand> items = Scan(root);
-            Cand drive = null;
-            bool garage = false, modalContinue = false;
-            foreach (Cand c in items)
-            {
-                if (!c.Enabled || c.Off) continue;
-                if (string.Equals(c.Name, "Drive", StringComparison.OrdinalIgnoreCase) && c.Type == "button")
-                { if (drive != null) { Log("smart GET IN: ambiguous Drive controls; WAIT"); return 3; } drive = c; }
-                if (string.Equals(c.Name, "Garage", StringComparison.OrdinalIgnoreCase) && c.Type == "button") garage = true;
-                if (string.Equals(c.Name, "Continue", StringComparison.OrdinalIgnoreCase) && c.Type == "button") modalContinue = true;
-            }
-            if (drive == null || !garage || modalContinue || Native.GetForegroundWindow() != h)
-            { Log("smart GET IN: session page not verified; WAIT"); return 3; }
-            Snapshot last = CurrentDeckSnapshot();
-            DeckState lastState = DeckStateResolver.Resolve(last);
-            if (!IsGetInState(lastState, garageOfTestOrAi) || last.Speed >= 1.0)
-            { Log("smart GET IN: telemetry changed before press; WAIT"); return 3; }
-            if (!Press(drive)) return 3;
-            Log("smart GET IN: pressed verified Drive control");
-            return 0;
-        }
-
         // The UI half of GO: launch an open Test Drive dialog, or press a join/start button if one is showing.
         static int GoUi()
         {
             AutomationElement root = FindUiWindow();
-            if (root == null) { Log("go: iRacing UI is not running (press RIG ON)"); return 2; }
+            if (root == null) { Log("go: iRacing UI is not running (press HOME)"); return 2; }
             List<Cand> c = Scan(root);
             bool dialog = Pick(c, L("Last settings"), "hyperlink", false) != null && Pick(c, L("Close", "Back"), "hyperlink", false) != null;
             if (dialog) { Cand td = Pick(c, L("Test Drive"), "hyperlink", true); if (td != null) return Press(td) ? 0 : 1; }
@@ -937,7 +825,7 @@ namespace IRDeck
             List<string> args = new List<string>();
             args.Add(Array.IndexOf(a, "--button") >= 0 ? "--type=button" : "--type=hyperlink");
             foreach (string t in a) if (t != "--button") args.Add(t);
-            if (UiWindow() == IntPtr.Zero) { Log("nav: iRacing UI is not running (press RIG ON)"); return 2; }
+            if (UiWindow() == IntPtr.Zero) { Log("nav: iRacing UI is not running (press HOME)"); return 2; }
             int rc = CmdUi(args.ToArray(), false);
             if (rc != 0 && Array.IndexOf(a, "--button") >= 0)
             {
@@ -1009,7 +897,7 @@ namespace IRDeck
 
         // AI RACE > / TEST DRIVE > : last settings, load, then into the car. "startlast ai" or "startlast td" ("--dry": say what it would do).
         // While a session runs this key does nothing (2026-10-10, C-31): it used to quit the session on a second press,
-        // and the deck can send one press twice. Ending a session is QUIT x2 or RESTART x2, on purpose.
+        // and the deck can send one press twice. Ending a session is QUIT TO MENU (one press, its own page).
         static int CmdStartLast(string[] a)
         {
             bool ai = a.Length > 0 && a[0].ToLowerInvariant() == "ai";
@@ -1017,11 +905,11 @@ namespace IRDeck
             string id = ai ? "start-ai" : "start-td";
             if (SessionActive())
             {
-                Log(id + ": a session is running - nothing was done (use QUIT x2 first)");
+                Log(id + ": a session is running - nothing was done (press QUIT TO MENU first)");
                 return 3;   // short beep: the key was received, nothing happened
             }
             if (dry) { Log(id + " (dry): no session is running; would open " + (ai ? "AI Single Player" : "Test Drive") + " > Last settings and start it"); return 0; }
-            if (UiWindow() == IntPtr.Zero) { Log(id + ": iRacing UI is not running (press RIG ON)"); return 2; }
+            if (UiWindow() == IntPtr.Zero) { Log(id + ": iRacing UI is not running (press HOME)"); return 2; }
             MarkStart(id);   // irdash times START -> session -> in the car (dash\timings.tsv)
             if (ai)
             {
@@ -1298,7 +1186,7 @@ namespace IRDeck
                 if (trc == 0) Log(OnTrack() ? "restart: test drive - back in the car in the pits" : "restart: NOT in the car yet");   // own words: the top screen says "Back in the pits", not "Race restarted"
                 return trc;
             }
-            if (!ai) { Log("restartrace: only AI races can be restarted - use TOW TO PITS"); return 3; }
+            if (!ai) { Log("restartrace: only AI races can be restarted - use RESET CAR"); return 3; }
             // a rolling car is waited for (up to 15 s), the same as GET OUT
             bool inCar = false; double speed = 0;
             Tele t0 = Tele.Open();
@@ -1795,44 +1683,6 @@ namespace IRDeck
             return 0;
         }
 
-        // confirm <id> <command...> : first press arms (two quick beeps), a second press within 3 s runs the command.
-        static int CmdConfirm(string[] a)
-        {
-            if (a.Length < 2) { Log("confirm: need an id and a command"); return 1; }
-            // SKIP SESSION is ONE press (2026-10-18, Peter: 'skip session doesnt work'). The two-press arm only gave a double beep and
-            // a second press never came: every real use in the log (10-15, 10-18) stopped at 'armed'. The command itself already refuses
-            // everything risky (official sessions, a moving car) and the key ignores repeats within 0.7 s, so a bounce cannot skip twice.
-            // RESTART is one press too (2026-10-23: 15 presses armed, 9 confirmed). restartrace does everything itself: waits for a rolling
-            // car, restarts, gets back in. The deck's `confirm restart-race restartrace` therefore works before the layout is rebuilt.
-            if (a[0] == "skip-session" || a[0] == "restart-race") { Log("confirm " + a[0] + ": one press, no arming"); return Run(Slice(a, 1)); }
-            string f = Path.Combine(Root, "armed-" + a[0] + ".txt");
-            DateTime expiry = DateTime.MinValue;
-            try { if (File.Exists(f)) expiry = DateTime.Parse(File.ReadAllText(f), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); } catch { }
-            // a bounce reaches us within 0.1 s of the arming press; Peter's own second tap is >= 0.18 s later.
-            // An arm younger than 0.15 s is the same press arriving twice: ignore it, never confirm on it.
-            double left = (expiry - DateTime.Now).TotalSeconds;
-            if (left > 2.85 && left <= 3.1) { Log("confirm " + a[0] + ": repeat press ignored (bounce)"); return 0; }
-            if (left <= 0 || left > 3.1)
-            {
-                File.WriteAllText(f, DateTime.Now.AddSeconds(3).ToString("o", CultureInfo.InvariantCulture));
-                try { if (keyMutex != null) keyMutex.ReleaseMutex(); } catch { }
-                Log("confirm " + a[0] + ": armed - press again within 3 seconds");
-                Beep(1200, 90); Thread.Sleep(60); Beep(1200, 90);
-                return 0;
-            }
-            File.Delete(f);
-            Log("confirm " + a[0] + ": confirmed");
-            return Run(Slice(a, 1));
-        }
-
-        static bool ConfirmArmedFresh(string[] a)
-        {
-            if (a == null || a.Length == 0) return false;
-            string f = Path.Combine(Root, "armed-" + a[0] + ".txt");
-            try { DateTime t = DateTime.Parse(File.ReadAllText(f), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); return (t - DateTime.Now).TotalSeconds > 0 && (t - DateTime.Now).TotalSeconds <= 2.85; }   // armed at least 0.15 s ago (not a bounce)
-            catch { return false; }
-        }
-
         static int CmdPower(string[] a)
         {
             string c = a.Length > 0 ? a[0].ToLowerInvariant() : "";
@@ -1843,6 +1693,8 @@ namespace IRDeck
             }
             // the PC is going away: stop the cooling auto-cool started (a manual AC ON is left alone). Never blocks the power step.
             if ((c == "off" || c == "sleep") && (File.Exists(Path.Combine(Root, @"ac\ac.json")) || File.Exists(Path.Combine(Root, @"ac\cloud.bin")))) { try { CmdAc(new string[] { "pcoff" }); } catch { } }
+            // the deck comes back on MAIN after the boot or the wake, never on the page this was pressed from
+            if (c == "off" || c == "restart" || c == "sleep") { try { DeckToMain(c == "sleep"); } catch (Exception ex) { Log("[power] deck page: " + ex.Message); } }
             ProcessStartInfo psi;
             switch (c)
             {
@@ -1856,6 +1708,20 @@ namespace IRDeck
             return 0;
         }
 
+        // Stop the Stream Deck app (it saves the page it is on while it runs), set the profile's page to MAIN, and for a sleep start
+        // it again so the deck works the moment the PC wakes. Killed, not closed: a clean exit could write its own page back.
+        static void DeckToMain(bool startAgain)
+        {
+            foreach (Process p in Process.GetProcessesByName("StreamDeck")) { try { p.Kill(); } catch { } }
+            for (int i = 0; i < 30 && Process.GetProcessesByName("StreamDeck").Length > 0; i++) Thread.Sleep(100);
+            Log("[power] deck page: " + DeckProfile.SetCurrentToMain(DeckProfile.ProfileDir()));
+            if (startAgain && File.Exists(DeckProfile.StreamDeckExe))
+            {
+                try { Process.Start(new ProcessStartInfo(DeckProfile.StreamDeckExe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(DeckProfile.StreamDeckExe) }); Thread.Sleep(1500); }
+                catch (Exception ex) { Log("[power] Stream Deck start: " + ex.Message); }
+            }
+        }
+
         // RIG ON (also runs at logon): Simucube Tuner window (shows firmware/update notices), then the
         // iRacing UI on the centre screen. (SimHub back 2026-11-01: it drives the two SSG DF-8 flag boxes.)
         // Also the rig launcher: the "iRacing Rig" logon task runs "rigon --boot". Order matters: Stream Deck first so
@@ -1866,6 +1732,7 @@ namespace IRDeck
             // The HOME key is this command. With the rig up and a session running it used to maximise the iRacing UI over the
             // sim on the middle screen and take the keyboard focus from the car. A press in a session now does nothing (short beep).
             if (!boot && SessionActive()) { Log("rigon: a session is running - not moving the iRacing UI over the sim"); return 3; }
+            { string pg = DeckProfile.SetCurrentToMain(DeckProfile.ProfileDir()); if (pg != "running") Log("[rigon] deck page: " + pg); }   // a Stream Deck that is not running yet opens on MAIN
             StartApp("StreamDeck", @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe", false, "--runinbk");
             // At logon the Stream Deck app took 26-28 s to bring the deck up (3 boots on 2026-10-09; 3.5 s when started alone)
             // because five more programs were loading from a cold disk at the same time. So at boot it gets the machine to
@@ -2303,17 +2170,26 @@ namespace IRDeck
 
         static int CmdState()
         {
-            bool sim = Process.GetProcessesByName("iRacingSim64DX11").Length > 0;
-            bool ui = Process.GetProcessesByName("iRacingUI").Length > 0;
+            // one line, built by RigState.Line (src\deckstate.cs): the old fields first, then fresh= replay= event=
+            RigState.Facts f = new RigState.Facts();
+            f.Sim = Process.GetProcessesByName("iRacingSim64DX11").Length > 0;
+            f.Ui = Process.GetProcessesByName("iRacingUI").Length > 0;
             Tele t = Tele.Open();
-            if (t == null) { Log("state: sim=" + sim + " ui=" + ui + " telemetry=off"); return 0; }
-            using (t)
+            if (t != null)
             {
-                Log(string.Format(CultureInfo.InvariantCulture,
-                    "state: sim={0} ui={1} telemetry=on onTrack={2} onPitRoad={3} units={4} fuelLevel={5:0.0}L pitSvFuel={6:0.0}L pitSvFlags={7} foreground={8}",
-                    sim, ui, t.Bool("IsOnTrack"), t.Bool("OnPitRoad"), t.Num("DisplayUnits") == 0 ? "imperial" : "metric",
-                    t.Num("FuelLevel"), t.Num("PitSvFuel"), (int)t.Num("PitSvFlags"), ForegroundName()));
+                using (t)
+                {
+                    f.MapConnected = true;
+                    f.OnTrack = t.Bool("IsOnTrack"); f.OnPitRoad = t.Bool("OnPitRoad"); f.Metric = t.Num("DisplayUnits") != 0;
+                    f.FuelLevel = t.Num("FuelLevel"); f.PitSvFuel = t.Num("PitSvFuel"); f.PitSvFlags = (int)t.Num("PitSvFlags");
+                    f.Replay = t.Bool("IsReplayPlaying");
+                    if (f.Sim) f.Fresh = DeckTelemetryFresh(t.Tick);   // up to 0.9 s, only while the sim runs
+                }
+                SessSnap s = Snap();
+                f.EventType = s.Event; f.Ai = s.Ai; f.SessionType = s.Type ?? "";
+                f.Foreground = ForegroundName();
             }
+            Log(RigState.Line(f));
             return 0;
         }
 
