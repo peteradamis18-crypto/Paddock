@@ -54,7 +54,7 @@ namespace IRDash
             // then every 10 min (a finished session writes a new .ibt). The backfill itself waits on the Jobs queue for the session to end.
             backfillTimer = new Timer(delegate
             {
-                try { Jobs.Run("field laps backfill", delegate { Backfill(); }, true); } catch (Exception ex) { Log.W("field laps: " + ex.Message); }
+                try { Jobs.Routine("field laps backfill", delegate { Backfill(); }); } catch (Exception ex) { Log.W("field laps: " + ex.Message); }
             }, null, 150000, 600000);
         }
         static Timer backfillTimer;

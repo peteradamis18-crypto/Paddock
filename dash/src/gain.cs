@@ -57,7 +57,7 @@ namespace IRDash
                 if (gnBusy) return;
                 gnBusy = true; gnCheckedAt = DateTime.UtcNow; gnDone = 0; gnOf = 0;
             }
-            if (!Jobs.Run("gain", GainWork, true)) gnBusy = false;
+            if (!Jobs.Routine("gain", GainWork)) gnBusy = false;     // every minute: logged only when it waited or took a second
         }
 
         static void GainWork()

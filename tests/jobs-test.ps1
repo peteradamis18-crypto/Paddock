@@ -35,7 +35,8 @@ try {
   Check 'the map builder is a whenFree job and looks the sim up once per build' ($src.irdash -match 'Jobs\.Run\("map " \+ ' -and $src.irdash -match 'bool simUp = RigState\.SimRunning;')
   Check 'the PB reference build and its write wait for the session to end' ($src.refs -match 'Jobs\.Run\("pb reference build ' -and $src.refs -match 'Jobs\.Save\("pb reference save ')
   Check 'field laps are kept in memory during the session and written after' ($src.bench -match 'Jobs\.Save\("field laps save ' -and $src.bench -notmatch 'capAt\).TotalSeconds >= 30')
-  Check 'gain and the career page reader are whenFree jobs' ($src.gain -match 'Jobs\.Run\("gain"' -and $src.career -match 'Jobs\.Run\("career ')
+  Check 'gain and the career page reader are whenFree jobs' ($src.gain -match 'Jobs\.Routine\("gain"' -and $src.career -match 'Jobs\.Run\("career ')
+  Check 'the every-minute passes are routine: logged only when they waited or took a second' ($src.gain -match 'Jobs\.Routine\("gain"' -and $src.perf -match 'Jobs\.Routine\("perf reports"' -and $src.bench -match 'Jobs\.Routine\("field laps backfill"')
   Check 'the career scan is a whenFree job' ($src.irdash -match 'Jobs\.Run\("career scan"')
     $ens = [regex]::Match($src.official, 'static void EnsureData\(\)[\s\S]*?\n        \}').Value
   Check 'official BuildOwned is never run from a request (a job at start and every 6 h), and swaps its result in under the lock' ($src.official -match 'Jobs\.Run\("official owned"' -and $ens -notmatch 'BuildOwned\(\)' -and $src.official -match 'lock \(gate\) \{ owned = o;')

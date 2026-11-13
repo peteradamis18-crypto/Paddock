@@ -676,7 +676,7 @@ namespace IRDash
         {
             {
                 // W0-3: a pass is a job on the Jobs queue: it waits for the session to end and reads at background disk priority
-                Jobs.Run("perf reports", delegate { try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); } }, true);
+                Jobs.Routine("perf reports", delegate { try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); } });   // every minute: logged only when it waited or took a second
                 try { passTimer.Change(60000, Timeout.Infinite); } catch { }
             }
         }

@@ -1933,7 +1933,7 @@ namespace IRDash
         // W0-1: before the watchdog starts Stream Deck, its profile's saved page goes back to MAIN (src\deckprofile.cs; refuses while it runs)
         static void DeckToMain(string why)
         {
-            try { string r = IRDeck.DeckProfile.SetCurrentToMain(IRDeck.DeckProfile.ProfileDir()); if (r != "already") Log.W("watchdog: deck page before the " + why + " start: " + r); }
+            try { string r = IRDeck.DeckProfile.SetCurrentToMain(IRDeck.DeckProfile.ProfileDir()); if (r != "already") Log.W("watchdog: deck page before the " + why + " of Stream Deck: " + r); }
             catch (Exception ex) { Log.W("watchdog: deck page: " + ex.Message); }
         }
 
