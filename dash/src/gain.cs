@@ -40,15 +40,16 @@ namespace IRDash
 
         // Called on every /mydrive poll, so it is cheap: one clock look unless a pass is due. A pass is due 3 minutes after irdash started (the rig
         // is still starting apps), then at most once a minute, and never while the sim is connected or he is in the car. now = the route (tests).
+        // W0-3: never while a session is on (the route skipped the Connected check and could start the whole scan in the garage), and the
+        // pass itself is a job on the Jobs queue (one at a time with the career job, which used to compute the same file at once)
         public static void GainPoke(bool now)
         {
             if (gnBusy) return;
-            if (Program.IsDriving) return;
+            if (RigState.SessionOn) return;
             if (!now)
             {
                 if ((DateTime.Now - Program.StartedAt).TotalSeconds < 180) return;
                 if ((DateTime.UtcNow - gnCheckedAt).TotalSeconds < 60) return;
-                if (Sdk.Latest.Connected) return;
             }
             else if (gnRows != null && (DateTime.UtcNow - gnCheckedAt).TotalSeconds < 60) return;     // the route asked again within a minute: the list is current
             lock (gnGate)
@@ -56,9 +57,7 @@ namespace IRDash
                 if (gnBusy) return;
                 gnBusy = true; gnCheckedAt = DateTime.UtcNow; gnDone = 0; gnOf = 0;
             }
-            Thread th = new Thread(GainWork);
-            th.IsBackground = true; th.Priority = ThreadPriority.BelowNormal; th.Name = "Gain";
-            th.Start();
+            if (!Jobs.Run("gain", GainWork, true)) gnBusy = false;
         }
 
         static void GainWork()
@@ -109,7 +108,7 @@ namespace IRDash
             gnOf = combos.Count; gnDone = 0;
             foreach (string[] c in combos)
             {
-                if (live && Program.IsDriving) { aborted = true; return rows; }
+                if (live && (Program.IsDriving || Jobs.ShouldYield)) { aborted = true; return rows; }
                 List<CrMeta> hit = CrCombo(all, c[0], c[1], c[2]);
                 if (hit.Count == 0) { gnDone++; continue; }
                 string sig; CornerSet cs;
@@ -120,7 +119,7 @@ namespace IRDash
                 {
                     files[i] = CrLookup(hit[i], sig, vroot, cc);
                     if (files[i] != null) continue;
-                    if (live && Program.IsDriving) { aborted = true; return rows; }
+                    if (live && (Program.IsDriving || Jobs.ShouldYield)) { aborted = true; return rows; }
                     files[i] = CrCompute(hit[i], cs, sig);
                     CrStore(hit[i], files[i], vroot);
                     if (live) Thread.Sleep(100);          // one file at a time, leave the disk and the processor to the rest

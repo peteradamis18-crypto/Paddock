@@ -67,6 +67,6 @@ Check 'restarts run on their own thread, one at a time (the 2 s timer never bloc
 Check 'a wake waits for the deck to be back on USB before restarting the app' ($ir -match 'for \(int i = 0; i < 40 && !DeckPresent\(\); i\+\+\)')
 Check 'after a restart it checks the deck really came back, and says so (or to replug it)' ($ir -match 'deck back after' -and $ir -match 'unplug and replug')
 Check 'never during a deck rebuild (deck-build.lock)' ($body -match 'DeckBuilding\(\)' -and $ir -match 'if \(DeckBuilding\(\)\) return;')
-Check 'the whole current Stream Deck log is read (a tail could lose the connected line on a long day)' ($ir -match 'fs\.Length - 4000000')
+Check 'the whole current Stream Deck log is read (a tail could lose the connected line on a long day)' ($ir -match 'len - 4000000' -and $ir -match 'fs\.Position = tailLen;')
 "$pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

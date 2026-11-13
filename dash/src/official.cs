@@ -74,7 +74,8 @@ namespace IRDash
             ReadSwitch();
             if (!enabled) { Log.W("official: switched off (official=0 in irdash.ini)"); return; }   // no thread, no files, no download
             try { Directory.CreateDirectory(dir); } catch { }
-            Thread t = new Thread(Loop); t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Start();
+            QueueOwned();      // W0-3: the owned cars and tracks, once at start-up when no session is on (then every 6 h from EnsureData)
+            loopTimer = new Timer(delegate { LoopOnce(); }, null, 20000, 60000);      // W0-3: a timer, not a sleeping thread
         }
 
         static readonly HashSet<string> Commands = new HashSet<string> { "offav", "ofopen", "ofclose", "ofrefresh", "ofscan", "ofdry" };
@@ -148,22 +149,21 @@ namespace IRDash
         }
 
         // ---- background: keep the cached schedule fresh, never during a session ----
-        static void Loop()
+        static Timer loopTimer;
+        static int looping;
+        static void LoopOnce()
         {
-            Thread.Sleep(20000);
-            while (true)
+            if (Interlocked.CompareExchange(ref looping, 1, 0) != 0) return;      // a slow fetch never overlaps the next tick
+            try
             {
-                try
+                if (!Busy())
                 {
-                    if (!Busy())
-                    {
-                        FetchIfAllowed();
-                        if (dirty || snapJson.Length == 0 || (DateTime.UtcNow - snapBuilt).TotalMinutes >= 30) Json(null);
-                    }
+                    FetchIfAllowed();
+                    if (dirty || snapJson.Length == 0 || (DateTime.UtcNow - snapBuilt).TotalMinutes >= 30) Json(null);
                 }
-                catch (Exception ex) { Log.W("official loop: " + ex.Message); }
-                Thread.Sleep(60000);
             }
+            catch (Exception ex) { Log.W("official loop: " + ex.Message); }
+            finally { looping = 0; }
         }
 
         // ---------------------------------------------------------------- files
@@ -180,13 +180,21 @@ namespace IRDash
         static JavaScriptSerializer Ser() { JavaScriptSerializer s = new JavaScriptSerializer(); s.MaxJsonLength = int.MaxValue; s.RecursionLimit = 100; return s; }
         static string Str(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o != null ? Convert.ToString(o, Inv) : ""; }
 
+        // W0-3: never BuildOwned from a request (it walks the whole iRacing install for *.dat under the lock, and /home asks every 5 s,
+        // so it could land mid-race). It is a job on the Jobs queue at start-up and every 6 h, when no session is on; until the first one
+        // has run the answer simply has no owned cars and tracks yet.
         static void EnsureData()
         {
             lock (gate)
             {
                 LoadSeason(); LoadProfile(); LoadFavs(); LoadCareer(); LoadSpecials();
-                if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) BuildOwned();
             }
+            if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) QueueOwned();
+        }
+
+        static void QueueOwned()
+        {
+            Jobs.Run("official owned", delegate { if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) BuildOwned(); }, true);      // review #5: the walk runs outside the lock
         }
 
         // ---- the season (parsed from the PDF once, kept as JSON) ----
@@ -580,7 +588,7 @@ namespace IRDash
             Dictionary<string, string> learned = LearnCarNames();
             OfficialCore.OwnedMap o = OfficialCore.BuildOwned(carPaths, trackDirs, learned, null);
             ApplyUiCheck(o);
-            owned = o; ownedBuilt = DateTime.UtcNow;
+            lock (gate) { owned = o; ownedBuilt = DateTime.UtcNow; dirty = true; }      // swapped in under the lock; /home never waited for the walk
             try { WriteFile("owned.json", OwnedJson()); } catch { }
         }
 

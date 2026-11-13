@@ -69,12 +69,16 @@ namespace IRDash
         // Between those, every 20 s a cheap look at the programs the doctor can start: one that has been missing for 45 s
         // (not just restarting) brings the full check - and its fixes - forward.
         static DateTime lastQuick = DateTime.MinValue, lastStray = DateTime.MinValue;
+        static bool strayThisSession;
         public static void Tick()
         {
             if (root == null) return;
-            // The error box sits behind the sim for the whole session. WM_CLOSE does not move the focus, so this
-            // one look is safe while you drive. Everything else the doctor does still waits until you are out.
-            if ((DateTime.Now - lastStray).TotalSeconds >= 20)
+            // The error box sits behind the sim for the whole session. WM_CLOSE does not move the focus, so this look is safe.
+            // W0-3: every 20 s out of a session, but ONCE when a session starts, not every 20 s during it (window changes on his screens).
+            bool sess = RigState.SessionOn;
+            bool due = sess ? !strayThisSession : (DateTime.Now - lastStray).TotalSeconds >= 20;
+            strayThisSession = sess && (strayThisSession || due);
+            if (due)
             {
                 lastStray = DateTime.Now;
                 try { ClearStrayDialogs(); } catch (Exception ex) { Log.W("doctor: stray dialogs: " + ex.Message); }

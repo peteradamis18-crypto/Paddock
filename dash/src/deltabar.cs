@@ -360,7 +360,7 @@ namespace IRDash
             if ((now - simPidAt).TotalSeconds > 5)
             {
                 simPidAt = now; simPid = 0;
-                try { Process[] ps = Process.GetProcessesByName("iRacingSim64DX11"); if (ps.Length > 0) simPid = ps[0].Id; } catch { }
+                try { Process sp = Proc.HeldInSession(RigState.SimProcess); if (sp != null) simPid = sp.Id; } catch { }      // W0-3: a held handle, no scan every 5 s
             }
             uint pid; GetWindowThreadProcessId(fg, out pid);
             if (simPid != 0 && pid == (uint)simPid) simFront++;

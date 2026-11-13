@@ -664,19 +664,20 @@ namespace IRDash
         static readonly AutoResetEvent kick = new AutoResetEvent(false);
         static readonly Dictionary<string, int> fails = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+        // W0-3: a timer instead of a thread waiting all day (fewer threads); Kick brings the next pass forward
+        static Timer passTimer;
         public static void Start()
         {
-            Thread t = new Thread(Run); t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
+            passTimer = new Timer(delegate { Pass1(); }, null, 150000, Timeout.Infinite);      // the career scan reads the same folder after 2 minutes; boot is busy enough
         }
-        public static void Kick() { kick.Set(); }
+        public static void Kick() { kick.Set(); try { if (passTimer != null) passTimer.Change(0, Timeout.Infinite); } catch { } }
 
-        static void Run()
+        static void Pass1()
         {
-            kick.WaitOne(150000);                // the career scan reads the same folder after 2 minutes; boot is busy enough
-            while (true)
             {
-                try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); }
-                kick.WaitOne(60000);
+                // W0-3: a pass is a job on the Jobs queue: it waits for the session to end and reads at background disk priority
+                Jobs.Run("perf reports", delegate { try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); } }, true);
+                try { passTimer.Change(60000, Timeout.Infinite); } catch { }
             }
         }
 
@@ -685,7 +686,7 @@ namespace IRDash
             string dir = TrackMaps.TelemetryDir;
             if (dir == null || !Directory.Exists(dir)) { State = "done"; return; }
             // never while the sim is running (menus, garage and pits included): the files wait for the sim to close
-            if (Program.IsDriving || PerfSampler.FindSim()) { SimBusy = true; return; }
+            if (Program.IsDriving || RigState.SimRunning) { SimBusy = true; return; }      // W0-3: the rig state (a held handle), not a process scan
             SimBusy = false;
             string[] all = Directory.GetFiles(dir, "*.ibt");
             List<FileInfo> todo = new List<FileInfo>();
@@ -709,7 +710,7 @@ namespace IRDash
             int added = 0; Stopwatch sw = Stopwatch.StartNew();
             foreach (FileInfo fi in todo)
             {
-                if (Program.IsDriving || PerfSampler.FindSim()) { SimBusy = true; break; }
+                if (Program.IsDriving || RigState.SimRunning || Jobs.ShouldYield) { SimBusy = true; break; }
                 PerfRow r = null;
                 try { r = PerfReport.Compute(fi.FullName); }
                 catch (Exception ex)
@@ -2224,8 +2225,25 @@ namespace IRDash
         static readonly Dictionary<int, KeyValuePair<string, ProcessPriorityClass>> was = new Dictionary<int, KeyValuePair<string, ProcessPriorityClass>>();
         const double GateCores = 50;     // overlays + Paddock together must use this much of one core (percent) before it is worth trying
 
+        // W0-3 (H6): the whole experiment sits behind irdash.ini perf_prio=1. Off by default (Peter decides; the plan says off until the
+        // black box shows it helps). When on, the priorities are set ONCE when the sim starts, not again every 5 s.
+        public static bool Enabled;
+        public static bool ParseSwitch(string iniText)
+        {
+            bool on = false;
+            foreach (string raw in (iniText ?? "").Split('\n'))
+            {
+                string l = raw.Trim(); if (l.Length == 0 || l.StartsWith(";") || l.StartsWith("#")) continue;
+                int e = l.IndexOf('='); if (e <= 0) continue;
+                if (l.Substring(0, e).Trim().ToLowerInvariant() == "perf_prio") on = l.Substring(e + 1).Trim() == "1";
+            }
+            return on;
+        }
+
         public static void Init(string dir)
         {
+            try { Enabled = Program.IniFile != null && File.Exists(Program.IniFile) && ParseSwitch(File.ReadAllText(Program.IniFile)); } catch { Enabled = false; }
+            if (!Enabled) Log.W("perf: the low-priority experiment is off (perf_prio=0 in irdash.ini)");
             file = Path.Combine(dir, "perf-prio.tsv");
             try
             {
@@ -2250,12 +2268,13 @@ namespace IRDash
 
         public static string Json()
         {
-            return "{\"mode\":" + Json_.S(Mode) + ",\"active\":" + Perf.B(Active) + ",\"since\":" + since + ",\"reason\":" + Json_.S(reason) + "}";
+            return "{\"mode\":" + Json_.S(Mode) + ",\"enabled\":" + Perf.B(Enabled) + ",\"active\":" + Perf.B(Active) + ",\"since\":" + since + ",\"reason\":" + Json_.S(reason) + "}";
         }
 
         public static PerfItem Item()
         {
             PerfItem it = new PerfItem("lowprio", "Lower our own programs' priority during sessions"); it.Auto = true; it.State = "info";
+            if (!Enabled) { it.Evidence = "Off (perf_prio=0 in irdash.ini): Paddock does not change other programs' priority."; return it; }
             switch (Mode)
             {
                 case "trial": it.Evidence = "On trial since " + When() + ": overlays and the dashboard browser at low priority while the sim runs; kept only if the numbers improve. " + reason; break;
@@ -2272,6 +2291,7 @@ namespace IRDash
         // called when new reports arrive and every few minutes
         public static void Evaluate()
         {
+            if (!Enabled) return;      // off: no trial starts, nothing is judged
             lock (gate)
             {
                 if (Mode == "watch")
@@ -2309,9 +2329,10 @@ namespace IRDash
             }
         }
 
-        public static void OnSimStart() { if (Mode == "trial" || Mode == "kept") Lower(); }
+        public static void OnSimStart() { if (Enabled && (Mode == "trial" || Mode == "kept")) Lower(); }
         public static void OnSimEnd() { Restore(); }
-        public static void Maintain() { if (Active) Lower(); }      // overlays restarted during the session start low as well
+        // W0-3: no longer re-lowers every 5 s during the session (that changed other apps' priority all race); once at the start is all
+        public static void Maintain() { }
 
         static void Lower()
         {

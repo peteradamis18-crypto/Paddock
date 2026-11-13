@@ -474,9 +474,34 @@ namespace IRDash
             return "null";
         }
 
+        // W0-3: the top screen asks every 1.2 s, even while he drives. While a session is on the answer comes from the last one as long as
+        // nothing it is made from changed: the stamps of the files it reads, the few values held in memory and a 10 s clock step.
+        static string jsonCache, jsonKey;
+        static string Stamp(string f) { try { FileInfo fi = new FileInfo(f); return fi.Exists ? fi.Length + ":" + fi.LastWriteTimeUtc.Ticks : "-"; } catch { return "?"; } }
+        static string JsonKey()
+        {
+            StringBuilder k = new StringBuilder();
+            k.Append(Stamp(Path.Combine(dir, "state.ini"))).Append('|').Append(Stamp(Path.Combine(dir, "favourites.ini"))).Append('|')
+             .Append(Stamp(Path.Combine(dir, "results.json"))).Append('|').Append(Stamp(Path.Combine(rootDir, @"dash\career-cache.tsv"))).Append('|')
+             .Append(Stamp(Path.Combine(rootDir, @"mydrive\ai-status.txt"))).Append('|').Append(slow.Busy).Append(slow.Label).Append('|')
+             .Append(DateTime.UtcNow < openUntil).Append('|').Append(draftKind).Append(draftText).Append('|').Append(speedSeq).Append(speedWhich).Append('|')
+             .Append(Sdk.Latest.Connected).Append(Program.IsDriving).Append('|').Append(Sdk.Latest.SessionVersion).Append('|').Append(DateTime.UtcNow.Ticks / (10 * TimeSpan.TicksPerSecond));      // review #8: a 10 s step, so last.age and the 20 s "could not start" note stay right
+            return k.ToString();
+        }
+
         public static string Json()
         {
             if (dir == null) return "{\"ready\":false}";
+            bool session = RigState.SessionOn;
+            string key = session ? JsonKey() : null;
+            if (session && key == jsonKey && jsonCache != null) return jsonCache;
+            string j = Build();
+            if (session) { jsonCache = j; jsonKey = key; } else { jsonCache = null; jsonKey = null; }
+            return j;
+        }
+
+        static string Build()
+        {
             try
             {
                 CultureInfo inv = CultureInfo.InvariantCulture;

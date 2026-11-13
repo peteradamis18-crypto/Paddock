@@ -39,8 +39,23 @@ namespace IRDash
             dir = d;
             Directory.CreateDirectory(Path.Combine(dir, "presets"));
             if (!File.Exists(Path.Combine(dir, @"presets\race.json"))) Enqueue("ovl init");          // first run: write the five starting presets
-            tick = new Timer(delegate { try { ApplyWhenQuiet(); } catch (Exception ex) { Log.W("overlays: " + ex.Message); } }, null, 2000, 500);
+            // W0-3: state.ini is read when it changes (a file watcher), not twice a second all session; a pending edit is looked at again
+            // by a one-shot timer while it waits to go quiet, and by the Jobs queue when it waits for the session to end
+            tick = new Timer(delegate { try { ApplyWhenQuiet(); } catch (Exception ex) { Log.W("overlays: " + ex.Message); } }, null, 2000, Timeout.Infinite);
+            try
+            {
+                watcher = new FileSystemWatcher(dir, "state.ini");
+                watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName | NotifyFilters.CreationTime;
+                FileSystemEventHandler h = delegate { stateKey = null; Again(300); };
+                watcher.Changed += h; watcher.Created += h; watcher.Deleted += h;
+                watcher.Renamed += delegate { stateKey = null; Again(300); };
+                watcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex) { Log.W("overlays: no file watcher on state.ini (" + ex.Message + ") - looking every 2 s instead"); tick.Change(2000, 2000); }
         }
+
+        static FileSystemWatcher watcher;
+        static void Again(int ms) { try { if (tick != null) tick.Change(ms, Timeout.Infinite); } catch { } }
 
         public static bool Handles(string c) { return Commands.Contains(c); }
 
@@ -99,16 +114,21 @@ namespace IRDash
 
         public static bool Busy { get { lock (gate) return working || queue.Count > 0; } }
 
-        // overlays\state.ini, written by irdeck
+        // overlays\state.ini, written by irdeck; read again only when the watcher saw it change (or its size or time differ)
+        static string stateKey; static Dictionary<string, string> stateCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         static Dictionary<string, string> State()
         {
+            string f = Path.Combine(dir, "state.ini");
+            string key = "";
+            try { if (File.Exists(f)) { FileInfo fi = new FileInfo(f); key = fi.Length + ":" + fi.LastWriteTimeUtc.Ticks; } } catch { }
+            lock (gate) if (key == stateKey && key.Length > 0) return stateCache;
             Dictionary<string, string> st = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                string f = Path.Combine(dir, "state.ini");
                 if (File.Exists(f)) foreach (string l in File.ReadAllLines(f)) { int e = l.IndexOf('='); if (e > 0) st[l.Substring(0, e)] = l.Substring(e + 1); }
             }
             catch { }
+            lock (gate) { stateCache = st; stateKey = key; }
             return st;
         }
         static string Sv(Dictionary<string, string> st, string k) { string v; return st.TryGetValue(k, out v) ? v : ""; }
@@ -178,14 +198,16 @@ namespace IRDash
         // edits are applied once they stop (1.5 s quiet), when nothing else is running and no session is on
         static void ApplyWhenQuiet()
         {
-            if (dir == null || Busy) return;
+            if (dir == null) return;
+            if (Busy) { Again(2000); return; }
             Dictionary<string, string> st = State();
             if (Sv(st, "pending") != "1") return;
             long ticks; if (!long.TryParse(Sv(st, "changed"), out ticks)) ticks = 0;
             DateTime changed = new DateTime(ticks, DateTimeKind.Utc);
-            if ((DateTime.UtcNow - changed).TotalSeconds < 1.5) return;
-            if (RigState.SessionOn) return;      // W0-2: never restart irdashies while a session is on (it used to wait only while the car rolled)
-            if (lastTry > changed && (DateTime.UtcNow - lastTry).TotalSeconds < 8) return;   // a failed restart is retried slowly, not in a loop
+            if ((DateTime.UtcNow - changed).TotalSeconds < 1.5) { Again(1600); return; }
+            // W0-2: never restart irdashies while a session is on (it used to wait only while the car rolled); W0-3: the Jobs queue looks again after it
+            if (RigState.SessionOn) { Jobs.Run("overlays apply", delegate { Again(0); }, true); return; }
+            if (lastTry > changed && (DateTime.UtcNow - lastTry).TotalSeconds < 8) { Again(8000); return; }   // a failed restart is retried slowly, not in a loop
             if (Updating())
             {
                 lastTry = DateTime.UtcNow;
@@ -284,7 +306,7 @@ namespace IRDash
                 if (match) foreach (string[] w in Widgets) { bool isOn = on.ContainsKey(w[0]) && on[w[0]]; if (isOn != set.Contains(w[0])) { match = false; break; } }
                 ps.Add("{\"id\":" + Json_.S(p) + ",\"name\":" + Json_.S(p.ToUpperInvariant()) + ",\"exists\":" + (set != null ? "true" : "false") + ",\"match\":" + (match ? "true" : "false") + "}");
             }
-            bool running = Process.GetProcessesByName("irdashies").Length > 0;
+            bool running = Proc.RunningCached("irdashies", 5);      // W0-3: a held handle or a 5 s old answer, never a scan per poll
             bool pending = Sv(st, "pending") == "1";
             string saveTo = Sv(st, "preset"); if (!IsPreset(saveTo)) saveTo = "race";
             Frame f = Sdk.Latest;

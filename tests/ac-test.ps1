@@ -1,4 +1,4 @@
-﻿# ac-test.ps1 - the rig room's Midea AC: ac\ac.py (msmart-ng in tools\python), irdeck's `ac` command (src\ac.cs), the four
+# ac-test.ps1 - the rig room's Midea AC: ac\ac.py (msmart-ng in tools\python), irdeck's `ac` command (src\ac.cs), the four
 # MORE keys, auto-cool in irdash (dash\src\ac.cs) and the secret key file staying out of the public repo.
 #   1. offline: the auto-cool rule and the °F/°C steps, run from ac.py itself
 #   2. offline: ac.py and irdeck without a key say "not connected" and change nothing
@@ -98,7 +98,7 @@ Check 'SLEEP PC / SHUT DOWN PC stop the cooling auto-cool started' ($ir -match '
 Check 'irdash builds dash\src\ac.cs and starts auto-cool' ($db -match 'src\\ac\.cs' -and $id -match 'AcAuto\.Init\(RootDir\); AcAuto\.Start\(\)')
 Check 'auto-cool runs every 2 min, BelowNormal, idle until the AC is connected' ($dac -match 'EveryMs = 120000' -and $dac -match 'BelowNormal' -and $dac -match 'ac\\ac\.json' -and $dac -match 'ac\\cloud\.bin')
 Check 'irdash serves /ac and takes the AC screen''s commands, checked one by one' ($id -match 'path == "/ac"' -and $id -match 'AcAuto\.Handles\(dc\) \? AcAuto\.Do\(dc, da\)' -and $dac -match '"acpower", "actemp", "acmode", "acfan", "acpreset", "acauto", "acstart"')
-Check 'the AC screen''s presses go out as one command (a burst waits 600 ms, one ac.py at a time)' ($dac -match 'Thread\.Sleep\(600\)' -and $dac -match 'lock \(run\)' -and $dac -match 'StringBuilder\("set"\)')
+Check 'the AC screen''s presses go out as one command (a burst waits 600 ms, one ac.py at a time)' ($dac -match 'Thread\.Sleep\(600\)' -and $dac -match 'Interlocked\.CompareExchange\(ref running, 1, 0\)' -and $dac -match 'StringBuilder\("set"\)')
 $ins = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\install.ps1'))
 Check 'the add-on installs the RigAC profile and the AC opener action' ($ins -match "Build-Profile 'RigAC' 'ac'" -and $ins -match 'uuid\.ac"')
 Check 'MORE has AC (opens the AC screen), AC COOLER and AC WARMER, only once the AC is connected' ($bd -match "'ac cooler'" -and $bd -match "'ac warmer'" -and $bd -match "plugin = 'com\.peter\.rigintro\.ac'" -and $bd -match 'Test-Path \(Join-Path \$here ''ac\\cloud\.bin''\)')

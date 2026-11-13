@@ -21,7 +21,9 @@ namespace IRDash
     {
         static string root;
         public static int EveryMs = 120000;
-        static readonly object run = new object();          // one ac.py at a time (auto-cool, the screen, a status read)
+        static int running;                                 // 1 while an ac.py runs: one at a time (auto-cool, the screen, a status read)
+        public static int SessionEveryMs = 600000;          // W0-3: while a session is on, auto-cool asks the AC every 10 min instead of 2
+        static DateTime lastAuto = DateTime.MinValue;
         static readonly object gate = new object();
         static readonly Dictionary<string, string> want = new Dictionary<string, string>();       // pressed, not sent yet
         static readonly Dictionary<string, string> sending = new Dictionary<string, string>();    // sent, AC not confirmed yet
@@ -33,29 +35,34 @@ namespace IRDash
         public static bool Handles(string c) { return Commands.Contains(c ?? ""); }
         static bool Connected() { return root != null && (File.Exists(Path.Combine(root, @"ac\ac.json")) || File.Exists(Path.Combine(root, @"ac\cloud.bin"))); }
 
+        // W0-3: one thread for both (auto-cool every 2 min, the open AC screen every 20 s): one fewer thread in irdash all day
+        // W0-3: a one-shot timer re-armed after each step (no thread of its own, no overlap); BelowNormal for the ac.py it starts is kept
+        static Timer loopTimer; static DateTime nextAuto;
         public static void Start()
         {
-            Thread t = new Thread(Loop);
-            t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Name = "AcAuto";
-            t.Start();
-            Thread w = new Thread(Watch);
-            w.IsBackground = true; w.Priority = ThreadPriority.BelowNormal; w.Name = "AcScreen";
-            w.Start();
+            nextAuto = DateTime.UtcNow.AddMilliseconds(60000);   // never compete with boot
+            loopTimer = new Timer(delegate { Step(); }, null, 1000, Timeout.Infinite);
         }
 
-        static void Loop()
+        static void Step()
         {
-            Thread.Sleep(60000);   // never compete with boot
-            while (true)
+            try
             {
-                try { Tick(); } catch (Exception ex) { Log.W("ac auto: " + ex.Message); }
-                Thread.Sleep(EveryMs);
+                WatchOnce();
+                if (DateTime.UtcNow >= nextAuto)
+                {
+                    try { Tick(); } catch (Exception ex) { Log.W("ac auto: " + ex.Message); }
+                    nextAuto = DateTime.UtcNow.AddMilliseconds(EveryMs);
+                }
             }
+            finally { try { loopTimer.Change(1000, Timeout.Infinite); } catch { } }
         }
 
         static void Tick()
         {
             if (!Connected()) return;   // not connected yet (local key or Midea Air login)
+            if (RigState.SessionOn && (DateTime.UtcNow - lastAuto).TotalMilliseconds < SessionEveryMs) return;
+            lastAuto = DateTime.UtcNow;
             string last = RunPy("auto");
             if (last.StartsWith("AUTO ", StringComparison.Ordinal))
             {
@@ -66,11 +73,21 @@ namespace IRDash
         }
 
         // ac.py with these arguments, hidden, BelowNormal, at most 30 s. Returns its last line ("" when it did not answer).
-        static string RunPy(string args)
+        // W0-3 (H5, measure first): one log line per call with its wall time and CPU time, and whether a session was on:
+        //   "ac: python auto took 7.4 s wall, 0.31 s CPU (session on)"
+        // One at a time, but no lock is held across the call: a second caller waits outside any lock (a press) or skips (a status read).
+        static string RunPy(string args) { return RunPy(args, true); }
+        static string RunPy(string args, bool wait)
         {
             string py = Path.Combine(root, @"tools\python\python.exe"), script = Path.Combine(root, @"ac\ac.py");
             if (!File.Exists(py) || !File.Exists(script)) return "";
-            lock (run)
+            for (int i = 0; Interlocked.CompareExchange(ref running, 1, 0) != 0; i++)
+            {
+                if (!wait || i >= 160) return "";        // 40 s: the one before it timed out at 30
+                Thread.Sleep(250);
+            }
+            bool sess = RigState.SessionOn; Stopwatch sw = Stopwatch.StartNew(); double cpu = -1; string res = "";
+            try
             {
                 ProcessStartInfo psi = new ProcessStartInfo(py, "-I -X utf8 \"" + script + "\" " + args);
                 psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
@@ -82,12 +99,21 @@ namespace IRDash
                     p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
                     p.ErrorDataReceived += delegate { };
                     p.BeginOutputReadLine(); p.BeginErrorReadLine();
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } Log.W("ac: the AC did not answer in 30 s (" + args + ")"); return ""; }
+                    if (!p.WaitForExit(30000)) { try { cpu = p.TotalProcessorTime.TotalSeconds; } catch { } try { p.Kill(); } catch { } Log.W("ac: the AC did not answer in 30 s (" + args + ")"); return ""; }
                     p.WaitForExit();
+                    try { cpu = p.TotalProcessorTime.TotalSeconds; } catch { }
                     readAt = DateTime.UtcNow;
                     string o; lock (sb) o = sb.ToString().Trim();
-                    return o.Length == 0 ? "" : o.Substring(o.LastIndexOf('\n') + 1).Trim();
+                    res = o.Length == 0 ? "" : o.Substring(o.LastIndexOf('\n') + 1).Trim();
+                    return res;
                 }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref running, 0);
+                string verb = args.Split(' ')[0];
+                Log.W("ac: python " + verb + " took " + sw.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s wall, " +
+                      (cpu >= 0 ? cpu.ToString("0.00", CultureInfo.InvariantCulture) + " s CPU" : "CPU unknown") + (sess ? " (session on)" : " (no session)"));
             }
         }
 
@@ -206,19 +232,15 @@ namespace IRDash
         }
 
         // while the AC screen is open: read the AC every 20 s, so a change made with the remote or the app shows too
-        static void Watch()
+        static void WatchOnce()
         {
-            while (true)
+            try
             {
-                Thread.Sleep(1000);
-                try
-                {
-                    bool due;
-                    lock (gate) due = DateTime.UtcNow < watchedUntil && !working && (DateTime.UtcNow - readAt).TotalSeconds > 20;
-                    if (due && Connected()) RunPy("status");
-                }
-                catch (Exception ex) { Log.W("ac screen: " + ex.Message); }
+                bool due;
+                lock (gate) due = DateTime.UtcNow < watchedUntil && !working && (DateTime.UtcNow - readAt).TotalSeconds > 20;
+                if (due && Connected()) RunPy("status", false);      // a status read never waits for another call
             }
+            catch (Exception ex) { Log.W("ac screen: " + ex.Message); }
         }
 
         // GET /ac (the AC screen and its opener key). ?live=1 = the screen is open, keep it fresh.

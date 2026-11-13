@@ -366,6 +366,18 @@ namespace IRDash
             File.Move(tmp, file);
         }
 
+        // one mark line, appended in the same format SaveAll writes (marks.tsv is rewritten whole by the next SaveAll)
+        static string MarkLine(VMark m)
+        {
+            return new StringBuilder().Append(m.Ms).Append('\t').Append(m.Kind).Append('\t').Append(m.Car.Replace('\t', ' ')).Append('\t').Append(m.Track.Replace('\t', ' ')).Append('\t').Append(m.Config.Replace('\t', ' ')).Append('\t').Append(m.Lap).Append('\t')
+                .Append(m.Pct.ToString("0.0000", Inv)).Append('\t').Append(m.St.ToString("0.000", Inv)).Append('\t').Append(m.Used ? "1" : "0").Append("\r\n").ToString();
+        }
+        static void AppendMark(VMark m)
+        {
+            try { lock (gate) File.AppendAllText(P("marks.tsv"), MarkLine(m), new UTF8Encoding(false)); }
+            catch (Exception ex) { Log.W("vault: could not note the mark (" + ex.Message + ") - it is saved with the rest after the session"); }
+        }
+
         static void SaveAll()
         {
             lock (gate)
@@ -389,8 +401,7 @@ namespace IRDash
                     StringBuilder ss = new StringBuilder(); foreach (VSession s in sessions) ss.Append(s.Row()).Append("\r\n");
                     WriteAtomic(P("sessions.tsv"), ss.ToString());
                     StringBuilder mk = new StringBuilder();
-                    foreach (VMark m in marks) mk.Append(m.Ms).Append('\t').Append(m.Kind).Append('\t').Append(m.Car.Replace('\t', ' ')).Append('\t').Append(m.Track.Replace('\t', ' ')).Append('\t').Append(m.Config.Replace('\t', ' ')).Append('\t').Append(m.Lap).Append('\t')
-                        .Append(m.Pct.ToString("0.0000", Inv)).Append('\t').Append(m.St.ToString("0.000", Inv)).Append('\t').Append(m.Used ? "1" : "0").Append("\r\n");
+                    foreach (VMark m in marks) mk.Append(MarkLine(m));
                     WriteAtomic(P("marks.tsv"), mk.ToString());
                     StringBuilder pn = new StringBuilder(); foreach (string[] p in pins) pn.Append(string.Join("\t", p)).Append("\r\n");
                     WriteAtomic(P("pins.tsv"), pn.ToString());
@@ -411,7 +422,8 @@ namespace IRDash
             {
                 try
                 {
-                    bool driving = Program.IsDriving, more = false, ran = false;
+                    // W0-3: not while a session is on (it used to wait only while he was on track: the budget prune could delete in the garage)
+                    bool driving = RigState.SessionOn, more = false, ran = false;
                     if (!driving && !sandbox)
                     {
                         lock (workGate)         // the tests swap the vault folders under this same lock
@@ -837,6 +849,9 @@ namespace IRDash
             return TelemetryPath(m);
         }
 
+        // W0-3: callers hold the Vault's lock, so the 45-78 MB copy itself is a job on the Jobs queue: it runs outside the lock (every /vault*
+        // request used to wait behind it), when no session is on, at background disk priority, and publishes under the lock when done.
+        // true = the copy is already there; false = none possible, or it is queued.
         static bool EnsureCopy(VMoment m)
         {
             try
@@ -849,19 +864,47 @@ namespace IRDash
                 string rel = @"telemetry\" + Slug(m.Car) + @"\" + Slug(m.Track + " " + m.Config) + @"\" + stamp + ".ibt";
                 string dest = P(rel);
                 if (File.Exists(dest) && new FileInfo(dest).Length == fi.Length) { m.Ibt = rel; m.IbtSize = fi.Length; return true; }
-                if (FreeBytes(Root) < fi.Length + 3L * 1024 * 1024 * 1024) { Log.W("vault: not copying " + fi.Name + " - less than 3 GB would be left on the disk"); return false; }
-                Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                CopyFile(src, dest + ".tmp");
-                if (File.Exists(dest)) File.Delete(dest);
-                File.Move(dest + ".tmp", dest);
-                try { File.SetLastWriteTimeUtc(dest, fi.LastWriteTimeUtc); } catch { }
-                m.Ibt = rel; m.IbtSize = fi.Length;
-                // keepers and clips of the same session share the copy. A recent lap keeps no copy of its own.
-                foreach (VMoment o in moments.Values) if (o.Session == m.Session && o.Ibt.Length == 0 && (o.Keeper || o.Kind == "clip")) { o.Ibt = rel; o.IbtSize = fi.Length; dirty.Add(o.Id); }
-                Log.W("vault: kept a copy of " + fi.Name + " (" + (fi.Length / 1048576) + " MB) for " + m.Id);
-                return true;
+                string id = m.Id;
+                if (sandbox) { CopyNow(id, src, dest, rel); return m.Ibt == rel; }      // tests\vault-test.ps1's sandbox: at once, as before
+                Jobs.Run("vault copy " + rel, delegate { CopyNow(id, src, dest, rel); }, true);
+                return false;
             }
             catch (Exception ex) { Log.W("vault: copy for " + m.Id + ": " + ex.Message); return false; }
+        }
+
+        // the Jobs thread: the copy outside the lock, then the moments that share it are told under the lock
+        static void CopyNow(string id, string src, string dest, string rel)
+        {
+            try
+            {
+                FileInfo fi = new FileInfo(src);
+                if (!fi.Exists) return;
+                if (!(File.Exists(dest) && new FileInfo(dest).Length == fi.Length))
+                {
+                    if (FreeBytes(Root) < fi.Length + 3L * 1024 * 1024 * 1024) { Log.W("vault: not copying " + fi.Name + " - less than 3 GB would be left on the disk"); return; }
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                    CopyFile(src, dest + ".tmp");
+                    if (File.Exists(dest)) File.Delete(dest);
+                    File.Move(dest + ".tmp", dest);
+                    try { File.SetLastWriteTimeUtc(dest, fi.LastWriteTimeUtc); } catch { }
+                    Log.W("vault: kept a copy of " + fi.Name + " (" + (fi.Length / 1048576) + " MB) for " + id);
+                }
+                lock (gate)
+                {
+                    VMoment m; if (!moments.TryGetValue(id, out m)) return;
+                    m.Ibt = rel; m.IbtSize = fi.Length; dirty.Add(m.Id);
+                    // keepers and clips of the same session share the copy. A recent lap keeps no copy of its own.
+                    foreach (VMoment o in moments.Values) if (o.Session == m.Session && o.Ibt.Length == 0 && (o.Keeper || o.Kind == "clip")) { o.Ibt = rel; o.IbtSize = fi.Length; dirty.Add(o.Id); }
+                }
+                SaveAll();
+            }
+            catch (OperationCanceledException)
+            {
+                // the half copy goes; the whole copy is made again after the session
+                try { if (File.Exists(dest + ".tmp")) File.Delete(dest + ".tmp"); } catch { }
+                Jobs.Again("vault copy " + rel, delegate { CopyNow(id, src, dest, rel); });
+            }
+            catch (Exception ex) { Log.W("vault: copy for " + id + ": " + ex.Message); }
         }
 
         // reads with FileShare.ReadWrite, in 1 MB pieces, with a short rest now and then so the sim's disk is never starved
@@ -871,7 +914,11 @@ namespace IRDash
             using (FileStream b = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 byte[] buf = new byte[1 << 20]; int n, since = 0;
-                while ((n = a.Read(buf, 0, buf.Length)) > 0) { b.Write(buf, 0, n); if (++since % 8 == 0 && !sandbox) Thread.Sleep(3); }
+                while ((n = a.Read(buf, 0, buf.Length)) > 0)
+                {
+                    if (Jobs.ShouldYield) throw new OperationCanceledException("a session started");      // W0-3 review #5: between the 1 MB pieces
+                    b.Write(buf, 0, n); if (++since % 8 == 0 && !sandbox) Thread.Sleep(3);
+                }
             }
         }
 
@@ -989,7 +1036,7 @@ namespace IRDash
                 }
                 n.HotkeyText = KeyText(n.Keys);
                 foreach (string pn in new[] { "NVIDIA Overlay", "NVIDIA Share" })
-                    foreach (Process p in Process.GetProcessesByName(pn)) { n.OverlayRunning = true; p.Dispose(); }
+                    if (Proc.RunningCached(pn, 60)) n.OverlayRunning = true;      // W0-3: counted; a held handle or a minute-old answer
             }
             catch (Exception ex) { Log.W("vault: NVIDIA settings: " + ex.Message); }
             if (NvDirOverride != null) n.Gallery = NvDirOverride;
@@ -1252,7 +1299,8 @@ namespace IRDash
             VMark m = MarkNow("keep");
             if (m == null) { Log.W("vault: KEEP pressed but no session is running"); Beep(false); return false; }
             lock (gate) marks.Add(m);
-            SaveAll();
+            AppendMark(m);      // W0-3: one line now (it survives a crash); the 7 index files are written after the session
+            Jobs.Save("vault save", SaveAll);
             try { Recorder.Keep(m.Lap); } catch (Exception ex) { Log.W("recorder: KEEP: " + ex.Message); }      // the lap's own video is kept too (if the recorder is on)
             Log.W("vault: KEEP - " + m.Car + " at " + m.Track + ", lap " + m.Lap + " (" + (m.Pct * 100).ToString("0") + " % round); it is kept when the session file is complete");
             TestEvents.Add("keep lap " + m.Lap);
@@ -1269,7 +1317,7 @@ namespace IRDash
                 lastClip = DateTime.Now;
             }
             VMark m = MarkNow("clip");
-            if (m != null) { lock (gate) marks.Add(m); SaveAll(); }
+            if (m != null) { lock (gate) marks.Add(m); AppendMark(m); Jobs.Save("vault save", SaveAll); }      // W0-3: one line now, the rest after
             VNv nv = Nv(); string how; bool pressed = false;
             if (sandbox || Sdk.Pretend) { how = "test: would press " + nv.HotkeyText; TestEvents.Add("clip hotkey " + nv.HotkeyText); pressed = true; }
             else if (!nv.IrEnabled) how = "NVIDIA Instant Replay is off: turn it on in the NVIDIA app";
@@ -1294,7 +1342,7 @@ namespace IRDash
         {
             VNv nv = Nv(); int attached = 0;
             if (string.IsNullOrEmpty(nv.Gallery) || !Directory.Exists(nv.Gallery)) return 0;
-            if (!test && Program.IsDriving) return 0;                       // copying 45 MB can wait until he is out of the car
+            if (!test && RigState.SessionOn) return 0;                      // copying 45 MB can wait until the session is over (W0-3)
             List<string> files = new List<string>();
             try
             {
@@ -1333,6 +1381,16 @@ namespace IRDash
         {
             long endMs = Ms(fi.LastWriteTimeUtc);
             string id = "c" + Epoch.AddMilliseconds(endMs).ToString("yyyyMMdd-HHmmss", Inv);
+            lock (gate) { if (deleted.Contains(id) || moments.ContainsKey(id)) { clipsSeen.Add(key); return false; } }
+            // W0-3: the 45 MB copy happens outside the lock (every /vault* request used to wait behind it); the moment is published under it
+            if (FreeBytes(Root) < fi.Length + 3L * 1024 * 1024 * 1024) { Log.W("vault: not copying the clip - less than 3 GB would be left on the disk"); return false; }
+            string rel = @"clips\" + id + ".mp4", dest = P(rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(dest));
+            CopyFile(path, dest + ".tmp");
+            if (new FileInfo(dest + ".tmp").Length != fi.Length) { try { File.Delete(dest + ".tmp"); } catch { } throw new IOException("the copy is not the same size as the clip"); }
+            if (File.Exists(dest)) File.Delete(dest);
+            File.Move(dest + ".tmp", dest);
+            try { File.SetLastWriteTimeUtc(dest, fi.LastWriteTimeUtc); } catch { }
             lock (gate)
             {
                 if (deleted.Contains(id) || moments.ContainsKey(id)) { clipsSeen.Add(key); return false; }
@@ -1345,14 +1403,6 @@ namespace IRDash
                     if (gap < -5000 || gap > 60000) continue;
                     if (best == null || Math.Abs(gap) < Math.Abs(endMs - best.Ms)) best = mk;
                 }
-                if (FreeBytes(Root) < fi.Length + 3L * 1024 * 1024 * 1024) { Log.W("vault: not copying the clip - less than 3 GB would be left on the disk"); return false; }
-                string rel = @"clips\" + id + ".mp4", dest = P(rel);
-                Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                CopyFile(path, dest + ".tmp");
-                if (new FileInfo(dest + ".tmp").Length != fi.Length) { try { File.Delete(dest + ".tmp"); } catch { } throw new IOException("the copy is not the same size as the clip"); }
-                if (File.Exists(dest)) File.Delete(dest);
-                File.Move(dest + ".tmp", dest);
-                try { File.SetLastWriteTimeUtc(dest, fi.LastWriteTimeUtc); } catch { }
                 VMoment m = new VMoment(); m.Id = id; m.Kind = "clip"; m.Created = Now(); m.Ts = endMs; m.Video = rel; m.VideoDur = dur; m.VideoEndMs = endMs; m.VideoSize = fi.Length; m.Nudge = globalNudge;
                 m.Tags.Add("CLIP");
                 if (best != null) { best.Used = true; m.Car = best.Car; m.Track = best.Track; m.Config = best.Config; m.Lap = best.Lap; m.MarkPct = best.Pct; }
@@ -1365,8 +1415,11 @@ namespace IRDash
         }
 
         // A clip is tied to its session when the session's .ibt exists: the session that was running at the clip's end time.
+        // W0-3: the lap list of the session's file (a whole .ibt read) is worked out OUTSIDE the lock; the lock is held only to pick the
+        // clips and their sessions, and to write the answer back
         public static void LinkClips()
         {
+            List<KeyValuePair<VMoment, VSession>> todo = new List<KeyValuePair<VMoment, VSession>>();
             lock (gate)
             {
                 foreach (VMoment m in new List<VMoment>(moments.Values))
@@ -1380,12 +1433,24 @@ namespace IRDash
                         if (m.Track.Length > 0 && s.Track != m.Track) continue;
                         if (hit == null || s.StartMs > hit.StartMs) hit = s;
                     }
-                    if (hit == null) continue;
+                    if (hit != null) todo.Add(new KeyValuePair<VMoment, VSession>(m, hit));
+                }
+            }
+            foreach (KeyValuePair<VMoment, VSession> kv in todo)
+            {
+                VMoment m = kv.Key; VSession hit = kv.Value;
+                long end = m.VideoEndMs, start = end - (long)(m.VideoDur * 1000);
+                string laps = null;
+                try { laps = IbtLaps.LapsJson(Path.Combine(SrcDir, hit.Name)); }       // outside the lock
+                catch (Exception ex) { Log.W("vault: could not find the lap of clip " + m.Id + ": " + ex.Message); }
+                lock (gate)
+                {
+                    if (!moments.ContainsKey(m.Id) || m.Session.Length > 0) continue;      // deleted or linked meanwhile
                     m.Session = hit.Name; m.IbtSrc = hit.Name; m.Car = hit.Car; m.Track = hit.Track; m.Config = hit.Config; m.TrackId = hit.TrackId; m.TrackName = hit.TrackName; m.SType = hit.Type; m.StartMs = hit.StartMs; m.Official = hit.Official;
+                    if (laps != null)
                     try
                     {
-                        string src = Path.Combine(SrcDir, hit.Name);
-                        Dictionary<string, object> d = VaultIbt.Parse(IbtLaps.LapsJson(src));
+                        Dictionary<string, object> d = VaultIbt.Parse(laps);
                         double st0 = Convert.ToDouble(d["st0"], Inv);
                         VLap pick = null; double bestOver = 0;
                         foreach (object o in (IList)d["laps"])
@@ -1593,10 +1658,28 @@ namespace IRDash
         }
 
         // ---- status and the whole list ----
+        // W0-3: the size of the whole vault tree, the NVIDIA settings and process list, and the Cosworth search are worked out outside the
+        // lock and kept 60 s; while a session is on the kept answer is used however old it is (only the very first ask works them out).
+        static long stUsed; static VNv stNv; static CosworthInfo stCw; static DateTime stAt = DateTime.MinValue;
+        static readonly object stGate = new object();
+        static void StatusExtras(out long used, out VNv nv, out CosworthInfo cw)
+        {
+            lock (stGate)
+            {
+                bool have = stNv != null && stCw != null;
+                if (!have || (!RigState.SessionOn && (DateTime.UtcNow - stAt).TotalSeconds >= 60) || sandbox)
+                {
+                    stUsed = UsedBytes(); stNv = Nv(); stCw = Cosworth(); stAt = DateTime.UtcNow;
+                }
+                used = stUsed; nv = stNv; cw = stCw;
+            }
+        }
+
         static string StatusJson(bool withList)
         {
             // which moments have a recording (outside the lock: the recorder's lookup takes the Vault's lock itself)
             Dictionary<string, VFrameSrc> fr = withList ? FrameMap() : null;
+            long used; VNv nv; CosworthInfo cw; StatusExtras(out used, out nv, out cw);      // W0-3: outside the lock, cached 60 s
             lock (gate)
             {
                 int keepers = 0, recent = 0, clips = 0, withVideo = 0; long clipBytes = 0, ibtBytes = 0;
@@ -1608,8 +1691,7 @@ namespace IRDash
                     if (m.Video.Length > 0) { withVideo++; clipBytes += m.VideoSize; }
                     if (m.Ibt.Length > 0 && seenIbt.Add(m.Ibt)) ibtBytes += m.IbtSize;
                 }
-                long used = UsedBytes(), budget = BudgetBytes;
-                VNv nv = Nv(); CosworthInfo cw = Cosworth();
+                long budget = BudgetBytes;
                 StringBuilder sb = new StringBuilder(2048);
                 sb.Append("{\"ok\":true,\"sandbox\":").Append(sandbox ? "true" : "false").Append(",\"root\":").Append(Json_.S(Root)).Append(",\"usedBytes\":").Append(used).Append(",\"budgetBytes\":").Append(budget)
                   .Append(",\"keepers\":").Append(keepers).Append(",\"recent\":").Append(recent).Append(",\"clips\":").Append(clips).Append(",\"withVideo\":").Append(withVideo).Append(",\"clipBytes\":").Append(clipBytes).Append(",\"telemetryBytes\":").Append(ibtBytes)

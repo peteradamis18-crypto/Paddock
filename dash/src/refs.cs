@@ -224,6 +224,7 @@ namespace IRDash
             foreach (BestRow row in rows)
             {
                 if (tried++ >= 6) break;
+                if (Jobs.ShouldYield) { why = "stopped: a session started"; StoppedForSession = true; return null; }      // W0-3 review #5: between files
                 string full = IbtLaps.Resolve(row.File);
                 if (full == null) { why = "the telemetry file " + row.File + " is gone"; continue; }
                 if (Career.OnlineOnly(new FileInfo(full))) { why = "the telemetry file is online-only in OneDrive"; continue; }
@@ -395,6 +396,16 @@ namespace IRDash
             ThreadPool.QueueUserWorkItem(delegate { try { Adopt(key, ci, p, t, n, last, lapNo, kb); } catch (Exception ex) { Log.W("pb reference (live): " + ex.Message); } });
         }
 
+        static readonly PendingSlot<RefData> pendingSave = new PendingSlot<RefData>(delegate (RefData a, RefData b) { return a.Time <= b.Time; });
+        static void FlushSave(string key)
+        {
+            RefData r = pendingSave.Take(key);
+            if (r == null) return;
+            RefData disk = null; try { disk = Load(key); } catch { }
+            if (!SaveRule.ShouldWrite(r.Time, disk != null ? disk.Time : 0)) { Log.W("pb reference: the live " + Lap(r.Time) + " lap is not written - the one on disk is quicker (" + Lap(disk.Time) + ")"); return; }
+            Save(r);
+        }
+
         static void Adopt(string key, Combo.Info ci, float[] p, float[] t, int n, double lapTime, int lapNo, double kb)
         {
             double[] T = FromSamples(p, t, n, lapTime);
@@ -402,9 +413,12 @@ namespace IRDash
             RefData r = new RefData();
             r.Key = key; r.Car = ci.Car; r.Track = ci.Track; r.Config = ci.Config; r.Time = lapTime; r.CareerBest = kb; r.SetAt = DateTime.Now;
             r.Source = "live"; r.Lap = lapNo; r.T = T; r.Rules = LapRules.Version;
-            Save(r);
-            if (curKey == key) current = r;
-            Log.W("personal best reference updated from the live lap: " + ci.Car + " at " + ci.Track + " " + Lap(lapTime));
+            if (curKey == key) current = r;      // the delta bar uses it from the next lap; the file is written after the session (W0-3)
+            // review #2: the job writes the newest reference for this combo when it runs (a second PB in the same session replaces the
+            // first in the slot), and never one slower than what is on disk by then (the reference build may have run first)
+            pendingSave.Put(key, r);
+            Jobs.Save("pb reference save " + key, delegate { FlushSave(key); });
+            Log.W("personal best reference updated from the live lap: " + ci.Car + " at " + ci.Track + " " + Lap(lapTime) + " (saved to disk after the session)");
         }
 
         // ---- combo changes (worker threads) ----
@@ -444,14 +458,22 @@ namespace IRDash
                 stale = cb > 0 && !failed && (have == null || uncounted || (have.Time > cb + 0.0005 && cb < have.CareerBest - 0.0005));
             }
             if (!stale) return;
-            Thread t = new Thread(delegate ()
+            // W0-3: up to 6 big .ibt files: built between sessions on the Jobs queue (it used to wait only until he left the car, so it ran
+            // in the garage with the session loaded). Until then the bar uses the saved reference or the live laps.
+            QueueBuild(key, ci, cb);
+        }
+
+        [ThreadStatic] static bool StoppedForSession;
+        static void QueueBuild(string key, Combo.Info ci, double cb)
+        {
+            Jobs.Run("pb reference build " + key, delegate ()
             {
                 try
                 {
-                    while (Program.IsDriving && curKey == key) Thread.Sleep(5000);       // a big file never competes with the sim
-                    if (curKey != key) return;
                     string why;
+                    StoppedForSession = false;
                     RefData built = BuildFromIbt(ci.Car, ci.Track, ci.Config, out why);
+                    if (StoppedForSession) { Jobs.Again("pb reference build " + key, delegate { QueueBuild(key, ci, cb); }); return; }
                     if (built == null)
                     {
                         lock (failedAt) failedAt[key] = cb;
@@ -463,8 +485,7 @@ namespace IRDash
                     Log.W("pb reference built: " + ci.Car + " at " + ci.Track + " " + Lap(built.Time) + " from " + built.File + " lap " + built.Lap);
                 }
                 catch (Exception ex) { Log.W("pb reference build: " + ex.Message); }
-            });
-            t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
+            }, true);
         }
 
         // tests: force a combo, as if its session had just loaded
