@@ -25,7 +25,10 @@ $tmp = Join-Path $env:TEMP ('lap-truth-' + [guid]::NewGuid().ToString('N').Subst
 
 # the harness: dash\src (the build.ps1 list) + tests\lap-truth-main.cs, its own Main
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$srcs = @([regex]::Matches((Get-Content (Join-Path $root 'dash\build.ps1') -Raw), '"\$d\\src\\([A-Za-z0-9_]+\.cs)"') | ForEach-Object { Join-Path $root ('dash\src\' + $_.Groups[1].Value) }) + @((Join-Path $root 'src\deckstate.cs'), (Join-Path $PSScriptRoot 'lap-truth-main.cs'))
+$buildList = Get-Content (Join-Path $root 'dash\build.ps1') -Raw
+$srcs = @([regex]::Matches($buildList, '"\$d\\src\\([A-Za-z0-9_]+\.cs)"') | ForEach-Object { Join-Path $root ('dash\src\' + $_.Groups[1].Value) }) +
+        @([regex]::Matches($buildList, '"\.\.\\src\\([A-Za-z0-9_]+\.cs)"') | ForEach-Object { Join-Path $root ('src\' + $_.Groups[1].Value) }) +   # the shared irdeck files (deckstate, deckguard, deckprofile ...)
+        @((Join-Path $PSScriptRoot 'lap-truth-main.cs'))
 $harness = Join-Path $tmp 'lap-truth.exe'; $liveExe = Join-Path $tmp 'live-judge.exe'
 $lcout = & $csc /nologo /target:exe "/out:$liveExe" /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $root 'dash\src\ibtfile.cs') (Join-Path $root 'dash\src\lapstore.cs') (Join-Path $PSScriptRoot 'live-judge-harness.cs') 2>&1 | Out-String
 $cout = & $csc /nologo /target:exe /optimize+ /platform:anycpu /main:IRDash.LapTruthMain "/out:$harness" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll @srcs 2>&1 | Out-String
