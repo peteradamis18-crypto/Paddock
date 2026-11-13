@@ -402,9 +402,9 @@ namespace IRDash
             RefData r = new RefData();
             r.Key = key; r.Car = ci.Car; r.Track = ci.Track; r.Config = ci.Config; r.Time = lapTime; r.CareerBest = kb; r.SetAt = DateTime.Now;
             r.Source = "live"; r.Lap = lapNo; r.T = T; r.Rules = LapRules.Version;
-            Save(r);
-            if (curKey == key) current = r;
-            Log.W("personal best reference updated from the live lap: " + ci.Car + " at " + ci.Track + " " + Lap(lapTime));
+            if (curKey == key) current = r;      // the delta bar uses it from the next lap; the file is written after the session (W0-3)
+            Jobs.Run("pb reference save " + key, delegate { Save(r); }, true);
+            Log.W("personal best reference updated from the live lap: " + ci.Car + " at " + ci.Track + " " + Lap(lapTime) + " (saved to disk after the session)");
         }
 
         // ---- combo changes (worker threads) ----
@@ -444,12 +444,12 @@ namespace IRDash
                 stale = cb > 0 && !failed && (have == null || uncounted || (have.Time > cb + 0.0005 && cb < have.CareerBest - 0.0005));
             }
             if (!stale) return;
-            Thread t = new Thread(delegate ()
+            // W0-3: up to 6 big .ibt files: built between sessions on the Jobs queue (it used to wait only until he left the car, so it ran
+            // in the garage with the session loaded). Until then the bar uses the saved reference or the live laps.
+            Jobs.Run("pb reference build " + key, delegate ()
             {
                 try
                 {
-                    while (Program.IsDriving && curKey == key) Thread.Sleep(5000);       // a big file never competes with the sim
-                    if (curKey != key) return;
                     string why;
                     RefData built = BuildFromIbt(ci.Car, ci.Track, ci.Config, out why);
                     if (built == null)
@@ -463,8 +463,7 @@ namespace IRDash
                     Log.W("pb reference built: " + ci.Car + " at " + ci.Track + " " + Lap(built.Time) + " from " + built.File + " lap " + built.Lap);
                 }
                 catch (Exception ex) { Log.W("pb reference build: " + ex.Message); }
-            });
-            t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
+            }, true);
         }
 
         // tests: force a combo, as if its session had just loaded

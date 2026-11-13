@@ -74,6 +74,7 @@ namespace IRDash
             ReadSwitch();
             if (!enabled) { Log.W("official: switched off (official=0 in irdash.ini)"); return; }   // no thread, no files, no download
             try { Directory.CreateDirectory(dir); } catch { }
+            QueueOwned();      // W0-3: the owned cars and tracks, once at start-up when no session is on (then every 6 h from EnsureData)
             Thread t = new Thread(Loop); t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Start();
         }
 
@@ -180,13 +181,21 @@ namespace IRDash
         static JavaScriptSerializer Ser() { JavaScriptSerializer s = new JavaScriptSerializer(); s.MaxJsonLength = int.MaxValue; s.RecursionLimit = 100; return s; }
         static string Str(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o != null ? Convert.ToString(o, Inv) : ""; }
 
+        // W0-3: never BuildOwned from a request (it walks the whole iRacing install for *.dat under the lock, and /home asks every 5 s,
+        // so it could land mid-race). It is a job on the Jobs queue at start-up and every 6 h, when no session is on; until the first one
+        // has run the answer simply has no owned cars and tracks yet.
         static void EnsureData()
         {
             lock (gate)
             {
                 LoadSeason(); LoadProfile(); LoadFavs(); LoadCareer(); LoadSpecials();
-                if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) BuildOwned();
             }
+            if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) QueueOwned();
+        }
+
+        static void QueueOwned()
+        {
+            Jobs.Run("official owned", delegate { lock (gate) { if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) { BuildOwned(); dirty = true; } } }, true);
         }
 
         // ---- the season (parsed from the PDF once, kept as JSON) ----

@@ -466,8 +466,8 @@ namespace IRDash
                         CrJob nj = new CrJob(); nj.Key = ckey; nj.Of = need.Count;
                         crJob = nj;
                         List<CrMeta> todo = new List<CrMeta>(); foreach (int i in need) todo.Add(hit[i]);
-                        Thread th = new Thread(delegate () { CrWork(nj, todo, cs, sig, vroot, live); });
-                        th.IsBackground = true; th.Priority = ThreadPriority.BelowNormal; th.Name = "Career"; th.Start();
+                        // W0-3: on the Jobs queue (waits for the session to end, background disk priority, one at a time with gain)
+                        Jobs.Run("career " + ckey, delegate () { CrWork(nj, todo, cs, sig, vroot, live); }, true);
                         return "{\"building\":true,\"done\":0,\"of\":" + need.Count + ",\"file\":\"\",\"same\":true}";
                     }
                 }
@@ -490,7 +490,7 @@ namespace IRDash
             {
                 foreach (CrMeta m in todo)
                 {
-                    if (live && Program.IsDriving) { job.Aborted = true; break; }
+                    if (live && (Program.IsDriving || Jobs.ShouldYield)) { job.Aborted = true; break; }
                     job.Cur = m.Name;
                     CrFile f = CrCompute(m, cs, sig);
                     CrStore(m, f, vroot);

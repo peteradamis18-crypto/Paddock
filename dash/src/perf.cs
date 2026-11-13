@@ -2224,8 +2224,25 @@ namespace IRDash
         static readonly Dictionary<int, KeyValuePair<string, ProcessPriorityClass>> was = new Dictionary<int, KeyValuePair<string, ProcessPriorityClass>>();
         const double GateCores = 50;     // overlays + Paddock together must use this much of one core (percent) before it is worth trying
 
+        // W0-3 (H6): the whole experiment sits behind irdash.ini perf_prio=1. Off by default (Peter decides; the plan says off until the
+        // black box shows it helps). When on, the priorities are set ONCE when the sim starts, not again every 5 s.
+        public static bool Enabled;
+        public static bool ParseSwitch(string iniText)
+        {
+            bool on = false;
+            foreach (string raw in (iniText ?? "").Split('\n'))
+            {
+                string l = raw.Trim(); if (l.Length == 0 || l.StartsWith(";") || l.StartsWith("#")) continue;
+                int e = l.IndexOf('='); if (e <= 0) continue;
+                if (l.Substring(0, e).Trim().ToLowerInvariant() == "perf_prio") on = l.Substring(e + 1).Trim() == "1";
+            }
+            return on;
+        }
+
         public static void Init(string dir)
         {
+            try { Enabled = Program.IniFile != null && File.Exists(Program.IniFile) && ParseSwitch(File.ReadAllText(Program.IniFile)); } catch { Enabled = false; }
+            if (!Enabled) Log.W("perf: the low-priority experiment is off (perf_prio=0 in irdash.ini)");
             file = Path.Combine(dir, "perf-prio.tsv");
             try
             {
@@ -2250,12 +2267,13 @@ namespace IRDash
 
         public static string Json()
         {
-            return "{\"mode\":" + Json_.S(Mode) + ",\"active\":" + Perf.B(Active) + ",\"since\":" + since + ",\"reason\":" + Json_.S(reason) + "}";
+            return "{\"mode\":" + Json_.S(Mode) + ",\"enabled\":" + Perf.B(Enabled) + ",\"active\":" + Perf.B(Active) + ",\"since\":" + since + ",\"reason\":" + Json_.S(reason) + "}";
         }
 
         public static PerfItem Item()
         {
             PerfItem it = new PerfItem("lowprio", "Lower our own programs' priority during sessions"); it.Auto = true; it.State = "info";
+            if (!Enabled) { it.Evidence = "Off (perf_prio=0 in irdash.ini): Paddock does not change other programs' priority."; return it; }
             switch (Mode)
             {
                 case "trial": it.Evidence = "On trial since " + When() + ": overlays and the dashboard browser at low priority while the sim runs; kept only if the numbers improve. " + reason; break;
@@ -2272,6 +2290,7 @@ namespace IRDash
         // called when new reports arrive and every few minutes
         public static void Evaluate()
         {
+            if (!Enabled) return;      // off: no trial starts, nothing is judged
             lock (gate)
             {
                 if (Mode == "watch")
@@ -2309,9 +2328,10 @@ namespace IRDash
             }
         }
 
-        public static void OnSimStart() { if (Mode == "trial" || Mode == "kept") Lower(); }
+        public static void OnSimStart() { if (Enabled && (Mode == "trial" || Mode == "kept")) Lower(); }
         public static void OnSimEnd() { Restore(); }
-        public static void Maintain() { if (Active) Lower(); }      // overlays restarted during the session start low as well
+        // W0-3: no longer re-lowers every 5 s during the session (that changed other apps' priority all race); once at the start is all
+        public static void Maintain() { }
 
         static void Lower()
         {

@@ -57,8 +57,8 @@ namespace IRDash
                     Thread.Sleep(150000);                          // the boot and the first career scan come first
                     while (true)
                     {
-                        while (Program.IsDriving) Thread.Sleep(30000);
-                        Backfill();
+                        Jobs.Run("field laps backfill", delegate { Backfill(); }, true);      // W0-3: waits for the session to end
+
                         // a finished session writes a new .ibt: look again a few minutes after the next one
                         Thread.Sleep(600000);
                     }
@@ -195,7 +195,7 @@ namespace IRDash
             int files = 0, withOthers = 0, added = 0, skipped = 0;
             foreach (string path in Directory.GetFiles(dir, "*.ibt"))
             {
-                if (Program.IsDriving) { skipped++; break; }
+                if (Program.IsDriving || Jobs.ShouldYield) { skipped++; break; }      // the rest next time (every 10 min)
                 FileInfo fi = new FileInfo(path);
                 if ((DateTime.Now - fi.LastWriteTime).TotalMinutes < 2) { skipped++; continue; }      // still being written
                 string sig = fi.Name + "|" + fi.Length;
@@ -261,15 +261,16 @@ namespace IRDash
                         if (v > 15 && v < 1800 && (teleBest[i] <= 0 || v < teleBest[i])) teleBest[i] = v;
                     }
             }
-            if ((now - capAt).TotalSeconds >= 30) { capAt = now; Queue(capYaml, false); }
+            // W0-3: no parse and no write every 30 s any more: the YAML of the newest session version and the per-car bests stay in memory,
+            // and the rows are worked out and written after the session (a session change or the sim closing queues it on the Jobs queue)
         }
 
+        static int saveSeq;
         static void Queue(string yaml, bool final)
         {
             if (string.IsNullOrEmpty(yaml)) return;
             float[] tele = (float[])teleBest.Clone(); long ts = capTs;
-            if (Interlocked.Exchange(ref capBusy, 1) == 1 && !final) return;
-            ThreadPool.QueueUserWorkItem(delegate
+            Jobs.Run("field laps save " + Interlocked.Increment(ref saveSeq), delegate
             {
                 try
                 {
@@ -307,8 +308,7 @@ namespace IRDash
                     if (added > 0) Log.W("field laps: " + added + " driver laps saved from this session");
                 }
                 catch (Exception ex) { Log.W("field laps (live): " + ex.Message); }
-                finally { Interlocked.Exchange(ref capBusy, 0); }
-            });
+            }, true);
         }
 
         // ---- the numbers for one combo ----

@@ -21,7 +21,9 @@ namespace IRDash
     {
         static string root;
         public static int EveryMs = 120000;
-        static readonly object run = new object();          // one ac.py at a time (auto-cool, the screen, a status read)
+        static int running;                                 // 1 while an ac.py runs: one at a time (auto-cool, the screen, a status read)
+        public static int SessionEveryMs = 600000;          // W0-3: while a session is on, auto-cool asks the AC every 10 min instead of 2
+        static DateTime lastAuto = DateTime.MinValue;
         static readonly object gate = new object();
         static readonly Dictionary<string, string> want = new Dictionary<string, string>();       // pressed, not sent yet
         static readonly Dictionary<string, string> sending = new Dictionary<string, string>();    // sent, AC not confirmed yet
@@ -56,6 +58,8 @@ namespace IRDash
         static void Tick()
         {
             if (!Connected()) return;   // not connected yet (local key or Midea Air login)
+            if (RigState.SessionOn && (DateTime.UtcNow - lastAuto).TotalMilliseconds < SessionEveryMs) return;
+            lastAuto = DateTime.UtcNow;
             string last = RunPy("auto");
             if (last.StartsWith("AUTO ", StringComparison.Ordinal))
             {
@@ -66,11 +70,21 @@ namespace IRDash
         }
 
         // ac.py with these arguments, hidden, BelowNormal, at most 30 s. Returns its last line ("" when it did not answer).
-        static string RunPy(string args)
+        // W0-3 (H5, measure first): one log line per call with its wall time and CPU time, and whether a session was on:
+        //   "ac: python auto took 7.4 s wall, 0.31 s CPU (session on)"
+        // One at a time, but no lock is held across the call: a second caller waits outside any lock (a press) or skips (a status read).
+        static string RunPy(string args) { return RunPy(args, true); }
+        static string RunPy(string args, bool wait)
         {
             string py = Path.Combine(root, @"tools\python\python.exe"), script = Path.Combine(root, @"ac\ac.py");
             if (!File.Exists(py) || !File.Exists(script)) return "";
-            lock (run)
+            for (int i = 0; Interlocked.CompareExchange(ref running, 1, 0) != 0; i++)
+            {
+                if (!wait || i >= 160) return "";        // 40 s: the one before it timed out at 30
+                Thread.Sleep(250);
+            }
+            bool sess = RigState.SessionOn; Stopwatch sw = Stopwatch.StartNew(); double cpu = -1; string res = "";
+            try
             {
                 ProcessStartInfo psi = new ProcessStartInfo(py, "-I -X utf8 \"" + script + "\" " + args);
                 psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
@@ -82,12 +96,21 @@ namespace IRDash
                     p.OutputDataReceived += delegate (object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
                     p.ErrorDataReceived += delegate { };
                     p.BeginOutputReadLine(); p.BeginErrorReadLine();
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } Log.W("ac: the AC did not answer in 30 s (" + args + ")"); return ""; }
+                    if (!p.WaitForExit(30000)) { try { cpu = p.TotalProcessorTime.TotalSeconds; } catch { } try { p.Kill(); } catch { } Log.W("ac: the AC did not answer in 30 s (" + args + ")"); return ""; }
                     p.WaitForExit();
+                    try { cpu = p.TotalProcessorTime.TotalSeconds; } catch { }
                     readAt = DateTime.UtcNow;
                     string o; lock (sb) o = sb.ToString().Trim();
-                    return o.Length == 0 ? "" : o.Substring(o.LastIndexOf('\n') + 1).Trim();
+                    res = o.Length == 0 ? "" : o.Substring(o.LastIndexOf('\n') + 1).Trim();
+                    return res;
                 }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref running, 0);
+                string verb = args.Split(' ')[0];
+                Log.W("ac: python " + verb + " took " + sw.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s wall, " +
+                      (cpu >= 0 ? cpu.ToString("0.00", CultureInfo.InvariantCulture) + " s CPU" : "CPU unknown") + (sess ? " (session on)" : " (no session)"));
             }
         }
 
@@ -215,7 +238,7 @@ namespace IRDash
                 {
                     bool due;
                     lock (gate) due = DateTime.UtcNow < watchedUntil && !working && (DateTime.UtcNow - readAt).TotalSeconds > 20;
-                    if (due && Connected()) RunPy("status");
+                    if (due && Connected()) RunPy("status", false);      // a status read never waits for another call
                 }
                 catch (Exception ex) { Log.W("ac screen: " + ex.Message); }
             }
