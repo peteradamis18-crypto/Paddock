@@ -195,18 +195,6 @@ namespace IRDash
             return sb.Append(",\"files\":").Append(files).Append(",\"ms\":").Append(ms).Append('}').ToString();
         }
 
-        // GET /analysis/gain: every car and track with its PB, theoretical best and gap; "building" while the first pass runs. 503 while he drives.
-        public static string GainRoute(Dictionary<string, string> q, out int code)
-        {
-            code = 200;
-            if (Program.IsDriving) { code = 503; return Err("Not while driving"); }
-            GainPoke(true);
-            List<GainRow> rows; int files; long ms;
-            lock (gnGate) { rows = gnRows == null ? null : new List<GainRow>(gnRows); files = gnFiles; ms = gnMs; }
-            if (rows == null) return "{\"building\":true,\"done\":" + gnDone + ",\"of\":" + gnOf + "}";
-            return GainJson(rows, files, ms);
-        }
-
         // one-shot for tests\rig-leftovers-test.ps1: no window, no deploy, only the folders it is given
         //   --analysis --gain --root <iRacingDeck> --dir <telemetry folder> --vault <vault folder> --out <file>
         public static int GainCli(string[] args)

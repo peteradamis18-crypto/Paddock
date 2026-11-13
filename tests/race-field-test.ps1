@@ -23,8 +23,8 @@ function Code($path) { try { return [int](Invoke-WebRequest -UseBasicParsing "$a
 $wc = New-Object System.Net.WebClient
 function Get-Text($path) { [Text.Encoding]::UTF8.GetString($wc.DownloadData("$api$path")) }
 function J($path) { (Get-Text $path) | ConvertFrom-Json }
-function Status() { J '/field/status' }
-function Samples() { $s = Get-Text '/field/status'; if ($s -match '"samples":(\d+)') { [int]$Matches[1] } else { -1 } }
+function Status() { J '/api/test/fieldstatus' }
+function Samples() { $s = Get-Text '/api/test/fieldstatus'; if ($s -match '"samples":(\d+)') { [int]$Matches[1] } else { -1 } }
 
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree
@@ -171,8 +171,8 @@ try {
   # =====================================================================================================
   Section '1. set up: the scratch vault, the corner list and the pretend race'
   $st0 = $null; try { $st0 = Status } catch { }
-  Check 'irdash answers /field/status (it is the build with dash\src\field.cs: deploy with dash\build.ps1 if not)' ($null -ne $st0)
-  if ($null -eq $st0) { throw 'irdash has no /field/status: build and deploy first (dash\build.ps1)' }
+  Check 'irdash answers /api/test/fieldstatus (it is the build with dash\src\field.cs: deploy with dash\build.ps1 if not)' ($null -ne $st0)
+  if ($null -eq $st0) { throw 'irdash has no /api/test/fieldstatus: build and deploy first (dash\build.ps1)' }
   Check 'the sampler is idle: no session, no samples' ($st0.active -eq $false)
   $sb0 = J ("/vault/test/sandbox?on=1" + $(if ($Reuse) { '' } else { '&reset=1' }))
   Check 'the scratch vault is on (vault-test\vault): the race log is never written into Peter''s Vault' ($sb0.sandbox -eq $true -and $sb0.root -like '*vault-test*')
@@ -285,8 +285,8 @@ try {
   Check "a real telemetry file ($pbName) finds the race that ran inside its time window: the same field id" ($bf.ok -eq $true -and $bf.id -eq $id)
   Check "a telemetry file from another time has none: 404" ((Code "/analysis/race?id=$(Q $otherName)") -eq 404)
   Check 'a missing id is 400; an unknown file, a path and a made-up id are 404, never a file read' ((Code '/analysis/race') -eq 400 -and (Code "/analysis/race?id=$(Q 'nothing 2020-01-01 00-00-00.ibt')") -eq 404 -and (Code "/analysis/race?id=$(Q '..\..\dash\irdash.ini.ibt')") -eq 404 -and (Code '/analysis/race?id=f20200101-000000-2') -eq 404 -and (Code '/analysis/race?id=..%5C..%5Cirdash.ini') -eq 404)
-  Remove-Item $hook -Force; $c404 = Code '/api/test/field?on=1'; $cst = Code '/field/status'; Set-Content $hook 'race field test'
-  Check 'the test hook routes are shut (404) without dash\test-hook.on; /field/status still answers (200)' ($c404 -eq 404 -and $cst -eq 200)
+  Remove-Item $hook -Force; $c404 = Code '/api/test/field?on=1'; $cst = Code '/api/test/fieldstatus'; Set-Content $hook 'race field test'
+  Check 'the test hook routes are shut (404) without dash\test-hook.on, the counters too' ($c404 -eq 404 -and $cst -eq 404)
 
   if (-not $NoPage) {
   # =====================================================================================================
@@ -334,7 +334,7 @@ try {
   for ($w = 0; $w -lt 40; $w++) { if ((Cdp-Eval '[].every.call(document.querySelectorAll(".cpic img"), function (i) { return i.complete; }) && document.querySelectorAll(".cpic img").length >= 19') -eq $true) { break }; Start-Sleep -Milliseconds 250 }
   $rc = Cdp-Obj 'WB.race()'
   $nc = Cdp-Obj '(function () {
-    var o = { noW: 0, rows: 0, plates: 0, pics: 0, loaded: 0, sizes: [], bad: [], nopic: [], pcars: document.querySelectorAll("svg.pcar").length, api: typeof window.PCars, dormant: typeof window.PCarsDormant, chips: document.querySelectorAll(".rph .rpc").length, chipPics: 0, chipLoaded: 0, chipBad: [], head: document.querySelectorAll(".ph.rph2").length, over: 0, hs: [], broken: [].filter.call(document.querySelectorAll("img"), function (i) { return i.complete && i.naturalWidth === 0; }).length, pic: typeof window.PCarPic };
+    var o = { noW: 0, rows: 0, plates: 0, pics: 0, loaded: 0, sizes: [], bad: [], nopic: [], pcars: document.querySelectorAll("svg.pcar").length, api: typeof window.PCars, chips: document.querySelectorAll(".rph .rpc").length, chipPics: 0, chipLoaded: 0, chipBad: [], head: document.querySelectorAll(".ph.rph2").length, over: 0, hs: [], broken: [].filter.call(document.querySelectorAll("img"), function (i) { return i.complete && i.naturalWidth === 0; }).length, pic: typeof window.PCarPic };
     [].forEach.call(document.querySelectorAll("table.rt th"), function (c) { if (c.textContent === "NO") o.noW = c.getBoundingClientRect().width; });
     [].forEach.call(document.querySelectorAll("table.rt tbody tr[data-i]"), function (tr) {
       var td = tr.querySelector("td.no"), pl = td.querySelector(".plate"), f = td.querySelector(".cpic"), i = +tr.getAttribute("data-i"), tr0 = tr.getBoundingClientRect(); o.rows++; if (pl) o.plates++; var hh = Math.round(tr0.height * 10) / 10; if (o.hs.indexOf(hh) < 0) o.hs.push(hh);
@@ -347,7 +347,7 @@ try {
     var ph = document.querySelector(".ph.rph2"), pr2 = ph ? ph.getBoundingClientRect() : null; if (ph) o.over = ph.scrollWidth - ph.clientWidth;
     [].forEach.call(document.querySelectorAll(".rph .rpc"), function (c) { var f = c.querySelector(".cpic"), im = f && f.querySelector("img"); if (f) { o.chipPics++; var r = f.getBoundingClientRect(); if (im && im.complete && im.naturalWidth > 0) o.chipLoaded++; if (pr2 && (r.top < pr2.top - 0.5 || r.bottom > pr2.bottom + 0.5)) o.chipBad.push("pic " + Math.round(r.top) + "-" + Math.round(r.bottom) + " title " + Math.round(pr2.top) + "-" + Math.round(pr2.bottom)); } });
     return o; })()'
-  Check "no DRAWN car in the tower (svg.pcar $($nc.pcars), window.PCars is $($nc.api), the drawing code only dormant: $($nc.dormant)); the pictures are iRacing's own (carpics.js: $($nc.pic))" ($nc.api -eq 'undefined' -and $nc.dormant -eq 'object' -and $nc.pcars -eq 0 -and $nc.pic -eq 'object')
+  Check "no DRAWN car in the tower (svg.pcar $($nc.pcars), window.PCars is $($nc.api)); the pictures are iRacing's own (carpics.js: $($nc.pic))" ($nc.api -eq 'undefined' -and $nc.pcars -eq 0 -and $nc.pic -eq 'object')
   Check "CP-1: $($nc.pics) of the 20 rows show iRacing's own picture of the car next to the number plate and every one is loaded ($($nc.loaded) with naturalWidth > 0, $($nc.broken) broken images); the car without a picture on iRacing's server (car $($nc.nopic -join ',')) shows only its plate" ($nc.rows -eq 20 -and $nc.plates -eq 20 -and $nc.pics -eq 19 -and $nc.loaded -eq 19 -and $nc.broken -eq 0 -and (($nc.nopic -join ',') -eq '15'))
   Check "the pictures are all one size ($($nc.sizes -join ' ')) in 0.1 px: 64 x 23.3), sit right of the plate inside their cell and inside their row, centred on it, and no row grew ($($nc.hs -join ',') px high) ($($nc.bad -join '; '))" ($nc.sizes.Count -eq 1 -and $nc.sizes[0] -eq '640x233' -and $nc.bad.Count -eq 0 -and $nc.hs.Count -eq 1)
   Check "the NO column is wide enough for plate and picture, and no wider ($([math]::Round($nc.noW)) px)" ($nc.noW -ge 124 -and $nc.noW -le 140)
@@ -355,23 +355,6 @@ try {
   $heroTxt = @($rc.hero | ForEach-Object { $_.text })
   Check "the chips read WINNER #0 Ferrante and PETER P8 ($($heroTxt -join ' | '))" ($heroTxt.Count -eq 2 -and $heroTxt[0] -like 'WINNER*#0*Ferrante*' -and $heroTxt[1] -like 'PETER*P8*')
   Cdp-Shot (Join-Path $shots 'cars-race.png')
-  # PL-1 (dormant code): which silhouette each car would get: the car's folder name, then its screen name, then its class; a road car when nothing matches
-  $mapRows = @(
-    @('chevyvettez06rgt3', 'Chevrolet Corvette Z06 GT3.R', 'gt3'), @('bmwm4gt3', 'BMW M4 GT3 EVO', 'gt3'), @('ferrari296gt3', 'Ferrari 296 GT3', 'gt3'), @('fordmustanggt3', 'Ford Mustang GT3', 'gt3'), @('porsche991rsr', 'Porsche 911 RSR', 'gt3'),
-    @('porsche9922cup', 'Porsche 911 GT3 Cup (992)', 'gt3'), @('ferrari296challenge', 'Ferrari 296 Challenge', 'gt3'), @('mercedesamgevogt3', 'Mercedes-AMG GT3 2020', 'gt3'), @('lamborghinihuracangt3evo', 'Lamborghini Huracan GT3 EVO', 'gt3'),
-    @('bmwm4evogt4', 'BMW M4 G82 GT4 EVO', 'gt4'), @('mercedesamggt4', 'Mercedes-AMG GT4', 'gt4'),
-    @('toyotagr86', 'Toyota GR86', 'road'), @('bmwm2g87', 'BMW M2 CSR', 'road'), @('mx5 mx52016', 'Global Mazda MX-5 Cup', 'road'), @('hyundaielantracn7', 'Hyundai Elantra N TCR', 'road'), @('subaruwrxsti', 'Subaru WRX STI', 'road'),
-    @('cadillacvseriesrgtp', 'Cadillac V-Series.R', 'gtp'), @('porsche963gtp', 'Porsche 963 GTP', 'gtp'), @('bmwlmdh', 'BMW M Hybrid V8', 'gtp'), @('acuraarx06gtp', 'Acura ARX-06 GTP', 'gtp'), @('ferrari499p', 'Ferrari 499P', 'gtp'),
-    @('dallarap217', 'Dallara P217 LMP2', 'lmp'), @('ligierjsp320', 'Ligier JS P320', 'lmp'),
-    @('dallaradw12', 'Dallara DW12 IndyCar', 'formula'), @('dallarair18', 'Dallara IR-18', 'formula'), @('superformulalights324', 'Super Formula Lights', 'formula'), @('formulavee', 'Formula Vee', 'formula'), @('mclarenmp430', 'McLaren MP4-30', 'formula'), @('rayff1600', 'Ray FF1600', 'formula'), @('usf2000', 'USF 2000', 'formula'),
-    @('stockcars2chevycamaro', 'NASCAR Cup Series Next Gen Chevrolet Camaro ZL1', 'stock'), @('trucksilverado', 'NASCAR Craftsman Truck Series Chevrolet Silverado', 'stock'), @('arcaford', 'ARCA Menards Ford Mustang', 'stock'),
-    @('', '', 'road'), @('unknowncar', 'Totally Unknown Car', 'road'))
-  $mapJs = '[' + (($mapRows | ForEach-Object { "['$($_[0])','$($_[1])']" }) -join ',') + ']'
-  $got = @(Cdp-Obj "$mapJs.map(function (x) { return PCarsDormant.type(x[0], x[1], ''); })" | ForEach-Object { $_ })
-  $badMap = @(); for ($k = 0; $k -lt $mapRows.Count; $k++) { if ($got[$k] -ne $mapRows[$k][2]) { $badMap += "$($mapRows[$k][0]) / $($mapRows[$k][1]) -> $($got[$k]) (want $($mapRows[$k][2]))" } }
-  Check "$($mapRows.Count) iRacing cars (his own 6 included) get the right silhouette: GT3, GT4, GTP, prototype, open-wheel, stock car, touring / road car; the class name is the last resort and an unknown car is a road car ($($badMap -join '; '))" ($badMap.Count -eq 0 -and $got.Count -eq $mapRows.Count -and (Cdp-Eval 'PCarsDormant.type("", "", "GT3 Class")') -eq 'gt3' -and (Cdp-Eval 'PCarsDormant.type("", "", "")') -eq 'road')
-  $pr = Cdp-Obj '[PCarsDormant.parse("17,391C83,111111,CCFF00", "#ffffff"), PCarsDormant.parse("1,FF0000,00FF00,0000FF", "#ffda59"), PCarsDormant.parse("", "#33ceff"), PCarsDormant.parse("5,zzzzzz,1,2", "#33ceff"), PCarsDormant.parse("3,0A3D91", "#ffffff")]'
-  Check "the livery is read as iRacing writes it: 17,391C83,111111,CCFF00 gives body #391c83, stripe #111111, accent #ccff00; iRacing's unset red-green-blue placeholder, an empty text and rubbish give the class colour and no stripes; a design with one colour has no stripes" (($pr[0].c1 -eq '#391c83' -and $pr[0].c2 -eq '#111111' -and $pr[0].c3 -eq '#ccff00' -and $pr[0].pat -eq 17 -and $pr[0].real) -and ($pr[1].c1 -eq '#ffda59' -and -not $pr[1].real -and -not $pr[1].c2) -and ($pr[2].c1 -eq '#33ceff' -and -not $pr[2].real) -and ($pr[3].c1 -eq '#33ceff' -and -not $pr[3].real) -and ($pr[4].c1 -eq '#0a3d91' -and $pr[4].real -and -not $pr[4].c2))
   $fast = [string](Cdp-Eval '[].map.call(document.querySelectorAll("table.rt td.best .gain"), function (c) { return c.textContent; }).join("|")')
   Check "only the quickest lap of the session is green in the best lap column ($fast)" ($fast -eq (FmtLap (($tower | Where-Object { $_.fastest })[0].best)))
   $me7 = $rows | Where-Object { $_.i -eq 7 }
@@ -502,12 +485,6 @@ try {
   Check "no overlapping text with 45 cars ($($ov3.boxes) boxes$(if ($ov3.bad.Count) { ': ' + ($ov3.bad -join ' ; ') }))" ($ov3.boxes -gt 150 -and $ov3.bad.Count -eq 0)
   Cdp-Shot (Join-Path $shots 'wb-race-field45.png')
   Check 'no JavaScript error on the page' ($script:cdp.errors.Count -eq 0)
-  # PL-1: the drawing code is dormant (CARS_DRAWN = false) but kept: the seven silhouettes in four liveries and the class-colour fallback, drawn through window.PCarsDormant (a picture for the lead)
-  $nSv = [int](Cdp-Eval '(function(){var D=["17,391C83,111111,CCFF00","5,FFFFFF,0A3D91,F2C230","3,111111,F2C230,FFFFFF","9,E10600,FFFFFF,111111"],h="<div style=\"position:fixed;inset:0;background:#0a0a0b;padding:30px 40px;font:16px Segoe UI,Arial;color:#cfcac0;z-index:99\">";PCarsDormant.types.forEach(function(t){h+="<div style=\"display:flex;align-items:center;gap:22px;height:116px\"><b style=\"width:130px;font-weight:400;letter-spacing:.12em\">"+PCarsDormant.names[t].toUpperCase()+"</b>";D.forEach(function(d,i){h+=PCarsDormant.svg({type:t,design:d,w:300,num:i==0?"64":null});});h+=PCarsDormant.svg({type:t,col:"#ffda59",w:300})+"</div>";});document.body.insertAdjacentHTML("beforeend",h+"</div>");return document.querySelectorAll("svg.pcar").length;})()')
-  Start-Sleep -Milliseconds 300
-  Cdp-Shot (Join-Path $shots 'cars-types.png')
-  Check "all seven silhouettes draw in four liveries and in the class colour (picture tests\shots\cars-types.png; $nSv pictures on the page)" ($nSv -ge 35)
-  Check 'no JavaScript error drawing them' ($script:cdp.errors.Count -eq 0)
   Cdp-Close
   }
 } finally {

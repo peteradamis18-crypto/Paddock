@@ -36,7 +36,7 @@ iRacing's official map drawings need a Data API client ID, which iRacing has pau
 ## Changing it
 - The dashboard is plain HTML/JS in `www\`. Edit and press F5 on the dashboard.
 - The C# side is `src\irdash.cs`. Run `build.ps1` to rebuild; it restarts irdash if it was running.
-- Preview without the sim: `http://localhost:8199/?demo=1` (add `&speed=8` to fast-forward).
+- Preview without the sim: `http://localhost:8199/v2/?demo=1` (add `&speed=8` to fast-forward).
 
 ## iRacing display settings changed on 2026-10-06
 `Documents\iRacing\rendererDX11Monitor.ini` was set to a fixed borderless window across monitors 1 to 3.

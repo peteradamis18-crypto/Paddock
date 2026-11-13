@@ -154,13 +154,6 @@ namespace IRDash
                 }
                 if (path == "/official/refresh") { dirty = true; ownedBuilt = DateTime.MinValue; return Json(null); }
                 if (path == "/official/owned") { EnsureData(); return OwnedJson(); }
-                if (path == "/official/import")
-                {
-                    string name; q.TryGetValue("name", out name);
-                    string msg = ImportFile(name ?? "");
-                    if (msg != null) { code = 400; return "{\"ok\":false,\"msg\":" + Json_.S(msg) + "}"; }
-                    return "{\"ok\":true,\"series\":" + series.Count + "}";
-                }
             }
             catch (Exception ex) { Log.W("official route: " + ex.Message); code = 500; return "{\"ok\":false}"; }
             return null;

@@ -95,8 +95,6 @@ namespace IRDash
         static volatile bool active;      // between Start and Stop (a capture that failed at the start stays "failed" until the video stops)
         public static string State { get { return active ? state : "idle"; } }
         public static string Source { get { return source; } }
-        public static string LastError { get { return lastErr; } }
-        public static string LastRunState { get { return lastRunState; } }
         public static string LastRunSource { get { return lastRunSource; } }
 
         // mode: auto (iRacing + CrewChief, else the whole PC) | system | pid:<n>[,<n>] | synth (test clicks) | off

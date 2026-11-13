@@ -415,7 +415,7 @@ HistView.prototype.drawStatic = function () {
   if (zoomed) { zin = new Float64Array(d.nb); var z0 = Math.max(0, Math.floor(S.z0)), z1 = Math.min(d.lap.a.length - 1, Math.ceil(S.z1)); for (i = z0; i <= z1; i++) { var v = d.lap.a[i]; if (!isFinite(v)) continue; zin[clamp(Math.floor((v - d.e0) / d.w + 1e-9), 0, d.nb - 1)] += d.lap.wt[i] / d.lap.T * 100; } }
   for (k = 0; k < d.nb; k++) {
     var h0 = d.lap.pct[k]; if (h0 <= 0) continue;
-    g.fillStyle = zoomed ? 'rgba(242,194,48,.28)' : 'rgba(242,194,48,.82)'; g.fillRect(bx(k) + 1, by(h0), Math.max(1, bx(k + 1) - bx(k) - 2), G.T + G.h - by(h0));
+    g.fillStyle = zoomed ? 'rgba(201, 162, 75,.28)' : 'rgba(201, 162, 75,.82)'; g.fillRect(bx(k) + 1, by(h0), Math.max(1, bx(k + 1) - bx(k) - 2), G.T + G.h - by(h0));
     if (zoomed && zin[k] > 0) { g.fillStyle = C.gold; g.fillRect(bx(k) + 1, by(zin[k]), Math.max(1, bx(k + 1) - bx(k) - 2), G.T + G.h - by(zin[k])); }
   }
   if (d.ref) { g.strokeStyle = C.ref; g.lineWidth = 1.5; g.beginPath(); for (k = 0; k < d.nb; k++) { var yy = by(d.ref.pct[k]); if (k) g.lineTo(bx(k), by(d.ref.pct[k - 1])); if (k) g.lineTo(bx(k), yy); else g.moveTo(bx(k), yy); g.lineTo(bx(k + 1), yy); } g.stroke(); }

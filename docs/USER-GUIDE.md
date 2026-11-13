@@ -196,3 +196,5 @@ The phone has the same keys as the deck, nothing more: **HOME** (what the rig is
 - iRacing is given the PC first when a session starts.
 - Rig Doctor checks the rig at startup and now and then while you are out of the car. It fixes what it can by itself: overlays, the spotter, Stream Deck, and keeping iRacing's files on this PC. The idle screen says "All good" when there is nothing for you to do. It also shows a line for the last session's frame rate. It only asks you about things only you can do, such as a cable.
 - Nothing restarts, pops up, or reloads the dashboard while you are driving. A new version of the top screen waits until you are out of the car.
+
+**Sharing to YouTube straight from Paddock:** do the one-time Google setup in `docs\YOUTUBE-SETUP.md` (about 10 minutes, once).

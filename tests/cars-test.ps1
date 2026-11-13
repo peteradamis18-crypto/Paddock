@@ -162,7 +162,7 @@ try {
 
   # =====================================================================================================
   Section '3. irdash serves the pictures'
-  $st = Raw '/cars/status'
+  $st = Raw '/cars/manifest.json'
   if ($st.code -ne 200) { Note "SKIPPED sections 3 to 5: the running irdash has no /cars routes yet (answer $($st.code)). Deploy with dash\build.ps1 when the sim is off, then run this test again." }
   else {
     $mj = J '/cars/manifest.json'
@@ -202,23 +202,23 @@ try {
     # a pretend session is on: nothing may be fetched
     $null = Raw '/api/test/frame?SessionTime=100&IsOnTrack=0'; Start-Sleep -Milliseconds 600
     $n1 = J '/cars/need?path=testcar_one'; Start-Sleep -Seconds 4
-    $s1 = J '/cars/status'
+    $s1 = J '/api/test/cars?sandbox=1'
     Check "while a session is on (the test hook's pretend session) a car with a catalog entry is NOT fetched: need says queued=false ('$($n1.why)'), refused=$($s1.refused), busy='$($s1.busy)', nothing in the folder" ($n1.queued -eq $false -and $n1.why -like 'not now*' -and $s1.refused -ge 1 -and $s1.busy -and -not (Test-Path (Join-Path $testDir 'testcar_one.jpg')) -and $s1.fetched -eq 0)
     $null = Raw '/api/test/end'; Start-Sleep -Milliseconds 800
     $n2 = J '/cars/need?path=testcar_one'
     $got = $false; for ($i = 0; $i -lt 40 -and -not $got; $i++) { Start-Sleep -Milliseconds 250; $got = Test-Path (Join-Path $testDir 'testcar_one.jpg') }
-    $s2 = J '/cars/status'
+    $s2 = J '/api/test/cars?sandbox=1'
     $fb = if ($got) { [IO.File]::ReadAllBytes((Join-Path $testDir 'testcar_one.jpg')) } else { @() }
     Check "with no session on, the same car is fetched in the background (queued=$($n2.queued)) and kept as a real JPEG identical to its source ($($fb.Length) bytes, fetched=$($s2.fetched))" ($n2.queued -eq $true -and $got -and $fb.Length -gt 12000 -and $fb[0] -eq 0xFF -and $fb[1] -eq 0xD8 -and (Hash $fb) -eq (Hash ([IO.File]::ReadAllBytes((Join-Path $dir 'chevyvettez06rgt3.jpg')))) -and $s2.fetched -eq 1)
     $ft = if (Test-Path (Join-Path $testDir 'fetched.txt')) { Get-Content (Join-Path $testDir 'fetched.txt') } else { '' }
     Check "the fetch is written down with its source ($(@($ft)[0]))" (@($ft)[0] -like '*testcar_one*http://*')
     $mjT = J '/cars/manifest.json'
     Check 'the sandbox manifest lists the new picture, and /cars/testcar_one.jpg serves it' (@($mjT.keys) -contains 'testcar_one' -and (Raw '/cars/testcar_one.jpg').code -eq 200)
-    $n3 = J '/cars/need?path=testcar_one'; Start-Sleep -Seconds 1; $s3 = J '/cars/status'
+    $n3 = J '/cars/need?path=testcar_one'; Start-Sleep -Seconds 1; $s3 = J '/api/test/cars?sandbox=1'
     Check "asking again is answered have=true and fetches nothing more (fetched stays $($s3.fetched))" ($n3.have -eq $true -and $s3.fetched -eq 1)
     $n4 = J '/cars/need?path=nocatalogcar99'; Start-Sleep -Milliseconds 800
     Check "a car iRacing's list has no picture for: no fetch, the answer says so ('$($n4.why)'), no file" ($n4.queued -eq $false -and $n4.have -eq $false -and $n4.why -like '*no picture*' -and -not (Test-Path (Join-Path $testDir 'nocatalogcar99.jpg')))
-    $n5 = J '/cars/need?path=badhost'; Start-Sleep -Seconds 3; $s5 = J '/cars/status'
+    $n5 = J '/cars/need?path=badhost'; Start-Sleep -Seconds 3; $s5 = J '/api/test/cars?sandbox=1'
     Check "an address that is not iRacing's image server is refused ($($s5.why)): failed=$($s5.failed), no file" ($n5.queued -eq $true -and $s5.failed -ge 1 -and $s5.why -like '*not allowed*' -and -not (Test-Path (Join-Path $testDir 'badhost.jpg')))
     $n6 = J ('/cars/need?path=' + [uri]::EscapeDataString('MX5 mx52016'))
     $got6 = $false; for ($i = 0; $i -lt 40 -and -not $got6; $i++) { Start-Sleep -Milliseconds 250; $got6 = Test-Path (Join-Path $testDir 'mx5_mx52016.jpg') }

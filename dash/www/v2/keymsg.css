@@ -8,7 +8,7 @@
 #keyMsg {
   position: fixed; left: 50%; bottom: 10px; z-index: 990; box-sizing: border-box; max-width: 840px; height: 58px; padding: 0 30px;
   display: block; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  background: #050505; border: 2px solid #f2c230; border-radius: 8px; color: #f4f1ea;
+  background: #050505; border: 2px solid #C9A24B; border-radius: 8px; color: #f4f1ea;
   font: 400 36px/54px Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; letter-spacing: .02em;
   box-shadow: 0 6px 28px rgba(0, 0, 0, .75); pointer-events: none;
   opacity: 0; visibility: hidden; transform: translate(-50%, 8px); transition: opacity .25s ease, transform .25s ease, visibility 0s linear .25s;

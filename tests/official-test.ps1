@@ -42,7 +42,7 @@ $of = Get-Content "$root\src\official.cs" -Raw
 Check 'irdeck official.cs never clicks, types or invokes anything itself (only the verified Test Drive helpers and the sidebar nav)' ($of -notmatch '\bClick(El)?\(|\.Invoke\(|SendCombo|TypeText|SendKeys|InvokePattern')
 Check 'irdeck official.cs has no register / join / withdraw action: "Register" only appears in text it looks for or says' (([regex]::Matches($of, 'Register|Withdraw') | Measure-Object).Count -gt 0 -and $of -notmatch 'CmdUi\(')
 $html = Get-Content "$root\dash\www\v2\index.html" -Raw
-Check 'the idle page has exactly one official.js script tag and one idleOfficial container' (([regex]::Matches($html, '<script src="official\.js">') | Measure-Object).Count -eq 1 -and ([regex]::Matches($html, 'id="idleOfficial"') | Measure-Object).Count -eq 1)
+Check 'index.html has no official.js, official.css or idleOfficial container any more (the panel is gone)' ($html -notmatch 'official.(js|css)' -and $html -notmatch 'id="idleOfficial"')
 
 # ================= 2. unit =================
 '2. unit (PDF, patterns, owned filter, eligibility)'
@@ -90,7 +90,7 @@ Check '2027 S1 absent fixture is on disk' (Test-Path (Join-Path $fix '2027-s1-ab
 Assert-RigFree -Where '4. real'
 '4. the real schedule and the real folders'
 $seasonFile = Join-Path $root 'data\official\season.json'
-if (-not (Test-Path $seasonFile)) { Check 'data\official\season.json exists (import the season PDF: /official/import?name=2026s4.pdf)' $false }
+if (-not (Test-Path $seasonFile)) { Check 'data\official\season.json exists (copy the season PDF into data\official and let irdash read it)' $false }
 else {
   $season = [IO.File]::ReadAllText($seasonFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
   Check "the real season file has $($season.series.Count) series (more than 100) and every one has weeks, a licence class and a repeat pattern" ($season.series.Count -gt 100 -and @($season.series | Where-Object { $_.weeks.Count -lt 1 -or $_.lic.Length -ne 1 -or $_.freq.Length -lt 3 }).Count -le 8)
@@ -145,69 +145,6 @@ Check '"official scan" without "owned" is refused (exit 1)' ($rc3 -eq 1)
 Set-Content "$g\data\official\favourites.ini" (Get-Content "$tr\data\official\favourites.ini")
 Check 'the file irdeck writes has the header lines irdash skips and one name per line' ((Get-Content "$g\data\official\favourites.ini")[0] -match '^;')
 
-# ================= 6. the idle screen =================
-if ($NoPictures) { 'pictures skipped' } else {
-  Assert-RigFree -Where '6. screen'
-  '6. the idle screen, drawn by the real page in headless Chrome (pictures in tests\shots\of-*.png)'
-  . (Join-Path $root 'tests\deck-harness.ps1')
-  # a pretend root with the real schedule and two favourites, so the gold shows
-  $pr = Join-Path $tmp 'picroot'; New-Item -ItemType Directory -Force "$pr\data\official", "$pr\dash" | Out-Null
-  if (Test-Path $seasonFile) { Copy-Item $seasonFile "$pr\data\official\season.json" }
-  Set-Content "$pr\data\official\favourites.ini" "BMW M2 Cup by Vero Motion`r`nProduction Car Challenge by Sim-Lab`r`n"
-  Set-Content "$pr\data\official\profile.ini" "road=C`r`nevening=18`r`n"
-  $cases = @(
-    @{ name = 'of-weekday';  now = (LocalToUtcIso 2026 10 7 12 10);  expect = 3; fav = $true },
-    @{ name = 'of-friday';   now = (LocalToUtcIso 2026 10 9 18 30);  expect = 3; fav = $true },
-    @{ name = 'of-saturday'; now = (LocalToUtcIso 2026 10 10 12 10); expect = 2; fav = $true },
-    @{ name = 'of-sunday';   now = (LocalToUtcIso 2026 10 11 20 5);  expect = 1; fav = $true },
-    @{ name = 'of-nofavs';   now = (LocalToUtcIso 2026 10 10 12 10); expect = 2; fav = $false })
-  $b = Start-DeckBrowser 9362
-  try {
-    foreach ($c in $cases) {
-      if (-not $c.fav) { Move-Item "$pr\data\official\favourites.ini" "$pr\data\official\favourites.off" -Force } elseif (Test-Path "$pr\data\official\favourites.off") { Move-Item "$pr\data\official\favourites.off" "$pr\data\official\favourites.ini" -Force }
-      $json = (& $unit json $pr $c.now | Where-Object { $_ -notmatch '^\s+\[log\]' }) -join ''
-      $page = New-DeckPage $b 'about:blank'
-      $null = Invoke-Cdp $page.Ws 'Emulation.setDeviceMetricsOverride' @{ width = 1920; height = 1080; deviceScaleFactor = 1; mobile = $false }
-      $null = Invoke-Cdp $page.Ws 'Page.navigate' @{ url = ('file:///' + ($root -replace '\\', '/') + '/dash/www/v2/index.html?onow=' + $c.now) }
-      Start-Sleep -Seconds 3
-      $null = Invoke-DeckJs $page "(() => { const s = document.createElement('style'); s.textContent = '#overlay .idle-official{display:block!important} #homeHero,#homeDriver,#homeNext,.home-facts,#homePhone{display:none!important}'; document.head.appendChild(s); return true; })()"
-      $js = "(async () => { window.__official = $json; window.__fetches = 0; window.fetch = (u, o) => { u = String(u); window.__fetches++; if (u.indexOf('/official') === 0) return Promise.resolve(new Response(JSON.stringify(window.__official))); if (u.indexOf('/career') === 0) return Promise.resolve(new Response(JSON.stringify({ week: { sessions: 3, hours: 2.5, laps: 80, pbs: 2, fresh: 1, lastHours: 4, lastLaps: 120 }, lastTrack: 'Road Atlanta', lastCar: 'Chevrolet Corvette Z06 GT3.R', lastAgo: 'yesterday' }))); return Promise.reject(new Error('mock')); }; await Official.load(); await Idle.last();" +
-        " const p = document.getElementById('idleOfficial'), rows = [...p.querySelectorAll('.of-row')], favRows = rows.filter(r => r.classList.contains('fav')), secs = [...p.querySelectorAll('section')];" +
-        " const foot = p.querySelector('.of-foot'), lastEl = p.querySelector('section:last-of-type') , ev = p.querySelector('.of-ev'); const bottomOf = e => e ? e.getBoundingClientRect().bottom : 0; const content = Math.max(bottomOf(secs[secs.length - 1]), bottomOf(ev));" +
-        " const dayFavFirst = secs.every(s => { const rr = [...s.querySelectorAll('.of-row')]; let seenNon = false; for (const r of rr) { if (!r.classList.contains('fav')) seenNon = true; else if (seenNon) return false; } return true; });" +
-        " const wide = rows.some(r => r.scrollWidth > r.clientWidth + 1);" +
-        " const clipped = p.scrollHeight > p.clientHeight + 1;" +
-        " const hdr = document.getElementById('idleNext').innerText; const homeBox = document.getElementById('homeRace').getBoundingClientRect(), pBox = p.getBoundingClientRect();" +
-        " const f0 = window.__fetches; document.getElementById('overlay').classList.remove('show'); const keep = Official.override; Official.override = ''; await Official.load(); const quiet = window.__fetches === f0; Official.override = keep; document.getElementById('overlay').classList.add('show');" +
-        " return { sections: secs.length, rows: rows.length, favRows: favRows.length, dayFavFirst, wide, clipped, footGap: foot ? foot.getBoundingClientRect().top - content : 99, hdr, midRight: homeBox.right, panelLeft: pBox.left, quiet, labels: secs.map(s => s.querySelector('h3').firstChild.textContent) }; })()"
-      $e = Invoke-DeckJs $page $js
-      Start-Sleep -Milliseconds 400
-      $r = Invoke-Cdp $page.Ws 'Page.captureScreenshot' @{ format = 'png' }
-      [IO.File]::WriteAllBytes((Join-Path $shots ($c.name + '.png')), [Convert]::FromBase64String($r.result.data))
-      $n = $c.name
-      Check "$n.png: $($e.sections) day sections ($($e.labels -join ', ')), $($e.rows) rows" ($e.sections -eq $c.expect -and $e.rows -ge [math]::Min(3, $c.expect))
-      Check "$n.png: nothing is cut off, no row text spills, and the footer line does not sit on the last row" (-not $e.clipped -and -not $e.wide -and $e.footGap -ge 2)
-      Check "$n.png: the text on the left does not run under the panel" ($e.midRight -le $e.panelLeft + 1)
-      if ($c.fav) { Check "$n.png: favourite rows are gold-marked ($($e.favRows)) and come first in their day, and the header counts down to the top favourite" ($e.favRows -ge 1 -and $e.dayFavFirst -and $e.hdr -match 'NEXT FAVOURITE') }
-      else { Check "$n.png: with no favourites there is no countdown in the header and no gold row" ($e.favRows -eq 0 -and $e.hdr -eq '') }
-      Check "$n.png: the panel does not ask irdash for anything while the garage screen is hidden (a session is on)" ($e.quiet)
-    }
-  } finally { Stop-DeckBrowser $b }
-  # empty and over states
-  $empty = Join-Path $tmp 'emptyroot'; New-Item -ItemType Directory -Force "$empty\data\official", "$empty\dash" | Out-Null
-  $json = (& $unit json $empty '2026-10-10T16:00:00Z' | Where-Object { $_ -notmatch '^\s+\[log\]' }) -join ''
-  $b = Start-DeckBrowser 9363
-  try {
-    $page = New-DeckPage $b 'about:blank'
-    $null = Invoke-Cdp $page.Ws 'Emulation.setDeviceMetricsOverride' @{ width = 1920; height = 1080; deviceScaleFactor = 1; mobile = $false }
-    $null = Invoke-Cdp $page.Ws 'Page.navigate' @{ url = ('file:///' + ($root -replace '\\', '/') + '/dash/www/v2/index.html?onow=2026-10-10T16:00:00Z') }
-    Start-Sleep -Seconds 3
-    $e = Invoke-DeckJs $page "(async () => { window.fetch = (u) => Promise.resolve(new Response(String(u).indexOf('/official') === 0 ? JSON.stringify($json) : '{}')); await Official.load(); return document.getElementById('idleOfficial').innerText; })()"
-    $r = Invoke-Cdp $page.Ws 'Page.captureScreenshot' @{ format = 'png' }; [IO.File]::WriteAllBytes((Join-Path $shots 'of-empty.png'), [Convert]::FromBase64String($r.result.data))
-    Check 'of-empty.png: with no schedule loaded the panel says so in plain words (no empty boxes, no error text)' ($e -match "No schedule yet" -and $e -notmatch 'undefined|NaN|null')
-  } finally { Stop-DeckBrowser $b }
-}
-
 # ================= 7. live (pending) =================
 if ($Live) {
   Assert-RigFree -NeedAway -Where '7. live'
@@ -216,7 +153,6 @@ if ($Live) {
     $r = Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/official' -TimeoutSec 8
     $j = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json
     Check '/official answers with the home-screen data' ($j.ready -and $j.loaded -and $j.days.Count -ge 1)
-    Check 'the idle page served by irdash has the panel files (official.js, official.css)' ((Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/v2/official.js' -TimeoutSec 8).StatusCode -eq 200 -and (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/v2/official.css' -TimeoutSec 8).StatusCode -eq 200)
   } catch { Check "irdash answers /official ($($_.Exception.Message))" $false }
 } else { '7. live: skipped (run with -Live after the new irdash is deployed; the iRacing-side steps are in docs\official.md and need Peter away)' }
 

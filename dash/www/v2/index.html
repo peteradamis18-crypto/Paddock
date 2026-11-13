@@ -6,15 +6,12 @@
 <title>iRacing Dash v2</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="intro.css">
-<link rel="stylesheet" href="debrief.css">
 <link rel="stylesheet" href="debrief-v4.css">
-<link rel="stylesheet" href="sessionreview.css">
 <link rel="stylesheet" href="guest.css">
 <link rel="stylesheet" href="rig.css">
 <link rel="stylesheet" href="data.css">
 <link rel="stylesheet" href="mydrive.css">
 <link rel="stylesheet" href="home.css">
-<link rel="stylesheet" href="tv.css">
 <link rel="stylesheet" href="drive.css">
 <link rel="stylesheet" href="keymsg.css">
 </head>
@@ -145,15 +142,10 @@
 
 <script src="core.js"></script>
 <script src="map.js"></script>
-<script src="demo.js"></script>
+<script>if (/[?&]demo=1/.test(location.search)) document.write('<script src="demo.js"><' + '/script>');</script><!-- demo data only when asked: ?demo=1 -->
 <script src="ui.js"></script>
-<script src="idle.js"></script>
 <script src="carpics.js"></script><!-- CP-1: iRacing's own car pictures (HOME shows his own) -->
-<script src="cars.js"></script><!-- P4: car silhouettes in the real livery colours (HOME shows his own) -->
 <script src="home.js"></script>
-<script src="official.js"></script>
-<script src="sessionreview.js"></script>
-<script src="debrief.js"></script>
 <script src="debrief-v4.js"></script>
 <script src="guest.js"></script>
 <script src="rig.js"></script>
@@ -166,7 +158,6 @@
 <script src="vaultlive.js"></script>
 <script src="mydrive.js"></script>
 <script src="intro.js"></script>
-<script src="tv.js"></script>
 <script src="drive.js"></script>
 <script src="keymsg.js"></script>
 </body>

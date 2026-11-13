@@ -92,7 +92,7 @@ $audit = @'
     if (parseFloat(cs.fontSize) < 20) small.push(e.textContent.trim().slice(0, 24) + ' ' + cs.fontSize);
     if (!e.classList.contains('nm') && !e.closest('.nm') && e.scrollWidth > e.clientWidth + 1 && cs.display !== 'inline') clip.push(e.textContent.trim().slice(0, 24));
     if (r.right > 1920.5 || r.bottom > 1080.5 || r.left < -0.5 || r.top < -0.5) off.push(e.textContent.trim().slice(0, 24));
-    if (cs.color === 'rgb(242, 194, 48)' && !e.closest('.trow.me')) gold.push(e.textContent.trim().slice(0, 24));
+    if (cs.color === 'rgb(201, 162, 75)' && !e.closest('.trow.me')) gold.push(e.textContent.trim().slice(0, 24));
     text += ' ' + e.textContent;
   });
   // text boxes of the band cells and the regions must not overlap
@@ -103,7 +103,7 @@ $audit = @'
   for (var i = 0; i < reg.length; i++) for (var j = i + 1; j < reg.length; j++) { var a = reg[i].r, b = reg[j].r; if (Math.min(a.right, b.right) > Math.max(a.left, b.left) + 0.5 && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top) + 0.5) over.push(reg[i].id + '|' + reg[j].id); }
   // gold pixels on the map only around Peter's dot
   var cv = document.getElementById('dMapCv'), g = cv.getContext('2d'), im = g.getImageData(0, 0, cv.width, cv.height).data, me = Drive.mePt, goldPx = 0, goldFar = 0;
-  for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) { var p = (y * cv.width + x) * 4; if (im[p] > 215 && im[p + 1] > 165 && im[p + 1] < 215 && im[p + 2] < 90) { goldPx++; if (!me || Math.hypot(x - me[0], y - me[1]) > 24) goldFar++; } }
+  for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) { var p = (y * cv.width + x) * 4; if (im[p] > 185 && im[p + 1] > 145 && im[p + 1] < 215 && im[p + 2] < 100) { goldPx++; if (!me || Math.hypot(x - me[0], y - me[1]) > 24) goldFar++; } }
   var rows = [].slice.call(dr.querySelectorAll('#dRows .trow')).map(function(r){ return { idx: +r.dataset.idx, p: r.querySelector('.p').textContent, n: r.querySelector('.n').textContent, nm: r.querySelector('.nm').textContent, g: r.querySelector('.g').textContent, me: r.classList.contains('me'), pit: r.classList.contains('pit'), cls: r.style.getPropertyValue('--class') }; });
   var rec = document.getElementById('dRec');
   var dr0 = dr.getBoundingClientRect();
@@ -175,9 +175,7 @@ try {
   Check 'leading the class: the cell becomes GAP BEHIND / leading' ($leader.lbl -eq 'Gap behind' -and $leader.s -eq 'leading')
   $garage = Ev "(function(){ var f = Object.assign({}, __state.frame, { IsOnTrack: false }); onFrame(f); Drive.tick(performance.now() + 1e6); var off = !Drive.shown && document.getElementById('drive').hidden; onFrame(__state.frame); Drive.at = 0; Drive.tick(performance.now() + 2e6); return off && Drive.shown; })()"
   Check 'out of the car (garage) the old grid shows; back in the car Drive returns' ($garage -eq $true)
-  $tv = Ev "(function(){ Tv.set(true); var h = document.getElementById('tvHero'), m = document.getElementById('dMap'), a = h.getBoundingClientRect(), b = m.getBoundingClientRect(), placed = Tv.place(); var r = JSON.stringify({ on: document.body.classList.contains('tv-on'), shown: getComputedStyle(h).display !== 'none', map: getComputedStyle(document.getElementById('dMapCv')).visibility, same: Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1, placed: placed, band: getComputedStyle(document.getElementById('dBand')).display !== 'none' }); Tv.set(false); return r; })()" | ConvertFrom-Json
-  Check 'TV VIEW puts the camera exactly in the map slot; band and tower stay' ($tv.on -and $tv.shown -and $tv.map -eq 'hidden' -and $tv.same -and $tv.placed -and $tv.band)
-  $recw = Ev "(function(){ var o = []; var t = function(d){ Tower.showRec(d); var e = document.getElementById('dRec'); o.push((e.hidden ? 'hidden' : e.textContent.trim()) + '|' + e.className); }; t({ capture: { state: 'paused-disk' } }); t({ capture: { state: 'starting' } }); t({ capture: { state: 'stalled' } }); t(null); t({ capture: { state: 'off' } }); t({ capture: { state: 'recording', secs: 3725 } }); return JSON.stringify(o); })()" | ConvertFrom-Json
+  $recw = Ev "(function(){ var o = []; var t = function(d){ Drive.showRec(d); var e = document.getElementById('dRec'); o.push((e.hidden ? 'hidden' : e.textContent.trim()) + '|' + e.className); }; t({ capture: { state: 'paused-disk' } }); t({ capture: { state: 'starting' } }); t({ capture: { state: 'stalled' } }); t(null); t({ capture: { state: 'off' } }); t({ capture: { state: 'recording', secs: 3725 } }); return JSON.stringify(o); })()" | ConvertFrom-Json
   Check 'REC pill words: paused amber, starting amber, stalled red, unknown amber, off hidden, hours' (($recw -join ';') -eq 'REC PAUSED: DISK FULL|warn;REC STARTING|warn;NOT RECORDING|bad;RECORDING UNKNOWN|warn;hidden|;REC 1:02:05|')
 
   # ---------- pit lane ----------

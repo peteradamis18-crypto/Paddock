@@ -299,7 +299,7 @@ namespace IRDash
             code = 200;
             try
             {
-                string track, config, id, key, build, file, lap;
+                string track, config, id, key, build;
                 q.TryGetValue("track", out track); q.TryGetValue("config", out config); q.TryGetValue("id", out id); q.TryGetValue("key", out key); q.TryGetValue("build", out build);
                 track = Clip(track); config = Clip(config); id = Regex.Replace(id ?? "", "[^0-9]", ""); key = key ?? "";
                 if (key.Length > 0 && !Regex.IsMatch(key, "^[a-z0-9_-]{1,80}$")) key = "";
@@ -317,27 +317,6 @@ namespace IRDash
                         Log.W("corners: build " + key + " - " + why);
                     }
                     return SetJson(Resolve(track, config, id, key, true));
-                }
-                if (path == "/corners/detect")
-                {
-                    // dry run on one telemetry file (nothing is written): the corners found in its best clean lap, or in lap=<n>
-                    q.TryGetValue("file", out file); q.TryGetValue("lap", out lap);
-                    if (Program.IsDriving) { code = 503; return Err("Not while driving"); }
-                    string full = IbtLaps.Resolve(file);
-                    if (full == null) { code = 404; return Err("no such telemetry file"); }
-                    if (Career.OnlineOnly(new FileInfo(full))) { code = 409; return Err("Online-only in OneDrive: run tools\\keep-iracing-local.cmd"); }
-                    int want = -1; if (!string.IsNullOrEmpty(lap) && !int.TryParse(lap, out want)) { code = 400; return Err("lap must be a number"); }
-                    string why; CornerLap cl = ReadBestLap(full, want, out why);
-                    if (cl == null) { code = 404; return Err(why); }
-                    List<CornerTurn> t = DetectLap(cl);
-                    CornerSet cs = new CornerSet(); cs.Source = "auto"; cs.Basis = "telemetry"; cs.Turns = t; cs.Track = cl.Track; cs.Config = cl.Config; cs.Key = cl.Key;
-                    cs.PitIn = Median(cl.PitIn); cs.PitOut = Median(cl.PitOut);
-                    return SetJson(cs).TrimEnd('}') + ",\"lap\":" + cl.LapNo + ",\"lapTime\":" + D(cl.Time) + ",\"lengthM\":" + D(cl.LengthM) + ",\"file\":" + Json_.S(cl.File) + "}";
-                }
-                if (path == "/corners/audit")
-                {
-                    if (Program.IsDriving) { code = 503; return Err("Not while driving"); }
-                    return AuditJson();
                 }
             }
             catch (Exception ex) { Log.W("corners: " + ex.Message); code = 500; return Err("could not do that"); }
@@ -936,8 +915,6 @@ namespace IRDash
             return st[k - 1] + (st[k] - st[k - 1]) * Math.Max(0, Math.Min(1, f));
         }
 
-        // corners found in the local SIMRacingApps outline copy of a track (null when there is none)
-        public static List<CornerTurn> DetectLibrary(string track) { LibCorners l = LoadLibrary(track); return l != null ? l.Turns : null; }
 
         // the outline irdash holds for a track (dash\maps\<key>.json), else the local SIMRacingApps copy
         static List<double[]> OutlinePoints(string key, string track)
@@ -1080,80 +1057,5 @@ namespace IRDash
             return false;
         }
 
-        // ---------------- coverage list for docs\corners.md (data\corners\audit.ps1 turns it into the table) ----------------
-        static string AuditJson()
-        {
-            string tracks = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"iRacing\tracks");
-            StringBuilder sb = new StringBuilder(30000);
-            sb.Append("{\"tracksDir\":").Append(Json_.S(tracks)).Append(",\"layouts\":[");
-            List<IbtInfo> files = ListIbt();
-            Dictionary<string, int> driven = new Dictionary<string, int>(), drivenLaps = new Dictionary<string, int>();
-            Dictionary<string, IbtInfo> drivenInfo = new Dictionary<string, IbtInfo>();
-            foreach (IbtInfo h in files) { string k = Norm(h.TrackName); int c; driven.TryGetValue(k, out c); driven[k] = c + 1; drivenInfo[k] = h; }
-            HashSet<string> seen = new HashSet<string>();
-            bool first = true;
-            if (Directory.Exists(tracks))
-                foreach (string dir in Directory.GetDirectories(tracks))
-                {
-                    string folder = Path.GetFileName(dir).ToLowerInvariant();
-                    List<string> leaves = new List<string>(), parents = new List<string>();
-                    FindLayouts(dir, "", leaves, parents);
-                    if (leaves.Count == 0 && parents.Count == 0) leaves.Add("");
-                    else if (FindLovely(folder, "") != null || driven.ContainsKey(Norm(folder)) || LoadLibrary(folder) != null) leaves.Add("");      // the folder's own (main) layout, e.g. "lagunaseca"
-                    foreach (string pr in parents) { string pid = (folder + " " + pr.Replace('\\', ' ')).Trim(); if (FindLovely(pid, "") != null || driven.ContainsKey(Norm(pid))) leaves.Add(pr); }
-                    foreach (string rel in leaves)
-                    {
-                        string id = (folder + " " + rel.Replace('\\', ' ')).Trim();
-                        seen.Add(Norm(id));
-                        if (!first) sb.Append(','); first = false;
-                        AuditRow(sb, folder, rel, id, true, driven, drivenInfo);
-                    }
-                }
-            // layouts he has driven that are not in the folder listing (renamed folders, other content)
-            foreach (KeyValuePair<string, IbtInfo> kv in drivenInfo)
-            {
-                if (seen.Contains(kv.Key)) continue;
-                if (!first) sb.Append(','); first = false;
-                AuditRow(sb, kv.Value.TrackName.Split(' ')[0], "", kv.Value.TrackName, false, driven, drivenInfo);
-            }
-            sb.Append("]}");
-            return sb.ToString();
-        }
-
-        // folders under a track's folder that hold their own .dat: the layouts. A folder with layouts inside it is a layout itself
-        // only when something knows it by that name (Lovely's "summit summit raceway" is a folder that also holds "school").
-        static void FindLayouts(string dir, string rel, List<string> leaves, List<string> parents)
-        {
-            bool hasChild = false;
-            foreach (string sub in Directory.GetDirectories(dir))
-            {
-                string name = Path.GetFileName(sub);
-                if (!File.Exists(Path.Combine(sub, name + ".dat")) && Directory.GetDirectories(sub).Length == 0) continue;
-                int c0 = leaves.Count;
-                FindLayouts(sub, rel.Length == 0 ? name : rel + "\\" + name, leaves, parents);
-                if (leaves.Count > c0) hasChild = true;
-            }
-            bool own = rel.Length > 0 && File.Exists(Path.Combine(dir, Path.GetFileName(dir) + ".dat"));
-            if (own && !hasChild) leaves.Add(rel); else if (own) parents.Add(rel);
-        }
-        static void AuditRow(StringBuilder sb, string folder, string rel, string id, bool installed, Dictionary<string, int> driven, Dictionary<string, IbtInfo> info)
-        {
-            LovelyEntry le = FindLovely(id, "");
-            int lturns = 0; string lfile = "";
-            if (le != null)
-            {
-                lfile = le.File;
-                try { DateTime ft; CornerSet cs = LoadLovely(le, out ft); lturns = cs != null ? cs.Turns.Count : -1; } catch { lturns = -1; }
-            }
-            string nid = Norm(id); IbtInfo h; int nfiles; bool isDriven = driven.TryGetValue(nid, out nfiles) && info.TryGetValue(nid, out h);
-            h = isDriven ? info[nid] : null;
-            string key = h != null ? h.Key : "";
-            CornerSet auto = key.Length > 0 ? LoadAuto(key) : null;
-            LibCorners lib = LoadLibrary(id);
-            sb.Append("{\"library\":").Append(lib != null ? "true" : "false").Append(",\"libTurns\":").Append(lib != null && lib.Turns != null ? lib.Turns.Count : 0).Append(",\"folder\":").Append(Json_.S(folder)).Append(",\"installed\":").Append(installed ? "true" : "false").Append(",\"layout\":").Append(Json_.S(rel.Replace('\\', '/'))).Append(",\"id\":").Append(Json_.S(id))
-              .Append(",\"lovelyFile\":").Append(Json_.S(lfile)).Append(",\"lovelyName\":").Append(Json_.S(le != null ? le.TrackName : "")).Append(",\"lovelyTurns\":").Append(lturns)
-              .Append(",\"driven\":").Append(isDriven ? nfiles : 0).Append(",\"display\":").Append(Json_.S(h != null ? h.Display : "")).Append(",\"config\":").Append(Json_.S(h != null ? h.Config : ""))
-              .Append(",\"key\":").Append(Json_.S(key)).Append(",\"autoTurns\":").Append(auto != null ? auto.Turns.Count : 0).Append(",\"autoBasis\":").Append(Json_.S(auto != null ? auto.Basis : "")).Append('}');
-        }
     }
 }

@@ -4,7 +4,7 @@
 # Waits (up to -WaitMinutes, default 90) while the sim runs, a START was pressed in the last 10 minutes, or another test
 # or deploy holds dash\deploy.lock. Tests that need Peter away (gallery live part) run only when he has had no input
 # for 10 minutes. friends-live's real Test Drive is in that script and only runs when he is away.
-# Left out on purpose: tests that start the real sim (actions-test, mydrive-test live parts,
+# Left out on purpose: tests that start the real sim (mydrive-test live parts,
 # replay-test -Live): run those by hand with Peter away.
 # Output of each test: tests\last\<name>.txt. Summary: tests\run-all.last.txt (one line per test, FAIL lines listed).
 param([string[]]$Only, [int]$WaitMinutes = 90, [switch]$SelfTest)
@@ -55,7 +55,6 @@ $all = @(
   @{ n = 'gpsmap';    f = 'gpsmap-test.ps1';    a = @();                  away = $false },   # P0-05: real GPS track maps from .ibt Lat/Lon/Alt (offline copies + the measured line in map.js headless; needs the deployed irdash for its live route check)
   @{ n = 'perf';      f = 'perf-test.ps1';      a = @();                  away = $false },
   @{ n = 'pbdelta';   f = 'pbdelta-test.ps1';   a = @();                  away = $false },
-  @{ n = 'bench';     f = 'bench-test.ps1';     a = @();                  away = $false },
   @{ n = 'data';      f = 'data-test.ps1';      a = @();                  away = $false },
   @{ n = 'overlays';  f = 'overlays-test.ps1';  a = @();                  away = $false },
   @{ n = 'dialog';    f = 'dialog-links-test.ps1'; a = @();               away = $false },
@@ -70,7 +69,6 @@ $all = @(
   # added by the lead 2026-10-10: these tests existed but were never in the sweep
   @{ n = 'doctor';    f = 'doctor-test.ps1';    a = @();                  away = $false },
   @{ n = 'official';  f = 'official-test.ps1';  a = @();                  away = $false },
-  @{ n = 'tv';        f = 'tv-test.ps1';        a = @();                  away = $false },
   @{ n = 'vault';     f = 'vault-test.ps1';     a = @();                  away = $false },
   @{ n = 'recorder';  f = 'recorder-test.ps1';  a = @();                  away = $false },   # C-06: made-up screen through the real recorder; its real-screen section skips itself unless Peter has been away 10 min
   @{ n = 'review';    f = 'review-test.ps1';    a = @();                  away = $false },
@@ -91,7 +89,6 @@ $all = @(
   @{ n = 'replay-jump'; f = 'replay-jump-test.ps1'; a = @();              away = $false },   # P2: SEE IN iRACING - the replay jump through the pretend SDK path (exact broadcast messages, refusals), the workbench buttons headless (needs the deployed irdash)
   @{ n = 'rig-leftovers'; f = 'rig-leftovers-test.ps1'; a = @();            away = $false },   # P5: the Simucube Tuner's blank box hidden (stand-in programs), MOST TO GAIN (scratch copies vs an independent computation), the iRacing UI window finder (the live part needs the deployed irdash)
   @{ n = 'cars';      f = 'cars-test.ps1';      a = @();                  away = $false },   # CP-1: iRacing's own car pictures (paddock\cars): the files and manifest, his cars' mapping from his .ibt files, served by irdash, the on-demand fetch refused during a session (sandbox), the pictures in a browser (needs the deployed irdash)
-  @{ n = 'actions';   f = 'actions-test.ps1';   a = @();                  away = $true },
   @{ n = 'gallery';   f = 'gallery-test.ps1';   a = @('-PeterIsAway');    away = $true }
 )
 if ($Only) { $Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }); $all = @($all | Where-Object { $Only -contains $_.n }) }   # -File passes 'a,b' as one string

@@ -1,5 +1,5 @@
 /* The benchmark card: black and gold, hairlines, small caps labels, tabular numbers. Used by the sessions page and the debrief. */
-.bn { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --line: rgba(244, 241, 234, .12); --hair: rgba(244, 241, 234, .07);
+.bn { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --dim: #5d5a54; --line: rgba(244, 241, 234, .12); --hair: rgba(244, 241, 234, .07);
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; color: var(--ink); font-variant-numeric: tabular-nums;
   border: 1px solid var(--line); border-radius: 3px; padding: 16px 20px 14px; background: rgba(244, 241, 234, .015); }
 .bn label { display: block; font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--mute); font-weight: 600; }

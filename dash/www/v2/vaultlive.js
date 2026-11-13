@@ -7,7 +7,7 @@ const VaultLive = {
 
   init() {
     const st = document.createElement('style');
-    st.textContent = '#dbVault { color: #f2c230; letter-spacing: .22em; cursor: pointer; } #dbVault:hover { color: #f4f1ea; }';
+    st.textContent = '#dbVault { color: #C9A24B; letter-spacing: .22em; cursor: pointer; } #dbVault:hover { color: #f4f1ea; }';
     document.head.appendChild(st);
     const sess = document.getElementById('idleSessions');
     if (sess && sess.parentNode && !document.getElementById('idleVault')) {
@@ -17,23 +17,6 @@ const VaultLive = {
       sess.parentNode.insertBefore(a, sess.nextSibling);
     }
     this.pollNav(); setInterval(() => this.pollNav(), 1500);
-    setInterval(() => this.linkDebrief(), 700);
-  },
-
-  // After a new personal best the debrief already shows the benchmark card. Add one link into the Vault. Not while the Vault is switched off.
-  linkDebrief() {
-    const gone = document.getElementById('dbVault');
-    if (this.off) { if (gone) gone.remove(); return; }
-    const el = document.getElementById('debrief');
-    if (!el || !el.querySelector('.db-bench') || document.getElementById('dbVault')) return;
-    const foot = el.querySelector('.db-foot');
-    if (!foot) return;
-    const a = document.createElement('span');
-    a.id = 'dbVault'; a.tabIndex = 0; a.setAttribute('role', 'button'); a.textContent = 'In the Vault';
-    const open = e => { e.stopPropagation(); e.preventDefault(); if (typeof Debrief !== 'undefined' && Debrief.hide) Debrief.hide(); this.openPage(true); };
-    a.addEventListener('click', open);
-    a.addEventListener('keydown', e => { if (e.key === 'Enter') open(e); });
-    foot.appendChild(a);
   },
 
   // opening, closing and following irdash: pagehost.js (one page at a time, CLOSE button, Esc, new requests only)

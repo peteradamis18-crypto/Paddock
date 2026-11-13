@@ -97,6 +97,121 @@ namespace IRDash
         }
     }
 
+    // ---------------- Telemetry replay (test hook only: /api/test/ibt, W0-8) ----------------
+    // Plays an .ibt file into the pretend session below: every scalar plus the CarIdx* arrays, at <speed>x real time.
+    // Gated exactly like /api/test/frame (404 without dash\test-hook.on, 409 while a real session is on).
+    static class IbtReplay
+    {
+        static volatile bool on, done;
+        static Thread th;
+        static string file = "", note = "";
+        static double speed, fromS, toS, posS;
+        static long sent, total;
+        static double lastLap;
+        static volatile Dictionary<string, int> types = new Dictionary<string, int>();
+
+        // the pump asks: is this a whole number / flag / double? (-1 = no idea, the old rules apply). A float loses SessionFlags bits.
+        public static int TypeFor(string name) { int t; return types.TryGetValue(name, out t) ? t : -1; }
+
+        public static string Status()
+        {
+            return "{\"running\":" + (on && !done ? "true" : "false") + ",\"done\":" + (done ? "true" : "false") + ",\"file\":" + Json.Str(file) +
+                   ",\"speed\":" + speed.ToString(CultureInfo.InvariantCulture) + ",\"pos\":" + posS.ToString("0.00", CultureInfo.InvariantCulture) +
+                   ",\"from\":" + fromS.ToString(CultureInfo.InvariantCulture) + ",\"to\":" + toS.ToString(CultureInfo.InvariantCulture) +
+                   ",\"sent\":" + sent + ",\"records\":" + total + ",\"lap\":" + lastLap.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Json.Str(note) + "}";
+        }
+
+        public static void Stop() { on = false; }
+
+        // null = started, else the reason it did not
+        public static string Start(string path, double spd, double from, double to)
+        {
+            if (!File.Exists(path)) return "no such file";
+            TrackMaps.Ibt t = TrackMaps.OpenIbt(path, true);
+            if (t == null) return "not an .ibt file";
+            int tick = 60;
+            try { byte[] h = new byte[12]; t.fs.Position = 0; t.fs.Read(h, 0, 12); tick = BitConverter.ToInt32(h, 8); if (tick < 1 || tick > 1000) tick = 60; } catch { }
+            on = false; if (th != null) th.Join(500);
+            // scalars + 64-slot CarIdx arrays; the rest (wheel arrays, strings) nobody reads
+            var scal = new List<VarDef>(); var arrs = new List<VarDef>(); var ty = new Dictionary<string, int>();
+            foreach (VarDef v in t.vars.Values)
+            {
+                if (v.Type < 0 || v.Type > 5) continue;
+                if (v.Count == 1) { scal.Add(v); ty[v.Name] = (v.Type == 0 || v.Type == 2) ? 2 : v.Type; }
+                else if (v.Count == 64 && v.Name.StartsWith("CarIdx", StringComparison.Ordinal)) arrs.Add(v);
+            }
+            types = ty;
+            file = path; speed = Math.Max(0.1, Math.Min(200, spd)); fromS = Math.Max(0, from);
+            toS = to > 0 ? to : t.records / (double)tick;
+            posS = fromS; sent = 0; total = t.records; lastLap = 0; note = ""; done = false;
+            Sdk.FakeSession(t.yaml);
+            on = true;
+            th = new Thread(delegate () { Run(t, tick, scal, arrs); });
+            th.IsBackground = true; th.Start();
+            return null;
+        }
+
+        static double Read(byte[] b, int p, int type)
+        {
+            switch (type)
+            {
+                case 0: return b[p];
+                case 1: return b[p] != 0 ? 1 : 0;
+                case 2: return BitConverter.ToInt32(b, p);
+                case 3: return BitConverter.ToUInt32(b, p);
+                case 4: { float f = BitConverter.ToSingle(b, p); return float.IsNaN(f) || float.IsInfinity(f) ? 0 : f; }
+                default: { double d = BitConverter.ToDouble(b, p); return double.IsNaN(d) || double.IsInfinity(d) ? 0 : d; }
+            }
+        }
+
+        // the .ibt has no field arrays, so the car's own channels go into its own slot and every other slot stays empty (not in the world)
+        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
+        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
+        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
+        static void Derive(Dictionary<string, double> vals)
+        {
+            double pi; if (!vals.TryGetValue("PlayerCarIdx", out pi) || pi < 0 || pi > 63) return;
+            for (int a = 0; a < derivedName.Length; a++)
+            {
+                double mine = derivedIdle[a]; if (derivedFrom[a] != "") vals.TryGetValue(derivedFrom[a], out mine);
+                for (int k = 0; k < 64; k++) vals[derivedName[a] + "_" + k] = k == (int)pi ? mine : derivedIdle[a];
+            }
+        }
+        static void Run(TrackMaps.Ibt t, int tick, List<VarDef> scal, List<VarDef> arrs)
+        {
+            try
+            {
+                byte[] rec = new byte[t.bufLen];
+                Stopwatch sw = Stopwatch.StartNew();
+                while (on)
+                {
+                    double ts = fromS + sw.Elapsed.TotalSeconds * speed;
+                    if (ts >= toS) break;
+                    long idx = Math.Min(t.records - 1, (long)(ts * tick));
+                    t.fs.Position = t.dataOff + idx * (long)t.bufLen;
+                    int got = 0; while (got < rec.Length) { int n = t.fs.Read(rec, got, rec.Length - got); if (n <= 0) break; got += n; }
+                    if (got < rec.Length) break;
+                    var vals = new Dictionary<string, double>();
+                    foreach (VarDef v in scal) { if (v.Offset + 1 <= rec.Length) vals[v.Name] = Read(rec, v.Offset, v.Type); }
+                    foreach (VarDef v in arrs)
+                    {
+                        int sz = (v.Type == 0 || v.Type == 1) ? 1 : (v.Type == 5 ? 8 : 4);
+                        for (int k = 0; k < 64; k++) { int p = v.Offset + k * sz; if (p + sz <= rec.Length) vals[v.Name + "_" + k] = Read(rec, p, v.Type); }
+                    }
+                    if (arrs.Count == 0) Derive(vals);       // iRacing's disk telemetry has no CarIdx arrays: fill the player's own slot
+                    double lap; if (vals.TryGetValue("Lap", out lap)) lastLap = lap;
+                    posS = ts; sent++;
+                    Sdk.FakeSet(vals);
+                    if (!Sdk.Pretend) break;
+                    Thread.Sleep(Sdk.FakePumpMs);
+                }
+                done = on;      // reached the end (not stopped); the last frame stays until /api/test/end
+            }
+            catch (Exception e) { note = e.Message; Log.W("ibt replay: " + e.Message); }
+            finally { try { t.fs.Dispose(); } catch { } }
+        }
+    }
+
     // ---------------- iRacing SDK reader ----------------
     static class Sdk
     {
@@ -201,10 +316,12 @@ namespace IRDash
                         {
                             if (ArrayKey.IsMatch(kv.Key)) continue;
                             VarDef d = new VarDef(); d.Name = kv.Key; d.Count = 1; d.Offset = i * 8;
-                            bool flag = kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
-                            d.Type = flag ? 1 : kv.Key == "Lap" ? 2 : 4;
+                            int rt = IbtReplay.TypeFor(kv.Key);      // an .ibt replay knows the real type (W0-8); -1 = old rules
+                            bool flag = rt == 1 || kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
+                            d.Type = flag ? 1 : rt >= 0 ? rt : kv.Key == "Lap" ? 2 : 4;
                             if (flag) f.Data[d.Offset] = (byte)(kv.Value != 0 ? 1 : 0);
-                            else if (d.Type == 2) Array.Copy(BitConverter.GetBytes((int)kv.Value), 0, f.Data, d.Offset, 4);
+                            else if (d.Type == 2 || d.Type == 3) Array.Copy(BitConverter.GetBytes(unchecked((int)(long)kv.Value)), 0, f.Data, d.Offset, 4);
+                            else if (d.Type == 5) Array.Copy(BitConverter.GetBytes(kv.Value), 0, f.Data, d.Offset, 8);
                             else Array.Copy(BitConverter.GetBytes((float)kv.Value), 0, f.Data, d.Offset, 4);
                             f.Vars[kv.Key] = d; i++;
                         }
@@ -588,14 +705,12 @@ namespace IRDash
                     if (method == "GET" && path == "/api/do")
                     {
                         var dq = ParseQuery(query); string dc, da; dq.TryGetValue("c", out dc); dq.TryGetValue("a", out da);
-                        // the flat data-drawn TV map was rejected; the real TV view is not built yet, so this one command is off (P0-03)
-                        if (dc == "tvview") { Send(s, 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("TV view rebuild")); return; }
                         if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
                         // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
                         if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         // SHUT DOWN / SLEEP: only the YES key of the add-on's confirm screen sends these; irdeck quits iRacing, sends the deck to MAIN, then powers off
                         if (dc == "shutdown" || dc == "sleep") { bool pk = StartIrdeck(dc == "shutdown" ? "power off" : "power sleep"); Send(s, pk ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(pk ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
-                        bool ok = TvView.Handles(dc ?? "") ? TvView.Do(dc, da) : Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
+                        bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
@@ -616,7 +731,7 @@ namespace IRDash
                         return;
                     }
                     if (method == "GET" && path == "/gallery") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Gallery.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // charset: captions have accents
-                    if (method == "GET" && (path == "/corners" || path.StartsWith("/corners/")))      // corner model (corners.cs, docs\corners.md)
+                    if (method == "GET" && path == "/corners")      // corner model (corners.cs, docs\corners.md)
                     {
                         int cc; string cj = Corners.Route(path, ParseQuery(query), out cc);
                         if (cj != null) { Send(s, cc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(cj), "Access-Control-Allow-Origin: *\r\n"); return; }
@@ -636,7 +751,7 @@ namespace IRDash
                     if (method == "GET" && path == "/ac") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AcAuto.Json(ParseQuery(query).ContainsKey("live"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AC screen (ac.cs)
                     if (method == "GET" && path == "/ailevel") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AiLevel.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AI LEVEL deck screen (ailevel.cs)
                     if (method == "GET" && path == "/sound") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Sound.Json(!ParseQuery(query).ContainsKey("peek"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the SOUND deck screen (sound.cs); ?peek=1 = the opener key, no refresh
-                    if (method == "GET" && (path == "/analysis/race" || path == "/field/status" || path.StartsWith("/api/test/field", StringComparison.Ordinal)))      // the race field log (field.cs, W6): every car's laps, gaps, pits, passes; test hook routes check Sdk.TestHook themselves
+                    if (method == "GET" && (path == "/analysis/race" || path.StartsWith("/api/test/field", StringComparison.Ordinal)))      // the race field log (field.cs, W6): every car's laps, gaps, pits, passes; test hook routes check Sdk.TestHook themselves
                     { int fc; string fj = RaceField.Route(path, ParseQuery(query), out fc); Send(s, fc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(fj), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/debrief") { int dc; string dj = Debrief.Route(path, ParseQuery(query), out dc); Send(s, dc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(dj), "Access-Control-Allow-Origin: *\r\n"); return; }   // D-01 debrief engine (debrief.cs): result, position by lap, pace vs field, practice fallback
                     if (method == "GET" && path == "/debrief/state") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Debrief.StateJson()), "Access-Control-Allow-Origin: *\r\n"); return; }   // D-05: what the deck's DEBRIEF row acts on
@@ -678,19 +793,10 @@ namespace IRDash
                         int pc; string pj = Perf.Route(path, ParseQuery(query), out pc);
                         if (pj != null) { Send(s, pc, "application/json", Encoding.UTF8.GetBytes(pj), "Access-Control-Allow-Origin: *\r\n"); return; }
                     }
-                    if (method == "GET" && path == "/tv") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(TvView.On ? "{\"on\":true}" : "{\"on\":false}"), "Access-Control-Allow-Origin: *\r\n"); return; }
-                    if (method == "GET" && path == "/tv/data") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Tv.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/overlays") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Overlays.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/doctor") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Doctor.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/api/doctor/run") { Doctor.Run(!ParseQuery(query).ContainsKey("quiet")); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); return; }   // ?quiet=1: check without showing the list
-                    if (method == "GET" && path == "/api/delta/preview")
-                    {
-                        string secs; int sn = 5; if (ParseQuery(query).TryGetValue("s", out secs)) int.TryParse(secs, out sn);
-                        DeltaBar.Preview(Math.Max(1, Math.Min(30, sn)));
-                        Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"));
-                        return;
-                    }
-                    if (method == "GET" && (path == "/api/test/frame" || path == "/api/test/end"))
+                    if (method == "GET" && (path == "/api/test/frame" || path == "/api/test/end" || path == "/api/test/ibt"))
                     {
                         // test hook for tests\overlays-test.ps1: a pretend session for irdash's own readers. Off unless dash\test-hook.on exists.
                         if (!Sdk.TestHook)
@@ -701,7 +807,17 @@ namespace IRDash
                             if (busy != null) { Log.W("test hook refused: " + busy); Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + busy)); return; }
                             Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return;
                         }
-                        if (path == "/api/test/end") Sdk.FakeEnd();
+                        if (path == "/api/test/end") { IbtReplay.Stop(); Sdk.FakeEnd(); }
+                        else if (path == "/api/test/ibt")
+                        {
+                            var iq = ParseQuery(query); string ia, ib, ic, id2; double isp = 20, ifr = 0, ito = 0;
+                            if (iq.ContainsKey("status")) { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(IbtReplay.Status())); return; }
+                            if (iq.TryGetValue("speed", out ia)) double.TryParse(ia, NumberStyles.Float, CultureInfo.InvariantCulture, out isp);
+                            if (iq.TryGetValue("from", out ib)) double.TryParse(ib, NumberStyles.Float, CultureInfo.InvariantCulture, out ifr);
+                            if (iq.TryGetValue("to", out ic)) double.TryParse(ic, NumberStyles.Float, CultureInfo.InvariantCulture, out ito);
+                            string ierr = iq.TryGetValue("file", out id2) ? IbtReplay.Start(id2, isp, ifr, ito) : "file= is missing";
+                            if (ierr != null) { Send(s, 400, "text/plain", Encoding.UTF8.GetBytes(ierr)); return; }
+                        }
                         else
                         {
                             var vals = new Dictionary<string, double>();
@@ -725,7 +841,6 @@ namespace IRDash
                         Send(s, 204, "text/plain", new byte[0]);
                         return;
                     }
-                    if (method == "GET" && path == "/timings") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Timings.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/career") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Career.Json())); return; }
                     if (method == "GET" && path == "/systems") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Systems.Json())); return; }
                     if (method == "GET" && path == "/showcase")
@@ -802,7 +917,6 @@ namespace IRDash
                         else Send(s, 200, "application/json", Encoding.UTF8.GetBytes(json));
                         return;
                     }
-                    if (path.StartsWith("/maps/")) { Maps(s, method, path.Substring(6), hdr); return; }
                     if (method != "GET") { Send(s, 405, "text/plain", Encoding.ASCII.GetBytes("method not allowed")); return; }
 
                     string rel = path.EndsWith("/") ? path.TrimStart('/').Replace('/', '\\') + "index.html" : path.TrimStart('/').Replace('/', '\\');
@@ -821,37 +935,6 @@ namespace IRDash
                 catch (ObjectDisposedException) { }
                 catch (Exception ex) { Log.W("http: " + ex.Message); }
             }
-        }
-
-        void Maps(NetworkStream s, string method, string name, Dictionary<string, string> hdr)
-        {
-            if (!Regex.IsMatch(name, "^[A-Za-z0-9_.-]{1,100}\\.json$") || name.Contains(".."))
-            { Send(s, 400, "text/plain", Encoding.ASCII.GetBytes("bad name")); return; }
-            string file = Path.Combine(maps, name);
-            if (method == "GET")
-            {
-                if (File.Exists(file)) Send(s, 200, "application/json", File.ReadAllBytes(file));
-                else Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("no map"));
-                return;
-            }
-            if (method == "PUT")
-            {
-                string cl; int len;
-                if (!hdr.TryGetValue("Content-Length", out cl) || !int.TryParse(cl, out len) || len <= 0 || len > 4000000)
-                { Send(s, 411, "text/plain", Encoding.ASCII.GetBytes("length required")); return; }
-                byte[] body = new byte[len];
-                int got = 0;
-                while (got < len) { int n = s.Read(body, got, len - got); if (n <= 0) return; got += n; }
-                Directory.CreateDirectory(maps);
-                string tmp = file + ".tmp";
-                File.WriteAllBytes(tmp, body);
-                if (File.Exists(file)) File.Delete(file);
-                File.Move(tmp, file);
-                Log.W("saved track map " + name);
-                Send(s, 204, "text/plain", new byte[0]);
-                return;
-            }
-            Send(s, 405, "text/plain", Encoding.ASCII.GetBytes("method not allowed"));
         }
 
         void Stream(NetworkStream s, Dictionary<string, string> q)
@@ -1756,22 +1839,6 @@ namespace IRDash
 
     static class Json_ { public static string S(string s) { return Json.Str(s ?? ""); } }
 
-    // Live TV view on the top screen (C-22). The deck key calls /api/do?c=tvview once. The choice is
-    // remembered as tv_view=1. This only tells the dashboard page to draw; it never touches iRacing, and it
-    // is allowed while Peter is driving.
-    static class TvView
-    {
-        public static bool On;
-        public static bool Handles(string c) { return c == "tvview"; }
-        public static bool Do(string c, string a)
-        {
-            On = !On;
-            Config.SetKey(Program.IniFile, "tv_view", On ? "1" : "0");
-            Log.W("tv view: " + (On ? "on" : "off"));
-            return true;
-        }
-    }
-
     // ---------------- Settings (dash\irdash.ini, key=value) ----------------
     sealed class Config
     {
@@ -1793,7 +1860,6 @@ namespace IRDash
         public string DeltaPos = "auto";  // "auto" (centred) or "x,y" / "center,y": top-left on the middle screen
         public double DeltaScale = 1.0;
         public string SimPriority = "high"; // high | normal: raise the sim to High priority when a session starts (data.cs)
-        public bool TvOn;                    // live TV view (tv_view=1). Missing line means off.
 
         // Change one key in the ini (the Stream Deck changes the delta bar settings live); other lines stay as they are.
         public static void SetKey(string file, string key, string value)
@@ -1870,7 +1936,6 @@ namespace IRDash
                     case "delta_pos": c.DeltaPos = v; break;
                     case "delta_scale": double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out c.DeltaScale); break;
                     case "sim_priority": c.SimPriority = v.ToLowerInvariant() == "normal" ? "normal" : "high"; break;
-                    case "tv_view": c.TvOn = v == "1"; break;
                     case "career_hours": double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out Career.BaseHours); break;
                     case "career_laps": int.TryParse(v, out Career.BaseLaps); break;
                     case "career_km": double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out Career.BaseKm); break;
@@ -2638,7 +2703,6 @@ namespace IRDash
             Log.FilePath = Path.Combine(Dir, "irdash.log");
             IniFile = Path.Combine(Dir, "irdash.ini");
             cfg = Config.Load(IniFile);
-            TvView.On = cfg.TvOn;
             DeltaBar.Configure(cfg.DeltaOn, cfg.DeltaRef, cfg.DeltaPos, cfg.DeltaScale);
             SimPriority.Mode = cfg.SimPriority;
             bool noBrowser = Array.IndexOf(args, "--no-browser") >= 0;
@@ -2702,7 +2766,6 @@ namespace IRDash
             try { Vault.Init(RootDir); Vault.Start(); } catch (Exception ex) { Log.W("vault: could not start: " + ex.Message); }   // vault=0: both return at once
             try { Recorder.Init(RootDir); Recorder.Start(); } catch (Exception ex) { Log.W("recorder: could not start: " + ex.Message); }   // recorder=0 (the default): Start returns at once; Init only reads the clips already made
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
-            try { Tv.Start(); } catch (Exception ex) { Log.W("tv: could not start: " + ex.Message); }
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
             try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); }
             Coverage.Init(RootDir);   // where to watch in the U.S. (dash\coverage.json, coverage.cs)

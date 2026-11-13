@@ -1,7 +1,7 @@
 /* Session Review (card C-40). Look = docs\mockups\session-review.html / .png, tokens = docs\DESIGN-analysis.md section 8.
    A fixed 1920x1080 stage, scaled to the window; every box has its own place, so nothing can stack on anything else. */
 .sr { --bg: #0b0b0c; --panel: #121214; --line: #26262a; --ink: #ece8df; --mute: #8b877d; --dim: #5d5a54;
-  --gold: #f2c230; --ref: #cfd8e3; --gain: #3ccf7e; --loss: #e5534b; --purple: #b46cff; --green: #3ccf7e; --yellow: #e8c547;
+  --gold: #C9A24B; --ref: #cfd8e3; --gain: #3ccf7e; --loss: #e5534b; --purple: #b46cff; --green: #3ccf7e; --yellow: #e8c547;
   position: fixed; inset: 0; z-index: 950; overflow: hidden; background: var(--bg); color: var(--ink); cursor: default;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
 .sr *, .sr *::before, .sr *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -42,7 +42,7 @@
 .sr .sr-row.h div { font-size: 14px; letter-spacing: .22em; color: var(--mute); white-space: nowrap; }
 .sr .sr-row div { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: clip; }
 .sr .sr-row .lt { font-size: var(--ltf, 26px); font-weight: 500; }
-.sr .sr-row.sr-best { background: linear-gradient(90deg, rgba(242, 194, 48, .10), rgba(242, 194, 48, 0) 70%); }
+.sr .sr-row.sr-best { background: linear-gradient(90deg, rgba(201, 162, 75, .10), rgba(201, 162, 75, 0) 70%); }
 .sr .sr-row.grey div { color: var(--dim); }
 .sr .sr-row.opt { height: 50px; border-top: 1px solid var(--line); border-bottom: none; }
 .sr .sr-row.opt .lt { color: var(--purple); font-style: italic; }
@@ -97,5 +97,5 @@
 #wbHost.on { opacity: 1; }
 #wbHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #0b0b0c; }
 #wbHost .back { position: absolute; left: 50%; top: 0; transform: translateX(-50%); z-index: 2; height: 22px; padding: 0 22px; display: flex; align-items: center;
-  font: 14px/22px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #f2c230; background: #0b0b0c;
+  font: 14px/22px Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #C9A24B; background: #0b0b0c;
   border: 1px solid #3a3320; border-top: 0; cursor: pointer; white-space: nowrap; }

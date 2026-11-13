@@ -15,7 +15,7 @@
 //     under 0.002 s; the page states +-0.02 s per lap because the real sim's other cars come from its network feed. The pit lane time and the lap-1
 //     start of a standing start are good to the sample step, 0.1 s.
 // Test hook (only while dash\test-hook.on exists): /api/test/field?on=1[&ms=<utc ms of the session start>] lets the sampler log a PRETEND session
-// (it ignores them otherwise), /api/test/fieldyaml?name= loads a session text from vault-test\, /field/status has the counters and the sampler's CPU.
+// (it ignores them otherwise), /api/test/fieldyaml?name= loads a session text from vault-test\, /api/test/fieldstatus has the counters and the sampler's CPU.
 // Owned by the W6 card; irdash.cs only calls Init / Start / Route.
 using System;
 using System.Collections.Generic;
@@ -467,7 +467,7 @@ namespace IRDash
         static volatile bool testOn;                // the test hook asked for pretend sessions to be logged
         static long testClockMs;                    // > 0: the pretend session "started" at this UTC time (so the endpoint can find it by a real .ibt's time window)
         static readonly object gate = new object();
-        // status counters (read by /field/status)
+        // status counters (read by /api/test/fieldstatus)
         static volatile bool active; static string activeId = "", lastFile = "", lastError = ""; static int activeCars, flushes, finals; static long samples;
         static double busyMs, cpuMs, lastSimT, refreshMs; static Stopwatch wall = Stopwatch.StartNew(); static int maxDoneSeen, refreshes; static long lastCpuAt;
 
@@ -981,7 +981,6 @@ namespace IRDash
             code = 200;
             try
             {
-                if (path == "/field/status") return Status();
                 if (path.StartsWith("/api/test/field", StringComparison.Ordinal))
                 {
                     if (!Sdk.TestHook)
@@ -997,6 +996,7 @@ namespace IRDash
                         samples = 0; busyMs = 0; flushes = 0; finals = 0; maxDoneSeen = 0; lastFile = ""; lastError = ""; wall.Restart();
                         return "{\"ok\":true,\"on\":" + (testOn ? "true" : "false") + ",\"dir\":" + Json_.S(FieldDir) + "}";
                     }
+                    if (path == "/api/test/fieldstatus") return Status();      // the counters and the sampler CPU (was /api/test/fieldstatus): test hook only
                     if (path == "/api/test/fieldyaml")
                     {
                         string name = Q(q, "name");

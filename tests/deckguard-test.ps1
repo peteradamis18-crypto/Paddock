@@ -104,7 +104,7 @@ Section '4. wiring'
 $ir = [IO.File]::ReadAllText((Join-Path $root 'src\irdeck.cs'))
 $dash = [IO.File]::ReadAllText((Join-Path $root 'dash\src\irdash.cs'))
 Check 'irdeck: no verb is exempt any more (the old `verb != "media" && verb != "key"` is gone) and the guard is DeckGuard' ($ir -notmatch 'verb != "media"' -and $ir -match 'DeckGuard\.KeyRuns\(self, a, last, now, true\)' -and $ir -match 'DeckGuard\.UsesMutex\(self\)')
-Check 'irdash /api/do asks DeckGuard before it dispatches anything' ($dash -match 'if \(!DeckDo\.Allow\(dc, da, DateTime\.UtcNow\.Ticks\)\)' -and $dash.IndexOf('DeckDo.Allow(dc') -lt $dash.IndexOf('bool ok = TvView.Handles'))
+Check 'irdash /api/do asks DeckGuard before it dispatches anything' ($dash -match 'if \(!DeckDo\.Allow\(dc, da, DateTime\.UtcNow\.Ticks\)\)' -and $dash.IndexOf('DeckDo.Allow(dc') -lt $dash.IndexOf('bool ok = Nav.Handles'))
 Check 'both builds compile deckguard.cs' (([IO.File]::ReadAllText((Join-Path $root 'build-irdeck.ps1'))) -match 'deckguard\.cs' -and ([IO.File]::ReadAllText((Join-Path $root 'dash\build.ps1'))) -match 'deckguard\.cs')
 $cl = [IO.File]::ReadAllText((Join-Path $root 'CLAUDE.md')); $ar = [IO.File]::ReadAllText((Join-Path $root 'docs\ARCHITECTURE.md'))
 Check 'CLAUDE.md rule 6 and ARCHITECTURE.md say what the code does (0.7 s, VOL / SPOTTER / SEAT exempt, /api/do)' ($cl -match '0\.7 s' -and $cl -match 'SEAT' -and $ar -match 'deckguard\.cs' -and $ar -match '/api/do')

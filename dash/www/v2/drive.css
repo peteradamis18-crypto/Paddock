@@ -2,7 +2,7 @@
    is still shown greyed) whenever Peter is in the car. HOME v3 tokens and type scale: 56 / 30 / 26 / 20, nothing smaller. */
 #drive {
   --ink: #f4f1ea; --muted: #8d8a82; --dim: #5d5a54; --hair: rgba(244,241,234,.12);
-  --gold: #f2c230; --gain: #2fe07a; --amber: #ffb21e; --loss: #ff5a4d;
+  --gold: #C9A24B; --gain: #2fe07a; --amber: #ffb21e; --loss: #ff5a4d;
   position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 910; overflow: hidden;
   background: radial-gradient(80% 70% at 30% 20%, #0c0c0b, #070707 55%, #040404); color: var(--ink);
   font-family: Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; font-weight: 400; cursor: default;
@@ -39,7 +39,7 @@ body.tv-on .tv-live { display: flex; }
 #drive .trow .nm { font-size: 30px; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-right: 12px; }
 #drive .trow .g { font-size: 30px; text-align: right; }
 #drive .trow .tag { font-size: 20px; letter-spacing: .2em; color: var(--muted); margin-left: 12px; }
-#drive .trow.me { background: linear-gradient(90deg, rgba(242,194,48,.13), rgba(242,194,48,.04)); }
+#drive .trow.me { background: linear-gradient(90deg, rgba(201, 162, 75,.13), rgba(201, 162, 75,.04)); }
 #drive .trow.me .p, #drive .trow.me .n, #drive .trow.me .nm { color: var(--gold); }
 #drive .trow.me .g { color: var(--muted); font-size: 26px; }
 #drive .trow.pit .nm, #drive .trow.pit .g { color: var(--muted); }

@@ -48,9 +48,7 @@ Check "60 map requests while builds may run: the slowest took $([math]::Round($w
 
 Section '4. the page draws no car on a missing outline (source check)'
 $mapJs = Get-Content (Join-Path $root 'dash\www\v2\map.js') -Raw
-$tvJs = Get-Content (Join-Path $root 'dash\www\v2\tv.js') -Raw
 Check 'map.js has no straight lap bar placement any more' ($mapJs -notmatch 'x0 \+ \(\(\(pct % 1\) \+ 1\) % 1\) \* span' -and $mapJs -match 'if \(!this\.pts\) return;')
-Check 'tv.js has no straight lap bar placement any more' ($tvJs -notmatch '40 \+ \(\(\(c\.pct % 1\) \+ 1\) % 1\)')
 
 "$($script:pass) passed, $($script:fail) failed."
 if ($script:fail -gt 0) { exit 1 }

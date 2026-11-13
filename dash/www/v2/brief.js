@@ -20,7 +20,6 @@ const Brief = {
     if (Date.now() - this.seen[L.sessKey] > this.MAX_MS) return false;
     if (L.demo || v.IsReplayPlaying) return false;
     if (typeof Guest !== 'undefined' && Guest.g && Guest.g.active) return false;
-    if (typeof Debrief !== 'undefined' && Debrief.el) return false;
     if (typeof Rig !== 'undefined' && Rig.el) return false;
     if (typeof SessionsHost !== 'undefined' && SessionsHost.el) return false;
     return true;
@@ -129,7 +128,7 @@ const Brief = {
     path(scr); g.closePath(); g.strokeStyle = '#4a4740'; g.lineWidth = 11; g.stroke();
     // the line: a gold tick across the track
     const a = scr[0], b = scr[3], dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
-    g.beginPath(); g.moveTo(a[0] - dy / m * 20, a[1] + dx / m * 20); g.lineTo(a[0] + dy / m * 20, a[1] - dx / m * 20); g.strokeStyle = '#f2c230'; g.lineWidth = 5; g.stroke();
+    g.beginPath(); g.moveTo(a[0] - dy / m * 20, a[1] + dx / m * 20); g.lineTo(a[0] + dy / m * 20, a[1] - dx / m * 20); g.strokeStyle = '#C9A24B'; g.lineWidth = 5; g.stroke();
     // numbered corners, names and pit marks: the shared drawing (corners.js), the same on every page
     if (typeof Corners !== 'undefined' && TrackInfo.raw) Corners.draw(g, pct => sc(TrackMap.at(pct)), { data: TrackInfo.raw, w, h, ticks: false, credit: false });
   },

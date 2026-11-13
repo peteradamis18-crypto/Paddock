@@ -32,7 +32,8 @@
 /docs/mockups/_chrome-profile/
 /tests/last/
 /tests/shots/
-/tests/fixtures/
+/tests/fixtures/*.ibt
+/tests/tools/bin/
 /tests/*.last.txt
 /tests/run-all.last.txt
 /docs/tasks/log/
@@ -112,3 +113,6 @@ __pycache__/
 /ac/getkey.log
 /ac/cloud.bin
 /ac/settings.json
+
+# Peter's one-time YouTube sign-in file (client id and secret live here: never commit)
+dash/yt/

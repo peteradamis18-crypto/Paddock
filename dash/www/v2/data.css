@@ -4,16 +4,6 @@
 /* ---- idle screen: link to the sessions page, weekly progress ---- */
 .idle-link { cursor: pointer; letter-spacing: .3em; color: #6f6c64; transition: color .25s ease; padding: 0 8px; }
 .idle-link:hover, .idle-link:focus-visible { color: var(--gold); outline: none; }
-.idle-week { position: absolute; left: 64px; bottom: 148px; display: flex; align-items: flex-start; gap: 0; color: var(--ink); opacity: .96; }
-.idle-week > label { align-self: flex-start; margin: 0 44px 0 0; padding-top: 8px; font-size: 14px; letter-spacing: .34em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
-.idle-week .w { padding: 0 38px 0 38px; border-left: 1px solid var(--line); }
-.idle-week .w b { display: block; font-size: 44px; font-weight: 300; line-height: 1.02; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
-.idle-week .w b small { font-size: 20px; color: var(--mute); margin-left: 6px; letter-spacing: .04em; }
-.idle-week .w span { display: block; margin-top: 6px; font-size: 13px; letter-spacing: .26em; text-transform: uppercase; color: var(--mute); }
-.idle-week .w em { font-style: normal; display: block; margin-top: 2px; font-size: 14px; letter-spacing: .04em; color: #6f6c64; text-transform: none; }
-.idle-week .w.pb b { color: var(--gold); }
-.idle-week .none { border-left: 1px solid var(--line); padding: 8px 38px 0; font-size: 22px; font-weight: 300; color: #c9c5bb; letter-spacing: .02em; }
-.idle-week .none em { font-style: normal; color: var(--mute); font-size: 16px; margin-left: 12px; }
 
 /* ---- the sessions page over the idle screen ---- */
 #sessHost { position: fixed; inset: 0; z-index: 945; background: #060606; opacity: 0; transition: opacity .5s ease; }
@@ -21,7 +11,7 @@
 #sessHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #060606; }
 
 /* ---- pre-session brief ---- */
-#brief { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
+#brief { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
   position: fixed; inset: 0; z-index: 920; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .9s ease; pointer-events: none;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }
