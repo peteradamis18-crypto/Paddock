@@ -41,8 +41,8 @@ namespace IRDash
                     if (r.Laps > 0 && (lastOuting == null || r.Date > lastOuting.Date)) lastOuting = r; // an outing needs a completed lap
                     if (r.Car.Length > 0) { double v; byCar.TryGetValue(r.Car, out v); byCar[r.Car] = v + r.Secs; }
                     if (r.Track.Length == 0) continue;
-                    string key = r.Track + "|" + r.Config;
-                    Pb p; if (!pbs.TryGetValue(key, out p)) { p = new Pb(); p.Track = r.Track; p.Config = r.Config; pbs[key] = p; }
+                    string key = r.Car + "|" + r.Track + "|" + r.Config;      // W0-6 (N5): a PB is per car AND track, never another car's lap
+                    Pb p; if (!pbs.TryGetValue(key, out p)) { p = new Pb(); p.Track = r.Track; p.Config = r.Config; p.Car = r.Car; pbs[key] = p; }
                     p.Sessions++;
                     if (r.Date > p.Latest) p.Latest = r.Date;
                     if (r.Best > 0 && (p.Best <= 0 || r.Best < p.Best)) { p.Best = r.Best; p.Car = r.Car; p.File = r.FileName; p.When = r.Date; }
@@ -77,7 +77,7 @@ namespace IRDash
                 else
                     sb.Append("{\"file\":").Append(Json_.S(last.FileName)).Append(",\"car\":").Append(Json_.S(last.Car)).Append(",\"track\":").Append(Json_.S(last.Track))
                       .Append(",\"config\":").Append(Json_.S(last.Config)).Append(",\"type\":").Append(Json_.S(last.SType.Length > 0 ? last.SType : last.Ev))
-                      .Append(",\"laps\":").Append(last.Laps).Append(",\"best\":").Append(last.Best > 0 ? last.Best.ToString("0.000", inv) : "null")
+                      .Append(",\"laps\":").Append(last.Laps).Append(",\"counted\":").Append(last.Counted).Append(",\"best\":").Append(last.Best > 0 ? last.Best.ToString("0.000", inv) : "null")
                       .Append(",\"mins\":").Append(Math.Round(last.Secs / 60)).Append(",\"date\":").Append(Json_.S(last.Date.ToLocalTime().ToString("yyyy-MM-dd HH:mm", inv)))
                       .Append(",\"ago\":").Append(Json_.S(AgoWord(last.Date))).Append('}');
                 // Reuse /career's exact week calculation and JSON contract.
@@ -89,7 +89,7 @@ namespace IRDash
                 else
                     sb.Append("{\"file\":").Append(Json_.S(lastOuting.FileName)).Append(",\"car\":").Append(Json_.S(lastOuting.Car)).Append(",\"track\":").Append(Json_.S(lastOuting.Track))
                       .Append(",\"config\":").Append(Json_.S(lastOuting.Config)).Append(",\"type\":").Append(Json_.S(lastOuting.SType.Length > 0 ? lastOuting.SType : lastOuting.Ev))
-                      .Append(",\"laps\":").Append(lastOuting.Laps).Append(",\"best\":").Append(lastOuting.Best > 0 ? lastOuting.Best.ToString("0.000", inv) : "null")
+                      .Append(",\"laps\":").Append(lastOuting.Laps).Append(",\"counted\":").Append(lastOuting.Counted).Append(",\"best\":").Append(lastOuting.Best > 0 ? lastOuting.Best.ToString("0.000", inv) : "null")
                       .Append(",\"finish\":null")
                       .Append(",\"date\":").Append(Json_.S(lastOuting.Date.ToLocalTime().ToString("yyyy-MM-dd HH:mm", inv)))
                       .Append(",\"ago\":").Append(Json_.S(AgoWord(lastOuting.Date))).Append('}');

@@ -20,6 +20,7 @@ const COLS = 8, ROWS = 4, PX = 96, W = COLS * PX, H = ROWS * PX, FPS = 12;
 const GOLD = '#c9a24b', INK = '#f4f1ea', GREEN = '#1fbf5f';
 const UUID = 'com.peter.rigintro';
 const API = 'http://localhost:8199';
+const PADDOCK_SECRET = '1';     // W0-2: deck-intro\install.ps1 puts the add-on's own secret here in the installed copy; sent as X-Paddock
 const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
 let ws = null, pluginUUID = '', deviceId = '', seq = null, playing = false;
 const tiles = {};               // intro profile: "col,row" -> context
@@ -48,6 +49,10 @@ function fetchT(url, ms, headers) {
   later(ms || FETCH_MS, () => ctl.abort());
   const o = { cache: 'no-store', signal: ctl.signal }; if (headers) o.headers = headers;
   return fetch(url, o).then(r => { Health.lastOk = performance.now(); return r; });
+}
+// every command to irdash (it changes something) goes through here: the 2 s timeout and X-Paddock with the add-on's secret (W0-2)
+function sendCmd(path) {
+  return fetchT(API + path, 0, { 'X-Paddock': PADDOCK_SECRET });
 }
 
 // Is irdash answering? One "tick" = one pass of the 2 s loop. After 3 ticks in a row with no answer the opener keys go grey
@@ -290,7 +295,7 @@ class Screen {
   // inside one poll, once a request got no answer the next ones are not tried (ANALYSIS asks two routes: 2 x 2 s)
   async get(path) { if (this.inPoll && this.lastFail) throw new Error('irdash not answering'); let r; try { r = await fetchT(API + path); } catch (e) { this.lastFail = true; throw e; } return await r.json(); }
   async cmd(c, a, base) {
-    try { await fetchT(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); }
+    try { await sendCmd((base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); }
     catch (e) { log(this.name + ': irdash not reachable'); }
   }
   switchTo(profile) { send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
@@ -357,7 +362,7 @@ const Friends = new class extends Screen {
     this.relayout();
   }
 
-  draft() { fetchT(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb))).catch(() => { }); }
+  draft() { sendCmd('/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb))).catch(() => { }); }
 
   async act(r) {
     // the name keyboard is handled right here, so typing is instant
@@ -481,7 +486,7 @@ const RigDoctor = {
     try { this.d = await (await fetchT(API + '/doctor')).json(); } catch (e) { return; }
     this.icon(false);
   },
-  async press() { try { await fetchT(API + '/api/do?c=doctor'); } catch (e) { log('doctor: irdash not reachable'); } },
+  async press() { try { await sendCmd('/api/do?c=doctor'); } catch (e) { log('doctor: irdash not reachable'); } },
 };
 
 // ---------------- Overlays screen ----------------
@@ -1770,7 +1775,7 @@ const Confirm = new class extends Screen {
 
   // confirmarm / shutdown / sleep carry X-Paddock: 1; the answer text comes back ('ok', 'kids', 'no', or '' when irdash did not answer)
   async paddock(c, a) {
-    try { const r = await fetchT(API + '/api/do?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), 0, { 'X-Paddock': '1' }); return (await r.text()).trim(); }
+    try { const r = await sendCmd('/api/do?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); return (await r.text()).trim(); }
     catch (e) { log('confirm: irdash not reachable (' + c + ')'); return ''; }
   }
 

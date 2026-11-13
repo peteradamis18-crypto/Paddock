@@ -23,7 +23,7 @@ namespace IRDeck
                 KeyMsgSent = true;
                 HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8199/api/keymsg?key=" + Uri.EscapeDataString(KeyId) +
                     "&kind=" + kind + "&text=" + Uri.EscapeDataString(text));
-                rq.Timeout = 800; rq.ReadWriteTimeout = 800; rq.Proxy = null; rq.KeepAlive = false;   // no proxy lookup: it adds seconds
+                rq.Timeout = 800; rq.ReadWriteTimeout = 800; rq.Proxy = null; rq.KeepAlive = false; rq.Headers["X-Paddock"] = "1";   // no proxy lookup: it adds seconds
                 sayAt = DateTime.UtcNow;
                 sayPending = rq.BeginGetResponse(delegate (IAsyncResult ar) { try { ((HttpWebRequest)ar.AsyncState).EndGetResponse(ar).Close(); } catch { } }, rq);
             }

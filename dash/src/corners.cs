@@ -811,19 +811,7 @@ namespace IRDash
             return l;
         }
 
-        static double AtVar(byte[] b, int o, VarDef d)
-        {
-            if (d == null) return 0;
-            int p = o + d.Offset;
-            switch (d.Type)
-            {
-                case 0: case 1: return b[p];
-                case 2: case 3: return BitConverter.ToInt32(b, p);
-                case 4: return BitConverter.ToSingle(b, p);
-                case 5: return BitConverter.ToDouble(b, p);
-            }
-            return 0;
-        }
+        static double AtVar(byte[] b, int o, VarDef d) { return IbtFile.At(b, o, d); }      // W0-6: the one record decoder (ibtfile.cs)
 
         // The quickest clean full lap in one file (or lap number onlyLap): no pit lane, hardly any time off the track, both line
         // crossings seen. Also collects where the car entered and left the pit lane, over the whole file.

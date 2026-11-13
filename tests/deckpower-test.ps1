@@ -39,7 +39,7 @@ static class P {
     while (true) {
       HttpListenerContext ctx = l.GetContext();
       string c = ctx.Request.QueryString["c"] ?? "", ar = ctx.Request.QueryString["a"] ?? "", body;
-      bool xp = ctx.Request.Headers["X-Paddock"] == "1";
+      bool xp = !string.IsNullOrEmpty(ctx.Request.Headers["X-Paddock"]);   // as irdash: W0-2's Gate has already checked the value
       bool kids = File.Exists(Path.Combine(Path.GetDirectoryName(cli), @"dash\kids.lock"));
       long now = DateTime.UtcNow.Ticks;
       if (c == "quit") { Reply(ctx, "bye"); return; }
@@ -140,7 +140,7 @@ finally {
 
 Section '4. the real irdash uses the same rules'
 $dash = [IO.File]::ReadAllText((Join-Path $root 'dash\src\irdash.cs'))
-Check 'irdash /api/do: key shutdown|sleep refused, confirmarm needs X-Paddock from this PC, shutdown/sleep go through PowerGate.Check and start irdeck with --confirmed' ($dash -match 'dc == "key" && \(da == "shutdown" \|\| da == "sleep"\)' -and $dash -match 'dc == "confirmarm"\) \{ bool ak = local && xpOk && PowerGate\.Arm' -and $dash -match 'PowerGate\.Check\(dc, xpOk, local, KidsLockOn\(\)' -and $dash -match '"power off --confirmed" : "power sleep --confirmed"')
+Check 'irdash /api/do: W0-2 Gate first (header rule), key shutdown|sleep refused, confirmarm only from this PC with the header, shutdown/sleep through PowerGate.Check, irdeck started with --confirmed' ($dash -match 'dc == "key" && \(da == "shutdown" \|\| da == "sleep"\)' -and $dash -match 'bool ak = here && xpOk && PowerGate\.Arm' -and $dash -match 'PowerGate\.Check\(dc, xpOk, here, KidsLockOn\(\)' -and $dash -match 'bool here = !asPhone;' -and $dash -match '"power off --confirmed" : "power sleep --confirmed"' -and $dash.IndexOf('Gate.HeaderRefusal(hdr') -lt $dash.IndexOf('PowerGate.Check(dc') -and $dash -notmatch 'method == "OPTIONS" && path == "/api/do"')
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 "$pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

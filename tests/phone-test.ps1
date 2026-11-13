@@ -2,7 +2,7 @@
 #   1. the gate: no token = 401 for anything but the app itself and /phone/pair; the test hooks and /phone/qr are 404 from "a phone"
 #      (?asphone=1 makes irdash treat this PC as a phone, stricter only)
 #   2. pairing: a one-time code from /phone/qr (test hook), wrong code 403, right code = token (+cookie), the code is used up,
-#      token works as ?t=, header and cookie, revoke = 401 again; the real LAN address when Peter has allowed it
+#      token works as a header and an HttpOnly cookie, never as ?t= (W0-2), revoke = 401 again; the real LAN address when Peter has allowed it
 #   3. the QR code decodes back to the app URL (a decoder written here: format info, unmask, zigzag read, Reed-Solomon check, bytes)
 #   4. /api/do?c=key: only deck keys (keys\keys.map), nothing else runs
 #   5. the app at 393x852: every page drawn, every button is a deck command (build-deck.ps1 keys / plugin.html commands), tap targets
@@ -178,7 +178,7 @@ try {
   Check 'the app itself is open (so it can pair)' ((Http "$api/phone/?asphone=1").code -eq 200 -and (Http "$api/phone/app.js?asphone=1").code -eq 200 -and (Http "$api/phone/icon.png?asphone=1").code -eq 200)
   Check 'the test hook is never there for a phone (404)' ((Http "$api/api/test/frame?asphone=1&IsOnTrack=1").code -eq 404 -and (Http "$api/api/test/end?asphone=1").code -eq 404)
   Check 'the pairing code is never there for a phone (404)' ((Http "$api/phone/qr?asphone=1").code -eq 404)
-  Check 'a wrong token is a 401' ((Http "$api/phone/state?asphone=1&t=000000000000000000000000000000000000000000000000").code -eq 401)
+  Check 'a wrong token is a 401' ((Http "$api/phone/state?asphone=1" @{ 'X-Paddock-Token' = '000000000000000000000000000000000000000000000000' }).code -eq 401)
   Check 'a Host that is not this PC is refused (403)' ((RawStatus '/phone/state' 'evil.example:8199') -eq 403 -and (RawStatus '/phone/state' 'localhost:8199') -eq 200)
   Check 'from this PC without the flag everything still works' ((Http "$api/phone/state").code -eq 200)
   # the last irdash start must not have logged the Phone.Sync error (it ran before Phone.Init set the folders)
@@ -199,26 +199,27 @@ try {
   Check 'wrong code is refused (403)' ((Http "$api/phone/pair?asphone=1&code=000000").code -eq 403)
   $p = Http "$api/phone/pair?asphone=1&code=$($qr.code)&name=Test%20iPhone"; $pj = $null; try { $pj = $p.body | ConvertFrom-Json } catch { }
   Check 'right code pairs: 200 with a token' ($p.code -eq 200 -and $pj.ok -and $pj.token -match '^[0-9a-f]{48}$') "$($p.code) $($p.body)"
-  Check 'the token also comes as a cookie' ("$($p.headers['Set-Cookie'])" -like 'pt=*')
+  Check 'the token also comes as a cookie, HttpOnly (no page script can read it, W0-2)' ("$($p.headers['Set-Cookie'])" -like 'pt=*' -and "$($p.headers['Set-Cookie'])" -match 'HttpOnly')
   $token = $pj.token
   # Safari and the iPhone Home Screen app keep separate storage: the same code pairs up to 3 devices, then it is spent
   Check 'the same code pairs a 2nd and 3rd time (Home Screen app)' ((Http "$api/phone/pair?asphone=1&code=$($qr.code)&name=Test%20Home").code -eq 200 -and (Http "$api/phone/pair?asphone=1&code=$($qr.code)&name=Test%20Home2").code -eq 200)
   Check 'a 4th pairing with the same code is refused' ((Http "$api/phone/pair?asphone=1&code=$($qr.code)").code -eq 403)
-  Check 'token as ?t= works' ((Http "$api/phone/state?asphone=1&t=$token").code -eq 200)
+  Check 'token as ?t= is NOT accepted any more (it leaked into logs and history, W0-2)' ((Http ("$api/phone/state?asphone=1&" + "t=$token")).code -eq 401)
   Check 'token as header works' ((Http "$api/phone/state?asphone=1" @{ 'X-Paddock-Token' = $token }).code -eq 200)
   Check 'token as cookie works' ((RawStatus '/phone/state?asphone=1' 'localhost:8199' "Cookie: other=1; pt=$token`r`n") -eq 200)
-  Check 'a paired phone still never reaches the test hook' ((Http "$api/api/test/frame?asphone=1&t=$token&IsOnTrack=1").code -eq 404)
-  $dev = (Http "$api/phone/devices?asphone=1&t=$token").body | ConvertFrom-Json
+  Check 'a paired phone still never reaches the test hook' ((Http "$api/api/test/frame?asphone=1&IsOnTrack=1" @{ 'X-Paddock-Token' = $token }).code -eq 404)
+  Check 'a paired phone gets only the phone app''s routes (W0-2 allow-list: /api/guest/do, /perf/status, /api/watch/open are 404)' ((Http "$api/api/guest/do?asphone=1&c=x" @{ 'X-Paddock-Token' = $token }).code -eq 404 -and (Http "$api/perf/status?asphone=1" @{ 'X-Paddock-Token' = $token }).code -eq 404 -and (Http "$api/api/watch/open?asphone=1" @{ 'X-Paddock-Token' = $token }).code -eq 404)
+  $dev = (Http "$api/phone/devices?asphone=1" @{ 'X-Paddock-Token' = $token }).body | ConvertFrom-Json
   $me = $dev.devices | Where-Object { $_.name -eq 'Test iPhone' } | Select-Object -Last 1
   Check 'the phone is listed by name' ($null -ne $me)
   # a second token for the browser part, then revoke the first
   Hook-On; $qr2 = (Http "$api/phone/qr?test=1").body | ConvertFrom-Json
   $p2 = (Http "$api/phone/pair?asphone=1&code=$($qr2.code)&name=Test%20browser").body | ConvertFrom-Json; $token2 = $p2.token
   Check 'a fresh code pairs a second phone' ($token2 -match '^[0-9a-f]{48}$')
-  $rv = (Http "$api/phone/revoke?id=$($me.id)&asphone=1&t=$token").body | ConvertFrom-Json
+  $rv = (Http "$api/phone/revoke?id=$($me.id)&asphone=1" @{ 'X-Paddock-Token' = $token }).body | ConvertFrom-Json
   Check 'revoke removes it' ($rv.removed -eq 1)
-  Check 'the revoked token is a 401 again' ((Http "$api/phone/state?asphone=1&t=$token").code -eq 401)
-  Check 'the other phone still works' ((Http "$api/phone/state?asphone=1&t=$token2").code -eq 200)
+  Check 'the revoked token is a 401 again' ((Http "$api/phone/state?asphone=1" @{ 'X-Paddock-Token' = $token }).code -eq 401)
+  Check 'the other phone still works' ((Http "$api/phone/state?asphone=1" @{ 'X-Paddock-Token' = $token2 }).code -eq 200)
   # the LAN listeners start on irdash's 30 s pass (phone.cs Sync), so right after a start they are not up yet: once Peter has
   # allowed the LAN, wait up to 75 s for them; still not up then is a FAIL, not a skip
   $lanWanted = Test-Path (Join-Path $root 'dash\phone-allowed.txt'); $lanIp = ''
@@ -233,8 +234,8 @@ try {
   if ($lanIp) {
     $lan = "http://$($lanIp):8199"
     Check "the real LAN address ($lanIp) needs a token" ((Http "$lan/phone/state").code -eq 401)
-    Check 'the real LAN address works with the token' ((Http "$lan/phone/state?t=$token2").code -eq 200)
-    Check 'the real LAN address never has the test hook' ((Http "$lan/api/test/end?t=$token2").code -eq 404)
+    Check 'the real LAN address works with the token' ((Http "$lan/phone/state" @{ 'X-Paddock-Token' = $token2 }).code -eq 200)
+    Check 'the real LAN address never has the test hook' ((Http "$lan/api/test/end" @{ 'X-Paddock-Token' = $token2 }).code -eq 404)
   } else { Write-Output "  note  LAN not allowed (tools\phone-allow.cmd not run): the LAN address itself is not tested" }
 
   Section '3. the QR code decodes back to the app URL'
@@ -360,7 +361,7 @@ try {
   }
   function Banned-Hits([string]$t) { $h = @(); foreach ($k in $banned.Keys) { if ([regex]::IsMatch($t, $banned[$k])) { $h += $k } }; return $h }
   # what each control must say for what it sends (the deck's own words); read from the page's own labels
-  $keyWords = @{ 'rig-on' = '^rig on$'; 'test-drive' = '^test drive$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'keep-lap' = '^keep lap$'; 'tv' = '^tv$'; 'reset-save' = '^mark spot$'; 'reset-run' = '^back to spot$';
+  $keyWords = @{ 'rig-on' = '^rig on$'; 'test-drive' = '^test drive$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'keep-lap' = '^keep lap$'; 'tv' = '^tv$'; 'spot-save' = '^mark spot$'; 'spot-back' = '^back to spot$';
     'restart-race' = '^restart$'; 'skip-session' = '^skip$'; 'quit-main' = '^quit$'; 'fuel-finish' = '^fuel$'; 'pit-tires' = '^tires$'; 'pit-clear' = '^clear$'; 'pit-fr' = '^repair$'; 'pit-ws' = '^wipe$'; 'seat-down' = '^seat down$'; 'seat-up' = '^seat up$';
     'say-sorry' = '^sorry$'; 'say-thanks' = '^thanks$'; 'say-gg' = '^good race$'; 'vol-down' = '^game .$'; 'vol-up' = '^game \+$'; 'mute' = '^mute pc$'; 'bb-f3' = '^relative$'; 'bb-f1' = '^timing$'; 'bb-f2' = '^standings$'; 'bb-f4' = '^fuel$';
     'bb-f5' = '^tires$'; 'bb-f8' = '^in-car$'; 'bb-f11' = '^weather$'; 'showcase' = '^showcase$'; 'sleep' = '^sleep pc$'; 'lock' = '^lock pc$' }

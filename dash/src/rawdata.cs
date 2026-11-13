@@ -87,7 +87,7 @@ namespace IRDash
         {
             try
             {
-                if (Process.GetProcessesByName("iRacingSim64DX11").Length == 0) return false;
+                if (!RigState.SimRunning) return false;
                 string dir = Path.GetDirectoryName(file), newest = null; DateTime nt = DateTime.MinValue;
                 foreach (string f in Directory.GetFiles(dir, "*.ibt")) { DateTime w = File.GetLastWriteTime(f); if (newest == null || w > nt) { newest = f; nt = w; } }
                 return newest != null && string.Equals(Path.GetFullPath(newest), Path.GetFullPath(file), StringComparison.OrdinalIgnoreCase);

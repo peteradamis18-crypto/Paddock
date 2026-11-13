@@ -47,13 +47,7 @@ namespace IRDash
         static string BusyWhy()
         {
             if (TestBusy != null) return TestBusy();
-            try
-            {
-                System.Reflection.MethodInfo m = typeof(Sdk).GetMethod("RealBusy", Type.EmptyTypes);
-                if (m != null) { object r = m.Invoke(null, null); if (r != null) return Convert.ToString(r, Inv); }
-            }
-            catch { }
-            return null;
+            return Sdk.RealBusy();      // W0-2: the one rule (rigstate.cs), no lookup by reflection
         }
 
         static void W(string m)

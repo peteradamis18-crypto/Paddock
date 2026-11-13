@@ -11,7 +11,7 @@ namespace IRDash
 {
     static class SpotterGuard
     {
-        const string SimName = "iRacingSim64DX11", Name = "CrewChiefV4";
+        const string SimName = RigState.SimProcess, Name = "CrewChiefV4";
         // The one owner of starting CrewChief (W0-9; 09: Rig Doctor had its own path and copy of this, and two could start within seconds).
         // Rig Doctor asks StartCrewChief; nothing else starts it.
         public const string Exe = @"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe";
@@ -34,15 +34,14 @@ namespace IRDash
                 Thread.Sleep(2000);
                 try
                 {
-                    Process[] sim = Process.GetProcessesByName(SimName);
-                    bool simUp = sim.Length > 0;
-                    bool driving = Program.IsDriving;
-                    if (simUp && !simWas && !driving) Fresh(sim[0].StartTime);
+                    // W0-2: one rig state; CrewChief is never launched or killed while a session is on (IsOnTrack alone let it happen in the garage)
+                    bool simUp = RigState.SimRunning, session = RigState.SessionOn;
+                    if (simUp && !simWas && !session) { DateTime st = SimStart(); if (st != DateTime.MinValue) Fresh(st); }
                     simWas = simUp;
                     if (!simUp) { connectedWas = false; checksLeft = 0; continue; }
-                    if (driving) continue;
-                    if (Process.GetProcessesByName(Name).Length == 0) { Log.W("spotter: CrewChief was not running - starting it"); Launch(); }
                     bool connected = Sdk.Latest.Connected;
+                    if (!session && Count(Name) == 0) { Log.W("spotter: CrewChief was not running - starting it"); Launch(); }
+                    if (Program.IsDriving) { connectedWas = connected; continue; }
                     if (connected && !connectedWas) { checksLeft = SoundChecks; nextCheck = DateTime.Now; }
                     connectedWas = connected;
                     if (checksLeft > 0 && DateTime.Now >= nextCheck)
@@ -53,6 +52,21 @@ namespace IRDash
                 }
                 catch (Exception ex) { Log.W("spotter: " + ex.Message); }
             }
+        }
+
+        // when the sim program started (MinValue = could not tell); every Process is disposed
+        static DateTime SimStart()
+        {
+            Process[] ps; try { ps = Process.GetProcessesByName(SimName); } catch { return DateTime.MinValue; }
+            DateTime t = DateTime.MinValue;
+            foreach (Process p in ps) { try { if (t == DateTime.MinValue) t = p.StartTime; } catch { } p.Dispose(); }
+            return t;
+        }
+        static int Count(string name)
+        {
+            Process[] ps; try { ps = Process.GetProcessesByName(name); } catch { return -1; }
+            foreach (Process p in ps) p.Dispose();
+            return ps.Length;
         }
 
         // Started before this sim run? Then it has been through sleeps and device changes: replace it.

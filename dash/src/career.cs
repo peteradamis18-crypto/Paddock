@@ -31,7 +31,7 @@ namespace IRDash
 {
     static partial class Analysis
     {
-        const int CrVersion = 5;                              // 5: each lap also says whether it had an off-track record (Pure: only such laps are joined into the theoretical best); 4: a lap iRacing did not count is left out, decided by iRacing's own best lap first (LapRules.Judge, L-1); 3 was the off-track record alone
+        const int CrVersion = 100 + LapRules.Version;          // W0-6: ONE rules version (LapRules.Version, lapstore.cs); +100 so the file names never meet the old c3-c5 caches, which CrSweep deletes
         static readonly object crGate = new object();
         static readonly Dictionary<string, CrFile> crFiles = new Dictionary<string, CrFile>();
         static readonly Dictionary<string, CrMeta> crMeta = new Dictionary<string, CrMeta>();

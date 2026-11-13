@@ -725,7 +725,7 @@ namespace IRDash
                     cur.Clean++;
                     if (cur.FirstClean == null) cur.FirstClean = lp;
                     cur.LastClean = lp;
-                    if (double.IsNaN(cur.Best) || lp.Time < cur.Best) cur.Best = lp.Time;
+                    if (Counted(lp) && (double.IsNaN(cur.Best) || lp.Time < cur.Best)) cur.Best = lp.Time;      // W0-6: a best is a lap iRacing counted
                 }
                 if (lp.Skip == "in") cur = null;
             }

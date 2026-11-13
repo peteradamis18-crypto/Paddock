@@ -102,16 +102,11 @@ try {
   Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
 }
 finally { Stop-DeckBrowser $b }
-''; '5. deleting a race in Videos\Paddock frees the space (dash\src\recorder.cs SyncExports)'
+''; '5. a race missing from Videos\Paddock is marked, never deleted (W0-2; dash\src\recorder.cs SyncExports, run for real in tests\recorder-safety-test.ps1)'
 $rec = [IO.File]::ReadAllText((Join-Path $root 'dash\src\recorder.cs'))
-$i5 = $rec.IndexOf('static void SyncExports()'); $sync = if ($i5 -ge 0) { $rec.Substring($i5, 1800) } else { '' }
-Check 'only races that were seen in Videos\Paddock before count (vault\exported.txt)' ($sync -match 'if \(there\) \{ seen\.Add\(s\.Id\); continue; \}' -and $sync -match 'if \(seen\.Contains\(s\.Id\)\) gone\.Add\(s\)')
-Check 'Paddock''s copy goes only when Windows says no other name points at it (Recycle Bin, renamed, moved = still kept)' ($sync -match 'if \(links != 1\) continue;' -and $rec -match 'catch \{ return 0; \}')
+$i5 = $rec.IndexOf('static void SyncExports()'); $sync = if ($i5 -ge 0) { $rec.Substring($i5, $rec.IndexOf('static RecSess FindDone', $i5) - $i5) } else { '' }
+Check 'only races that were seen in Videos\Paddock before count (vault\exported.txt)' ($sync -match 'if \(there\) \{ seen\.Add\(s\.Id\); continue; \}' -and $sync -match 'if \(seen\.Contains\(s\.Id\)\) missing\.Add\(s\.Id\);')
+Check 'a renamed, moved or briefly missing export never deletes the race (2026-11-13: it used to)' ($sync -notmatch 'Delete\(' -and $rec -notmatch 'LinkCount')
 Check 'the check runs when the list is read and in the recorder''s housekeeping, at most every 15 s' ($sync -match 'now - lastExportSync < 15000' -and $rec -match 'try \{ SyncExports\(\); \} catch \(Exception ex\)' -and $rec -match 'RetainSessions\(\); \} catch \{ \} try \{ SyncExports\(\); \} catch \{ \}')
-$ld = Join-Path $env:TEMP ('linktest-' + $PID); New-Item -ItemType Directory -Force "$ld\sub" | Out-Null
-Set-Content "$ld\v.mp4" 'x'; $null = fsutil hardlink create "$ld\e.mp4" "$ld\v.mp4"
-$n2 = @(fsutil hardlink list "$ld\v.mp4").Count; Move-Item "$ld\e.mp4" "$ld\sub\r.mp4"; $nMoved = @(fsutil hardlink list "$ld\v.mp4").Count; Remove-Item "$ld\sub\r.mp4"; $n1 = @(fsutil hardlink list "$ld\v.mp4").Count
-Remove-Item $ld -Recurse -Force -ErrorAction SilentlyContinue
-Check "Windows counts names the way the rule needs: both 2, renamed/moved 2, deleted for good 1 (got $n2 / $nMoved / $n1)" ($n2 -eq 2 -and $nMoved -eq 2 -and $n1 -eq 1)
 "$pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

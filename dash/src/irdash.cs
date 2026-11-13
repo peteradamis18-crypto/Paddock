@@ -23,7 +23,7 @@ using System.Windows.Forms;
 
 namespace IRDash
 {
-    sealed class VarDef { public string Name; public int Type, Offset, Count; }
+    // VarDef lives in ibtfile.cs (W0-6: the one .ibt reader)
 
     sealed class Frame
     {
@@ -79,23 +79,7 @@ namespace IRDash
         public const uint SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10, SWP_FRAMECHANGED = 0x20, SWP_NOOWNERZORDER = 0x200;
     }
 
-    static class Log
-    {
-        static readonly object gate = new object();
-        public static string FilePath;
-        public static void W(string m)
-        {
-            try
-            {
-                lock (gate)
-                {
-                    if (File.Exists(FilePath) && new FileInfo(FilePath).Length > 2000000) File.Delete(FilePath);
-                    File.AppendAllText(FilePath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + m + "\r\n");
-                }
-            }
-            catch { }
-        }
-    }
+    // Log (one background writer, rolled at 2 MB) and the crash handler live in log.cs (W0-2)
 
     // ---------------- Telemetry replay (test hook only: /api/test/ibt, W0-8) ----------------
     // Plays an .ibt file into the pretend session below: every scalar plus the CarIdx* arrays, at <speed>x real time.
@@ -226,6 +210,7 @@ namespace IRDash
         static void Publish(Frame f)
         {
             lock (gate) { f.Seq = ++seq; latest = f; lastFrameAt = DateTime.UtcNow; Monitor.PulseAll(gate); }
+            RigState.Feed(f.Connected, f.Connected && f.Num("IsOnTrack") != 0, fakeUp);     // the one "is he busy" answer (rigstate.cs)
         }
         public static Frame WaitNext(long lastSeq, int timeoutMs)
         {
@@ -249,23 +234,8 @@ namespace IRDash
 
         // Why the test hook must stay shut: Peter is racing or about to (2026-10-09 a test's pretend race mixed with his real one).
         // null = nothing real is going on.
-        public static string RealBusy()
-        {
-            if (realUp) return "iRacing is connected";
-            try { if (Process.GetProcessesByName("iRacingSim64DX11").Length > 0) return "the sim is running"; } catch { }
-            try
-            {
-                string mark = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "start-mark.txt");
-                if (File.Exists(mark))
-                {
-                    string[] p = File.ReadAllText(mark).Split('\t'); long t;
-                    if (p.Length > 1 && p[1].Trim() != "TEST" && long.TryParse(p[0], out t) && (DateTime.UtcNow - new DateTime(t, DateTimeKind.Utc)).TotalMinutes < 10)
-                        return "a START key was pressed in the last 10 minutes";
-                }
-            }
-            catch { }
-            return null;
-        }
+        // Forwarder (more than five callers): the rule itself is RigState.RealBusyWhy (rigstate.cs).
+        public static string RealBusy() { return RigState.RealBusyWhy(); }
 
         public static void FakeSet(Dictionary<string, double> v)
         {
@@ -643,19 +613,40 @@ namespace IRDash
                     int q = target.IndexOf('?');
                     if (q >= 0) { path = target.Substring(0, q); query = target.Substring(q + 1); }
                     path = Uri.UnescapeDataString(path);
+                    // the Stream Deck add-on sends X-Paddock (W0-2), so its browser asks first; only Paddock's own pages get a yes (rigstate.cs Gate)
+                    if (method == "OPTIONS")
+                    {
+                        if (Gate.PreflightOk(hdr, port)) Send(s, 204, "text/plain", new byte[0], Gate.PreflightHeaders(hdr));
+                        else { RigState.LogOnce("preflight", "http: refused a cross-site preflight for " + path); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("forbidden")); }
+                        return;
+                    }
 
 
                     // The phone's gate (phone.cs): anything not from this PC needs a pairing token, and the test hooks are never reachable
                     // from the LAN. ?asphone=1 asks for the same treatment from this PC (stricter only; tests\phone-test.ps1).
                     bool local = Phone.IsLocal(c);
-                    if (!local || query.Contains("asphone=1"))
+                    bool asPhone = !local || query.Contains("asphone=1");
+                    if (asPhone)
                     {
-                        if (Phone.Hidden(path, method)) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
+                        // W0-2: from the LAN only the phone app's own routes (an allow-list), and never the test hooks
+                        if (!Gate.PhonePath(path) || Phone.Hidden(path, method)) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
                         if (!Phone.Open(path) && !Phone.TokenOk(ParseQuery(query), hdr)) { Send(s, 401, "application/json", Encoding.UTF8.GetBytes("{\"pair\":true}"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    }
+                    // W0-2: a route that changes something needs X-Paddock: 1 (or the top screen's same-origin mark): a web page's blind fetch is refused
+                    if (Gate.ChangesState(method, path))
+                    {
+                        string hr = Gate.HeaderRefusal(hdr, !asPhone, port);
+                        if (hr != null) { RigState.LogOnce("header " + path, "http: refused " + path + " (" + hr + ")"); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("refused: " + hr), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    }
+                    if (method == "GET" && path == "/rig/state") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(RigState.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    {
+                        // W0-2: routes that copy or delete files wait until the session is over
+                        string sg = Gate.GuardRoute(path, ParseQuery(query));
+                        if (sg != null) { Send(s, 409, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"error\":" + Json.Str(sg) + ",\"state\":\"SESSION\"}"), "Access-Control-Allow-Origin: *\r\n"); return; }
                     }
                     if (method == "GET" && path.StartsWith("/phone/", StringComparison.Ordinal))
                     {
-                        int pc; string px; string pj = Phone.Route(path, ParseQuery(query), hdr, local, port, out pc, out px);
+                        int pc; string px; string pj = Phone.Route(path, ParseQuery(query), hdr, !asPhone, port, out pc, out px);
                         if (pj != null) { Send(s, pc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(pj), px); return; }
                     }
                     if (method == "GET" && path == "/home") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Home.WithNextRace()), "Access-Control-Allow-Origin: *\r\n"); return; }   // HOME (home.cs)
@@ -702,38 +693,36 @@ namespace IRDash
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
-                    // W0-1: the add-on sends X-Paddock: 1 with confirmarm / shutdown / sleep, which makes the browser ask first. Only the add-on's own
-                    // page (a local file: Origin null or file://) is told yes, so no web page can send the header.
-                    if (method == "OPTIONS" && path == "/api/do")
-                    {
-                        string org; hdr.TryGetValue("Origin", out org);
-                        if (local && (org == null || org == "null" || org.StartsWith("file://", StringComparison.OrdinalIgnoreCase)))
-                            Send(s, 204, "text/plain", new byte[0], "Access-Control-Allow-Origin: " + (org ?? "*") + "\r\nAccess-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: X-Paddock\r\n");
-                        else Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("forbidden"));
-                        return;
-                    }
                     // one dispatcher for every Stream Deck screen: friends commands go to Guest, the rest to Overlays (both whitelisted)
                     if (method == "GET" && path == "/api/do")
                     {
                         var dq = ParseQuery(query); string dc, da; dq.TryGetValue("c", out dc); dq.TryGetValue("a", out da);
                         if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
+                        // W0-2: commands that click in iRacing, restart or delete wait for the session to end; a phone keeps only its in-session list
+                        string dg = Gate.GuardDo(dc, da);
+                        if (dg == null && asPhone && RigState.SessionOn && !Gate.PhoneMayWhileSession(dc, da)) dg = RigState.Refuse("phone " + dc + (dc == "key" ? " " + da : ""));
+                        if (dg != null) { KeyMsg.Set(Regex.IsMatch(dc ?? "", "^[a-z0-9_-]{1,40}$") ? dc : "", dg, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(dg), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        Vault.Refused = null;
                         // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
                         if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
-                        // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with X-Paddock: 1,
+                        // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with an X-Paddock header
+                        // that W0-2's Gate (above, rigstate.cs) already accepted (the add-on's secret, or 1 from a local program),
                         // kids lock off, within 5 s of that arm (DeckGuard.PowerGate). irdeck then quits iRacing, sends the deck to MAIN, powers off.
                         // The old one-press key exes (c=key&a=shutdown|sleep) are refused outright.
-                        string xp; hdr.TryGetValue("X-Paddock", out xp); bool xpOk = xp == "1";
-                        if (dc == "key" && (da == "shutdown" || da == "sleep")) { Log.W("api/do: key " + da + " refused (only the CONFIRM screen ends the PC)"); Send(s, 400, "text/plain", Encoding.ASCII.GetBytes("no"), "Access-Control-Allow-Origin: *\r\n"); return; }
-                        if (dc == "confirmarm") { bool ak = local && xpOk && PowerGate.Arm(da, DateTime.UtcNow.Ticks); Send(s, ak ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ak ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        string xp; hdr.TryGetValue("X-Paddock", out xp); bool xpOk = !string.IsNullOrEmpty(xp);   // the value was checked by Gate.HeaderRefusal
+                        bool here = !asPhone;   // never from the phone or the LAN
+                        if (dc == "key" && (da == "shutdown" || da == "sleep")) { Log.W("api/do: key " + da + " refused (only the CONFIRM screen ends the PC)"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Not done: SHUT DOWN and SLEEP ask on the deck first."), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (dc == "confirmarm") { bool ak = here && xpOk && PowerGate.Arm(da, DateTime.UtcNow.Ticks); Send(s, ak ? 200 : 409, "text/plain", Encoding.ASCII.GetBytes(ak ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         if (IRDeck.DeckGuard.IsPowerCommand(dc))
                         {
-                            string why = PowerGate.Check(dc, xpOk, local, KidsLockOn(), DateTime.UtcNow.Ticks);
+                            string why = PowerGate.Check(dc, xpOk, here, KidsLockOn(), DateTime.UtcNow.Ticks);
                             bool pk = why == "ok" && StartIrdeck(dc == "shutdown" ? "power off --confirmed" : "power sleep --confirmed");
                             if (why != "ok") Log.W("api/do: " + dc + " refused (" + why + ")");
-                            Send(s, pk ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "no"), "Access-Control-Allow-Origin: *\r\n"); return;
+                            Send(s, pk ? 200 : 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "Not done: the PC is turned off or put to sleep only from the CONFIRM screen on the deck (" + why + ")."), "Access-Control-Allow-Origin: *\r\n"); return;
                         }
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
+                        if (!ok && Vault.Refused != null) { KeyMsg.Set(dc, Vault.Refused, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(Vault.Refused), "Access-Control-Allow-Origin: *\r\n"); return; }      // KEEP in a session: say why
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
@@ -791,7 +780,8 @@ namespace IRDash
                     if ((method == "GET" || method == "POST") && (path == "/vault" || path.StartsWith("/vault/") || path.StartsWith("/api/rec/", StringComparison.Ordinal)))
                     {
                         bool vaultTest = path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook;
-                        if (!Vault.Serving && !vaultTest) { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"enabled\":false}"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // W0-2: RACES and the recorder answer with the Vault on or off
+                        if (!Vault.Serving && !vaultTest && !Vault.RecorderRoute(path)) { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"enabled\":false}"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         if (Vault.Handle(s, path, ParseQuery(query), hdr)) return;
                     }
                     if (method == "GET" && (path == "/watch/coverage" || path == "/api/watch/open"))      // where to watch in the U.S. (coverage.cs)
@@ -1229,7 +1219,7 @@ namespace IRDash
         static bool ActiveIbt(FileInfo fi)
         {
             if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 120) return true;
-            return Process.GetProcessesByName("iRacingSim64DX11").Length > 0 && (DateTime.Now - fi.LastWriteTime).TotalMinutes < 30;
+            return RigState.SimRunning && (DateTime.Now - fi.LastWriteTime).TotalMinutes < 30;      // one cached answer, not a scan per file (590 files)
         }
 
         // The measured GPS line (gpsmap.cs) is exposed beside the geometry; with no geometry at all it is the map.
@@ -1256,38 +1246,17 @@ namespace IRDash
         {
             public FileStream fs; public int bufLen, dataOff; public long records; public string yaml = "";
             public Dictionary<string, VarDef> vars = new Dictionary<string, VarDef>();
+            public IbtFile File;       // the one reader underneath (ibtfile.cs): header fields, start time, IsFinished
         }
 
+        // W0-6: a thin wrapper over IbtFile.Open for the older callers (the header is parsed in one place only)
         internal static Ibt OpenIbt(string path, bool wantVars)
         {
-            FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            byte[] h = new byte[144];
-            if (fs.Read(h, 0, h.Length) < h.Length) { fs.Dispose(); return null; }
+            IbtFile f = IbtFile.Open(path, wantVars);
+            if (f == null) return null;
             Ibt t = new Ibt();
-            t.fs = fs;
-            int infoLen = BitConverter.ToInt32(h, 16), infoOff = BitConverter.ToInt32(h, 20);
-            int numVars = BitConverter.ToInt32(h, 24), varOff = BitConverter.ToInt32(h, 28);
-            t.bufLen = BitConverter.ToInt32(h, 36); t.dataOff = BitConverter.ToInt32(h, 52);
-            if (t.bufLen <= 0 || t.dataOff <= 0 || infoLen <= 0 || infoLen > 4000000) { fs.Dispose(); return null; }
-            t.records = (fs.Length - t.dataOff) / t.bufLen;
-            byte[] info = new byte[infoLen];
-            fs.Position = infoOff; fs.Read(info, 0, infoLen);
-            int z = Array.IndexOf(info, (byte)0); if (z < 0) z = infoLen;
-            t.yaml = Encoding.GetEncoding(28591).GetString(info, 0, z);
-            if (wantVars)
-            {
-                byte[] vh = new byte[numVars * 144];
-                fs.Position = varOff; fs.Read(vh, 0, vh.Length);
-                for (int i = 0; i < numVars; i++)
-                {
-                    int b = i * 144;
-                    int len = Array.IndexOf(vh, (byte)0, b + 16, 32) - (b + 16); if (len < 0) len = 32;
-                    VarDef v = new VarDef();
-                    v.Name = Encoding.ASCII.GetString(vh, b + 16, len);
-                    v.Type = BitConverter.ToInt32(vh, b); v.Offset = BitConverter.ToInt32(vh, b + 4); v.Count = BitConverter.ToInt32(vh, b + 8);
-                    t.vars[v.Name] = v;
-                }
-            }
+            t.File = f; t.fs = f.Fs; t.bufLen = f.BufLen; t.dataOff = f.DataOff; t.records = f.Records; t.yaml = f.Yaml;
+            foreach (KeyValuePair<string, VarDef> kv in f.Vars) t.vars[kv.Key] = kv.Value;
             return t;
         }
 
@@ -1377,17 +1346,7 @@ namespace IRDash
                           name + (cfg.Length > 0 ? " - " + cfg : ""), lat, lon, acc.pit);
         }
 
-        internal static double Read(byte[] b, VarDef d)
-        {
-            switch (d.Type)
-            {
-                case 0: case 1: return b[d.Offset];
-                case 2: case 3: return BitConverter.ToInt32(b, d.Offset);
-                case 4: return BitConverter.ToSingle(b, d.Offset);
-                case 5: return BitConverter.ToDouble(b, d.Offset);
-            }
-            return 0;
-        }
+        internal static double Read(byte[] b, VarDef d) { return IbtFile.At(b, 0, d); }      // W0-6: the one record decoder (ibtfile.cs)
 
         // Adds one .ibt file's clean samples to the accumulator. Returns its session YAML, or null if unusable.
         static string AddIbt(string path, Acc acc)
@@ -1659,6 +1618,7 @@ namespace IRDash
                 if ((now - deckMissingSince).TotalSeconds > 10 && (now - lastDeckStart).TotalSeconds > 60 && File.Exists(exe))
                 {
                     lastDeckStart = now; DeckToMain("start");   // W0-1: it opens on MAIN, never on the page it was last left on
+                    if (RigState.SessionOn) Log.W("watchdog: Stream Deck restarted during a session (it was not running; the deck is his controls, so this one stays allowed)");
                     try { Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) }); Note("Stream Deck was not running: restarted it"); }
                     catch (Exception ex) { Log.W("watchdog: Stream Deck start failed: " + ex.Message); }
                 }
@@ -1751,6 +1711,7 @@ namespace IRDash
         static void RestartDeck(string why)
         {
             if (System.Threading.Interlocked.CompareExchange(ref deckWork, 1, 0) != 0) return;
+            if (RigState.SessionOn) Log.W("watchdog: Stream Deck restarted during a session (" + why + "; the deck is his controls, so this one stays allowed)");
             lastDeckRestart = DateTime.Now; deckLostSince = DateTime.MinValue;
             Thread t = new Thread(delegate ()
             {
@@ -1986,6 +1947,7 @@ namespace IRDash
             public string Sig, Car = "", Track = "", Ev = "", Name = "", Num = "", Lic = "", Config = "", TrackId = "", SType = "";
             public DateTime When, Start; public double Secs, Meters, Best, Fuel; public int Laps, IR, Ver, FuelLaps;
             public int Rules;      // L-1: LapRules.Version the best lap was worked out under (column 21; a row without it is from before the rule and is read again if it has a best lap)
+            public int Counted;    // W0-6: laps iRacing counted (LapStore; column 23)
             public int Left = -1;  // PL-1: 2 = the car left pit road (3 s or more off it, in the world), 0 = it never did, -1 = not read yet (column 22; a row without it, or with the first draft's 1, and no laps in it is read again)
             // when the session began (format 1 rows only know when the file was last written)
             public DateTime Date { get { return Start != DateTime.MinValue ? Start : When; } }
@@ -2041,6 +2003,7 @@ namespace IRDash
                         if (f.Length >= 21) int.TryParse(f[20], out r.Rules);
                         if (f.Length >= 22 && !int.TryParse(f[21], out r.Left)) r.Left = -1;
                         if (r.Left == 1) r.Left = -1;       // the first draft (2026-10-11) wrote 1 after one frame off pit road at the very start of a session: read again
+                        if (f.Length >= 23) int.TryParse(f[22], out r.Counted);
                         // a row made under an older lap rule is read again (the rule can give a best lap as well as take one away), except one that never had a lap in it
                         if (r.Rules < LapRules.Version && r.Best <= 0 && r.Laps == 0) r.Rules = LapRules.Version;
                     }
@@ -2059,7 +2022,7 @@ namespace IRDash
                 string[] f = { r.Sig, r.When.Ticks.ToString(), r.Secs.ToString("0.#", inv), r.Meters.ToString("0", inv),
                                r.Laps.ToString(), r.IR.ToString(), r.Car, r.Track, r.Ev, r.Name, r.Num, r.Lic,
                                r.Ver >= 2 ? "2" : "", r.Ver >= 2 ? r.Best.ToString("0.000", inv) : "", r.Ver >= 2 ? r.Fuel.ToString("0.000", inv) : "", r.Ver >= 2 ? r.FuelLaps.ToString() : "",
-                               r.Config, r.TrackId, r.Start == DateTime.MinValue ? "" : r.Start.Ticks.ToString(), r.SType, r.Ver >= 2 ? r.Rules.ToString() : "", r.Ver >= 2 ? r.Left.ToString() : "" };
+                               r.Config, r.TrackId, r.Start == DateTime.MinValue ? "" : r.Start.Ticks.ToString(), r.SType, r.Ver >= 2 ? r.Rules.ToString() : "", r.Ver >= 2 ? r.Left.ToString() : "", r.Ver >= 2 ? r.Counted.ToString() : "" };
                 for (int i = 0; i < f.Length; i++) f[i] = (f[i] ?? "").Replace('\t', ' ').Replace('\n', ' ').Replace('\r', ' ');
                 sb.Append(string.Join("\t", f)).Append("\r\n");
             }
@@ -2194,32 +2157,22 @@ namespace IRDash
                     else if (lastLap >= 0 && l != lastLap) haveB = false;              // a jump (reset, tow)
                     lastLap = l; prevSt = st; prevFuel = fuel; prevPct = pct; havePrev = true;
                 }
-                // best lap: the quickest time iRacing announced, ignoring anything it did not count (faster than the
-                // session's own best lap) and anything far too short to be a real lap
-                double best = 0;
-                if (cands.Count > 0)
-                {
-                    List<double> s = new List<double>(cands); s.Sort();
-                    double med = Median(s);
-                    foreach (double c in s)
-                    {
-                        if (c < 15 || c < med * 0.7 || (sessionBest > 0 && c < sessionBest - 0.002)) continue;
-                        best = c; break;
-                    }
-                }
                 if (flaps.Count > 0)
                 {
                     double fastest = double.MaxValue;
                     foreach (double[] x in flaps) if (x[0] < fastest) fastest = x[0];
-                    if (best <= 0 && fastest > 15) best = fastest;
                     List<double> fuels = new List<double>();
                     foreach (double[] x in flaps) if (x[0] <= fastest * 1.07) fuels.Add(x[1]);
                     if (fuels.Count >= 2) { r.Fuel = Median(fuels); r.FuelLaps = fuels.Count; }
                 }
-                // L-1: the file's best is the quickest lap iRacing COUNTED (LapRules, analysis.cs), not the quickest time it announced: a lap with an off-track
-                // gets a time too, but is left out of iRacing's own best. -1 = the file could not be read as laps: the estimate above stays.
-                if (cands.Count > 0 || flaps.Count > 0) { double cb = Analysis.CountedBest(path); if (cb >= 0) best = cb; }
-                r.Best = best;
+                // W0-6: laps and the best lap are the lap store's (lapstore.cs): real laps only (lap 0 out), best = the quickest COUNTED lap.
+                // No counted lap = no best (0, shown as "no clean lap"); never the quickest time iRacing announced.
+                r.Best = 0;
+                if (cands.Count > 0 || flaps.Count > 0 || r.Laps > 0)
+                {
+                    FileLaps fl = LapStore.ForFile(path);
+                    if (fl != null) { LapRec b = fl.BestLap; r.Best = b != null ? b.Time : 0; r.Laps = fl.Laps.Count; r.Counted = fl.CountedLaps; }
+                }
                 return r;
             }
         }
@@ -2676,19 +2629,14 @@ namespace IRDash
         static readonly string Dir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         // Read from the latest frame each time, not from the 2-second guard tick: the Session Review asks the moment he gets out of
         // the car and the old cached flag still said "driving" for up to 2 s, so the review answered 503 and was thrown away (2026-10-11).
-        public static bool IsDriving { get { try { Frame lf = Sdk.Latest; return lf.Connected && lf.Num("IsOnTrack") != 0; } catch { return false; } } }
+        // Forwarder (dozens of callers): fed from every frame, so it is as fresh as reading the frame was (rigstate.cs)
+        public static bool IsDriving { get { return RigState.Driving; } }
         public static string RootDir { get { return Path.GetDirectoryName(Dir); } }   // the iRacingDeck folder
         public static string IniFile;
         public static DateTime StartedAt = DateTime.Now;
         const string WindowTitle = "iRacing Dash";
         static Config cfg;
         static NotifyIcon tray;
-
-        // In the car and rolling: nothing may restart or pop up (same rule irdeck uses for the CrewChief name).
-        public static bool CarMoving
-        {
-            get { Frame f = Sdk.Latest; return f.Connected && f.Num("IsOnTrack") != 0 && f.Num("Speed") > 1.0; }
-        }
 
         // The middle race screen, found by position like irdeck does (the primary one is the dashboard screen
         // above the rig on older layouts, so neither the number nor "primary" can be trusted).
@@ -2723,6 +2671,7 @@ namespace IRDash
             if (args != null && Array.IndexOf(args, "--analysis") >= 0) Environment.Exit(Analysis.Cli(args));
             if (args != null && Array.IndexOf(args, "--home") >= 0) Environment.Exit(Career.HomeCli(args));      // HOME / outings over a pretend cache (home.cs, tests\home-test.ps1)
             Log.FilePath = Path.Combine(Dir, "irdash.log");
+            Crash.Install();      // W0-2: an exception on any thread is logged and the tray stays (log.cs)
             IniFile = Path.Combine(Dir, "irdash.ini");
             cfg = Config.Load(IniFile);
             DeltaBar.Configure(cfg.DeltaOn, cfg.DeltaRef, cfg.DeltaPos, cfg.DeltaScale);
@@ -2747,7 +2696,7 @@ namespace IRDash
                 // Already running: ask that copy to (re)open the dashboard window.
                 if (!noBrowser)
                 {
-                    try { using (WebClient wc = new WebClient()) wc.DownloadString("http://localhost:" + cfg.Port + "/api/open"); }
+                    try { using (WebClient wc = new WebClient()) { wc.Headers["X-Paddock"] = "1"; wc.DownloadString("http://localhost:" + cfg.Port + "/api/open"); } }
                     catch { }
                 }
                 return;
@@ -2766,9 +2715,19 @@ namespace IRDash
             }
             if (startErr != null)
             {
-                MessageBox.Show("Paddock could not start: another program is holding port " + cfg.Port + ".\n\nRestart the PC. If it happens again, tell Claude.\n\n(" + startErr.Message + ")", "Paddock", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // a tray balloon, not a box: at logon the sim may be starting, and a modal box would land on his race screens (W0-2)
+                Log.W("irdash could not start: port " + cfg.Port + " is held (" + startErr.Message + ")");
+                using (NotifyIcon n = new NotifyIcon())
+                {
+                    n.Icon = MakeIcon(); n.Text = "Paddock"; n.Visible = true;
+                    n.ShowBalloonTip(20000, "Paddock could not start", "Another program is holding port " + cfg.Port + ". Restart the PC. If it happens again, tell Claude.", ToolTipIcon.Error);
+                    for (int i = 0; i < 200; i++) { Application.DoEvents(); Thread.Sleep(100); }
+                    n.Visible = false;
+                }
+                Log.Flush(2000);
                 return;
             }
+            RigState.Start();      // the sim process and the START mark, every 2 s on its own thread (rigstate.cs)
             Thread sdk = new Thread(Sdk.Run);
             sdk.IsBackground = true;
             sdk.Start();
@@ -2860,6 +2819,7 @@ namespace IRDash
             guard.Start();
 
             Application.Run();
+            Log.Flush(2000);
             GC.KeepAlive(mutex);
         }
 
@@ -3113,7 +3073,7 @@ namespace IRDash
         {
             if ((DateTime.Now - lastIniCheck).TotalSeconds < 30) return;
             lastIniCheck = DateTime.Now;
-            if (Process.GetProcessesByName("iRacingSim64DX11").Length > 0) return;
+            if (RigState.SimRunning) return;
             string ini = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "iRacing\\app.ini");
             if (!File.Exists(ini)) return;
             string text = File.ReadAllText(ini, Encoding.GetEncoding(28591));
@@ -3133,7 +3093,7 @@ namespace IRDash
         {
             if ((DateTime.Now - lastSimIniCheck).TotalSeconds < 30) return;
             lastSimIniCheck = DateTime.Now;
-            if (Process.GetProcessesByName("iRacingSim64DX11").Length > 0) return;
+            if (RigState.SimRunning) return;
             string ini = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "iRacing\\rendererDX11Monitor.ini");
             if (!File.Exists(ini)) return;
             Rectangle t = SimTarget();

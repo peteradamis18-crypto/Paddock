@@ -1,7 +1,7 @@
 // Overlays (O1): what the Stream Deck OVERLAYS screen and the top screen show, and the whitelist of its keys.
 // irdashies keeps its overlays in %APPDATA%\irdashies\config.json; irdeck ("ovl") is the only thing that edits it.
 // irdash reads it (read-only) for /overlays, hands deck presses to irdeck one at a time, and restarts irdashies
-// once - 1.5 s after the last change, and never while the car is moving - so three quick taps cost one restart.
+// once - 1.5 s after the last change, and never while a session is on - so three quick taps cost one restart.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -175,7 +175,7 @@ namespace IRDash
             return exe != null && !ExeReadable(exe);
         }
 
-        // edits are applied once they stop (1.5 s quiet), when nothing else is running and the car is not moving
+        // edits are applied once they stop (1.5 s quiet), when nothing else is running and no session is on
         static void ApplyWhenQuiet()
         {
             if (dir == null || Busy) return;
@@ -184,7 +184,7 @@ namespace IRDash
             long ticks; if (!long.TryParse(Sv(st, "changed"), out ticks)) ticks = 0;
             DateTime changed = new DateTime(ticks, DateTimeKind.Utc);
             if ((DateTime.UtcNow - changed).TotalSeconds < 1.5) return;
-            if (Program.CarMoving) return;
+            if (RigState.SessionOn) return;      // W0-2: never restart irdashies while a session is on (it used to wait only while the car rolled)
             if (lastTry > changed && (DateTime.UtcNow - lastTry).TotalSeconds < 8) return;   // a failed restart is retried slowly, not in a loop
             if (Updating())
             {
@@ -291,7 +291,7 @@ namespace IRDash
             return "{\"widgets\":[" + string.Join(",", ws.ToArray()) + "],\"presets\":[" + string.Join(",", ps.ToArray()) + "]" +
                    ",\"onCount\":" + count + ",\"saveTo\":" + Json_.S(saveTo) + ",\"running\":" + (running ? "true" : "false") +
                    ",\"busy\":" + (Busy ? "true" : "false") + ",\"pending\":" + (pending ? "true" : "false") +
-                   ",\"waiting\":" + (pending && Program.CarMoving ? "true" : "false") + ",\"editing\":" + (Sv(st, "editing") == "1" ? "true" : "false") +
+                   ",\"waiting\":" + (pending && RigState.SessionOn ? "true" : "false") + ",\"editing\":" + (Sv(st, "editing") == "1" ? "true" : "false") +
                    ",\"driving\":" + (Program.IsDriving ? "true" : "false") + ",\"session\":" + (f.Connected ? "true" : "false") +
                    ",\"msg\":" + Json_.S(Sv(st, "msg")) + ",\"msgAt\":" + Json_.S(Sv(st, "msgAt")) + ",\"msgAge\":" + MsgAge(st) +
                    ",\"restartSecs\":" + (Sv(st, "restartSecs") == "" ? "null" : Sv(st, "restartSecs")) +

@@ -418,7 +418,7 @@ const MY = { name: 'PETER', team: '', number: '4' };   // the number and team co
           e.stopPropagation(); e.preventDefault();
           fetch('/api/rec/save?id=' + encodeURIComponent(hit.id), { method: 'POST', cache: 'no-store' }).then(r => r.json()).then(x => {
             const st = x && x.state;
-            show(st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'NO SPACE TO SAVE' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE');
+            show(st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'NO SPACE TO SAVE' : st === 'SAVE FAILED' ? 'SAVE FAILED' : st === 'SESSION' ? 'NOT WHILE A SESSION IS ON' : 'SAVE');
           }).catch(() => show('SAVE FAILED'));
         };
       }).catch(() => { b.hidden = true; });
