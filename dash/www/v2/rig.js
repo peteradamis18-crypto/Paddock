@@ -7,19 +7,23 @@
 const Rig = {
   el: null, seq: -1, shownAt: 0, ovAt: undefined, toastTimer: 0,
 
+  // W0-5: irdash pushes /doctor and /overlays (state parts "doctor", "overlays"); the list shown counts its "checked N s ago" here
   init() {
-    this.poll(); setInterval(() => this.poll(), 1500);
-    this.ovPoll(); setInterval(() => this.ovPoll(), 1500);
+    data.on('state', (st, ch) => {
+      if (ch.doctor && st.doctor) { this.d = st.doctor; this.dAt = Date.now(); this.poll(); }
+      if (ch.overlays && st.overlays) this.ovPoll(st.overlays);
+    });
+    setInterval(() => { if (this.el || this.driving()) this.poll(); }, 1500);
   },
 
   driving() { return UI.live() && !!(L.v && L.v.IsOnTrack); },
 
-  async poll() {
-    if (document.hidden) return;
-    // nothing here is needed while you drive: no requests, and the list goes away
+  poll() {
+    // nothing here is needed while you drive: the list goes away
     if (this.driving()) { if (this.el) { this.el.remove(); this.el = null; } return; }
-    let d;
-    try { d = await (await fetch('/doctor', { cache: 'no-store' })).json(); } catch (e) { return; }
+    if (!this.d) return;
+    const d = Object.assign({}, this.d);
+    if (d.age != null) d.age += Math.round((Date.now() - this.dAt) / 1000);
     this.idle(d);
     if (d.show && !this.driving()) {
       if (!this.el) {
@@ -51,12 +55,8 @@ const Rig = {
   },
 
   // "FUEL switched on", "RACE overlays (6 on)", "waiting for the car to stop" - a few seconds at the top
-  async ovPoll() {
-    if (document.hidden) return;
-    if (this.driving() && Date.now() - (this.ovLast || 0) < 6000) return;   // a slower look while driving: only the notice that a change waits for the car to stop
-    this.ovLast = Date.now();
-    let o;
-    try { o = await (await fetch('/overlays', { cache: 'no-store' })).json(); } catch (e) { return; }
+  ovPoll(o) {
+    if (!o) return;
     if (this.ovAt === undefined) { this.ovAt = o.msgAt || ''; return; }       // not for what happened before this page opened
     let text = '';
     if (o.waiting) text = 'Waiting for the car to stop';

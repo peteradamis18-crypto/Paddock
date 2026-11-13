@@ -126,11 +126,20 @@ const S = {
   track: { name: '', config: '', id: '', key: '', lengthKm: NaN }, sessions: [], sectors: [0], incLimit: '', fuelMax: NaN, sl: {},
 };
 
+// demo.js still hands over YAML text; the live session arrives already parsed (W0-5: irdash's state push, part "session",
+// the same field names with only what the pages read)
 function setSession(text) {
   if (!text || text === S.raw) return;
   let y;
   try { y = parseYaml(text); } catch (e) { console.warn('session yaml', e); return; }
-  S.raw = text; S.y = y;
+  applySession(y, text);
+}
+function setSessionData(j) {
+  if (!j || 'state:' + j.ver === S.raw) return;     // null = iRacing not connected: keep the last session, as before
+  applySession(j, 'state:' + j.ver);
+}
+function applySession(y, raw) {
+  S.raw = raw; S.y = y;
   const wi = y.WeekendInfo || {}, di = y.DriverInfo || {};
   const cfg = wi.TrackConfigName || '';
   S.track = {
@@ -439,34 +448,23 @@ function fuelModel() {
 }
 
 /* ---------------- connection ---------------- */
+// W0-5: the one connection is app/lib/data.js (the telemetry and irdash's state push on one stream); this only feeds the model.
 const Conn = {
   status: 'connecting',
   start() {
     if (QS.has('demo')) { L.demo = true; Demo.start(); this.status = 'demo'; return; }
-    const url = '/stream?hz=' + (QS.get('hz') || 30) + '&vars=' + VARS.join(',');
-    const es = new EventSource(url);
-    es.onmessage = e => { try { onFrame(JSON.parse(e.data).v); this.status = 'live'; } catch (err) { console.warn(err); } };
-    es.addEventListener('session', e => { try { setSession(JSON.parse(e.data)); } catch (err) { console.warn(err); } });
-    es.addEventListener('status', e => { L.connected = false; this.status = 'nosim'; });
-    es.onerror = () => { L.connected = false; this.status = 'noserver'; };
+    // the in-car layouts' variables at 15 Hz (a glance screen); none are asked for while iRacing is not connected
+    data.telemetry(VARS, +(QS.get('hz') || 15));
+    data.on('frame', v => { onFrame(v); this.status = 'live'; });
+    data.on('status', () => { L.connected = false; this.status = 'nosim'; });
+    data.on('online', ok => { if (!ok) { L.connected = false; this.status = 'noserver'; } else if (this.status === 'noserver') this.status = 'connecting'; });
+    data.on('state', (st, ch) => { if (ch.session) setSessionData(st.session); });
     // reload the page when the dashboard is updated - but never while you are driving: the new version waits until
-    // you are out of the car, so helpers can keep working on the files during a race without a flicker on this screen
-    let version = null;
-    const check = async () => {
-      if (document.hidden) return;
-      try {
-        const v = await (await fetch('/version', { cache: 'no-store' })).text();
-        if (version && v !== version) {
-          // keep the old version while he drives; ask again in 15 s. Only a FRESH frame counts: the last frame of a session
-          // (or of a test's pretend race) keeps IsOnTrack set forever and blocked every update until the next drive.
-          const fresh = L.connected && performance.now() - (L.lastFrameAt || 0) < 3000;
-          if (fresh && L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying) return;
-          location.reload();
-        }
-        version = v;
-      } catch (e) { /* irdash restarting */ }
-    };
-    check();
-    setInterval(check, 15000);
+    // you are out of the car, so helpers can keep working on the files during a race without a flicker on this screen.
+    // Only a FRESH frame counts: the last frame of a session (or of a test's pretend race) keeps IsOnTrack set forever.
+    data.reloadOnVersion(() => {
+      const fresh = L.connected && performance.now() - (L.lastFrameAt || 0) < 3000;
+      return !!(fresh && L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying);
+    });
   },
 };
