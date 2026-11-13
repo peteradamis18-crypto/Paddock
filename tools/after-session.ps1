@@ -11,7 +11,7 @@ while ((Get-Date) -lt $end) {
   if ($freeSince -and ((Get-Date) - $freeSince).TotalMinutes -ge 3) {
     L 'sim closed 3 min - running the owed checks'
     # irdeck is NOT rebuilt here: new irdeck code goes live only after its review (the lead runs build-irdeck.ps1)
-    foreach ($t in 'deckstate-test', 'keys-test', 'confirm-test', 'airace-test', 'mydrive-test', 'gpsmap-test', 'home-test') {
+    foreach ($t in 'deckstate-line-test', 'keys-test', 'deck-confirm-test', 'airace-test', 'mydrive-test', 'gpsmap-test', 'home-test') {
       if (-not (Test-Path "tests\$t.ps1")) { L "$t : missing"; continue }
       $o = powershell -ExecutionPolicy Bypass -File "tests\$t.ps1" 2>&1 | Out-String
       $sum = ([regex]::Matches($o, '(?m)^.*(passed|SUMMARY|NOT SAFE).*$') | Select-Object -Last 1 | ForEach-Object { $_.Value.Trim() })

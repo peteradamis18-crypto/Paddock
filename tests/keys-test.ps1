@@ -153,7 +153,7 @@ foreach ($pos in $leaveWant.Keys) {
 foreach ($k in $leave) { if (-not $leaveWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the LEAVE plan" } }
 Check 'LEAVE is the planned page, cell by cell (BACK, QUIT TO MENU twice as wide, KIDS MODE, SHUT DOWN PC, SLEEP PC)' ($bad.Count -eq 0) ($bad -join '; ')
 function Leave-At($c, $r) { $leave | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1 }
-Check 'LEAVE: BACK at 0,0 is "next page" (back to MAIN); QUIT TO MENU at 3,1 and 4,1 is quitmain; SLEEP PC at 7,3 is power sleep' ((Leave-At 0 0).kind -eq 'page' -and (Leave-At 0 0).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main2=quitmain' -and (Leave-At 7 3).what -eq 'sleep=power sleep')
+Check 'LEAVE: BACK at 0,0 is "next page" (back to MAIN); QUIT TO MENU at 3,1 and 4,1 is quitmain; SLEEP PC at 7,3 opens the Confirm screen (W0-1)' ((Leave-At 0 0).kind -eq 'page' -and (Leave-At 0 0).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main2=quitmain' -and (Leave-At 7 3).kind -eq 'plugin' -and (Leave-At 7 3).what -eq 'com.peter.rigintro.confirm')
 Check 'MAIN has a MORE key (next page) and a LEAVE key (previous page); MORE has a BACK key (previous page)' (@($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'next' -and $_.label -eq 'MORE' }).Count -eq 1 -and @($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' -and $_.label -eq 'LEAVE' }).Count -eq 1 -and @($more | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' }).Count -eq 1)
 Check 'every key on the device is drawn on MAIN.png / MORE.png / LEAVE.png' ((Test-Path "$prev\MAIN.png") -and (Test-Path "$prev\MORE.png") -and (Test-Path "$prev\LEAVE.png") -and (Get-Item "$prev\MAIN.png").LastWriteTime -ge $t0.AddSeconds(-2))
 # page order in the profile: LEAVE, MAIN, MORE (a page key moves one step; the profile opens on MAIN)
@@ -385,7 +385,7 @@ foreach ($k in $deckKeys) {
   foreach ($e in $ends) { if ($c -match "(^|\s)$e(\s|$)" -and $k.page -eq 'MAIN') { $bad += "$($k.label) ends a session or the PC and sits on MAIN" } }
 }
 Check 'no key uses confirm or is marked x2, and no key that ends a session or the PC (quitmain, power sleep, power lock) is on MAIN' ($bad.Count -eq 0) ($bad -join '; ')
-Check 'quitmain and power sleep are on LEAVE, power lock is on MORE (they still exist)' (@($deckKeys | Where-Object { $_.page -eq 'LEAVE' -and $_.what -match '=quitmain$' }).Count -eq 2 -and @($deckKeys | Where-Object { $_.page -eq 'LEAVE' -and $_.what -match '=power sleep$' }).Count -eq 1 -and @($deckKeys | Where-Object { $_.page -eq 'MORE' -and $_.what -match '=power lock$' }).Count -eq 1)
+Check 'quitmain is on LEAVE twice, SHUT DOWN / SLEEP are the Confirm screen on LEAVE (no power off / sleep key exe), power lock is on MORE' (@($deckKeys | Where-Object { $_.page -eq 'LEAVE' -and $_.what -match '=quitmain$' }).Count -eq 2 -and @($deck | Where-Object { $_.page -eq 'LEAVE' -and $_.what -eq 'com.peter.rigintro.confirm' }).Count -eq 2 -and @($deckKeys | Where-Object { $_.what -match '=power (off|sleep)$' }).Count -eq 0 -and @($deckKeys | Where-Object { $_.page -eq 'MORE' -and $_.what -match '=power lock$' }).Count -eq 1)
 $names = @($plan.Keys); $dupNames = @($names | Group-Object | Where-Object { $_.Count -gt 1 })
 Check 'every key has its own exe name' ($dupNames.Count -eq 0)
 
@@ -406,7 +406,7 @@ $screens = @(
      fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' },
   @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = 'const AiLevel = new class extends Screen'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
      fields = 'connected', 'read', 'on', 'mode', 'fan', 'target_f', 'room_f', 'auto', 'paused', 'on_above_f', 'off_below_f', 'busy' },
-  @{ name = 'RACES';    start = 'const Races = new class extends Screen';    end = '// The deck key presses and the profile tiles'; guest = $false; route = '/api/rec/races'; own = @('dash\src\recorder.cs', 'dash\src\vault.cs')
+  @{ name = 'RACES';    start = 'const Races = new class extends Screen';    end = '// ---------------- Confirm screen'; guest = $false; route = '/api/rec/races'; own = @('dash\src\recorder.cs', 'dash\src\vault.cs')
      fields = 'races', 'freeGb', 'track', 'car', 'type', 'startMs', 'min', 'laps', 'best', 'mb', 'saved', 'exported' } )
 $unionCmds = @($handled.Keys); $guestSet = @($guestCmds)
 $addonRows = New-Object Collections.Generic.List[object]
@@ -570,7 +570,7 @@ $realPath = $smart + (Get-Body $irSrc 'static int SmartGetIn()')   # the real GE
 # live 2026-10-19: SKIP SESSION in a Test Drive clicked the DRIVER Prev/Next buttons and did nothing; it now ends the drive like QUIT
 $skipSrc = [regex]::Match($irSrc, '(?s)static int CmdSkip\(\).*?\r?\n        \}').Value
 Check 'SKIP SESSION in a Test Drive ends it back to the menu (CmdQuitMain) instead of clicking the driver Prev/Next buttons' ($skipSrc -match 'testSession && !s0\.Ai' -and $skipSrc -match 'return CmdQuitMain\(\)')
-Check 'GET IN (smart) does not arm a skip-session confirm on its real path; it presses the sim''s Drive button (CmdGo) whatever the screen' ($smart.Contains('SmartFakeRun(args, fake, dry)') -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'CmdGo\(\)' -and $realPath -notmatch 'IsReplayPlaying|\.Replay')
+Check 'GET IN (smart) does not arm a skip-session confirm on its real path; it presses the sim''s Drive button (CmdGo) whatever the screen' ($smart -notmatch 'SmartFake' -and $realPath -notmatch 'CmdConfirm' -and $realPath -match 'CmdGo\(\)' -and $realPath -notmatch 'IsReplayPlaying|\.Replay')
 Check 'the add-on has no smart / skip key action, so GET IN is a fixed picture' ($inst -notmatch 'UUID = "\$uuid\.(smart|skip|quit|restart)"')
 # 9c. HOME (rigon) with a session running must not maximise the iRacing UI over the sim
 $rig = Get-Body $irSrc 'static int CmdRigOn(string[] a)'
@@ -581,7 +581,7 @@ $onceActs = @([regex]::Matches($onceM.Groups[1].Value, "'([\w-]+)'") | ForEach-O
 $flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour'
 $missingOnce = @($flip | Where-Object { $onceActs -notcontains $_ })
 Check 'every on/off key of the add-on screens ignores a doubled press (ONCE_ACTS)' ($onceM.Success -and $missingOnce.Count -eq 0 -and $plug -match 'r\.once \|\| ONCE_ACTS\.has\(r\.act\)') ($missingOnce -join ', ')
-Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'bad >= 4 && !this\.offline' -and $plug -match 'if \(this\.offline\) \{ if \(col === COLS - 1 && row === ROWS - 1\) this\.exit\(\)')
+Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'if \(down && !this\.offline\)' -and $plug -match 'if \(this\.offline\) \{ if \(col === COLS - 1 && row === ROWS - 1\) this\.exit\(\)')
 $ct = @($main | Where-Object { $_.label -like 'CAR TRACK*' } | Select-Object -First 1)
 $myd = $plug.Substring($plug.IndexOf('const MyDrive = new class extends Screen'))
 $myd = $myd.Substring(0, $myd.IndexOf('async keyTick()'))

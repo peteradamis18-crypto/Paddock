@@ -105,7 +105,7 @@
     return new Promise(res => {
       const im = new Image();
       im.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d'); g.drawImage(im, 0, 0); const d = g.getImageData(8, 8, 1, 1).data; const [r, gr, b] = d;
-        res(r > 240 && gr > 240 && b > 240 ? 'white' : r > 220 && gr > 170 && gr < 215 && b < 90 ? 'gold' : r < 50 && gr < 50 && b < 50 ? 'dark' : r + ',' + gr + ',' + b); };
+        res(r > 240 && gr > 240 && b > 240 ? 'white' : r > 180 && gr > 140 && gr < 215 && b < 100 && r - b > 100 ? 'gold' : r < 50 && gr < 50 && b < 50 ? 'dark' : r + ',' + gr + ',' + b); };
       im.onerror = () => res('?');
       im.src = url;
     });

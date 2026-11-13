@@ -11,6 +11,7 @@ Enter-TestLock 'kids-test' 0
 # every hook this test starts ends by itself within 30 s, whatever command started it (2026-10-23: a hung run kept Peter's
 # keyboard and mouse locked for 9 minutes). Child processes inherit this; the deck keys never have it.
 $env:IRDECK_KIDS_TEST_MAXSEC = '30'
+$env:PADDOCK_KEYMSG_OFF = '1'   # key copies run here must not put words on the real top screen (W0-1)
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
 $pass = 0; $fail = 0
 function Check($what, $ok) { if ($ok) { $script:pass++; Write-Host "  ok    $what" } else { $script:fail++; Write-Host "  FAIL  $what" } }
@@ -79,7 +80,7 @@ try {
   Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso 'irdeck-cli.exe') -Force
   Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso 'keys\probe.exe') -Force
   foreach ($k in 'tow', 'smartdry', 'restart', 'home') { Copy-Item -LiteralPath $srcCli -Destination (Join-Path $iso "keys\$k.exe") -Force }
-  [IO.File]::WriteAllText((Join-Path $iso 'keys\keys.map'), "probe=state`r`nkids=kids`r`ntow=tow --pretend 0.4`r`nsmartdry=smart --dry`r`nrestart=confirm restart-race restartrace`r`nhome=rigon`r`n", (New-Object Text.UTF8Encoding $false))
+  [IO.File]::WriteAllText((Join-Path $iso 'keys\keys.map'), "probe=state`r`nkids=kids`r`ntow=tow --pretend 0.4`r`nsmartdry=smart --dry`r`nrestart=restartrace`r`nhome=rigon`r`n", (New-Object Text.UTF8Encoding $false))
   $cli = Join-Path $iso 'irdeck-cli.exe'
 
   'Kids mode test'
@@ -121,7 +122,7 @@ try {
   $ps = (& (Join-Path $iso 'keys\smartdry.exe') 2>&1 | ForEach-Object { "$_" }) -join "`n"
   Check 'GET IN (smart) still runs while locked' ($ps -notmatch 'kids mode: ignored' -and $ps -match 'smart --dry: get in plan')
   $pr = (& (Join-Path $iso 'keys\restart.exe') 2>&1 | ForEach-Object { "$_" }) -join "`n"
-  Check 'RESTART still runs while locked, in one press' ($pr -notmatch 'kids mode: ignored' -and $pr -match 'one press, no arming')
+  Check 'RESTART still runs while locked, in one press' ($pr -notmatch 'kids mode: ignored' -and $pr -match 'restartrace: no session is running')
   $r = Ir kids off
   Check 'kids off unlocks' ($r.rc -eq 0 -and $r.out -match 'kids: unlocked')
   Start-Sleep -Milliseconds 200

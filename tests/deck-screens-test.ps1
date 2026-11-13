@@ -37,7 +37,6 @@ for ($i = 2; $i -le 22; $i++) {
 }
 $fx['/workbench/state'] = New-AnalysisFixture
 $fx['/sound'] = New-SoundFixture
-$fx['/deck/state'] = @{ primary = 'GETIN'; label = 'GET IN'; reason = ''; armed = @{ quit = 0; restart = 0; skip = 0 } }
 $fx['/vault/item'] = @{ m = @{ id = 'l20261010-041318-7'; pinned = $false; keeper = $false }; cosworth = @{ installed = $true } }
 $fx['/vault'] = @{ cosworth = @{ installed = $true } }
 $fx['/debrief/state'] = @{ open = $false }
@@ -56,24 +55,9 @@ try {
   Start-DeckAddon $page $fx
   Start-Sleep -Seconds 3
 
-  try { Assert-RigFree -Where '0. SMART key' } catch { "$_"; throw }
-  '0. SMART key and armed countdown render (offline state fixtures)'
-  $smartCases = @(
-    @{ label = 'GET IN'; reason = '' }, @{ label = 'RESET'; reason = 'SLOW DOWN' }, @{ label = 'SKIP'; reason = '' },
-    @{ label = 'WAIT'; reason = '' }, @{ label = 'NOT ALLOWED'; reason = '' }
-  )
-  $rendered = @()
-  foreach ($case in $smartCases) {
-    $jsCase = ($case | ConvertTo-Json -Compress).Replace("'", "\\'")
-    $draw = Invoke-DeckJs $page "(() => { deckState = Object.assign({armed:{}}, $jsCase); let words=[]; const f=CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText=function(t){words.push(String(t));return f.apply(this,arguments)}; paintStateKey('test-smart','smart'); CanvasRenderingContext2D.prototype.fillText=f; return {words:words, image:__sd.images['test-smart']}; })()"
-    $reasonOk = -not $case.reason -or ($draw.words -contains $case.reason)
-    Check ("SMART key draws " + $case.label + " with its small reason") ($draw.words -contains $case.label -and $reasonOk -and $draw.image -like 'data:image/png;base64,*')
-    $rendered += $draw.image
-  }
-  $armed = Invoke-DeckJs $page "(() => { deckState={label:'GET IN',reason:'',armed:{quit:3}}; let words=[]; const f=CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText=function(t){words.push(String(t));return f.apply(this,arguments)}; paintStateKey('test-armed','quit'); CanvasRenderingContext2D.prototype.fillText=f; return {words:words,image:__sd.images['test-armed']}; })()"
-  Check 'QUIT draws ARMED 3 while its armed seconds are three' ($armed.words -contains 'ARMED 3' -and $armed.image -like 'data:image/png;base64,*')
-  $smartSheet = Invoke-DeckJs $page "(() => { const cv=document.createElement('canvas'); cv.width=6*100; cv.height=100; const g=cv.getContext('2d'); const urls=$($rendered | ConvertTo-Json -Compress); const all=urls.concat($($armed.image | ConvertTo-Json -Compress)); return Promise.all(all.map((u,i)=>new Promise(ok=>{const im=new Image();im.onload=()=>{g.drawImage(im,i*100,0,100,100);ok()};im.src=u}))).then(()=>cv.toDataURL('image/png')); })()"
-  Save-DataUrlPng $smartSheet (Join-Path $shots 'deck-smart-states.png')
+  try { Assert-RigFree -Where '0. dead state keys' } catch { "$_"; throw }
+  '0. the ARMED state keys are gone (W0-1: no add-on action ever used them)'
+  Check 'no paintStateKey, pollDeckState or deckState in the running add-on' ((Invoke-DeckJs $page "typeof paintStateKey === 'undefined' && typeof pollDeckState === 'undefined' && typeof deckState === 'undefined'") -eq $true)
   $null = Invoke-DeckJs $page "(() => { window.__apis = []; __sd.onApi = p => window.__apis.push(p); return 1; })()"
   function Apis { @(Invoke-DeckJs $page 'window.__apis') }
   function ClearApis { $null = Invoke-DeckJs $page 'window.__apis.length = 0' }
@@ -118,8 +102,10 @@ try {
   Press 0 0 300
   Check 'BACK at 0,0 returns to MAIN' ((Cur) -eq 'main')
   Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
-  Js "MyDrive.autoPrompted = false; MyDrive.keyTick()" 800
-  Check 'NO CHOICE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
+  Js "MyDrive.keyTick()" 800
+  Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
+  Js "__sd.pressOpener('mydrive')" 1500
+  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
   $null = Sheet 'deck-pick-empty-choice'
   Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true; m.choice.carShort='CORVETTE'; m.choice.trackShort='ROAD ATLANTA'; m.choice.layout='Full Course'" 100
   Js "MyDrive.view='home'; MyDrive.relayout()" 250
@@ -429,8 +415,10 @@ try {
   Press 0 1 300
   Check 'choosing a layout saves it and returns to MAIN' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=l' }).Count -ge 1 -and (Cur) -eq 'main')
   Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
-  Js "MyDrive.autoPrompted = false; MyDrive.keyTick()" 800
-  Check 'NO CHOICE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
+  Js "MyDrive.keyTick()" 800
+  Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
+  Js "__sd.pressOpener('mydrive')" 1500
+  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
   $null = Sheet 'deck-pick-empty-choice'
   $q=PickerQuality; Check 'RECENT uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
   Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true" 100

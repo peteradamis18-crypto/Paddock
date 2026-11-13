@@ -58,7 +58,7 @@ try {
   $edge = @'
 (async (ctx) => { const u = __sd.images[ctx]; if (!u) return 'none';
   return await new Promise(res => { const im = new Image(); im.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d'); g.drawImage(im, 0, 0, 144, 144);
-    const d = g.getImageData(10, 72, 1, 1).data; res(d[0] > 200 && d[1] > 150 && d[2] < 100 ? 'gold' : (Math.abs(d[0] - d[1]) < 8 && d[0] > 40 && d[0] < 90 ? 'grey' : d[0] + ',' + d[1] + ',' + d[2])); }; im.src = u; }); })
+    const d = g.getImageData(10, 72, 1, 1).data; res(d[0] > 180 && d[1] > 140 && d[2] < 110 && d[0] - d[2] > 90 ? 'gold' : (Math.abs(d[0] - d[1]) < 8 && d[0] > 40 && d[0] < 90 ? 'grey' : d[0] + ',' + d[1] + ',' + d[2])); }; im.src = u; }); })
 '@
   function Edge($ctx) { Invoke-DeckJs $page "$edge('$ctx')" }
   function Cur { Invoke-DeckJs $page '__sd.cur' }
