@@ -6,6 +6,15 @@ program that jumped, 13% of a core on average, 36% in the dips; Delta's own FAQ 
 contention; its Video Capture is the likely heavy part, which is a reading, not a fact). This test settles it.
 No promise about the result.
 
+## The honest way to run it: Peter's own races, automatically (primary method)
+An evening run has no driver: with Peter away the car sits in the pit box, iRacing renders a parked view, and Delta
+sees a car that never moves. That is not the load that froze lap 9. So the decisive comparison is Peter's real
+races: the black box (card W0-9) writes one row a second with Delta's process present or absent and its CPU share,
+and after about three races with Delta running and three without (Peter closes it from its tray icon, nothing
+else changes) the RIG sentence compares them (average fps, worst second, seconds under 60, freezes). Nobody has to
+do anything on an evening. The three-run protocol below is the fallback for a quick answer when Peter wants one
+sooner; its result is weaker and the verdict must say "with the car parked".
+
 ## The three runs (everything else identical)
 Same 20-minute AI race each time: Toyota GR86, Road Atlanta (full), same AI count, same weather and time of day as
 the 12 Nov race (read them from that race's `.ibt` header or from `ai\level.json` and write them in the log first).
