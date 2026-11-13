@@ -33,13 +33,12 @@ namespace IRDeck
         }
 
         // Kids mode: the only deck keys that still work while the keyboard and mouse are locked. `a` is the key's command words
-        // (from keys.map): GET IN, TOW TO PITS, RESTART (one press), the game volume pair, and the kids key itself.
+        // (from keys.map): GET IN, RESET CAR, RESTART (one press), the game volume pair, and the kids key itself.
         public static bool KidsAllows(string[] a)
         {
             if (a == null || a.Length == 0 || a[0] == null) return false;
             string v = a[0].ToLowerInvariant();
             if (v == "kids" || v == "smart" || v == "tow" || v == "restartrace") return true;
-            if (v == "confirm") return a.Length >= 3 && a[1] == "restart-race" && a[2].ToLowerInvariant() == "restartrace";
             if (v == "appvol") return a.Length >= 3 && (a[1].ToLowerInvariant() == "game" || a[1].ToLowerInvariant() == "spotter") && (a[2] == "-5" || a[2] == "+5" || a[2] == "-10" || a[2] == "+10");
             return false;
         }

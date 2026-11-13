@@ -19,7 +19,7 @@ namespace IRDeck
         {
             try
             {
-                if (KeyId.Length == 0 || string.IsNullOrEmpty(text)) return;
+                if (KeyId.Length == 0 || string.IsNullOrEmpty(text) || Environment.GetEnvironmentVariable("PADDOCK_KEYMSG_OFF") == "1") return;   // tests run key copies without telling the real top screen
                 KeyMsgSent = true;
                 HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8199/api/keymsg?key=" + Uri.EscapeDataString(KeyId) +
                     "&kind=" + kind + "&text=" + Uri.EscapeDataString(text));
@@ -92,7 +92,7 @@ namespace IRDeck
             new[] { @"^ac: (AC (on|off).*)$", "ok", "$1" },
             new[] { @"mydrive: START|starting your last drive", "wait", "Starting your last drive" },
             new[] { @"choose a car and track first", "no", "Choose a car and track first" },
-            new[] { @"The Test Drive window isn't open|iRacing UI is not running|press RIG ON", "no", "iRacing is not open" },
+            new[] { @"The Test Drive window isn't open|iRacing UI is not running|press HOME", "no", "iRacing is not open" },
             new[] { @"is not in the list|has no ", "no", "iRacing could not find that car" },
             new[] { @"pressed \[\w+\] (.+)", "ok", "Opened $1" },
             new[] { @"not found: (.+?) \(", "no", "Could not find $1" },

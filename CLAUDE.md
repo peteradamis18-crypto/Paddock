@@ -56,7 +56,7 @@ C# 5 only: no `$"..."`, `?.`, `nameof`, expression-bodied members, `out var`.
    opened iRacing news and a Steam sign-in.
 5. No downloads/installs without Peter's yes. Never enter credentials. Never change Windows/security settings yourself —
    give Peter a one-click `.cmd` (+ UNDO) instead.
-6. Stream Deck key presses can arrive 2–3 times: keys ignore repeats within 0.7 s; keep commands idempotent.
+6. Stream Deck key presses can arrive 2–3 times (29 ms to 1 s apart). `src/deckguard.cs`: a key exe ignores a repeat while the same key still runs or within 0.7 s of its last start (1.5 s for on/off keys); only VOL, SPOTTER level and SEAT keep a 0.12 s bounce floor. irdash `/api/do` drops the same command + argument within 0.7 s (steps and screen housekeeping excepted). Keep commands idempotent.
 7. Every change gets a test in `tests/` and all tests pass before you report. Don't claim it works without a test or a
    screenshot.
 8. **Tests never run while Peter races or is about to** (2026-10-09 a test's pretend race and app restarts hit two of

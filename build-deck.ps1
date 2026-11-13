@@ -198,8 +198,18 @@ $leave = [ordered]@{
   '3,1' = K 'QUIT TO' 'MENU' 'stop' 'home'                      (L 'quit-main'       'quitmain')
   '4,1' = K 'QUIT TO' 'MENU' 'stop' 'home'                      (L 'quit-main2'      'quitmain')       # the same, twice as wide a target
   '0,3' = K 'KIDS' 'MODE' 'talk' 'lock'                        (L 'kids-leave'      'kids')            # hand the rig to the kids (Peter 2026-10-23: the blanks = kids mode and shut off PC)
-  '6,3' = K 'SHUT' 'DOWN PC' 'stop' 'power'                     (L 'shutdown'        'power off')       # quits iRacing cleanly first, then turns the PC off
-  '7,3' = K 'SLEEP' 'PC' 'stop' 'moon'                          (L 'sleep'           'power sleep')
+}
+# SHUT DOWN PC / SLEEP PC (W0-1): never a one-press key exe again. Each opens the add-on's CONFIRM screen (one gold YES that must be
+# pressed within 5 s; nothing happens otherwise), and only YES runs irdeck's power off / sleep through irdash. On the real deck the two
+# keys appear only once the INSTALLED add-on has the Confirm action (a key for an action that is not installed would be dead); until
+# then the cells stay empty, so the PC can never be turned off in one press. -Preview always shows them (it is the plan).
+$confirmOn = $Preview -or ((Test-Path $sdPlugin) -and ((Get-Content $sdPlugin -Raw) -match 'rigintro\.confirm'))
+if (-not $confirmOn) {
+  Write-Warning 'SHUT DOWN PC and SLEEP PC are LEFT OFF the LEAVE page: the installed add-on has no Confirm action yet. Run deck-intro\install.ps1, have Peter click Install, then RE-RUN build-deck.ps1.'
+}
+if ($confirmOn) {
+  $leave['6,3'] = K 'SHUT' 'DOWN PC' 'stop' 'power'             @{ plugin = 'com.peter.rigintro.confirm'; name = 'Confirm'; settings = [ordered]@{ what = 'shutdown' } }   # quits iRacing cleanly first, then turns the PC off
+  $leave['7,3'] = K 'SLEEP' 'PC' 'stop' 'moon'                  @{ plugin = 'com.peter.rigintro.confirm'; name = 'Confirm'; settings = [ordered]@{ what = 'sleep' } }
 }
 # MORE (page 2): the rare keys and the ones that end something, plus the MAIN keys the new grid drops. BACK returns
 # to MAIN. Nothing is lost: SAVE SPOT / BACK TO SPOT moved to MAIN (they time every try), WIPE is the windscreen tear-off.
@@ -299,7 +309,7 @@ function Write-Page($pageId, $name, $keysDef) {
       Add-Layout $name $pos $k 'plugin' $a.plugin
       $act = [ordered]@{ ActionID = (G); LinkedTitle = $true; Name = $a.name
         Plugin = [ordered]@{ Name = 'Rig Intro'; UUID = 'com.peter.rigintro'; Version = '1.1.0.0' }
-        Resources = $null; Settings = [ordered]@{}; State = 0; States = @($state); UUID = $a.plugin }
+        Resources = $null; Settings = $(if ($a.settings) { $a.settings } else { [ordered]@{} }); State = 0; States = @($state); UUID = $a.plugin }
     } elseif ($a.page) {
       # Stream Deck's built-in page switching (MORE -> next page, BACK -> previous page)
       Add-Layout $name $pos $k 'page' $a.page
@@ -384,3 +394,4 @@ $tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Curre
 [IO.File]::WriteAllText("$profDir\manifest.json", ($tm | ConvertTo-Json -Depth 10), $u8)
 if ($ownLock) { Remove-Item -LiteralPath $buildLock -Force -ErrorAction SilentlyContinue }   # deck-refresh owns it otherwise, until Stream Deck is back
 "built: MAIN $($main.Count) keys, MORE $($more.Count) keys, LEAVE $($leave.Count) keys; $($keyMap.Count) key exes"
+if (-not $confirmOn) { "NOT DONE: SHUT DOWN PC / SLEEP PC are missing until the add-on with Confirm is installed - click Install, then run build-deck.ps1 again." }

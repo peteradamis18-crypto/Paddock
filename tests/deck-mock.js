@@ -25,8 +25,11 @@
   // the profiles: your own page (the three opener keys) and the one-page profiles made of 32 tiles
   const OPEN = [['k-friends', 'com.peter.rigintro.friends', 5, 1], ['k-overlays', 'com.peter.rigintro.overlays', 6, 1], ['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1]];
   const TILE = { RigFriends: 'friends', RigOverlays: 'overlays', RigMyDrive: 'mydrive', RigIntro: 'intro' };
+  // W0-1: the LEAVE page's SHUT DOWN PC / SLEEP PC keys open the CONFIRM screen; their settings say which (a separate line, so tests that
+  // edit the two lines above by text keep working)
+  OPEN.push(['k-shutdown', 'com.peter.rigintro.confirm', 6, 3, { what: 'shutdown' }], ['k-sleep', 'com.peter.rigintro.confirm', 7, 3, { what: 'sleep' }]); TILE.RigConfirm = 'confirm';
   function keysOf(profile) {
-    if (profile === 'main') return OPEN.map(k => ({ ctx: k[0], action: k[1], col: k[2], row: k[3], settings: {} }));
+    if (profile === 'main') return OPEN.map(k => ({ ctx: k[0], action: k[1], col: k[2], row: k[3], settings: k[4] || {} }));
     const a = [];
     for (let r = 0; r < 4; r++) for (let c = 0; c < 8; c++) a.push({ ctx: 'T-' + profile + '-' + c + '-' + r, action: 'com.peter.rigintro.tile', col: c, row: r, settings: { p: TILE[profile] } });
     return a;
@@ -61,10 +64,10 @@
   const realFetch = window.fetch.bind(window);
   window.fetch = function (url, opt) {
     const u = String(url), path = u.replace('http://localhost:8199', '');
-    M.fetchLog.push({ t: performance.now(), u: path });
+    M.fetchLog.push({ t: performance.now(), u: path, h: (opt && opt.headers) || null });   // h: the request headers (X-Paddock on the CONFIRM commands)
     if (M.cfg.fakeFetch) {
       // an /api/ path the test gave data for is a read (the RACES list: /api/rec/races); any other /api/ path is a command
-      if (path.startsWith('/api/') && M.fx[path.split('?')[0]] === undefined) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response('ok')); }));
+      if (path.startsWith('/api/') && M.fx[path.split('?')[0]] === undefined) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response(M.apiReply ? (M.apiReply(path, opt) || 'ok') : 'ok')); }));
       const fx = M.fx[path.split('?')[0]];
       if (fx !== undefined) return new Promise(res => later(M.cfg.getMs, () => res(new Response(JSON.stringify(typeof fx === 'function' ? fx() : fx), { headers: { 'Content-Type': 'application/json' } }))));
     }
@@ -77,7 +80,7 @@
     later(20, () => { M.cur = null; M.show('main'); });
   };
   // press an opener key on your own page
-  M.pressOpener = function (which) { const k = keysOf('main').find(x => x.action.endsWith('.' + which)); deliver(ev('keyDown', k)); };
+  M.pressOpener = function (which) { const k = keysOf('main').find(x => x.action.endsWith('.' + which) || x.ctx === 'k-' + which); deliver(ev('keyDown', k)); };
   // press a key of the profile that is showing
   M.pressTile = function (col, row) { const k = keysOf(M.cur).find(x => x.col === col && x.row === row); deliver(ev('keyDown', k)); };
   M.tileCtx = (col, row) => 'T-' + M.cur + '-' + col + '-' + row;
@@ -102,7 +105,7 @@
     return new Promise(res => {
       const im = new Image();
       im.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d'); g.drawImage(im, 0, 0); const d = g.getImageData(8, 8, 1, 1).data; const [r, gr, b] = d;
-        res(r > 240 && gr > 240 && b > 240 ? 'white' : r > 220 && gr > 170 && gr < 215 && b < 90 ? 'gold' : r < 50 && gr < 50 && b < 50 ? 'dark' : r + ',' + gr + ',' + b); };
+        res(r > 240 && gr > 240 && b > 240 ? 'white' : r > 180 && gr > 140 && gr < 215 && b < 100 && r - b > 100 ? 'gold' : r < 50 && gr < 50 && b < 50 ? 'dark' : r + ',' + gr + ',' + b); };
       im.onerror = () => res('?');
       im.src = url;
     });

@@ -69,8 +69,8 @@ Check 'GET OUT wait: still rolling at 15 s -> time is up (refusal)' ((Rule stop 
 Check 'GET OUT wait: out of the car already -> go on whatever the speed' ((Rule stop 0 30 0 15000) -eq '0')
 
 # kids allow-list
-$allowed = @(@('smart'), @('tow'), @('restartrace'), @('kids'), @('kids', 'off'), @('confirm', 'restart-race', 'restartrace'), @('appvol', 'game', '-5'), @('appvol', 'game', '+5'), @('appvol', 'game', '-10'), @('appvol', 'game', '+10'))
-$blocked = @(@('state'), @('getout'), @('confirm', 'quit-main', 'quitmain'), @('confirm', 'sleep', 'power', 'sleep'), @('key', '--sim', 'f1'), @('chat', 'say', 'GG'), @('appvol', 'game', '+25'), @('appvol', 'music', '+10'),
+$allowed = @(@('smart'), @('tow'), @('restartrace'), @('kids'), @('kids', 'off'), @('appvol', 'game', '-5'), @('appvol', 'game', '+5'), @('appvol', 'game', '-10'), @('appvol', 'game', '+10'))
+$blocked = @(@('state'), @('getout'), @('confirm', 'restart-race', 'restartrace'), @('confirm', 'quit-main', 'quitmain'), @('confirm', 'sleep', 'power', 'sleep'), @('key', '--sim', 'f1'), @('chat', 'say', 'GG'), @('appvol', 'game', '+25'), @('appvol', 'music', '+10'),
              @('media', 'mute'), @('skip'), @('rigon'), @('startlast', 'td'), @('mydrive', 'start'), @('confirm', 'restart-race', 'quitmain'), @('confirm', 'restart-race'), @('power', 'off'))
 foreach ($k in $allowed) { Check "kids lock lets '$($k -join ' ')' through" ((Rule kids @k) -eq 'True') }
 foreach ($k in $blocked) { Check "kids lock still blocks '$($k -join ' ')'" ((Rule kids @k) -eq 'False') }
@@ -122,10 +122,9 @@ Check 'smart: a session on any screen -> CmdGo (presses the sim''s green button 
 Check 'smart: no session -> MY DRIVE start (mydrive start) with the chosen car and track, else startlast td' ($getIn -match 'MdStart\(new string\[\] \{ "start" \}\)' -and $getIn -match 'CmdStartLast\(new string\[\] \{ "td" \}\)' -and $getIn -match 'c\.Car\.Length > 0 && c\.Track\.Length > 0')
 Check 'smart: waits for a session that is already loading instead of starting twice' ($getIn -match 'plan == "wait-load"' -and $getIn -match 'SessionActive\(\)')
 Check 'smart: iRacing app closed -> RIG ON first' ($getIn -match 'plan == "open-then-start"' -and $getIn -match 'CmdRigOn\(new string\[0\]\)')
+Check 'the dead deck paths are gone (W0-1): no smart --fake, no deck-face resolver, no CmdConfirm / ConfirmArmedFresh, no GoDriveOnly' ($ir -notmatch 'SmartFake|DeckStateResolver|CmdConfirm|ConfirmArmedFresh|GoDriveOnly|CurrentDeckSnapshot' -and (Src 'src\deckstate.cs') -notmatch 'DeckStateResolver')
 Check 'smart runs one at a time (a doubled press finds the lock taken)' ($smart -match 'WithNamedLock\("Local\\\\irdeck-getin"')
 Check 'smart never arms a confirm and has no moving-car refusal that could block a GET IN' ($smart + $getIn -notmatch 'CmdConfirm|GoDriveOnly')
-Check 'smart --fake keeps the resolver test hook (SKIP arm path) and smart --dry says the plan' ($smart -match 'SmartFakeRun\(args, fake, dry\)' -and $smart -match 'get in plan = ' -and (Body $ir 'static int SmartFakeRun(') -match 'confirm skip skip')
-Check 'the resolver itself is untouched for the add-on key face (still WAIT for a replay)' ((Src 'src\deckstate.cs') -match 'if \(s\.Replay\) return Wait\(\);')
 
 Section '3. GET OUT, RESTART, NEXT SESSION, RACE NOW'
 $out = Body $ir 'static int CmdGetOut()'
@@ -134,9 +133,6 @@ Check 'GET OUT: a car that does not stop in 15 s gets a plain refusal (rc 3)' ($
 $wait = Body $ir 'static int WaitCarStopped('
 Check 'the wait polls every 200 ms, logs "waiting for the car to stop", shows the top-screen line, uses DeckRules.StopWait' ($wait -match 'Thread\.Sleep\(200\)' -and $wait -match 'waiting for the car to stop' -and $wait -match 'TowWaitFlag\(true\)' -and $wait -match 'DeckRules\.StopWait\(' -and $wait -match 'finally \{ TowWaitFlag\(false\)')
 Check 'the stop limit is 15 s' ($rules -match 'StopWaitMs = 15000')
-$cf = Body $ir 'static int CmdConfirm(string[] a)'
-Check 'confirm restart-race runs restartrace at once (one press), like skip-session' ($cf -match 'a\[0\] == "skip-session" \|\| a\[0\] == "restart-race"' -and $cf.IndexOf('restart-race') -lt $cf.IndexOf('armed - press again'))
-Check 'confirm quit-main stays two-press (arms)' ($cf -match 'armed - press again within 3 seconds' -and $cf -notmatch 'quit-main')
 $rr = Body $ir 'static int CmdRestartRaceBody()'
 Check 'restartrace is one-at-a-time and the doubled press is dropped' ((Body $ir 'static int CmdRestartRace()') -match 'WithNamedLock\("Local\\\\irdeck-restartrace"')
 Check 'restartrace with no session says so in plain words (rc 3)' ($rr -match '!SessionActive\(\)\) \{ Log\("restartrace: no session is running')
@@ -201,13 +197,11 @@ if ($state -match 'sim=False') {
   Assert-RigFree -Where 'offline CLI'
   $r = Ir smart --dry
   Check 'smart --dry names a plan and does nothing else' ($r.rc -eq 0 -and $r.out -match 'smart --dry: get in plan = (start|open-then-start)') $r.out
-  $r = Ir smart --dry --fake '{"sim":true,"ui":true,"fresh":true,"connected":true,"sessionKnown":true,"onTrack":false,"speed":0,"replay":true,"testOrAi":false}'
-  Check 'smart --dry --fake still prints the deck-face resolver (WAIT for a replay) - only the face, not the key' ($r.rc -eq 0 -and $r.out -match 'WAIT \| WAIT \| none') $r.out
   $r = Ir restartrace
   Check 'restartrace with no session: plain message, rc 3, nothing clicked' ($r.rc -eq 3 -and $r.out -match 'restartrace: no session is running') $r.out
-  $r = Ir confirm restart-race restartrace
-  Check 'confirm restart-race restartrace runs at once (no arming) and reaches restartrace' ($r.rc -eq 3 -and $r.out -match 'confirm restart-race: one press, no arming' -and $r.out -match 'restartrace: no session is running' -and $r.out -notmatch 'armed - press again') $r.out
   Check 'no armed-restart-race.txt was written' (-not (Test-Path (Join-Path (Split-Path $cli) 'armed-restart-race.txt')))
+  $r = Ir confirm quit-main quitmain
+  Check 'the old x2 `confirm` verb is gone (W0-1): unknown command, nothing armed' ($r.rc -ne 0 -and $r.out -match 'unknown command confirm' -and -not (Test-Path (Join-Path (Split-Path $cli) 'armed-quit-main.txt'))) $r.out
   $r = Ir racenow
   Check 'racenow with no session: plain message, rc 3' ($r.rc -eq 3 -and $r.out -match 'racenow: no session is running') $r.out
   $r = Ir getout
@@ -216,9 +210,6 @@ if ($state -match 'sim=False') {
   Check 'skip with no session: rc 3 and says so' ($r.rc -eq 3 -and $r.out -match 'skip: no session is running') $r.out
   $r = Ir chat say 'Thanks!'
   Check 'chat say with no session: rc 3, nothing typed, no stamp written' ($r.rc -eq 3 -and $r.out -match 'chat say: no sim session running') $r.out
-  $r = Ir confirm quit-main quitmain
-  Check 'quit-main still arms first (two presses)' ($r.rc -eq 0 -and $r.out -match 'confirm quit-main: armed' -and $r.out -notmatch 'one press') $r.out
-  Remove-Item -LiteralPath (Join-Path (Split-Path $cli) 'armed-quit-main.txt') -Force -ErrorAction SilentlyContinue
   $r = Ir tow --pretend 0.4
   Check 'tow --pretend still works (the tow wait is untouched)' ($r.rc -eq 0 -and $r.out -match 'stationary') $r.out
 }
