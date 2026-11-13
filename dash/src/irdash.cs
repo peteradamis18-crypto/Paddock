@@ -102,7 +102,8 @@ namespace IRDash
             return "{\"running\":" + (on && !done ? "true" : "false") + ",\"done\":" + (done ? "true" : "false") + ",\"file\":" + Json.Str(file) +
                    ",\"speed\":" + speed.ToString(CultureInfo.InvariantCulture) + ",\"pos\":" + posS.ToString("0.00", CultureInfo.InvariantCulture) +
                    ",\"from\":" + fromS.ToString(CultureInfo.InvariantCulture) + ",\"to\":" + toS.ToString(CultureInfo.InvariantCulture) +
-                   ",\"sent\":" + sent + ",\"records\":" + total + ",\"lap\":" + lastLap.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Json.Str(note) + "}";
+                   ",\"sent\":" + sent + ",\"records\":" + total + ",\"lap\":" + lastLap.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Json.Str(note) +
+                   ",\"osThread\":" + OsThread + ",\"pumpThread\":" + PumpThread + "}";
         }
 
         public static void Stop() { on = false; }
@@ -152,17 +153,29 @@ namespace IRDash
         static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
         static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
         static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
-        static void Derive(Dictionary<string, double> vals)
+        // all: every slot (the first frame); after that only the player's own slot changes (the pretend session keeps the others: W0-3,
+        // 832 idle slots re-sent 30 times a second were most of the test hook's cost in the load test)
+        static int derivedFor = -1;
+        static void Derive(Dictionary<string, double> vals, bool all)
         {
             double pi; if (!vals.TryGetValue("PlayerCarIdx", out pi) || pi < 0 || pi > 63) return;
+            if ((int)pi != derivedFor) { all = true; derivedFor = (int)pi; }
             for (int a = 0; a < derivedName.Length; a++)
             {
                 double mine = derivedIdle[a]; if (derivedFrom[a] != "") vals.TryGetValue(derivedFrom[a], out mine);
+                if (!all) { vals[derivedName[a] + "_" + (int)pi] = mine; continue; }
                 for (int k = 0; k < 64; k++) vals[derivedName[a] + "_" + k] = k == (int)pi ? mine : derivedIdle[a];
             }
         }
+        // W0-3: the Windows thread ids of this replay and of the pretend session's pump, so the load test can tell the test hook's own
+        // CPU apart from irdash's (tests\server-load-test.ps1)
+#pragma warning disable 618
+        public static volatile int OsThread, PumpThread;
+        public static int CurrentOsThread() { return AppDomain.GetCurrentThreadId(); }
+#pragma warning restore 618
         static void Run(TrackMaps.Ibt t, int tick, List<VarDef> scal, List<VarDef> arrs)
         {
+            OsThread = CurrentOsThread();
             try
             {
                 byte[] rec = new byte[t.bufLen];
@@ -182,7 +195,7 @@ namespace IRDash
                         int sz = (v.Type == 0 || v.Type == 1) ? 1 : (v.Type == 5 ? 8 : 4);
                         for (int k = 0; k < 64; k++) { int p = v.Offset + k * sz; if (p + sz <= rec.Length) vals[v.Name + "_" + k] = Read(rec, p, v.Type); }
                     }
-                    if (arrs.Count == 0) Derive(vals);       // iRacing's disk telemetry has no CarIdx arrays: fill the player's own slot
+                    if (arrs.Count == 0) Derive(vals, sent == 0);       // iRacing's disk telemetry has no CarIdx arrays: fill the player's own slot
                     double lap; if (vals.TryGetValue("Lap", out lap)) lastLap = lap;
                     posS = ts; sent++;
                     Sdk.FakeSet(vals);
@@ -237,6 +250,25 @@ namespace IRDash
         // Forwarder (more than five callers): the rule itself is RigState.RealBusyWhy (rigstate.cs).
         public static string RealBusy() { return RigState.RealBusyWhy(); }
 
+        // W0-3: a replay sends about 1,100 keys 30 times a second; the regex per key per frame cost the test server 3-5 % of a core (the
+        // load test measures irdash, not its test hook). Each key is parsed once.
+        static readonly Dictionary<string, KeyValuePair<string, int>> slotOf = new Dictionary<string, KeyValuePair<string, int>>();
+        static bool ArraySlot(string key, out string name, out int slot)
+        {
+            KeyValuePair<string, int> s;
+            lock (slotOf)
+            {
+                if (!slotOf.TryGetValue(key, out s))
+                {
+                    Match am = ArrayKey.Match(key); int n;
+                    s = am.Success && int.TryParse(am.Groups[2].Value, out n) ? new KeyValuePair<string, int>(am.Groups[1].Value, n) : new KeyValuePair<string, int>(null, -1);
+                    slotOf[key] = s;
+                }
+            }
+            name = s.Key; slot = s.Value;
+            return s.Key != null;
+        }
+
         public static void FakeSet(Dictionary<string, double> v)
         {
             lock (fakeVals) foreach (KeyValuePair<string, double> kv in v) fakeVals[kv.Key] = kv.Value;
@@ -246,6 +278,7 @@ namespace IRDash
             Timings.OnConnected();
             fakePump = new Thread(delegate ()
             {
+                IbtReplay.PumpThread = IbtReplay.CurrentOsThread();
                 while (fakeUp)
                 {
                     if (realUp) { Log.W("test hook: a real session started - the pretend one stops now"); new Thread(FakeEnd) { IsBackground = true }.Start(); return; }
@@ -260,11 +293,10 @@ namespace IRDash
                         int scalars = 0;
                         foreach (KeyValuePair<string, double> kv in fakeVals)
                         {
-                            Match am = ArrayKey.Match(kv.Key);
-                            if (!am.Success) { scalars++; continue; }
-                            string an = am.Groups[1].Value;
+                            string an; int slot;
+                            if (!ArraySlot(kv.Key, out an, out slot)) { scalars++; continue; }
                             double[] arr; if (!arrays.TryGetValue(an, out arr)) { arr = new double[64]; arrays[an] = arr; whole[an] = true; }
-                            int slot; if (!int.TryParse(am.Groups[2].Value, out slot) || slot < 0 || slot >= 64) continue;
+                            if (slot < 0 || slot >= 64) continue;
                             arr[slot] = kv.Value;
                             if (Math.Abs(kv.Value - Math.Round(kv.Value)) > 1e-6) whole[an] = false;
                         }
@@ -274,17 +306,14 @@ namespace IRDash
                         {
                             bool isWhole = whole[ar.Key];
                             VarDef av = new VarDef(); av.Name = ar.Key; av.Type = isWhole ? 2 : 4; av.Count = 64; av.Offset = arrBase + 256 * ai++;
-                            for (int k = 0; k < 64; k++)
-                            {
-                                byte[] raw = isWhole ? BitConverter.GetBytes((int)ar.Value[k]) : BitConverter.GetBytes((float)ar.Value[k]);
-                                Array.Copy(raw, 0, f.Data, av.Offset + 4 * k, 4);
-                            }
+                            if (isWhole) { int[] iv = new int[64]; for (int k = 0; k < 64; k++) iv[k] = (int)ar.Value[k]; Buffer.BlockCopy(iv, 0, f.Data, av.Offset, 256); }
+                            else { float[] fv = new float[64]; for (int k = 0; k < 64; k++) fv[k] = (float)ar.Value[k]; Buffer.BlockCopy(fv, 0, f.Data, av.Offset, 256); }
                             f.Vars[ar.Key] = av;
                         }
                         int i = 0;
                         foreach (KeyValuePair<string, double> kv in fakeVals)
                         {
-                            if (ArrayKey.IsMatch(kv.Key)) continue;
+                            string an2; int slot2; if (ArraySlot(kv.Key, out an2, out slot2)) continue;
                             VarDef d = new VarDef(); d.Name = kv.Key; d.Count = 1; d.Offset = i * 8;
                             int rt = IbtReplay.TypeFor(kv.Key);      // an .ibt replay knows the real type (W0-8); -1 = old rules
                             bool flag = rt == 1 || kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
@@ -460,6 +489,9 @@ namespace IRDash
                     {
                         float f = BitConverter.ToSingle(data, p);
                         if (float.IsNaN(f) || float.IsInfinity(f)) sb.Append("null");
+                        // W0-3: whole numbers (positions, laps, the empty car slots: most of a CarIdx array) skip the float formatter; the
+                        // text is the same as G7 gives below a million. /stream sends ~800 of these 30 times a second.
+                        else if (f > -1000000f && f < 1000000f && f == (float)(int)f) sb.Append((int)f);
                         else sb.Append(f.ToString("G7", CultureInfo.InvariantCulture));
                         break;
                     }
@@ -577,6 +609,7 @@ namespace IRDash
             { ".jpg", "image/jpeg" }, { ".webmanifest", "application/manifest+json" }
         };
 
+        static int testOrAiVer = -1; static string testOrAiYaml; static bool testOrAi;
         static string DeckStateJson()
         {
             Frame f = Sdk.Latest;
@@ -588,7 +621,9 @@ namespace IRDash
             s.SessionKnown = !string.IsNullOrEmpty(f.SessionYaml);
             s.OnTrack = f.Num("IsOnTrack") != 0; s.Speed = f.Num("Speed"); s.Replay = f.Num("IsReplayPlaying") != 0;
             string info = f.SessionYaml ?? "";
-            s.TestOrAi = Regex.IsMatch(info, @"(?m)^\s*EventType:\s*(Test|AI)\s*$", RegexOptions.IgnoreCase);
+            // W0-3: the deck asks ~3 times a second; the regex over the whole session text (tens of KB) is done once per session version
+            if (f.SessionVersion != testOrAiVer || !ReferenceEquals(info, testOrAiYaml)) { testOrAi = Regex.IsMatch(info, @"(?m)^\s*EventType:\s*(Test|AI)\s*$", RegexOptions.IgnoreCase); testOrAiVer = f.SessionVersion; testOrAiYaml = info; }
+            s.TestOrAi = testOrAi;
             IRDeck.DeckState state = IRDeck.DeckStateResolver.Resolve(s);
             return "{\"primary\":\"" + state.Primary + "\",\"label\":\"" + state.Label + "\",\"reason\":\"" + state.Reason + "\",\"armed\":{\"quit\":" + ArmedSeconds("quit-main") + ",\"restart\":" + ArmedSeconds("restart-race") + ",\"skip\":" + Math.Max(ArmedSeconds("skip"), ArmedSeconds("skip-session")) + "}}";
         }
@@ -2756,12 +2791,10 @@ namespace IRDash
             }
             if (TestMode)
             {
-                // the sim, as test mode sees it: iRacing's SDK memory exists (no process scan, so the load test counts none of its own).
-                // A real session that starts ends this copy at once (Sdk.Run); the test script also stops it when the rig gets busy.
-                RigState.SimProbe = delegate
-                {
-                    try { using (MemoryMappedFile.OpenExisting("Local\\IRSDKMemMapFileName", MemoryMappedFileRights.Read)) return true; } catch { return false; }
-                };
+                // the sim, as test mode sees it: never (no process scan, so the load test counts none of its own; the SDK memory is no proof,
+                // SimHub and the overlays keep it open without the sim). Safety comes from outside: a real session that connects ends this copy
+                // at once (Sdk.Run), and the test script checks the rig (tests\guard.ps1) every second and stops it.
+                RigState.SimProbe = delegate { return false; };
                 try { File.WriteAllText(Path.Combine(Dir, "test-hook.on"), "test mode"); } catch { }
                 Recorder.Mock = true;
                 Log.W("test mode: port " + cfg.Port + ", data under " + RootDir + " - no window, no watchdog, no delta bar, no capture");

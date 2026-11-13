@@ -675,7 +675,8 @@ namespace IRDash
             kick.WaitOne(150000);                // the career scan reads the same folder after 2 minutes; boot is busy enough
             while (true)
             {
-                try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); }
+                // W0-3: a pass is a job on the Jobs queue: it waits for the session to end and reads at background disk priority
+                Jobs.Run("perf reports", delegate { try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); } }, true);
                 kick.WaitOne(60000);
             }
         }
@@ -685,7 +686,7 @@ namespace IRDash
             string dir = TrackMaps.TelemetryDir;
             if (dir == null || !Directory.Exists(dir)) { State = "done"; return; }
             // never while the sim is running (menus, garage and pits included): the files wait for the sim to close
-            if (Program.IsDriving || PerfSampler.FindSim()) { SimBusy = true; return; }
+            if (Program.IsDriving || RigState.SimRunning) { SimBusy = true; return; }      // W0-3: the rig state (a held handle), not a process scan
             SimBusy = false;
             string[] all = Directory.GetFiles(dir, "*.ibt");
             List<FileInfo> todo = new List<FileInfo>();
@@ -709,7 +710,7 @@ namespace IRDash
             int added = 0; Stopwatch sw = Stopwatch.StartNew();
             foreach (FileInfo fi in todo)
             {
-                if (Program.IsDriving || PerfSampler.FindSim()) { SimBusy = true; break; }
+                if (Program.IsDriving || RigState.SimRunning || Jobs.ShouldYield) { SimBusy = true; break; }
                 PerfRow r = null;
                 try { r = PerfReport.Compute(fi.FullName); }
                 catch (Exception ex)

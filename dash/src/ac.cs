@@ -35,23 +35,24 @@ namespace IRDash
         public static bool Handles(string c) { return Commands.Contains(c ?? ""); }
         static bool Connected() { return root != null && (File.Exists(Path.Combine(root, @"ac\ac.json")) || File.Exists(Path.Combine(root, @"ac\cloud.bin"))); }
 
+        // W0-3: one thread for both (auto-cool every 2 min, the open AC screen every 20 s): one fewer thread in irdash all day
         public static void Start()
         {
             Thread t = new Thread(Loop);
             t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Name = "AcAuto";
             t.Start();
-            Thread w = new Thread(Watch);
-            w.IsBackground = true; w.Priority = ThreadPriority.BelowNormal; w.Name = "AcScreen";
-            w.Start();
         }
 
         static void Loop()
         {
-            Thread.Sleep(60000);   // never compete with boot
+            DateTime nextAuto = DateTime.UtcNow.AddMilliseconds(60000);   // never compete with boot
             while (true)
             {
+                Thread.Sleep(1000);
+                WatchOnce();
+                if (DateTime.UtcNow < nextAuto) continue;
                 try { Tick(); } catch (Exception ex) { Log.W("ac auto: " + ex.Message); }
-                Thread.Sleep(EveryMs);
+                nextAuto = DateTime.UtcNow.AddMilliseconds(EveryMs);
             }
         }
 
@@ -229,19 +230,15 @@ namespace IRDash
         }
 
         // while the AC screen is open: read the AC every 20 s, so a change made with the remote or the app shows too
-        static void Watch()
+        static void WatchOnce()
         {
-            while (true)
+            try
             {
-                Thread.Sleep(1000);
-                try
-                {
-                    bool due;
-                    lock (gate) due = DateTime.UtcNow < watchedUntil && !working && (DateTime.UtcNow - readAt).TotalSeconds > 20;
-                    if (due && Connected()) RunPy("status", false);      // a status read never waits for another call
-                }
-                catch (Exception ex) { Log.W("ac screen: " + ex.Message); }
+                bool due;
+                lock (gate) due = DateTime.UtcNow < watchedUntil && !working && (DateTime.UtcNow - readAt).TotalSeconds > 20;
+                if (due && Connected()) RunPy("status", false);      // a status read never waits for another call
             }
+            catch (Exception ex) { Log.W("ac screen: " + ex.Message); }
         }
 
         // GET /ac (the AC screen and its opener key). ?live=1 = the screen is open, keep it fresh.
