@@ -21,11 +21,6 @@ namespace IRDash
         public DateTime Utc;
     }
 
-    public sealed class RwRss
-    {
-        public string Title = "", Summary = "", Url = "", PubDate = "";
-    }
-
     static class RealWorld
     {
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -41,11 +36,6 @@ namespace IRDash
         public static DateTime TestNow;
         public static int TransportCalls;
         public static bool AllowLive;
-        public static bool PreviewLines;
-        public static Func<string, string, string> TestPreviewHttp;
-        public static int PreviewCalls;
-        public static string PreviewModel = "deepseek/deepseek-v4.1-flash";
-        static readonly Dictionary<string, string> previewCache = new Dictionary<string, string>();
 
         static DateTime NowUtc()
         {
@@ -178,21 +168,9 @@ namespace IRDash
                 for (int c = 0; c < e.Classes.Count; c++) { if (c > 0) sb.Append(','); sb.Append(Js(e.Classes[c])); }
                 sb.Append("],\"localStart\":").Append(e.LocalStart.Length == 0 ? "null" : Js(e.LocalStart)).Append(",\"eventDate\":").Append(Js(e.EventDate));
                 sb.Append(",\"tbc\":").Append(e.Tbc ? "true" : "false").Append(",\"source\":").Append(Js(e.Source)).Append(",\"asOf\":").Append(Js(e.AsOf));
-                if (!string.IsNullOrEmpty(e.Event) && previewCache.ContainsKey(PreviewKey(e, asOf))) { }
-                AppendPreview(sb, e, asOf);
                 sb.Append("}");
             }
             return sb.Append("]}").ToString();
-        }
-
-        static void AppendPreview(StringBuilder sb, RwEvent e, DateTime weekHint)
-        {
-            string k = PreviewKey(e, weekHint);
-            string blob;
-            if (!previewCache.TryGetValue(k, out blob) || blob.Length == 0) return;
-            string[] p = blob.Split('\n');
-            if (p.Length < 3) return;
-            sb.Append(",\"preview\":").Append(Js(p[0])).Append(",\"previewSource\":").Append(Js(p[1])).Append(",\"previewDate\":").Append(Js(p[2]));
         }
 
         static List<RwEvent> EventsFromCacheJson(string text)
@@ -258,29 +236,6 @@ namespace IRDash
             return list;
         }
 
-        public static List<RwEvent> ParseOpenF1(string json, string source, string asOf)
-        {
-            List<RwEvent> list = new List<RwEvent>();
-            JavaScriptSerializer js = new JavaScriptSerializer();
-            object root = js.DeserializeObject(json);
-            object[] rows = root as object[];
-            if (rows == null) return list;
-            foreach (object item in rows)
-            {
-                Dictionary<string, object> row = item as Dictionary<string, object>;
-                if (row == null) continue;
-                string name = Str(row, "meeting_name"), session = Str(row, "session_name"), date = Str(row, "date_start");
-                if (name.Length == 0 || session.Length == 0) continue;
-                RwEvent e = new RwEvent();
-                e.Series = "F1"; e.Event = name; e.Track = Str(row, "circuit_short_name");
-                if (e.Track.Length == 0) e.Track = Str(row, "location");
-                e.Session = session; e.Source = source; e.AsOf = asOf;
-                FillWhen(e, date);
-                list.Add(e);
-            }
-            return list;
-        }
-
         static void WalkF1(object o, List<RwEvent> list, string source, string asOf)
         {
             Dictionary<string, object> d = o as Dictionary<string, object>;
@@ -334,14 +289,6 @@ namespace IRDash
         {
             return new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToOffset(ShowZone.GetUtcOffset(utc)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", Inv);
         }
-
-        public static List<RwEvent> ParseImsa(string html, string source, string asOf) { return ParseTable(html, "IMSA", source, asOf); }
-        public static List<RwEvent> ParseWec(string html, string source, string asOf) { return ParseTable(html, "WEC", source, asOf); }
-        public static List<RwEvent> ParseGtwc(string html, string source, string asOf) { return ParseTable(html, "GTWC", source, asOf); }
-
-        // SRO uses distinct calendar sites, while older cache rows used the shared GTWC label.
-        public static List<RwEvent> ParseGtwcEurope(string html, string source, string asOf) { return ParseSro(html, "GTWC Europe", source, asOf); }
-        public static List<RwEvent> ParseGtwcAmerica(string html, string source, string asOf) { return ParseSro(html, "GTWC America", source, asOf); }
 
         // Public RaceTagger iCalendar exports carry one timed row per published session.
         public static List<RwEvent> ParseIcs(string body, string series, string source, string asOf)
@@ -436,113 +383,6 @@ namespace IRDash
         static string WindowsZone(string tzid)
         {
             string w; return IanaToWindows.TryGetValue((tzid ?? "").Trim('"'), out w) ? w : tzid;
-        }
-
-        static List<RwEvent> ParseSro(string html, string series, string source, string asOf)
-        {
-            List<RwEvent> list = new List<RwEvent>();
-            foreach (Match m in Regex.Matches(html ?? "", "(?is)<(?:tr|div)[^>]*data-series\\s*=\\s*[\\\"']GTWC[\\\"'][^>]*>.*?</(?:tr|div)>"))
-            {
-                RwEvent e = RowEvent(m.Value, m.Value, "GTWC", source, asOf);
-                if (e == null) continue;
-                e.Series = series;
-                list.Add(e);
-            }
-            return list;
-        }
-
-        public static List<RwEvent> ParseWecProgram(string html, string source, string asOf)
-        {
-            List<RwEvent> list = new List<RwEvent>();
-            Match ym = Regex.Match(html ?? "", "(?i)\\b(20\\d{2})\\s+FIA\\s+WEC\\b");
-            if (!ym.Success) return list;
-            int year = int.Parse(ym.Groups[1].Value, Inv);
-            MatchCollection cards = Regex.Matches(html, "(?is)<span[^>]*class=\"name\"[^>]*>(.*?)</span>.*?<span[^>]*class=\"month\"[^>]*>(.*?)</span>.*?<span[^>]*class=\"dates\"[^>]*>(.*?)</span>");
-            foreach (Match m in cards)
-            {
-                string name = Regex.Replace(m.Groups[1].Value, "<[^>]+>", "").Trim();
-                string month = Regex.Replace(m.Groups[2].Value, "<[^>]+>", "").Trim().ToLowerInvariant();
-                string dates = Regex.Replace(m.Groups[3].Value, "<[^>]+>", "").Trim();
-                int mo = MonthNumber(month), day;
-                Match dm = Regex.Match(dates, "^([0-9]{1,2})");
-                if (name.Length == 0 || mo == 0 || !dm.Success || !int.TryParse(dm.Groups[1].Value, out day)) continue;
-                RwEvent e = new RwEvent(); e.Series = "WEC"; e.Event = name; e.Track = ""; e.Session = "Event";
-                e.Source = source; e.AsOf = asOf; e.Tbc = true;
-                try { DateTime date = new DateTime(year, mo, day); e.Utc = DateTime.SpecifyKind(date, DateTimeKind.Utc); e.EventDate = date.ToString("yyyy-MM-dd", Inv); }
-                catch { continue; }
-                list.Add(e);
-            }
-            return list;
-        }
-
-        static int MonthNumber(string month)
-        {
-            string[] names = { "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december" };
-            for (int i = 0; i < names.Length; i++) if (month.StartsWith(names[i], StringComparison.OrdinalIgnoreCase)) return i + 1;
-            return 0;
-        }
-
-        static List<RwEvent> ParseTable(string html, string series, string source, string asOf)
-        {
-            List<RwEvent> list = new List<RwEvent>();
-            if (string.IsNullOrEmpty(html)) return list;
-            foreach (Match m in Regex.Matches(html, "<tr[^>]*data-series\\s*=\\s*[\"']" + Regex.Escape(series) + "[\"'][^>]*>(.*?)</tr>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-            {
-                RwEvent e = RowEvent(m.Value, m.Groups[1].Value, series, source, asOf);
-                if (e != null) list.Add(e);
-            }
-            foreach (Match m in Regex.Matches(html, "<div[^>]*data-series\\s*=\\s*[\"']" + Regex.Escape(series) + "[\"'][^>]*>", RegexOptions.IgnoreCase))
-            {
-                RwEvent e = AttrEvent(m.Value, series, source, asOf);
-                if (e != null) list.Add(e);
-            }
-            return list;
-        }
-
-        static string Attr(string tag, string name)
-        {
-            Match m = Regex.Match(tag, name + "\\s*=\\s*[\"']([^\"']*)[\"']", RegexOptions.IgnoreCase);
-            return m.Success ? HtmlText(m.Groups[1].Value) : "";
-        }
-
-        static string HtmlText(string raw)
-        {
-            string t = Regex.Replace(raw ?? "", "<[^>]+>", " ");
-            t = t.Replace("&nbsp;", " ").Replace("&", "&").Replace("<", "<").Replace(">", ">").Replace("&#39;", "'").Replace("&quot;", "\"");
-            return Regex.Replace(t, "\\s+", " ").Trim();
-        }
-
-        static RwEvent AttrEvent(string tag, string series, string source, string asOf)
-        {
-            RwEvent e = new RwEvent();
-            e.Series = series;
-            e.Event = Attr(tag, "data-event");
-            e.Track = Attr(tag, "data-track");
-            e.Session = Attr(tag, "data-session");
-            if (e.Session.Length == 0) e.Session = "Race";
-            foreach (string c in Attr(tag, "data-classes").Split(new char[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)) e.Classes.Add(c.Trim());
-            FillWhen(e, Attr(tag, "data-start"));
-            e.Source = source; e.AsOf = asOf;
-            if (e.Event.Length == 0 && e.Track.Length == 0) return null;
-            return e;
-        }
-
-        static RwEvent RowEvent(string tag, string inner, string series, string source, string asOf)
-        {
-            RwEvent e = AttrEvent(tag, series, source, asOf);
-            List<string> cells = new List<string>();
-            foreach (Match td in Regex.Matches(inner, "<t[dh][^>]*>(.*?)</t[dh]>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                cells.Add(HtmlText(td.Groups[1].Value));
-            if (e == null) { e = new RwEvent(); e.Series = series; }
-            if (e.Event.Length == 0 && cells.Count > 0) e.Event = cells[0];
-            if (e.Track.Length == 0 && cells.Count > 1) e.Track = cells[1];
-            if ((e.Session.Length == 0 || e.Session == "Race") && cells.Count > 2 && cells[2].Length > 0) e.Session = cells[2];
-            if (e.LocalStart.Length == 0 && !e.Tbc && cells.Count > 3) FillWhen(e, cells[3]);
-            if (e.Classes.Count == 0 && cells.Count > 4)
-                foreach (string c in cells[4].Split(new char[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)) e.Classes.Add(c.Trim());
-            e.Source = source; e.AsOf = asOf;
-            if (e.Event.Length == 0 && e.Track.Length == 0) return null;
-            return e;
         }
 
         public static List<RwEvent> MergeFilterSort(IEnumerable<RwEvent> all, DateTime nowUtc, TimeZoneInfo tz)
@@ -659,91 +499,5 @@ namespace IRDash
 
         public static DateTime CacheAsOf { get { return cacheAsOf; } }
         public static List<RwEvent> Events { get { return events; } }
-
-        public static string PreviewKey(RwEvent e, DateTime when)
-        {
-            DateTime u = when.Kind == DateTimeKind.Utc ? when : DateTime.SpecifyKind(when, DateTimeKind.Utc);
-            int week = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(u, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-            return (e.Series + "|" + e.Event + "|" + e.Session + "|" + u.Year + "-W" + week.ToString("00", Inv));
-        }
-
-        public static bool PreviewBanned(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return true;
-            if (Regex.IsMatch(text, "(?i)\\byou(?:r|rs|rself|'re|'ve|'ll)?\\b")) return true;
-            if (Regex.IsMatch(text, "(?i)\\bgood (?:morning|afternoon|evening|night)\\b|\\bwelcome\\b|\\bready when\\b|\\bhello\\b")) return true;
-            if (Regex.IsMatch(text, "(?i)\\b(?:just|simply|quietly|let's|here's|insights?|journey|stories|story|by itself|by themselves|automatically)\\b")) return true;
-            if (Regex.IsMatch(text, "[A-Za-z0-9\\)\\]]!(?:\\s|$|[\"'<])")) return true;
-            if (Regex.IsMatch(text, "\\u2014|[A-Za-z0-9\\.\\)] \\u2013 [A-Za-z]|[a-z]{3,} - [A-Za-z]{3,}")) return true;
-            if (Regex.IsMatch(text, "[\\u2600-\\u27BF]|[\\uD83C-\\uD83E]")) return true;
-            if (Regex.IsMatch(text, "[\\u00C2\\u00C3]")) return true;
-            if (Regex.IsMatch(text, "(?i)outline from|from your own|sampled \\d|explains \\d|is the mean|mean over|worked out from|last time here")) return true;
-            return false;
-        }
-
-        public static bool ApplyPreview(RwEvent e, string text, string src, string dateAbs, DateTime week)
-        {
-            if (!PreviewLines) return false;
-            if (PreviewBanned(text)) return false;
-            string k = PreviewKey(e, week);
-            previewCache[k] = (text ?? "").Trim() + "\n" + src + "\n" + dateAbs;
-            return true;
-        }
-
-        public static string PreviewPayload(RwEvent e, RwRss rss)
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.Append("series=").Append(e.Series).Append('\n');
-            sb.Append("event=").Append(e.Event).Append('\n');
-            sb.Append("track=").Append(e.Track).Append('\n');
-            sb.Append("session=").Append(e.Session).Append('\n');
-            sb.Append("classes=").Append(string.Join(",", e.Classes.ToArray())).Append('\n');
-            sb.Append("localStart=").Append(e.LocalStart).Append('\n');
-            sb.Append("tbc=").Append(e.Tbc ? "true" : "false").Append('\n');
-            sb.Append("source=").Append(e.Source).Append('\n');
-            sb.Append("asOf=").Append(e.AsOf).Append('\n');
-            if (rss != null)
-            {
-                sb.Append("rssTitle=").Append(rss.Title).Append('\n');
-                sb.Append("rssSummary=").Append(rss.Summary).Append('\n');
-                sb.Append("rssUrl=").Append(rss.Url).Append('\n');
-                sb.Append("rssPubDate=").Append(rss.PubDate).Append('\n');
-            }
-            return sb.ToString();
-        }
-
-        public static bool RequestPreview(RwEvent e, RwRss rss, DateTime week)
-        {
-            if (!PreviewLines) return false;
-            if (BusyWhy() != null) return false;
-            string k = PreviewKey(e, week);
-            if (previewCache.ContainsKey(k)) return false;
-            PreviewCalls++;
-            string body = null;
-            try
-            {
-                if (TestPreviewHttp != null) body = TestPreviewHttp(PreviewPayload(e, rss), PreviewModel);
-                else return false;
-            }
-            catch { return false; }
-            if (string.IsNullOrEmpty(body) || body.Length > 32768) return false;
-            string src = rss != null && rss.Url.Length > 0 ? rss.Url : e.Source;
-            string dateAbs = rss != null && rss.PubDate.Length > 0 ? rss.PubDate : e.AsOf;
-            return ApplyPreview(e, body, src, dateAbs, week);
-        }
-
-        public static void ClearPreview() { previewCache.Clear(); PreviewCalls = 0; }
-
-        public static string CostLogPath = "";
-        public static void RecordCost(string provider, string model, string utc, string tokensIn, string tokensOut, string billed)
-        {
-            if (string.IsNullOrEmpty(CostLogPath)) return;
-            try
-            {
-                string line = (provider ?? "") + "\t" + (model ?? "") + "\t" + (utc ?? "") + "\t" + (tokensIn ?? "") + "\t" + (tokensOut ?? "") + "\t" + (billed ?? "") + "\r\n";
-                File.AppendAllText(CostLogPath, line, new UTF8Encoding(false));
-            }
-            catch { }
-        }
     }
 }

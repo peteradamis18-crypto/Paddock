@@ -264,7 +264,6 @@ namespace IRDash
         static string SavedDir { get { return Path.Combine(VaultRoot, "saved"); } }
         static string FfmpegPath { get { return Path.Combine(Program.RootDir, @"vault\bin\ffmpeg.exe"); } }
         static string FfprobePath { get { return Path.Combine(Program.RootDir, @"vault\bin\ffprobe.exe"); } }
-        public static bool Enabled { get { return enabled; } }
 
         [DllImport("kernel32.dll")] static extern void GetSystemTimePreciseAsFileTime(out long ft);
         // wall clock in ms since 1970 (UTC), microsecond-precise: DateTime.UtcNow only moves in 1 to 15 ms steps
