@@ -522,6 +522,7 @@ namespace IRDash
                 if (done >= max) { left++; continue; }
                 if (!test && Program.IsDriving) { left++; break; }
                 if (settled) Log.W("vault: " + fi.Name + " - the session is over and the file has stopped growing, reading it while the sim is still open");
+                BlackBox.Event("vault scan (reading a telemetry file)");     // the black box: was Paddock busy when the picture froze?
                 try { if (ProcessFile(fi)) changed = true; }
                 catch (Exception ex) { Log.W("vault: " + fi.Name + ": " + ex.Message); if (HasOldRow(fi)) rereadSkip.Add(fi.Name + "|" + fi.Length); else { AddSessionStub(fi); changed = true; } }
                 done++;

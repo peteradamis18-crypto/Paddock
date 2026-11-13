@@ -862,6 +862,7 @@ namespace IRDash
         static void RunCut(RecCut job)
         {
             RecLap L = job.Lap;
+            BlackBox.Event("clip cut start lap " + L.N);       // the black box: was Paddock busy when the picture froze?
             try
             {
                 string id = ClipId(L), mp4 = Path.Combine(ClipDir, id + ".mp4");
@@ -956,7 +957,7 @@ namespace IRDash
                 PruneClips();
             }
             catch (Exception ex) { if (job.Result.Length == 0 || job.Result == "cut failed") job.Result = "error"; Log.W("recorder: clip of lap " + L.N + ": " + ex.Message); }
-            finally { lock (gate) if (job.Result != "retry") job.Done = true; }
+            finally { lock (gate) if (job.Result != "retry") job.Done = true; BlackBox.Event("clip cut end lap " + L.N); }
         }
 
         static RecClip FindClip(string id) { foreach (RecClip c in clips) if (c.Id == id) return c; return null; }
@@ -1309,6 +1310,7 @@ namespace IRDash
         static void FinishSession(RecSess s, bool waitVideo)
         {
             List<double[]> wallIncidents = null;     // the incidents in wall time, put back if this attempt fails (a retry must not read file offsets as wall time)
+            BlackBox.Event("session file save");
             try
             {
                 if (FreeBytes(SessDir) < (long)(MinFreeGb * 1073741824.0)) { lock (gate) s.FinishQueued = false; Log.W("recorder: session " + s.Id + " kept as segments - less than 50 GB is free"); return; }
@@ -2072,6 +2074,7 @@ namespace IRDash
 
         static void RunIncident(RecInc job)
         {
+            BlackBox.Event("incident clip cut");
             try
             {
                 if (FreeBytes(ClipDir) < (long)(MinFreeGb * 1073741824.0)) { job.Result = "no disk space"; Log.W("recorder: incident clip skipped - less than 50 GB is free"); return; }
