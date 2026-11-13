@@ -453,7 +453,7 @@ Claude writes each card's spec from this plan, reviews, runs the live checks.
 | W0-3 ∥ | Stop work during sessions (H1–H3, S8, S9, H5 measured): `Jobs` queue, housekeeping/finish/cuts deferred, TV worker out, official build off `/home`, guard timer off the UI thread | server load test ceilings pass on a replayed session | O, R |
 | W0-4 ∥ | Delete the dead (10 §1, 09 §3, 11 §9): v1 www, dead js/css/png, dead routes, dead deck paths, dead tests; README fixed | every remaining test passes; `/version` unchanged behaviour | S |
 | W0-5 ∥ | `lib/data.js` state push + stream slimming (H4): 14 pollers → 1 push; `/deck/summary`; keep-alive and cacheable static | request-rate tests: HOME idle ≤ 2/s, driving ≤ 1/s, deck ≤ 0.3/s | O, R |
-| W0-6 ∥ | Lap truth: `IbtFile`, `LapStore`, one counted rule, live `counted`, lap 0 out; every page and the deck list use `Best()` (N1, N5, N6) | 12 Nov race = 1:33.832 everywhere; 9/10 counted | O, R |
+| W0-6 ∥ | Lap truth: `IbtFile`, `LapStore`, one counted rule, live `counted`, lap 0 out; every page and the deck list use `Best()` (N1, N5, N6) | 12 Nov race = 1:33.832 everywhere; 7/10 counted (the file: lap 1 untaken, laps 6 and 7 incidents) | O, R |
 | W0-7 ∥ | `design.css` + `lib/format.js` + the lint tests (rules 4, 5); both golds as two token sets for Peter's pick | lint passes on `races.html` converted as the first page | S |
 | W0-8 ∥ | Telemetry replay harness + pretend irdash + pretend Google (test tools only) | the race screen fixture plays the 12 Nov file at 20× | S |
 | W0-9 ∥ | Black box v1 (per-second rows, fast mode, cause rules) + doctor fixes (N3) | the 12 Nov verdict names lap 9 and 23.7 fps; row rate/size test | O, R |
