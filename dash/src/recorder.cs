@@ -1281,12 +1281,33 @@ namespace IRDash
             string slug = Combo.Slug(ci.Track); if (slug.Length == 0) slug = "session"; if (slug.Length > 30) slug = slug.Substring(0, 30);
             s.Id = Stamp(now) + "-" + slug;
             lock (gate) openSess = s;
-            if (run != null)
-            {
-                run.Sess = s;
-                lock (gate) foreach (RecSeg g in segs) if (g.Owner == run && !s.Segs.Contains(g)) s.Segs.Add(g);
-            }
+            AdoptRun(s);
             Log.W("recorder: session " + s.Id + " started (" + (s.Car.Length > 0 ? s.Car + ", " : "") + (s.Track.Length > 0 ? s.Track + ", " : "") + (s.Type.Length > 0 ? s.Type : "session") + ")");
+        }
+
+        // A run belongs to the first session it recorded for. Only a run that started before any session was known
+        // (Sess null) is handed to the new one. The static run outlives ffmpeg, and the session file now waits for the
+        // sim to close, so re-pointing it once let Qualify swallow Practice 2 and the Race chase Qualify's deleted segments (2026-11-13).
+        static void AdoptRun(RecSess s)
+        {
+            lock (gate)
+            {
+                if (run == null || run.Sess != null) return;
+                run.Sess = s;
+                foreach (RecSeg g in segs)
+                {
+                    if (g.Owner != run || s.Segs.Contains(g)) continue;
+                    if (HeldByOtherSession(g, s)) continue;
+                    s.Segs.Add(g);
+                }
+            }
+        }
+
+        static bool HeldByOtherSession(RecSeg g, RecSess s)
+        {
+            if (openSess != null && openSess != s && openSess.Segs.Contains(g)) return true;
+            foreach (RecSess x in finishing) if (x != s && x.Segs.Contains(g)) return true;
+            return false;
         }
 
         // The session is over: cut any lap clip still waiting, then write the whole thing on the worker (FIFO, so the cuts go first).
