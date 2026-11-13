@@ -53,6 +53,7 @@ $i4 = $rec.IndexOf('static void TestOff()'); $testOff = if ($i4 -ge 0) { $rec.Su
 Check 'the real default is one constant: 8 unsaved sessions' ($rec -match 'const int DefaultKeepSessions = 8;' -and $rec -match 'static int keepSessions = DefaultKeepSessions;')
 Check 'TestOff puts keepSessions back to 8 (it set 3: retention then deleted down to 3 until a restart)' ($testOff -match 'keepSessions = DefaultKeepSessions;' -and $testOff -notmatch 'keepSessions = 3')
 Check 'TestOff reads the clip list back from disk (it was left empty)' ($testOff -match 'LoadClips\(\);')
+Check 'and the clip list follows the vault when the sandbox ends (VaultRootChanged), so a test''s clips do not stay' ($rec -match '(?s)public static void VaultRootChanged\(\).{0,400}LoadSessions\(\);\s+LoadClips\(\);')
 
 Section '5. a renamed or moved YouTube copy never deletes the race (W0-2): SyncExports run for real on pretend files'
 Assert-RigFree -Where 'SyncExports harness'

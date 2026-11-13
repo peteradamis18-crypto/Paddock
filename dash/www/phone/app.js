@@ -4,7 +4,8 @@
 // so the phone can never do what the deck cannot, and while he is in the car it offers only what the deck offers then.
 // State is a 2 s poll of /phone/state while the page is visible. Pages are drawn in parts (part / setDock): a poll replaces a part only when its
 // text changed and never while a finger is down, so the button under his thumb, the search box and the scroll position stay put.
-// Pairing: a token from /phone/pair (scanned code from the top screen), kept in localStorage and a cookie, sent as X-Paddock-Token.
+// Pairing: /phone/pair (the code scanned from the top screen) sets an HttpOnly cookie that carries the token; no script ever sees it,
+// and it is never in the address (W0-2). The Home Screen app has its own cookies, so it pairs once by code. Commands send X-Paddock: 1.
 // Tests (tests\phone-test.ps1): PhoneApp.dry = true records commands instead of sending; PhoneApp.mock = function (url) answers every request
 // from the test (undefined = go to the PC, null = 404); ?asphone=1 makes irdash treat this PC as a phone.
 const PhoneApp = {
@@ -22,8 +23,8 @@ const PhoneApp = {
     ['ses', 'tow', 'Reset car', ''],
     ['ses', 'keep-lap', 'Keep lap', ''],
     ['ses', 'tv', 'TV', ''],
-    ['ses', 'reset-save', 'Mark spot', ''],
-    ['ses', 'reset-run', 'Back to spot', ''],
+    ['ses', 'spot-save', 'Mark spot', ''],      // the deck's SAVE SPOT and BACK TO SPOT keys (keys.map names; the old names were no deck keys)
+    ['ses', 'spot-back', 'Back to spot', ''],
     ['ses', 'restart-race', 'Restart', '', 'stop', 1],
     ['ses', 'skip-session', 'Skip', '', 'stop', 1],
     ['ses', 'quit-main', 'Quit', '', 'stop', 1],
@@ -68,8 +69,7 @@ const PhoneApp = {
   async init() {
     const q = new URLSearchParams(location.search), $ = id => document.getElementById(id);
     this.asPhone = q.get('asphone') === '1';
-    try { this.tok = localStorage.getItem('pt'); } catch (e) { }
-    if (q.get('t')) this.keep(q.get('t'));
+    this.forget();      // a token from an older version (localStorage, the address) goes; the cookie stays and irdash makes it HttpOnly
     $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-nav]'); if (b) this.tab(b.dataset.nav); });
     $('main').addEventListener('click', e => this.tap(e));
     $('dock').addEventListener('click', e => this.tap(e));
@@ -98,12 +98,11 @@ const PhoneApp = {
     vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
   },
 
-  keep(t) {
-    this.tok = t;
-    try { localStorage.setItem('pt', t); } catch (e) { }
-    try { document.cookie = 'pt=' + t + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) { }
-    // the home-screen app has its own storage, so the saved address carries the token (home Wi-Fi only, paired phones only)
-    try { history.replaceState(null, '', '/phone/?t=' + t + (this.asPhone ? '&asphone=1' : '')); } catch (e) { }
+  // the token lives only in the HttpOnly cookie irdash sets: nothing in localStorage, nothing in the address (it leaked into history)
+  forget() {
+    try { localStorage.removeItem('pt'); } catch (e) { }
+    const q = new URLSearchParams(location.search);
+    if (q.has('t') || q.has('pair')) { try { history.replaceState(null, '', '/phone/' + (this.asPhone ? '?asphone=1' : '')); } catch (e) { } }
   },
 
   // ms: give up after this long (default 10 s). Why: after the phone sleeps or leaves the Wi-Fi, iOS can hold a request for a minute or more,
@@ -114,7 +113,7 @@ const PhoneApp = {
       const v = this.mock(url);
       if (v !== undefined) return { ok: v !== null, status: v === null ? 404 : 200, json: async () => v, blob: async () => new Blob(['x']) };
     }
-    const h = {}; if (this.tok) h['X-Paddock-Token'] = this.tok;
+    const h = { 'X-Paddock': '1' };      // a same-origin custom header: a page elsewhere cannot send it (irdash's header rule)
     const ac = (ms === 0 || typeof AbortController === 'undefined') ? null : new AbortController();
     const tm = ac ? setTimeout(() => ac.abort(), ms || 10000) : 0;
     let r;
@@ -135,7 +134,7 @@ const PhoneApp = {
       let r; try { r = await fetch(u, ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' }); } finally { if (tm) clearTimeout(tm); }
       const j = await r.json();
       if (!r.ok || !j.ok) { this.pairErr = j.why || 'Wrong code'; this.paired = 'need'; this.skelName = ''; this.render(); return false; }
-      this.keep(j.token); this.devId = j.id; this.paired = true; this.skelName = ''; this.toast('Paired');
+      this.forget(); this.devId = j.id; this.paired = true; this.skelName = ''; this.toast('Paired');
       this.render(); this.poll(); return true;
     } catch (e) { this.pairErr = 'PC not reachable. Join the home Wi-Fi.'; this.paired = 'need'; this.skelName = ''; this.render(); return false; }
   },
@@ -826,6 +825,7 @@ const PhoneApp = {
       if (el) { el.textContent = st === 'SAVED' ? 'SAVED' : st === 'SAVED FULL' ? 'SAVED FULL' : st === 'SAVE FAILED' ? 'SAVE FAILED' : 'SAVE'; if (st === 'SAVED') el.disabled = true; }
       if (this.detail && this.detail.rec && this.detail.rec.id === id) this.detail.rec.saved = st === 'SAVED';
       if (st === 'SAVE FAILED') this.toast('Could not save. Try on the PC.', true);
+      if (st === 'SESSION') this.toast('Not while a session is on.', true);
     } catch (e) { if (e.message !== 'pair') this.toast('PC not reachable', true); }
   },
   async makeShare(id) {

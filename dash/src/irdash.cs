@@ -721,8 +721,10 @@ namespace IRDash
                         string dg = Gate.GuardDo(dc, da);
                         if (dg == null && asPhone && RigState.SessionOn && !Gate.PhoneMayWhileSession(dc, da)) dg = RigState.Refuse("phone " + dc + (dc == "key" ? " " + da : ""));
                         if (dg != null) { KeyMsg.Set(Regex.IsMatch(dc ?? "", "^[a-z0-9_-]{1,40}$") ? dc : "", dg, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(dg), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        Vault.Refused = null;
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
+                        if (!ok && Vault.Refused != null) { KeyMsg.Set(dc, Vault.Refused, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(Vault.Refused), "Access-Control-Allow-Origin: *\r\n"); return; }      // KEEP in a session: say why
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }

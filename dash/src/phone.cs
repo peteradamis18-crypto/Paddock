@@ -108,8 +108,9 @@ namespace IRDash
         }
 
         // ---------------- LAN listeners (called by the server every 30 s and once at start) ----------------
-        // W0-2: only the adapter that carries the default route (the home Wi-Fi / LAN). It used to listen on every private address,
-        // including Hyper-V, WSL and VPN adapters. GetBestInterface asks Windows' route table; nothing is sent anywhere.
+        // W0-2: the home Wi-Fi / LAN only. It used to listen on every private address, including Hyper-V, WSL and VPN adapters. Now:
+        // the adapter that carries the default route plus any other with a gateway, never one that calls itself VPN or virtual
+        // (Gate.PhoneAdapter, unit-tested). GetBestInterface asks Windows' route table; nothing is sent anywhere.
         [System.Runtime.InteropServices.DllImport("iphlpapi.dll")] static extern int GetBestInterface(uint destAddr, out uint bestIfIndex);
         static int DefaultRouteIndex()
         {
@@ -134,7 +135,7 @@ namespace IRDash
                     if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
                     IPInterfaceProperties ip = ni.GetIPProperties();
                     int index = -1; try { IPv4InterfaceProperties v4 = ip.GetIPv4Properties(); if (v4 != null) index = v4.Index; } catch { }
-                    if (best >= 0 ? index != best : !HasGateway(ip)) continue;      // no default route known: the adapters with a gateway
+                    if (!Gate.PhoneAdapter(ni.Name, ni.Description, index >= 0 && index == best, HasGateway(ip))) continue;
                     foreach (UnicastIPAddressInformation u in ip.UnicastAddresses)
                     {
                         if (u.Address.AddressFamily != AddressFamily.InterNetwork) continue;
@@ -153,6 +154,7 @@ namespace IRDash
             // irdash starts this loop before Phone.Init has set the folders (irdash.cs): the first pass does nothing, the next one (30 s later) does the work
             if (dashDir == null) return;
             List<string> want = Allowed ? LocalIps() : new List<string>();
+            if (Allowed && want.Count == 0) RigState.LogEvery("phone-no-lan", 3600, "phone: allowed, but no home-network adapter to listen on (only VPN or virtual adapters, or none with a gateway): the phone cannot reach the PC");
             lock (gate)
             {
                 if (devices.Count > 0 && !File.Exists(TokenFile)) { devices.Clear(); Log.W("phone: every paired phone forgotten (tools\\phone-undo.cmd)"); }
@@ -221,16 +223,20 @@ namespace IRDash
                    path == "/share/open" || path == "/share/jump" || path.StartsWith("/share/test/", StringComparison.Ordinal);      // share studio: the folder and the sim's replay are this PC's business
         }
 
+        static string CookieToken(Dictionary<string, string> hdr)
+        {
+            string ck;
+            if (hdr != null && hdr.TryGetValue("Cookie", out ck))
+                foreach (string part in ck.Split(';')) { string p = part.Trim(); if (p.StartsWith("pt=") && Regex.IsMatch(p.Substring(3), "^[0-9a-f]{48}$")) return p.Substring(3); }
+            return null;
+        }
+
         public static bool TokenOk(Dictionary<string, string> q, Dictionary<string, string> hdr)
         {
             // W0-2: the header or the cookie only. ?t= put the token into logs and the browser history.
             string tok = null;
             if (hdr != null) hdr.TryGetValue("X-Paddock-Token", out tok);
-            if (string.IsNullOrEmpty(tok) && hdr != null)
-            {
-                string ck; if (hdr.TryGetValue("Cookie", out ck))
-                    foreach (string part in ck.Split(';')) { string p = part.Trim(); if (p.StartsWith("pt=")) { tok = p.Substring(3); break; } }
-            }
+            if (string.IsNullOrEmpty(tok)) tok = CookieToken(hdr);
             if (string.IsNullOrEmpty(tok) || !Regex.IsMatch(tok, "^[0-9a-f]{48}$")) return false;
             string h = Sha(tok);
             lock (gate)
@@ -251,7 +257,13 @@ namespace IRDash
             code = 200; extra = "Access-Control-Allow-Origin: *\r\n";
             switch (path)
             {
-                case "/phone/state": return StateJson(port);
+                case "/phone/state":
+                    {
+                        // W0-2: a phone paired by an older app has its token in a script-written cookie: write it again as HttpOnly (same value)
+                        string ck = CookieToken(hdr);
+                        if (ck != null && TokenOk(null, hdr)) extra += "Set-Cookie: pt=" + ck + "; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly\r\n";
+                        return StateJson(port);
+                    }
                 case "/phone/qr":
                     if (!local) { code = 404; return "{\"error\":\"not found\"}"; }
                     return QrJson(port, q);

@@ -32,14 +32,19 @@ try {
   else {
     $log = Join-Path $tmp 'server.log'
     $done = "window.__done = (r) => { document.getElementById('out').textContent = r.join('\n'); };"
-    # the Stream Deck add-on: a local file page, Origin "null". With the header (after Peter installs the new add-on) and without (before).
-    Set-Content (Join-Path $tmp 'addon.html') -Encoding UTF8 -Value @"
+    # the Stream Deck add-on: a local file page, Origin "null". With its secret as X-Paddock (the installed new add-on) and without (today's).
+    $secret = -join ((1..16) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+    function AddonPage($run) { Set-Content (Join-Path $tmp "addon$run.html") -Encoding UTF8 -Value @"
 <pre id="out">waiting</pre><script>$done
 (async () => { const r = [];
-  try { const a = await fetch('http://localhost:8299/api/do?c=addonhdr', { cache: 'no-store', headers: { 'X-Paddock': '1' } }); r.push('addonhdr ' + a.status); } catch (e) { r.push('addonhdr failed ' + e.name); }
-  try { const b = await fetch('http://localhost:8299/api/do?c=addonplain', { cache: 'no-store' }); r.push('addonplain ' + b.status); } catch (e) { r.push('addonplain failed ' + e.name); }
+  try { const a = await fetch('http://localhost:8299/api/do?c=addonhdr$run', { cache: 'no-store', headers: { 'X-Paddock': '$secret' } }); r.push('addonhdr$run ' + a.status); } catch (e) { r.push('addonhdr$run failed ' + e.name); }
+  try { const b = await fetch('http://localhost:8299/api/do?c=addonplain$run', { cache: 'no-store' }); r.push('addonplain$run ' + b.status); } catch (e) { r.push('addonplain$run failed ' + e.name); }
   __done(r); })();</script>
-"@
+"@ }
+    AddonPage 'A'; AddonPage 'B'
+    # any web page that hides in a sandboxed iframe (Origin "null") and sends X-Paddock: 1 itself, and one with no header at all
+    $inner = "<script>fetch('http://localhost:8299/api/do?c=sbxhdr', { headers: { 'X-Paddock': '1' } }).catch(() => 0); fetch('http://localhost:8299/api/do?c=sbxplain').catch(() => 0);</script>"
+    Set-Content (Join-Path $tmp 'sandbox.html') -Encoding UTF8 -Value ('<pre id="out">sandbox</pre><iframe sandbox="allow-scripts" srcdoc="' + $inner.Replace('"', '&quot;') + '"></iframe>')
     # the top screen: a page irdash serves itself, fetching a command with no header (Chrome marks it same-origin)
     Set-Content (Join-Path $tmp 'top.html') -Encoding UTF8 -Value @"
 <pre id="out">waiting</pre><script>$done
@@ -64,19 +69,27 @@ try {
       $null = Start-Process -FilePath $chrome -ArgumentList @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$prof", '--virtual-time-budget=8000', '--dump-dom', $url) -NoNewWindow -PassThru -RedirectStandardOutput $dump -RedirectStandardError ($dump + '.err') -Wait
       if (Test-Path $dump) { return (Get-Content $dump -Raw) }; return ''
     }
-    $a = Dump ('file:///' + ((Join-Path $tmp 'addon.html') -replace '\\', '/'))
+    # run A: no secret in force yet (dash\deck-secret.txt missing): the transition, everything from the add-on works
+    $a = Dump ('file:///' + ((Join-Path $tmp 'addonA.html') -replace '\\', '/'))
     $t = Dump 'http://localhost:8299/top.html'
     $e = Dump 'http://127.0.0.1:8298/evil.html'
+    # run B: the secret is in force (the new add-on is installed)
+    [IO.File]::WriteAllText((Join-Path $tmp 'deck-secret.txt'), $secret)
+    $b2 = Dump ('file:///' + ((Join-Path $tmp 'addonB.html') -replace '\\', '/'))
+    $sb = Dump 'http://127.0.0.1:8298/sandbox.html'
     Start-Sleep -Milliseconds 300
     $seen = if (Test-Path $log) { Get-Content $log -Raw } else { '' }
-    Check 'the add-on WITH the header: the browser asks first (OPTIONS, Origin null) and gets a yes' ($seen -match 'OPTIONS /api/do\?c=addonhdr origin=null -> 204')
-    Check '... and then its command answers 200' ($a -match 'addonhdr 200' -and $seen -match 'GET c=addonhdr origin=null site=\S* paddock=1 -> 200')
-    Check 'the add-on as installed today (no header yet): still 200, so the deck keeps working until Peter clicks Install' ($a -match 'addonplain 200')
+    Check 'the add-on WITH the header: the browser asks first (OPTIONS, Origin null) and gets a yes' ($seen -match 'OPTIONS /api/do\?c=addonhdrA origin=null -> 204')
+    Check 'no secret in force yet: the add-on''s commands answer 200, with or without the header (the deck keeps working until Peter clicks Install)' ($a -match 'addonhdrA 200' -and $a -match 'addonplainA 200')
+    Check 'secret in force: the add-on with its secret -> 200' ($b2 -match 'addonhdrB 200' -and $seen -match "GET c=addonhdrB origin=null site=\S* paddock=$secret -> 200")
+    Check 'secret in force: Origin null without the secret -> 403' ($b2 -match 'addonplainB 403')
+    Check 'secret in force: a web page in a sandboxed iframe sending X-Paddock: 1 itself passes the preflight but its command is REFUSED (403)' ($seen -match 'GET c=sbxhdr origin=null site=cross-site paddock=1 -> 403')
+    Check 'secret in force: the sandboxed iframe''s plain fetch is REFUSED (403)' ($seen -match 'GET c=sbxplain origin=null site=cross-site paddock= -> 403')
     Check 'the top screen''s own page, no header: Chrome marks it same-origin -> 200' ($t -match 'topsame 200' -and $seen -match 'GET c=topsame origin= site=same-origin paddock= -> 200')
     Check 'a foreign page''s blind fetch reaches irdash marked cross-site and is REFUSED (403)' ($seen -match 'GET c=evilblind origin=\S* site=cross-site paddock= -> 403')
     Check 'a foreign page''s <img src=...api/do...> is REFUSED (403)' ($seen -match 'GET c=evilimg origin=\S* site=cross-site paddock= -> 403')
     Check 'a foreign page that adds the header itself is stopped at the preflight: the command never arrives' ($seen -match 'OPTIONS /api/do\?c=evilhdr origin=http://127\.0\.0\.1:8298 -> 403' -and $seen -notmatch 'GET c=evilhdr' -and $e -match 'evilhdr failed')
-    if ($fail -gt 0) { '  server saw:'; $seen; '  pages:'; $a; $t; $e }
+    if ($fail -gt 0) { '  server saw:'; $seen; '  pages:'; $a; $t; $e; $b2; $sb }
   }
 
   ''; '9. wired into irdash, the phone, the Vault, the recorder, the add-on and irdeck (source)'
@@ -94,12 +107,35 @@ try {
   Check 'phone: the cookie is HttpOnly' ($ph -match 'SameSite=Lax; HttpOnly')
   Check 'phone: 8 wrong codes lock pairing for 60 s' ($ph -match 'lockedUntil = DateTime\.UtcNow\.AddSeconds\(60\)' -and $ph -match 'if \(DateTime\.UtcNow < lockedUntil\)')
   Check 'phone: forget-every-phone only from this PC' ($ph -match 'if \(q\.ContainsKey\("all"\) && !local\) \{ code = 403;')
-  Check 'phone: listens on the default-route adapter only' ($ph -match 'GetBestInterface' -and $ph -match 'if \(best >= 0 \? index != best : !HasGateway\(ip\)\) continue;')
-  Check 'the add-on sends X-Paddock with every command (cmd, the name draft, the doctor key)' (([regex]::Matches($pl, "headers: \{ 'X-Paddock': '1' \}")).Count -eq 3)
+  Check 'phone: listens on the home network adapters only (default route or a gateway, never VPN or virtual: Gate.PhoneAdapter)' ($ph -match 'GetBestInterface' -and $ph -match 'if \(!Gate\.PhoneAdapter\(ni\.Name, ni\.Description, index >= 0 && index == best, HasGateway\(ip\)\)\) continue;')
+  Check 'the add-on sends its secret as X-Paddock with every command (cmd, the name draft, the doctor key)' (([regex]::Matches($pl, "headers: \{ 'X-Paddock': PADDOCK_SECRET \}")).Count -eq 3 -and $pl -match "const PADDOCK_SECRET = '1';")
   $irdeck = (ReadSrc 'src\irdeck.cs') + (ReadSrc 'src\spot.cs') + (ReadSrc 'src\keymsg.cs') + (ReadSrc 'src\overlays.cs') + (ReadSrc 'src\official.cs')
   Check 'irdeck sends X-Paddock on every call to irdash that changes something (6)' (([regex]::Matches($irdeck, 'Headers\["X-Paddock"\] = "1"')).Count -eq 6)
   Check 'irdash''s own second-start call sends it too' ($ir -match 'wc\.Headers\["X-Paddock"\] = "1"; wc\.DownloadString\("http://localhost:" \+ cfg\.Port \+ "/api/open"\)')
   Check 'RACES and the recorder answer whether the Vault is on or off' ($va -match 'public static bool RecorderRoute\(string path\)' -and $va -match 'if \(!Serving && !RecorderRoute\(path\)' -and $va -match 'return \(Serving \|\| RecorderCommand\(c\)\)' -and $ir -match '!Vault\.Serving && !vaultTest && !Vault\.RecorderRoute\(path\)')
+  $inst = ReadSrc 'deck-intro\install.ps1'
+  Check 'install.ps1 puts a random secret into the installed plugin.html and (first time) into dash\deck-secret-new.txt, reusing the one in force' ($inst -match 'RNGCryptoServiceProvider' -and $inst -match "-replace `"const PADDOCK_SECRET = '\[\^'\]\*';`"" -and $inst -match 'deck-secret-new\.txt' -and $inst -match "foreach \(\`$f in 'deck-secret\.txt', 'deck-secret-new\.txt'\)")
+  Check 'the secret files never go to git (*.txt is ignored)' ((git -C $root check-ignore dash/deck-secret.txt) -and (git -C $root check-ignore dash/deck-secret-new.txt))
+  $deb = ReadSrc 'dash\src\debrief.cs'
+  Check 'DEBRIEF OPEN IN COSWORTH waits for the session to end (not only for driving)' ($deb -match 'if \(!Handles\(c\) \|\| RigState\.SessionOn\) return false;')
+  Check 'KEEP in a session says why: Vault.Do sets the sentence, /api/do answers 409 with it' ($va -match 'if \(st == "SESSION"\) Refused = RigState\.NotInSession;' -and $ir -match 'if \(!ok && Vault\.Refused != null\)')
+  $www = (ReadSrc 'dash\www\v2\races.js') + (ReadSrc 'dash\www\v2\coach.js') + (ReadSrc 'dash\www\v2\debrief-v4.js') + (ReadSrc 'dash\www\v2\sessionreview.js') + (ReadSrc 'dash\www\phone\app.js')
+  Check 'RACES, the coach, the debrief, the session review and the phone say "Not while a session is on" for KEEP' (([regex]::Matches($www, '(?i)not while a session is on')).Count -ge 7)
+  Check 'the clip list follows the vault when it changes (a test''s clips do not stay)' ($re -match '(?s)public static void VaultRootChanged\(\).{0,400}LoadSessions\(\);\s+LoadClips\(\);')
+  $app = ReadSrc 'dash\www\phone\app.js'
+  Check 'the phone app never puts the token in the address, a script cookie or localStorage, and sends X-Paddock: 1' ($app -notmatch "\?t=' \+" -and $app -notmatch 'document\.cookie' -and $app -notmatch "localStorage\.setItem\('pt'" -and $app -notmatch "q\.get\('t'\)" -and $app -match "const h = \{ 'X-Paddock': '1' \};")
+  Check 'irdash re-writes an older phone''s cookie as HttpOnly' ($ph -match 'if \(ck != null && TokenOk\(null, hdr\)\) extra \+= "Set-Cookie: pt=" \+ ck \+ "; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly')
+  Check 'the phone listener says so (hourly) when no adapter is left' ($ph -match 'if \(Allowed && want\.Count == 0\) RigState\.LogEvery\("phone-no-lan"' -and $ph -match 'Gate\.PhoneAdapter\(ni\.Name, ni\.Description')
+  # the phone's in-session list = its own buttons (app.js KEYS) that are deck keys, in the pit / chat / volume / black-box groups plus the in-car helpers
+  $keys = @([regex]::Matches($app, "\['(car|ses|pit|talk|vol|box|pc)', '([a-z0-9-]+)'") | ForEach-Object { @{ g = $_.Groups[1].Value; k = $_.Groups[2].Value } })
+  $kmPath = @((Join-Path $root 'keys\keys.map'), 'C:\Users\peter\iRacingDeck\keys\keys.map') | Where-Object { Test-Path $_ } | Select-Object -First 1
+  $deckKeys = if ($kmPath) { @(Get-Content $kmPath | ForEach-Object { ($_ -split '=')[0].Trim() }) } else { @() }
+  $inCar = 'get-out', 'tow', 'spot-save', 'spot-back'
+  $want = @($keys | Where-Object { ($_.g -in 'pit', 'talk', 'vol', 'box') -or ($_.g -eq 'ses' -and $_.k -in $inCar) } | ForEach-Object { $_.k } | Sort-Object)
+  $have = @(& $exe keys | Sort-Object)
+  Check "the phone's in-session list is exactly its own pit, chat, volume, black-box and in-car buttons ($($want.Count))" ((Compare-Object $want $have).Count -eq 0) "want $($want -join ',') have $($have -join ',')"
+  if ($kmPath) { $notDeck = @($have | Where-Object { $_ -notin $deckKeys }); Check "every one of them is a deck key in keys.map ($kmPath)" ($notDeck.Count -eq 0) ($notDeck -join ',') } else { '  skip  keys\keys.map not found (a worktree has no keys folder)' }
+  Check 'the phone''s spot buttons send the deck''s key names (spot-save, spot-back; reset-save / reset-run are no deck keys)' ($app -match "\['ses', 'spot-save'" -and $app -match "\['ses', 'spot-back'" -and $app -notmatch 'reset-save|reset-run')
 }
 finally {
   if ($server) { try { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue } catch { } }

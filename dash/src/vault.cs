@@ -1158,6 +1158,8 @@ namespace IRDash
         }
         static readonly HashSet<string> Commands = new HashSet<string> { "vkkeep", "vkclip", "vkopen", "vkclose", "vkdelete", "vkkeepall", "vkchoose", "wheelteach", "recsave", "racedelete", "raceexport", "racewatch", "db-save", "db-share", "db-cosworth", "db-deepdive" };
         public static bool Handles(string c) { return (Serving || RecorderCommand(c)) && c != null && Commands.Contains(c); }
+        // W0-2 review: why the last command on THIS request thread was refused (KEEP during a session); /api/do answers 409 with it
+        [ThreadStatic] public static string Refused;
         // W0-2: the recorder's routes and the deck's RACES keys belong to the recorder, so they answer whether the Vault is on or off
         static bool RecorderCommand(string c) { return c == "recsave" || c == "racedelete" || c == "raceexport" || c == "racewatch"; }
         public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
@@ -1184,7 +1186,7 @@ namespace IRDash
                     Wheel.CancelForChoose();
                     TestEvents.Add("choose");
                     return NavSet("vault");
-                case "recsave": { string st = Recorder.Save(a ?? ""); return st == "SAVED" || st == "SAVING"; }
+                case "recsave": { string st = Recorder.Save(a ?? ""); if (st == "SESSION") Refused = RigState.NotInSession; return st == "SAVED" || st == "SAVING"; }
                 // the RACES screen on the deck (2026-11-06). The deck asks twice before DELETE; these only check the id.
                 case "racedelete": return RaceIdOk(a) && Recorder.Delete(a) == "DELETED";
                 case "raceexport": return RaceIdOk(a) && RaceExport(a);

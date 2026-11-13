@@ -131,7 +131,7 @@
       // KEEP: this session's recording, by its own id (never the newest); the words say what really happened
       keep.disabled = true; keep.textContent = 'Keeping…';
       let st = ''; try { st = ((await (await fetch('/api/rec/save?id=' + encodeURIComponent(R.id), { cache: 'no-store' })).json()) || {}).state || ''; } catch (e) { }
-      keep.textContent = st === 'SAVED' ? 'Video kept' : st === 'SAVING' ? 'Keeping when done' : st === 'SAVED FULL' ? 'Saved space full' : 'Could not keep';
+      keep.textContent = st === 'SAVED' ? 'Video kept' : st === 'SAVING' ? 'Keeping when done' : st === 'SAVED FULL' ? 'Saved space full' : st === 'SESSION' ? 'Not while a session is on' : 'Could not keep';
       keep.disabled = st === 'SAVED' || st === 'SAVING';
     });
     const all = $('cAll'); if (all) all.addEventListener('click', () => openPage('sessionreview.html?id=' + encodeURIComponent(ID), 'All laps and data'));

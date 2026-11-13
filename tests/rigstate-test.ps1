@@ -36,6 +36,8 @@ try {
   Check 'irdash.cs has no inline "is the sim running" scan left' ($src.irdash -notmatch 'GetProcessesByName\("iRacingSim64DX11"\)\.Length > 0')
   Check 'the map builder asks once, not a scan per .ibt file' ($src.irdash -match 'return RigState\.SimRunning && \(DateTime\.Now - fi\.LastWriteTime\)\.TotalMinutes < 30;')
   Check '/rig/state is served, read-only, to any caller' ($src.irdash -match 'path == "/rig/state"\) \{ Send\(s, 200, "application/json", Encoding\.UTF8\.GetBytes\(RigState\.Json\(\)\), "Access-Control-Allow-Origin: \*\\r\\n"\)')
+  $rs = [IO.File]::ReadAllText((Join-Path $root 'dash\src\rigstate.cs'))
+  Check 'the sim is watched through a REAL handle (Handle read once when picked), so a reused process id cannot keep SimRunning true' ($rs -match 'IntPtr h = ps\[0\]\.Handle; if \(h != IntPtr\.Zero\) held = ps\[0\];' -and $rs -match 'held != null && !held\.HasExited')
   Check 'one constant for the sim program name' ([IO.File]::ReadAllText((Join-Path $root 'dash\src\rigstate.cs')) -match 'public const string SimProcess = "iRacingSim64DX11";' -and $src.spotterguard -match 'SimName = RigState\.SimProcess')
 }
 finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }

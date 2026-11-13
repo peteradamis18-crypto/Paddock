@@ -1935,6 +1935,7 @@ namespace IRDash
             {
                 lock (gate) { foreach (RecSess s in sessions) if (s.Open || s.Saving) return; }      // never drop a session that is being written
                 LoadSessions();
+                LoadClips();      // W0-2 review: the clip list follows the vault too (TestOff reloads it while the sandbox may still be on)
             }
             catch (Exception ex) { Log.W("recorder: could not re-read sessions after the vault changed (" + ex.Message + ")"); }
         }

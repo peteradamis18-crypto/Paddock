@@ -43,9 +43,10 @@ namespace IRDash
             RigState.MarkFile = Path.Combine(Path.GetTempPath(), "no-such-start-mark-" + Guid.NewGuid().ToString("N") + ".txt");
             List<string> ran = new List<string>();
             string[][] guardedDo = { new[] { "mdfindcar", "CUP" }, new[] { "mdfindtrack", "LIME" }, new[] { "mdfindlayout", "" }, new[] { "mdstart", "" },
-                                     new[] { "ailevel", "start" }, new[] { "ovapply", "" }, new[] { "ovedit", "" }, new[] { "racedelete", "r1" }, new[] { "vkdelete", "m1" } };
+                                     new[] { "ailevel", "start" }, new[] { "ovapply", "" }, new[] { "ovedit", "" }, new[] { "racedelete", "r1" }, new[] { "vkdelete", "m1" },
+                                     new[] { "raceexport", "r1" }, new[] { "racewatch", "r1" }, new[] { "db-cosworth", "x.ibt" } };
             string[][] guardedRoutes = { new[] { "/api/rec/backfill", "" }, new[] { "/api/rec/delete", "" }, new[] { "/vault/delete", "" }, new[] { "/vault/edit", "star" },
-                                         new[] { "/analysis/pro/save", "" }, new[] { "/analysis/pro/delete", "" } };
+                                         new[] { "/analysis/pro/save", "" }, new[] { "/analysis/pro/delete", "" }, new[] { "/vault/open", "" }, new[] { "/share/open", "" } };
 
             Console.WriteLine("1. a session is on (the test hook's pretend session: SDK connected, no sim program)");
             simUp = false; RigState.Probe(); RigState.Feed(true, false, true);
@@ -68,9 +69,9 @@ namespace IRDash
             Check("Stream Deck restart in Watch is not one of the guarded commands (it stays allowed)", !Gate.IsGuardedDo("deckrestart", null));
 
             Console.WriteLine("2. the phone while a session is on: only sound, pit, chat, spotter, black boxes and in-car helpers");
-            string[] refusedKeys = { "shutdown", "quit-main", "quit-main2", "restart-race", "skip-session", "race-now", "ai-race", "pause", "kids", "rig-on", "sleep", "lock", "showcase", "smart", "get-out", "official" };
+            string[] refusedKeys = { "shutdown", "quit-main", "quit-main2", "restart-race", "skip-session", "race-now", "ai-race", "pause", "kids", "rig-on", "sleep", "lock", "showcase", "smart", "official", "mute-spotter", "spot-up" };
             foreach (string k in refusedKeys) Check("phone key " + k + " mid-session -> refused", ApiDo("key", k, true, ran).StartsWith("409 "));
-            string[] okKeys = { "mute", "vol-up", "vol-down", "mute-spotter", "fuel-finish", "pit-tires", "pit-clear", "pit-fr", "pit-ws", "say-gg", "say-sorry", "say-thanks", "bb-f3", "tow" };
+            string[] okKeys = { "mute", "vol-up", "vol-down", "fuel-finish", "pit-tires", "pit-clear", "pit-fr", "pit-ws", "say-gg", "say-sorry", "say-thanks", "bb-f3", "tow", "get-out", "spot-save", "spot-back" };
             foreach (string k in okKeys) Check("phone key " + k + " mid-session -> allowed", ApiDo("key", k, true, ran) == "200 ok");
             Check("phone sound page (sndmute, sndvol, sndpreset) mid-session -> allowed", ApiDo("sndmute", "game", true, ran) == "200 ok" && ApiDo("sndvol", "game:+10", true, ran) == "200 ok" && ApiDo("sndpreset", "race", true, ran) == "200 ok");
             Check("phone REPLAY tab mid-session -> allowed (SDK replay messages only)", ApiDo("rpplay", null, true, ran) == "200 ok");
@@ -104,7 +105,14 @@ namespace IRDash
             Check("X-Paddock: 0 is not the header", Gate.HeaderRefusal(D("Host", H, "X-Paddock", "0", "Sec-Fetch-Site", "cross-site", "Origin", "https://evil.example"), true, P) != null);
             Check("the top screen's own pages (Sec-Fetch-Site: same-origin) -> ok", Gate.HeaderRefusal(D("Host", H, "Sec-Fetch-Site", "same-origin"), true, P) == null);
             Check("a same-origin POST (Origin = this server) -> ok", Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:8199"), true, P) == null);
-            Check("the Stream Deck add-on before Peter re-installs it (a local file page: Origin null, no header) -> ok", Gate.HeaderRefusal(D("Host", "127.0.0.1:8199", "Origin", "null", "Sec-Fetch-Site", "cross-site"), true, P) == null);
+            Check("before the add-on is installed with its secret: Origin null, no header -> still ok (the deck keeps working until Peter clicks Install)", Gate.HeaderRefusal(D("Host", "127.0.0.1:8199", "Origin", "null", "Sec-Fetch-Site", "cross-site"), true, P, null) == null);
+            const string S = "0123456789abcdef0123456789abcdef";
+            Check("with the secret in force: Origin null and no header -> REFUSED (a sandboxed or data: iframe of any web page)", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "Sec-Fetch-Site", "cross-site"), true, P, S) != null);
+            Check("with the secret in force: Origin null with X-Paddock: 1 -> REFUSED (a page can pass the preflight and send 1 itself)", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "X-Paddock", "1"), true, P, S) != null);
+            Check("with the secret in force: Origin null with a wrong secret -> refused", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "X-Paddock", "ffffffffffffffffffffffffffffffff"), true, P, S) != null);
+            Check("with the secret in force: the add-on (Origin null + its secret) -> ok", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "X-Paddock", S), true, P, S) == null);
+            Check("with the secret in force: a file: origin is treated the same (refused without it)", Gate.HeaderRefusal(D("Host", H, "Origin", "file://", "X-Paddock", "1"), true, P, S) != null);
+            Check("with the secret in force: the top screen, irdeck and the phone are unchanged", Gate.HeaderRefusal(D("Host", H, "Sec-Fetch-Site", "same-origin"), true, P, S) == null && Gate.HeaderRefusal(D("Host", H), true, P, S) == null && Gate.HeaderRefusal(D("Host", "192.168.1.5:8199", "X-Paddock", "1"), false, P, S) == null);
             Check("a program on this PC (irdeck, tests: none of a browser's marks) -> ok", Gate.HeaderRefusal(D("Host", "127.0.0.1:8199", "User-Agent", "x"), true, P) == null);
             Check("from the LAN with no header (a phone's browser following a link) -> refused", Gate.HeaderRefusal(D("Host", "192.168.1.5:8199"), false, P) != null);
             Check("from the LAN with the phone app's token header -> ok (the token itself is checked by the phone gate)", Gate.HeaderRefusal(D("Host", "192.168.1.5:8199", "X-Paddock-Token", "abc"), false, P) == null);
@@ -115,6 +123,30 @@ namespace IRDash
             Check("Origin null from a PUBLIC page (Chrome adds Access-Control-Request-Private-Network) -> refused", !Gate.PreflightOk(D("Origin", "null", "Access-Control-Request-Private-Network", "true"), P));
             string ph = Gate.PreflightHeaders(D("Origin", "null"));
             Check("the yes names the origin, GET and the two headers", ph.Contains("Access-Control-Allow-Origin: null") && ph.Contains("Access-Control-Allow-Headers: X-Paddock, X-Paddock-Token") && ph.Contains("GET"));
+
+            Console.WriteLine("6b. the add-on's secret comes into force with its first request (dash\\deck-secret-new.txt -> deck-secret.txt)");
+            string sd = Path.Combine(Path.GetTempPath(), "deck-secret-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(sd);
+            DeckSecret.Dir = sd; DeckSecret.Forget(); Log.Lines.Clear();
+            DateTime later = DateTime.UtcNow.AddHours(2); RigState.Clock = delegate { return later; };      // past the hourly log line section 5 caused
+            Check("no files: no secret in force", DeckSecret.Active() == null);
+            Check("no files: an opaque origin is let through, and the log says so (once an hour)", Gate.HeaderRefusal(D("Origin", "null"), true, P) == null && Gate.HeaderRefusal(D("Origin", "null"), true, P) == null && Log.Lines.FindAll(l => l.Contains("deck add-on not yet installed with its secret")).Count == 1);
+            File.WriteAllText(Path.Combine(sd, "deck-secret-new.txt"), S);           // install.ps1 ran; Peter has not clicked Install yet
+            Check("installed but not yet clicked: today's add-on (no secret) still works", Gate.HeaderRefusal(D("Origin", "null"), true, P) == null && DeckSecret.Active() == null);
+            Check("a wrong value does not bring anything into force", Gate.HeaderRefusal(D("Origin", "null", "X-Paddock", "1"), true, P) == null && DeckSecret.Active() == null);
+            Check("the new add-on's first request (its secret) -> ok, and the secret is in force from now on", Gate.HeaderRefusal(D("Origin", "null", "X-Paddock", S), true, P) == null && DeckSecret.Active() == S && File.Exists(Path.Combine(sd, "deck-secret.txt")) && !File.Exists(Path.Combine(sd, "deck-secret-new.txt")));
+            Check("... after which Origin null without it is refused", Gate.HeaderRefusal(D("Origin", "null"), true, P) != null && Gate.HeaderRefusal(D("Origin", "null", "X-Paddock", "1"), true, P) != null);
+            DeckSecret.Forget();
+            Check("irdash restarted: the secret is read back from dash\\deck-secret.txt", DeckSecret.Active() == S);
+            RigState.Clock = null;
+            try { Directory.Delete(sd, true); } catch { }
+            DeckSecret.Dir = Path.Combine(sd, "none"); DeckSecret.Forget();
+
+            Console.WriteLine("6c. the phone listener's adapters");
+            Check("the Wi-Fi with the default route: yes", Gate.PhoneAdapter("Wi-Fi", "Intel(R) Wi-Fi 6E AX211 160MHz", true, true));
+            Check("a full-tunnel VPN that took the default route: no (the Wi-Fi with its gateway still listens)", !Gate.PhoneAdapter("NordLynx", "NordLynx Tunnel", true, false) && Gate.PhoneAdapter("Wi-Fi", "Intel(R) Wi-Fi", false, true));
+            Check("no default route known: an Ethernet adapter with a gateway still listens", Gate.PhoneAdapter("Ethernet", "Realtek PCIe 2.5GbE Family Controller", false, true));
+            Check("Hyper-V, WSL, VMware, VirtualBox, TAP and other VPN adapters: no", !Gate.PhoneAdapter("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", false, true) && !Gate.PhoneAdapter("VMware Network Adapter VMnet8", "VMware Virtual Ethernet Adapter", false, true) && !Gate.PhoneAdapter("Ethernet 3", "TAP-Windows Adapter V9", false, true) && !Gate.PhoneAdapter("Ethernet 4", "Cisco AnyConnect Secure Mobility Client Virtual Miniport Adapter", false, true) && !Gate.PhoneAdapter("VirtualBox Host-Only Network", "VirtualBox Host-Only Ethernet Adapter", false, false));
+            Check("an adapter with no gateway and no default route (a cable to nothing): no", !Gate.PhoneAdapter("Ethernet 2", "Intel(R) Ethernet", false, false));
 
             Console.WriteLine("7. from the LAN: the phone app's own routes only (an allow-list)");
             string[] phoneOk = { "/phone/", "/phone/app.js", "/phone/state", "/phone/pair", "/phone/revoke", "/api/do", "/api/rec/for", "/api/rec/save", "/sound", "/mydrive", "/overlays", "/replay", "/sessions", "/debrief", "/vault", "/vault/list", "/vault/video", "/vault/thumb", "/analysis/session", "/share/make", "/share/video", "/rig/state" };
@@ -162,6 +194,7 @@ namespace IRDash
                     string method = req[0], target = req[1], path = target, query = "";
                     int q = target.IndexOf('?'); if (q >= 0) { path = target.Substring(0, q); query = target.Substring(q + 1); }
                     string origin; hdr.TryGetValue("Origin", out origin); string site; hdr.TryGetValue("Sec-Fetch-Site", out site);
+                    DeckSecret.Forget();      // the test writes dash\deck-secret.txt between browser runs
                     if (method == "OPTIONS")
                     {
                         bool ok = Gate.PreflightOk(hdr, 8299);
@@ -193,7 +226,8 @@ namespace IRDash
 
         static int Main(string[] args)
         {
-            if (args.Length >= 4 && args[0] == "serve") { logFile = args[3]; return Serve(args[1], int.Parse(args[2])); }
+            if (args.Length >= 1 && args[0] == "keys") { foreach (string k in Gate.PhoneSessionKeyList) Console.WriteLine(k); return 0; }
+            if (args.Length >= 4 && args[0] == "serve") { logFile = args[3]; DeckSecret.Dir = args[1]; return Serve(args[1], int.Parse(args[2])); }
             return Unit();
         }
     }

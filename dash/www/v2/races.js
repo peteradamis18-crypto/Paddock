@@ -74,7 +74,7 @@ const Races = {
   async send(url) {
     if (DRY) { window.racesDone.push(url); return url.indexOf('/api/rec/delete') === 0 ? { state: 'DELETED' } : 'ok'; }
     const r = await fetch(url, { cache: 'no-store' });
-    return url.indexOf('/api/rec/delete') === 0 ? r.json() : (r.ok ? 'ok' : 'no');
+    return url.indexOf('/api/rec/delete') === 0 ? r.json() : (r.ok ? 'ok' : r.status === 409 ? 'session' : 'no');      // 409 = not while a session is on (W0-2)
   },
 
   async act(what, id, btn) {
@@ -96,13 +96,13 @@ const Races = {
       } else if (what === 'share') {
         const ok = await this.send('/api/do?c=raceexport&a=' + a);
         if (ok === 'ok') { race.exported = true; this.say('YouTube is open, with the folder holding this race next to it. Drag the race file onto the YouTube page.'); }
-        else this.say('Could not open it for YouTube. Get out of the car first, then try again.', true);
+        else this.say(ok === 'session' ? 'Not while a session is on. Share it after the session.' : 'Could not open it for YouTube. Get out of the car first, then try again.', true);
       } else if (what === 'watch') {
         const ok = await this.send('/api/do?c=racewatch&a=' + a);
-        if (ok === 'ok') this.say('Playing on the middle screen.'); else this.say('Could not play that one.', true);
+        if (ok === 'ok') this.say('Playing on the middle screen.'); else this.say(ok === 'session' ? 'Not while a session is on. Watch it after the session.' : 'Could not play that one.', true);
       } else if (what === 'keep') {
         const ok = await this.send('/api/do?c=recsave&a=' + a);
-        if (ok === 'ok') { race.saved = true; this.say('Kept for good.'); } else this.say('Could not keep that one.', true);
+        if (ok === 'ok') { race.saved = true; this.say('Kept for good.'); } else this.say(ok === 'session' ? 'Not while a session is on. Keep it after the session.' : 'Could not keep that one.', true);
       }
     } catch (e) { this.say('The dashboard is not answering. Try again in a moment.', true); }
     this.busy = '';

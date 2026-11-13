@@ -361,7 +361,7 @@ try {
   }
   function Banned-Hits([string]$t) { $h = @(); foreach ($k in $banned.Keys) { if ([regex]::IsMatch($t, $banned[$k])) { $h += $k } }; return $h }
   # what each control must say for what it sends (the deck's own words); read from the page's own labels
-  $keyWords = @{ 'rig-on' = '^rig on$'; 'test-drive' = '^test drive$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'keep-lap' = '^keep lap$'; 'tv' = '^tv$'; 'reset-save' = '^mark spot$'; 'reset-run' = '^back to spot$';
+  $keyWords = @{ 'rig-on' = '^rig on$'; 'test-drive' = '^test drive$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'keep-lap' = '^keep lap$'; 'tv' = '^tv$'; 'spot-save' = '^mark spot$'; 'spot-back' = '^back to spot$';
     'restart-race' = '^restart$'; 'skip-session' = '^skip$'; 'quit-main' = '^quit$'; 'fuel-finish' = '^fuel$'; 'pit-tires' = '^tires$'; 'pit-clear' = '^clear$'; 'pit-fr' = '^repair$'; 'pit-ws' = '^wipe$'; 'seat-down' = '^seat down$'; 'seat-up' = '^seat up$';
     'say-sorry' = '^sorry$'; 'say-thanks' = '^thanks$'; 'say-gg' = '^good race$'; 'vol-down' = '^game .$'; 'vol-up' = '^game \+$'; 'mute' = '^mute pc$'; 'bb-f3' = '^relative$'; 'bb-f1' = '^timing$'; 'bb-f2' = '^standings$'; 'bb-f4' = '^fuel$';
     'bb-f5' = '^tires$'; 'bb-f8' = '^in-car$'; 'bb-f11' = '^weather$'; 'showcase' = '^showcase$'; 'sleep' = '^sleep pc$'; 'lock' = '^lock pc$' }
