@@ -90,7 +90,7 @@ Check '2027 S1 absent fixture is on disk' (Test-Path (Join-Path $fix '2027-s1-ab
 Assert-RigFree -Where '4. real'
 '4. the real schedule and the real folders'
 $seasonFile = Join-Path $root 'data\official\season.json'
-if (-not (Test-Path $seasonFile)) { Check 'data\official\season.json exists (copy the season PDF into dataofficial and let irdash read it)' $false }
+if (-not (Test-Path $seasonFile)) { Check 'data\official\season.json exists (copy the season PDF into data\official and let irdash read it)' $false }
 else {
   $season = [IO.File]::ReadAllText($seasonFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
   Check "the real season file has $($season.series.Count) series (more than 100) and every one has weeks, a licence class and a repeat pattern" ($season.series.Count -gt 100 -and @($season.series | Where-Object { $_.weeks.Count -lt 1 -or $_.lic.Length -ne 1 -or $_.freq.Length -lt 3 }).Count -le 8)
