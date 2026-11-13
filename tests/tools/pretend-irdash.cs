@@ -8,6 +8,12 @@
 // /stream      with --ibt: server-sent events in irdash's exact wire format, played from the .ibt at <speed>x
 // /__fault     ?mode=ok|500|slow|hung|down[&route=/x]   500 = error, slow = 5 s late, hung = never answers, down = refuses until ok
 // /__stats     per-route counts, requests per second over the last 10 s, the /api/do log;   /__reset clears them
+// W0-5, irdash's state push:
+// /state, /deck/summary   made from the recorded fixtures (the same parts irdash's StateBuilder makes)
+// /stream?state=1         "event: state" (the whole state first, then only the parts a /__push changed); with --ibt the session is a part
+// /__push?part=keymsg&json={...}   change one part and push it to every open stream now; /__push answers the push time (unix ms)
+// /__ack?seq=n            a test page says it got that push; /__acks lists them with irdash's clock, so a test can time the push
+// a fixture <route>.bin is served as bytes (the Analysis page's channel reply)
 // anything else: a file under --www (so a page can be opened from this server), else 404
 using System;
 using System.Collections.Generic;
@@ -48,6 +54,7 @@ static class PretendIrdash
         }
         if (port == 8199) { Console.Error.WriteLine("refusing port 8199 (the real irdash)"); return 2; }
         if (fixtures == "") fixtures = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "fixtures", "irdash");
+        StateInit();
         if (!StartListener()) return 1;
         StartControl();
         Console.WriteLine("pretend irdash on http://localhost:" + port + "/  fixtures=" + Path.GetFullPath(fixtures) + (ibtFile != "" ? "  ibt=" + ibtFile + " x" + speed : ""));
@@ -157,6 +164,19 @@ static class PretendIrdash
             Json(c, 200, "{\"ok\":true}"); return;
         }
         if (path == "/__stats") { Json(c, 200, Stats()); return; }
+        if (path == "/__push")
+        {
+            string part = Q(c.Request, "part"), pj = Q(c.Request, "json");
+            if (part == "" || pj == "") { Json(c, 400, "{\"error\":\"part= and json= are needed\"}"); return; }
+            long at = Push(part, pj);
+            Json(c, 200, "{\"seq\":" + stateSeq + ",\"at\":" + at + "}"); return;
+        }
+        if (path == "/__ack")
+        {
+            lock (gate) acks.Add("{\"seq\":" + Q(c.Request, "seq") + ",\"at\":" + UnixMs() + ",\"note\":" + Str(Q(c.Request, "note")) + "}");
+            Json(c, 200, "{\"ok\":true}"); return;
+        }
+        if (path == "/__acks") { lock (gate) Json(c, 200, "[" + string.Join(",", acks.ToArray()) + "]"); return; }
 
         string rkey = path;
         lock (gate)
@@ -183,9 +203,18 @@ static class PretendIrdash
             return;
         }
         if (path == "/stream") { StreamSse(c); return; }
+        if (path == "/state") { Json(c, 200, StateJson(-1)); return; }
+        if (path == "/deck/summary") { Json(c, 200, DeckSummary()); return; }
 
         if (method == "GET" || method == "POST")
         {
+            string bin = Path.Combine(fixtures, FixtureKey(path, "") + ".bin");
+            if (File.Exists(bin))
+            {
+                byte[] bb = File.ReadAllBytes(bin);
+                c.Response.StatusCode = 200; c.Response.ContentType = "application/octet-stream"; c.Response.AddHeader("Access-Control-Allow-Origin", "*");
+                c.Response.ContentLength64 = bb.Length; c.Response.OutputStream.Write(bb, 0, bb.Length); c.Response.Close(); return;
+            }
             string file = Path.Combine(fixtures, FixtureKey(path, query) + ".json");
             if (!File.Exists(file)) file = Path.Combine(fixtures, FixtureKey(path, "") + ".json");
             if (File.Exists(file)) { Json(c, 200, File.ReadAllText(file, Encoding.UTF8)); return; }
@@ -234,6 +263,133 @@ static class PretendIrdash
         return sb.ToString();
     }
 
+    // ---------- W0-5: the state push, from the fixtures ----------
+    static readonly List<string> stateOrder = new List<string>();
+    static readonly Dictionary<string, string> stateParts = new Dictionary<string, string>();
+    static readonly Dictionary<string, long> partVer = new Dictionary<string, long>();
+    static readonly List<string> acks = new List<string>();
+    static readonly object pushGate = new object();
+    static long stateSeq = 1;
+    static long UnixMs() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
+    static string Fx(string key, string fallback)
+    {
+        string f = Path.Combine(fixtures, key + ".json");
+        try { if (File.Exists(f)) { string t = File.ReadAllText(f, Encoding.UTF8).Trim(); if (t.Length > 0) return t; } } catch { }
+        return fallback;
+    }
+    static void StateInit()
+    {
+        // part -> fixture (the route irdash's StateBuilder reads for it) and what to say when there is no fixture
+        string[][] map = {
+            new[] { "rig", "", "{\"driving\":false,\"sessionOn\":false,\"simRunning\":false,\"online\":true}" },
+            new[] { "version", "version", "\"1\"" }, new[] { "kids", "", "{\"on\":false,\"text\":\"\"}" }, new[] { "tow", "", "{\"on\":false}" },
+            new[] { "keymsg", "keymsg", "{\"seq\":0,\"key\":\"\",\"text\":\"\",\"kind\":\"ok\",\"at\":0}" }, new[] { "nav", "nav", "{\"to\":\"\",\"seq\":0,\"driving\":false}" },
+            new[] { "vaultNav", "vault_nav", "{\"to\":\"\",\"seq\":0,\"driving\":false}" }, new[] { "perfNav", "perf_nav", "{\"to\":\"\",\"seq\":0,\"driving\":false}" },
+            new[] { "debriefNav", "debrief_nav", "{\"go\":false,\"seq\":0}" }, new[] { "workbench", "workbench_cmd", "{\"cmd\":\"\",\"arg\":\"\",\"seq\":0,\"driving\":false}" },
+            new[] { "showcase", "showcase", "{\"play\":false,\"seq\":0,\"driving\":false}" }, new[] { "guest", "guest", "{\"active\":false}" }, new[] { "mydrive", "mydrive", "{\"ready\":false}" },
+            new[] { "doctor", "doctor", "{}" }, new[] { "overlays", "overlays", "{\"widgets\":[]}" },
+            new[] { "recorder", "", "{\"enabled\":false,\"gaveUp\":false,\"freeGb\":500,\"minFreeGb\":20,\"capture\":{\"state\":\"off\"}}" },
+            new[] { "health", "health", "{\"apps\":[],\"events\":[]}" }, new[] { "session", "", "null" }, new[] { "lists", "", "{\"sessions\":0,\"vault\":0,\"races\":0,\"perf\":0}" } };
+        foreach (string[] m in map)
+        {
+            string j = m[1] == "" ? m[2] : Fx(m[1], m[2]);
+            if (m[0] == "version" && !j.StartsWith("\"", StringComparison.Ordinal)) j = Str(j);
+            if (m[0] == "keymsg") j = System.Text.RegularExpressions.Regex.Replace(j, ",\"ageMs\":-?[0-9]+", "");
+            if (m[0] == "showcase") j = j.Replace("\"play\":true", "\"play\":false");
+            stateOrder.Add(m[0]); stateParts[m[0]] = j; partVer[m[0]] = 1;
+        }
+        if (ibtFile != "")
+        {
+            try
+            {
+                using (FileStream fs = new FileStream(ibtFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    byte[] h = new byte[144]; fs.Read(h, 0, 144);
+                    int infoLen = BitConverter.ToInt32(h, 16), infoOff = BitConverter.ToInt32(h, 20);
+                    byte[] info = new byte[infoLen]; fs.Position = infoOff; fs.Read(info, 0, infoLen);
+                    int z = Array.IndexOf(info, (byte)0); if (z < 0) z = infoLen;
+                    stateParts["session"] = YamlJson(Encoding.GetEncoding(28591).GetString(info, 0, z));
+                    stateParts["rig"] = "{\"driving\":false,\"sessionOn\":true,\"simRunning\":true,\"online\":true}";
+                }
+            }
+            catch (Exception e) { Console.Error.WriteLine("no session from the ibt: " + e.Message); }
+        }
+    }
+    static long Push(string part, string json)
+    {
+        lock (gate)
+        {
+            if (!stateParts.ContainsKey(part)) stateOrder.Add(part);
+            stateParts[part] = json; stateSeq++; partVer[part] = stateSeq;
+        }
+        lock (pushGate) Monitor.PulseAll(pushGate);
+        return UnixMs();
+    }
+    // since < 0: the whole state; else the parts changed after seq "since" (null = none)
+    static string StateJson(long since)
+    {
+        lock (gate)
+        {
+            if (since >= 0 && stateSeq <= since) return null;
+            StringBuilder sb = new StringBuilder("{\"seq\":" + stateSeq + ",\"now\":" + UnixMs() + (since < 0 ? ",\"full\":true" : ""));
+            foreach (string p in stateOrder) if (since < 0 || partVer[p] > since) sb.Append(',').Append(Str(p)).Append(':').Append(stateParts[p]);
+            return sb.Append('}').ToString();
+        }
+    }
+    static string DeckSummary()
+    {
+        StringBuilder sb = new StringBuilder("{\"seq\":" + stateSeq + ",\"now\":" + UnixMs() + ",\"showcase\":" + Fx("showcase~who=deck", Fx("showcase", "{\"play\":false,\"seq\":0,\"driving\":false}")));
+        string[][] map = { new[] { "overlays", "overlays" }, new[] { "guest", "guest" }, new[] { "mydrive", "mydrive" }, new[] { "doctor", "doctor" }, new[] { "replay", "replay" },
+                           new[] { "races", "api_rec_races" }, new[] { "workbench", "workbench_state" }, new[] { "sound", "sound~peek=1" }, new[] { "ac", "ac" } };
+        lock (gate) foreach (string[] m in map) sb.Append(",\"").Append(m[0]).Append("\":").Append(m[0] == "overlays" || m[0] == "guest" || m[0] == "mydrive" || m[0] == "doctor" ? stateParts[m[0]] : Fx(m[1], "null"));
+        return sb.Append('}').ToString();
+    }
+    // the session YAML as JSON, the whole tree (irdash sends only the fields the pages read, under the same names)
+    static string YamlJson(string text)
+    {
+        List<KeyValuePair<int, string>> lines = new List<KeyValuePair<int, string>>();
+        foreach (string r0 in text.Split('\n'))
+        {
+            string raw = r0.TrimEnd('\r'), t = raw.Trim();
+            if (t.Length == 0 || t == "---" || t == "..." || t.StartsWith("#")) continue;
+            lines.Add(new KeyValuePair<int, string>(raw.Length - raw.TrimStart().Length, t));
+        }
+        int[] i = { 0 }; StringBuilder sb = new StringBuilder("{"); bool first = true;
+        while (i[0] < lines.Count) { int before = i[0]; string m = YMap(lines, i, lines[i[0]].Key); if (m.Length > 2) { if (!first) sb.Append(','); first = false; sb.Append(m, 1, m.Length - 2); } if (i[0] == before) i[0]++; }
+        return sb.Append('}').ToString();
+    }
+    static bool YItem(string s) { return s == "-" || s.StartsWith("- "); }
+    static string YScalar(string v) { v = v.Trim(); if (v.Length >= 2 && ((v[0] == '"' && v[v.Length - 1] == '"') || (v[0] == '\'' && v[v.Length - 1] == '\''))) v = v.Substring(1, v.Length - 2); return Str(v); }
+    static string YNode(List<KeyValuePair<int, string>> l, int[] i) { if (i[0] >= l.Count) return "null"; return YItem(l[i[0]].Value) ? YList(l, i, l[i[0]].Key) : YMap(l, i, l[i[0]].Key); }
+    static string YMap(List<KeyValuePair<int, string>> l, int[] i, int ind)
+    {
+        StringBuilder sb = new StringBuilder("{"); bool first = true;
+        while (i[0] < l.Count && l[i[0]].Key == ind && !YItem(l[i[0]].Value))
+        {
+            string s = l[i[0]].Value; int c = s.IndexOf(':'); i[0]++;
+            if (c < 0) continue;
+            string k = s.Substring(0, c).Trim(), v = s.Substring(c + 1).Trim(), val;
+            if (v.Length > 0) val = YScalar(v);
+            else if (i[0] < l.Count && (l[i[0]].Key > ind || (l[i[0]].Key == ind && YItem(l[i[0]].Value)))) val = YNode(l, i);
+            else val = "\"\"";
+            if (!first) sb.Append(','); first = false; sb.Append(Str(k)).Append(':').Append(val);
+        }
+        return sb.Append('}').ToString();
+    }
+    static string YList(List<KeyValuePair<int, string>> l, int[] i, int ind)
+    {
+        StringBuilder sb = new StringBuilder("["); bool first = true;
+        while (i[0] < l.Count && l[i[0]].Key == ind && YItem(l[i[0]].Value))
+        {
+            string rest = l[i[0]].Value.Substring(1).TrimStart(), val;
+            if (rest.Length == 0) { i[0]++; val = YNode(l, i); }
+            else if (rest.IndexOf(':') < 0) { val = YScalar(rest); i[0]++; }
+            else { int itemInd = ind + (l[i[0]].Value.Length - rest.Length); l[i[0]] = new KeyValuePair<int, string>(itemInd, rest); val = YMap(l, i, itemInd); }
+            if (!first) sb.Append(','); first = false; sb.Append(val);
+        }
+        return sb.Append(']').ToString();
+    }
+
     static string Str(string s)
     {
         StringBuilder sb = new StringBuilder("\"");
@@ -259,11 +415,29 @@ static class PretendIrdash
             Stream os = r.OutputStream;
             Action<string> w = delegate (string t) { byte[] b = Encoding.UTF8.GetBytes(t); os.Write(b, 0, b.Length); os.Flush(); };
             w("retry: 1000\n\n");
+            // W0-5: ?state=1 pushes the state (the whole object first, then what /__push changed); the session YAML is then a state part
+            bool withState = Q(c.Request, "state") != "", withYaml = !withState || Q(c.Request, "yaml") != "";
+            long sent = -1;
+            Action pushState = delegate ()
+            {
+                if (!withState) return;
+                long upTo; string s; lock (gate) { upTo = stateSeq; s = StateJson(sent); }
+                if (s != null) w("event: state\ndata: " + s + "\n\n");
+                sent = upTo;
+            };
+            pushState();
             if (ibtFile == "")
             {
                 // no telemetry: what irdash says with the sim off
                 w("event: status\ndata: {\"connected\":false}\n\n");
-                while (true) { Thread.Sleep(1000); w(": ping\n\n"); }
+                Stopwatch quiet = Stopwatch.StartNew();
+                while (true)
+                {
+                    lock (pushGate) Monitor.Wait(pushGate, 100);
+                    long before = sent; pushState();
+                    if (sent != before) quiet.Restart();
+                    else if (quiet.ElapsedMilliseconds >= 1000) { w(": ping\n\n"); quiet.Restart(); }
+                }
             }
             string[] names = Q(c.Request, "vars").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
             int hz; if (!int.TryParse(Q(c.Request, "hz"), out hz)) hz = 30; hz = Math.Max(1, Math.Min(60, hz));
@@ -285,11 +459,12 @@ static class PretendIrdash
                     v.Type = BitConverter.ToInt32(vh, b); v.Offset = BitConverter.ToInt32(vh, b + 4); v.Count = Math.Max(1, BitConverter.ToInt32(vh, b + 8));
                     vars[v.Name] = v;
                 }
-                w("event: session\ndata: " + Str(yaml) + "\n\n");
+                if (withYaml) w("event: session\ndata: " + Str(yaml) + "\n\n");
                 byte[] rec = new byte[bufLen]; long seq = 0;
                 Stopwatch sw = Stopwatch.StartNew(); int interval = 1000 / hz;
                 while (true)
                 {
+                    pushState();
                     double ts = sw.Elapsed.TotalSeconds * speed;
                     long idx = (long)(ts * tick);
                     if (idx >= records) { if (loop) { sw.Restart(); continue; } idx = records - 1; }

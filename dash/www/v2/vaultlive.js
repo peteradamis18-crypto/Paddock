@@ -16,7 +16,7 @@ const VaultLive = {
       a.addEventListener('keydown', e => { if (e.key === 'Enter') this.openPage(true); });
       sess.parentNode.insertBefore(a, sess.nextSibling);
     }
-    this.pollNav(); setInterval(() => this.pollNav(), 1500);
+    data.on('state', (st, ch) => { if (ch.vaultNav) this.nav(st.vaultNav); });     // W0-5: irdash pushes it
   },
 
   // opening, closing and following irdash: pagehost.js (one page at a time, CLOSE button, Esc, new requests only)
@@ -26,9 +26,7 @@ const VaultLive = {
   closePage(tell) { if (PageHost.isOpen('vault')) PageHost.close(tell); },
 
   // only the on/off switch is read here (the Vault can be switched off in irdash.ini); pagehost.js follows the requests
-  async pollNav() {
-    if (document.hidden || this.driving()) return;
-    let n; try { n = await (await fetch('/vault/nav', { cache: 'no-store' })).json(); } catch (e) { return; }
+  nav(n) {
     this.off = !!(n && n.enabled === false);
     const link = document.getElementById('idleVault'); if (link) link.hidden = this.off;
   },};

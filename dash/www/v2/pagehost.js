@@ -10,11 +10,12 @@
 //  - never while he drives: a page open when he gets in the car closes, and nothing is requested then.
 const PageHost = {
   PAGES: {
-    sessions: { id: 'sessHost', src: 'sessions.html?embed=1', title: 'Sessions', nav: '/nav', open: '/api/nav?to=sessions', close: '/api/nav?to=home', z: 948 },
+    // nav: the part of irdash's state push (app/lib/data.js, W0-5) that carries this page's request (/nav, /vault/nav, /perf/nav)
+    sessions: { id: 'sessHost', src: 'sessions.html?embed=1', title: 'Sessions', nav: 'nav', open: '/api/nav?to=sessions', close: '/api/nav?to=home', z: 948 },
     // the deck's DEBRIEF key: the coach for his last outing (same irdash request flag as Sessions, value 'coach')
-    coach: { id: 'coachHost', src: 'coach.html?id=last', title: 'Review', nav: '/nav', open: '/api/nav?to=coach', close: '/api/nav?to=home', z: 948 },
-    vault: { id: 'vaultHost', src: 'vault.html?embed=1', title: 'Vault', nav: '/vault/nav', open: '/api/do?c=vkopen', close: '/api/do?c=vkclose', z: 947 },
-    perf: { id: 'perfHost', src: 'perf.html?embed=1', title: 'Performance', nav: '/perf/nav', open: '/api/do?c=perf', close: '/api/do?c=perfclose', z: 946 },
+    coach: { id: 'coachHost', src: 'coach.html?id=last', title: 'Review', nav: 'nav', open: '/api/nav?to=coach', close: '/api/nav?to=home', z: 948 },
+    vault: { id: 'vaultHost', src: 'vault.html?embed=1', title: 'Vault', nav: 'vaultNav', open: '/api/do?c=vkopen', close: '/api/do?c=vkclose', z: 947 },
+    perf: { id: 'perfHost', src: 'perf.html?embed=1', title: 'Performance', nav: 'perfNav', open: '/api/do?c=perf', close: '/api/do?c=perfclose', z: 946 },
     // MY RACES (top bar of HOME): the whole-race videos. Opened only from this screen, so irdash keeps no flag for it.
     races: { id: 'racesHost', src: 'races.html', title: 'Races', nav: '', open: '', close: '', z: 948 },
   },
@@ -36,7 +37,9 @@ const PageHost = {
       if (m === 'sessions-close' || m === 'races-close' || m === 'vault-close' || m === 'perf-close' || (m === 'coach-close' && this.cur === 'coach')) this.close(true);
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.cur) { e.preventDefault(); this.close(true); } }, true);
-    this.poll(); setInterval(() => this.poll(), 1500);
+    // irdash pushes its page requests (W0-5); the driving check is this page's own, no request
+    data.on('state', (st, ch) => { if (ch.nav || ch.vaultNav || ch.perfNav || ch.rig) this.follow(st); });
+    setInterval(() => { if (this.driving() && this.cur) this.close(true); }, 1500);
     const q = location.search;
     if (/[?&]sessions=1/.test(q)) this.open('sessions', false);
     else if (/[?&]vault=1/.test(q)) this.open('vault', false);
@@ -48,7 +51,7 @@ const PageHost = {
 
   driving() { return !!(typeof UI !== 'undefined' && UI.live && UI.live() && typeof L !== 'undefined' && L.v && L.v.IsOnTrack); },
   isOpen(name) { return this.cur === name; },
-  send(url) { if (url) fetch(url, { cache: 'no-store' }).catch(() => { }); },
+  send(url) { if (url) data.fetch(url).catch(() => { }); },
 
   // Three things can sit over the dashboard: this manager's pages, the after-session coach (debrief-v4.js) and HOME's
   // REVIEW (home.js). Only one at a time, or a new page opens UNDER an old one and looks like the key did nothing
@@ -83,25 +86,21 @@ const PageHost = {
     if (tell) this.send(this.PAGES[name].close);
   },
 
-  // Follow irdash only on a NEW request (seq changed). The first answer after loading the page is taken as is, so a
-  // page the Stream Deck asked for before this page loaded still opens.
-  async poll() {
-    if (document.hidden || this.busy) return;
-    if (this.driving()) { if (this.cur) this.close(true); return; }      // no requests at all while he drives
-    this.busy = true;
-    try {
-      for (const name of Object.keys(this.PAGES)) {
-        if (!this.PAGES[name].nav) continue;
-        let n; try { n = await (await fetch(this.PAGES[name].nav, { cache: 'no-store' })).json(); } catch (e) { continue; }
-        if (!n || typeof n.seq !== 'number') continue;
-        if (n.enabled === false) { if (this.cur === name) this.close(false); this.seen[name] = n.seq; continue; }
-        const first = !(name in this.seen), changed = this.seen[name] !== n.seq;
-        this.seen[name] = n.seq;
-        if (!first && !changed) continue;
-        if (n.to === name) { if (first ? !this.cur : true) this.open(name, false); }
-        else if (this.cur === name && !first) this.close(false);
-      }
-    } finally { this.busy = false; }
+  // Follow irdash only on a NEW request (seq changed). The first state after loading the page is taken as is, so a
+  // page the Stream Deck asked for before this page loaded still opens. Nothing is followed while he drives.
+  follow(st) {
+    if (this.driving()) { if (this.cur) this.close(true); return; }
+    for (const name of Object.keys(this.PAGES)) {
+      const part = this.PAGES[name].nav; if (!part) continue;
+      const n = st[part];
+      if (!n || typeof n.seq !== 'number') continue;
+      if (n.enabled === false) { if (this.cur === name) this.close(false); this.seen[name] = n.seq; continue; }
+      const first = !(name in this.seen), changed = this.seen[name] !== n.seq;
+      this.seen[name] = n.seq;
+      if (!first && !changed) continue;
+      if (n.to === name) { if (first ? !this.cur : true) this.open(name, false); }
+      else if (this.cur === name && !first) this.close(false);
+    }
   },
 };
 PageHost.init();

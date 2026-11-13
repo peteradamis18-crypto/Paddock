@@ -76,6 +76,8 @@ window.PCarPic = { known: function(){ var o={}; o[D.me && D.me.path ? D.me.path 
 var BODY = { '/home': D, '/career': C, '/realworld': W, '/health': H, '/vault/recorder': R, '/phone/qr': P, '/mydrive': {}, '/watch/coverage': CV };
 window.fetch = function(u){ var k = String(u).split('?')[0]; return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(JSON.parse(JSON.stringify(BODY[k] || {}))); } }); };
 </script>
+<script src="tools/fake-data.js"></script>
+<script>__push({ health: H, recorder: R });   // W0-5: irdash pushes the rig's apps and the recorder (state parts health, recorder)</script>
 <script src="../dash/www/v2/home.js"></script>
 <script>setTimeout(function(){ var m = $measure; var p = document.createElement('pre'); p.id = 'measure'; p.hidden = true; p.textContent = m; document.body.appendChild(p); }, 1500);</script>
 </body></html>

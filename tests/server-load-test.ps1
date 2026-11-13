@@ -104,6 +104,8 @@ try {
   if (-not $j) { throw 'test-mode irdash did not start' }
   $p.Refresh()
   Check 'no window (no kiosk, no tray dialog)' ($p.MainWindowHandle -eq [IntPtr]::Zero)
+  $sj = Json '/state'
+  Check 'test mode serves W0-5''s /state (one JSON for the pages)' ($null -ne $sj)
   $log0 = Get-Content "$dir\dash\irdash.log" -Raw -ErrorAction SilentlyContinue
   Check 'the log says test mode, data under the test folder' ($log0 -match 'test mode: port 8499, data under')
   Check 'no CrewChief watch and no delta bar (the guard and the watchdog run, and only look)' ($log0 -notmatch 'spotter:|delta bar:')
@@ -125,17 +127,18 @@ try {
   # ---------------------------------------------------------------- 2. the replayed session
   Assert-RigFree -Where '2. replay'
   'Section 2. the 12 Nov race at 5x, with the top screen''s stream and page polls'
-  $shared = [hashtable]::Synchronized(@{ stop = $false; events = 0; bytes = 0; req = 0; err = 0; slow = 0; byPath = @{}; errAt = '' })
+  $shared = [hashtable]::Synchronized(@{ stop = $false; events = 0; bytes = 0; req = 0; err = 0; slow = 0; byPath = @{}; errAt = ''; states = 0 })
   $vars = 'SessionTime,SessionNum,SessionUniqueID,SessionState,SessionFlags,SessionTimeRemain,SessionLapsRemainEx,SessionTimeOfDay,PlayerCarIdx,PlayerCarPosition,PlayerCarClassPosition,PlayerCarMyIncidentCount,PlayerTrackSurface,IsOnTrack,IsOnTrackCar,IsReplayPlaying,OnPitRoad,CamCarIdx,DisplayUnits,FrameRate,Speed,RPM,Gear,Throttle,Brake,Clutch,SteeringWheelAngle,SteeringWheelAngleMax,SteeringWheelMaxForceNm,SteeringWheelTorque,SteeringWheelPctTorque,FuelLevel,FuelLevelPct,FuelUsePerHour,Lap,LapCompleted,LapDistPct,LapCurrentLapTime,LapLastLapTime,LapBestLapTime,LapDeltaToBestLap,LapDeltaToBestLap_OK,LapDeltaToSessionBestLap,LapDeltaToSessionBestLap_OK,Lat,Lon,WaterTemp,OilTemp,OilPress,Voltage,EngineWarnings,AirTemp,TrackTempCrew,TrackWetness,WindVel,WindDir,Precipitation,WeatherDeclaredWet,Skies,RelativeHumidity,CarLeftRight,SessionLapsTotal,dcBrakeBias,dcABS,dcTractionControl,dcTractionControl2,CarIdxLapDistPct,CarIdxLap,CarIdxLapCompleted,CarIdxPosition,CarIdxClassPosition,CarIdxOnPitRoad,CarIdxTrackSurface,CarIdxEstTime,CarIdxF2Time,CarIdxLastLapTime,CarIdxBestLapTime'
   $streamScript = {
     param($B, $vars, $shared)
     try {
-      $r = [Net.HttpWebRequest]::Create("$B/stream?hz=30&vars=$vars"); $r.Timeout = 10000; $r.ReadWriteTimeout = 10000
+      $r = [Net.HttpWebRequest]::Create("$B/stream?state=1&hz=30&vars=$vars"); $r.Timeout = 10000; $r.ReadWriteTimeout = 10000      # the top screen's one stream since W0-5
       $resp = $r.GetResponse(); $s = $resp.GetResponseStream(); $buf = New-Object byte[] 65536
       while (-not $shared.stop) {
         $n = $s.Read($buf, 0, $buf.Length); if ($n -le 0) { break }
         $shared.bytes += $n; $txt = [Text.Encoding]::UTF8.GetString($buf, 0, $n)
         $shared.events += ([regex]::Matches($txt, '(?m)^data: ')).Count
+        $shared.states += ([regex]::Matches($txt, '(?m)^event: state')).Count
       }
       $resp.Close()
     } catch { $shared.err++ }
@@ -222,6 +225,7 @@ try {
   $wall = ($t1 - $t0).TotalSeconds; $hookS = 0.0; foreach ($v in $hook.Values) { $hookS += $v[1] - $v[0] }
   $allPct = 100.0 * ($cpu1 - $cpu0) / $wall; $hookPct = 100.0 * $hookS / $wall; $cpuPct = $allPct - $hookPct
   Check "the replay ran to its end while a session was on ($([math]::Round($wall)) s)" ($done -and $stillOn)
+  Check "the stream with state=1 pushed state events ($($shared.states))" ($shared.states -ge 1)
   Check "the pretend top screen got the stream ($($shared.events) frames) and its polls answered ($($shared.req) requests, $($shared.err) errors)" ($shared.events -gt 100 -and $shared.req -gt 50 -and $shared.err -eq 0) $shared.errAt
   Check "no file written over 1 MB (biggest: $([math]::Round($maxGrow / 1KB)) KB, $maxGrowFile; $(@($ev | Where-Object { $_.K -ne 'delete' }).Count) writes seen)" ($maxGrow -le 1MB)
   $other = [math]::Max(0, ($wb1 - $wb0) - $pcmBytes)
@@ -229,7 +233,9 @@ try {
   Check "no delete while the session was on ($($dels.Count))" ($dels.Count -eq 0) (($dels | ForEach-Object { $_.P.Substring($dir.Length + 1) }) -join '; ')
   Check "no process scan while the session was on ($($scans1 - $scans0); the perf sampler's 5 s read for the black box is the only one, outside the counter)" (($scans1 - $scans0) -eq 0) ($j1.proc.byName | ConvertTo-Json -Compress)
   Check "irdash under 3 % of one core on average ($([math]::Round($cpuPct, 2)) %; the process $([math]::Round($allPct, 2)) %, of which the test hook's replay and pump $([math]::Round($hookPct, 2)) %, threads $($hookIds -join '/'))" ($cpuPct -lt 3 -and $hook.Count -eq 2)
-  Check "irdash under 40 threads (most: $maxThreads, the test hook's replay and pump not counted)" ($maxThreads -lt 40)
+  $pool = 0; $pm = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'dash\src\irdash.cs')), 'const int PoolSize = (\d+)'); if ($pm.Success) { $pool = [int]$pm.Groups[1].Value }
+  # W0-5's HTTP pool keeps $pool threads waiting for connections (they used to come and go, one per connection): counted apart, flagged to the lead
+  Check "irdash under 40 threads besides W0-5's $pool pool threads (most: $maxThreads in all, the test hook's replay and pump not counted)" (($maxThreads - $pool) -lt 40)
   Check "no job that waits for free ran during the session ($($whenFreeRan.Count))" ($whenFreeRan.Count -eq 0) ($whenFreeRan -join ', ')
   $queuedNow = @($j1.jobs.queued | ForEach-Object { $_.name })
   "  waiting for the session to end: " + $(if ($queuedNow.Count) { $queuedNow -join ', ' } else { '(nothing)' })

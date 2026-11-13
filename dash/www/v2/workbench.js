@@ -1400,14 +1400,25 @@ function deckReport() {
     ['rt', R ? R.time : ''], ['rl', R ? R.lap : ''], ['car', h.car || ''], ['trk', h.track || '']];
   return q.map(function (x) { return x[0] + '=' + encodeURIComponent(x[1]); }).join('&');
 }
-// the deck: irdash keeps the last wb-* command; run it once per new seq (the first poll only learns the seq)
+// the deck: irdash keeps the last wb-* command and pushes it (W0-5: state part "workbench", app/lib/data.js); run it once per new seq
+// (the first push only learns the seq). The page's own report (what the deck's ANALYSIS keys show) goes to irdash when it changes and
+// every 2 s besides (irdash counts the page as open for 4 s), never while the page is hidden or he drives. It used to be 3 requests a second.
 function pollDeck() {
-  var last = null;
+  var last = null, sent = '', sentAt = 0;
+  function take(j) {
+    if (!j) return;
+    if (j.driving && S.playing) { S.playing = false; modeLine(); }      // never busy while he drives
+    if (last !== null && j.seq !== last && j.cmd) WB.cmd(j.cmd, j.arg);
+    last = j.seq;
+  }
+  if (typeof data !== 'undefined') data.on('state', function (st, ch) { if (ch.workbench) take(st.workbench); });
   setInterval(function () {
-    fetch('/workbench/cmd?' + deckState(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
-      if (j.driving && S.playing) { S.playing = false; modeLine(); }      // never busy while he drives
-      if (last !== null && j.seq !== last && j.cmd) WB.cmd(j.cmd, j.arg);
-      last = j.seq;
+    if (document.hidden || (typeof data !== 'undefined' && data.rig.driving)) return;
+    var q = deckState(), now = Date.now();
+    if (q === sent && now - sentAt < 2000) return;
+    sent = q; sentAt = now;
+    fetch('/workbench/cmd?' + q, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+      if (typeof data === 'undefined') take(j);           // no state push (an old host page): the reply carries the command as before
     }).catch(function () {});
   }, 300);
 }

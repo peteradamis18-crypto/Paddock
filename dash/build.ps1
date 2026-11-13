@@ -13,6 +13,7 @@ $src = @("$d\src\irdash.cs", "$d\src\deltabar.cs", "$d\src\overlays.cs", "$d\src
 $src += @("$d\src\blackbox.cs", "$d\src\simsettings.cs")   # W0-9: the black box, iRacing's settings read in one place
 $src += @("$d\src\rigstate.cs", "$d\src\log.cs")   # W0-2: the one rig state and the session guards; the log queue and the crash handler
 $src += @("$d\src\jobs.cs", "$d\src\proc.cs", "$d\src\pending.cs", "$d\src\zorder.cs")       # W0-3: heavy work waits for the session to end; the counted process lookups
+$src += @("$d\src\statebuilder.cs")   # W0-5: the one state push (/state, /stream?state=1, /deck/summary)
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/out:$tmp\irdash.exe" `
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll `
   @src

@@ -278,6 +278,7 @@ const Debrief4 = (function () {
     requestAnimationFrame(() => root.classList.add('on'));
     timer = setTimeout(hide, 15 * 60 * 1000);
     active(true); clearInterval(activeTimer); activeTimer = setInterval(() => { if (el) active(true); }, 5000);
+    navSeq = -1; setTimeout(() => { if (el && typeof data !== 'undefined') takeNav(data.state.debriefNav); }, 0);   // a DEEP DIVE asked just before this screen came up
     wireBar(root, j);
   }
   // After a session the Coach is the screen (coach.html: what to fix, his video, all the data one press away). The old
@@ -299,6 +300,7 @@ const Debrief4 = (function () {
     armKeeper(root);
     timer = setTimeout(hide, 15 * 60 * 1000);
     active(true); clearInterval(activeTimer); activeTimer = setInterval(() => { if (el) active(true); }, 5000);
+    navSeq = -1; setTimeout(() => { if (el && typeof data !== 'undefined') takeNav(data.state.debriefNav); }, 0);   // a DEEP DIVE asked just before this screen came up
   }
   // The calm 'laps saved' strip after a session (the keeper review: KEEP ALL by itself after 60 s, CHOOSE opens the Vault).
   // The old debrief carried it (debrief.js armReview); when the coach became the after-session screen nothing armed it any more,
@@ -447,13 +449,13 @@ const Debrief4 = (function () {
       lastLive = live;
     }, 1000);
     // D-05: the deck's DEEP DIVE key asks irdash for it; while this screen is up, open the Workbench on the corner
-    setInterval(() => { if (el) pollNav(); else navSeq = -1; }, 1200);
+    // (W0-5: irdash pushes it, state part "debriefNav"; only followed while this screen is up)
+    data.on('state', (st, ch) => { if (!ch.debriefNav) return; if (el) takeNav(st.debriefNav); else navSeq = -1; });
     try { if (new URLSearchParams(location.search).get('debrief4')) load(); } catch (e) { }
   }
 
   // D-05: irdash (/debrief/nav) says when the deck's DEEP DIVE key was pressed; open the Workbench once per request
-  async function pollNav() {
-    let n; try { n = await (await fetch('/debrief/nav', { cache: 'no-store' })).json(); } catch (e) { return; }
+  function takeNav(n) {
     if (n && n.go && n.seq !== navSeq) { navSeq = n.seq; openDeepDive(el, window.__deb4Last); }
   }
 

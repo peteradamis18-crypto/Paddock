@@ -26,7 +26,7 @@ const UI = {
       const ro = new ResizeObserver(entries => { for (const e of entries) read(e.target); });
       watch.forEach(id => ro.observe($(id)));
     } else window.addEventListener('resize', () => watch.forEach(id => read($(id))));
-    this.health(); this.healthAt = performance.now();
+    data.on('state', (st, ch) => { if (ch.health) this.health(st.health); });   // W0-5: irdash pushes it; no timer here
     document.addEventListener('visibilitychange', () => { this.lastDom = 0; this.lastCanvas = 0; this.lastMap = ''; this.lastTrace = ''; });
     const loop = now => {
       try {
@@ -37,7 +37,6 @@ const UI = {
             if (typeof Drive !== 'undefined') Drive.tick(now);
           }
           if (now - this.lastCanvas >= 33) { this.lastCanvas = now; this.canvases(now); }
-          if (now - this.healthAt >= 3000) { this.healthAt = now; this.health(); }
         }
       } catch (e) { console.error(e); }
       requestAnimationFrame(loop);
@@ -49,9 +48,8 @@ const UI = {
   sz(id) { return this.size[id] || { w: 0, h: 0 }; },
 
   /* ---------- rig health strip and watchdog notices ---------- */
-  async health() {
-    let h;
-    try { h = await (await fetch('/health', { cache: 'no-store' })).json(); } catch (e) { return; }
+  health(h) {
+    if (!h) return;
     const cls = s => (s === 'ok' || s === 'live') ? 'ok' : (s === 'loading' || s === 'starting') ? 'warn' : (s === 'stuck' || s === 'down') ? 'bad' : '';
     const word = { ok: 'running', live: 'in session', loading: 'loading', starting: 'starting', stuck: 'stuck', down: 'not running', off: 'off' };
     setHTML('health', (h.apps || []).map(a =>
@@ -489,15 +487,7 @@ const TowWait = {
     el.hidden = true;
     el.textContent = 'Reset car · waiting for the car to stop';
     document.body.appendChild(el);
-    const tick = async () => {
-      if (document.hidden) return;
-      try {
-        const r = await (await fetch('/api/tow-wait', { cache: 'no-store' })).json();
-        el.hidden = !r.on;
-      } catch (e) { /* dashboard restarting */ }
-    };
-    tick();
-    setInterval(tick, 500);
+    data.on('state', (st, ch) => { if (ch.tow && st.tow) el.hidden = !st.tow.on; });     // W0-5: pushed by irdash
   },
 };
 TowWait.init();
@@ -510,19 +500,11 @@ const KidsMode = {
     el.hidden = true;
     el.textContent = 'KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME';
     document.body.appendChild(el);
-    const tick = async () => {
-      if (document.hidden || this.dead) return;
-      try {
-        const res = await fetch('/api/kids', { cache: 'no-store' });
-        // The page is served before the program is rebuilt. One miss is enough; a rebuild reloads the page.
-        if (res.status === 404) { this.dead = true; return; }
-        const r = await res.json();
-        el.hidden = !r.on;
-        if (r.on && r.text) el.textContent = r.text;
-      } catch (e) { /* dashboard restarting */ }
-    };
-    tick();
-    setInterval(tick, 500);
+    data.on('state', (st, ch) => {                  // W0-5: pushed by irdash
+      const r = st.kids; if (!ch.kids || !r) return;
+      el.hidden = !r.on;
+      if (r.on && r.text) el.textContent = r.text;
+    });
   },
 };
 KidsMode.init();

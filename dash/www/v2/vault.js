@@ -1172,10 +1172,8 @@ function init() {
   $('gridScroll').addEventListener('scroll', closePop, { passive: true });
   window.addEventListener('hashchange', route);
   loadList().then(route);
-  setInterval(() => { if (!V.id) loadList(); }, 15000);
-  if (!EMBED) {
-    let version = null;
-    setInterval(async () => { try { const v = await (await fetch('/version', { cache: 'no-store' })).text(); if (version && v !== version) location.reload(); version = v; } catch (e) { } }, 15000);
-  }
+  // W0-5: the list loads again when irdash says it may have changed (it used to be every 15 s); a new version reloads the page
+  data.onList('vault', () => { if (!V.id) loadList(); });
+  if (!EMBED) data.reloadOnVersion();
 }
 init();

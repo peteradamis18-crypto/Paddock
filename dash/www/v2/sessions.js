@@ -177,10 +177,8 @@ function init() {
   window.addEventListener('hashchange', route);
   $('viewList').hidden = false;
   loadSessions().then(route);
-  setInterval(() => { if (!SX.file) loadSessions(); }, 20000);
-  if (!EMBED) {
-    let version = null;
-    setInterval(async () => { try { const v = await (await fetch('/version', { cache: 'no-store' })).text(); if (version && v !== version) location.reload(); version = v; } catch (e) { } }, 15000);
-  }
+  // W0-5: the list loads again when irdash says it may have changed (it used to be every 20 s); a new version reloads the page
+  data.onList('sessions', () => { if (!SX.file) loadSessions(); });
+  if (!EMBED) data.reloadOnVersion();
 }
 init();
