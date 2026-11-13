@@ -4,7 +4,7 @@ Paddock is the name on the top screen and on the Stream Deck. The deck has three
 The main page has four rows: **start something → in a session → pit and car → talk and sound.**
 Every key is one press. No key asks you to press twice. Each key works out where you are and does the right thing from there.
 Every press shows one short line on the top screen, so you can see it was heard and what it did. A short low beep means the key was heard but nothing could happen (for example, no session is running).
-The keys that end things are not on the main page. They are on the **LEAVE** page. Opening that page is the check, so one press there is enough.
+The keys that end things are not on the main page. They are on the **LEAVE** page. QUIT TO MENU is one press there. SHUT DOWN PC and SLEEP PC ask once more: press YES within 5 seconds.
 
 ## Main page, row 1 — start something
 | Key | What it does |
@@ -58,8 +58,8 @@ The keys that end things are not on the main page. They are on the **LEAVE** pag
 | **BACK** | Back to the main page. |
 | **QUIT TO MENU** | Leaves the whole session and takes you back to the iRacing app's home page. It is two keys wide so it is easy to hit. One press does it. |
 | **KIDS MODE** | Same as KIDS on the main page: locks the keyboard, the mouse and every risky deck key so the kids can drive. To unlock press KIDS, then HOME. |
-| **SHUT DOWN PC** | Turns the PC off. It leaves iRacing first, and it refuses if the car is moving. The PC goes off 5 seconds later. Kids mode blocks it. |
-| **SLEEP PC** | Puts the PC to sleep. It leaves iRacing first, and it refuses if the car is moving. |
+| **SHUT DOWN PC** | Asks once: a big gold **YES, SHUT DOWN** key counts 5-4-3-2-1. Press YES within 5 seconds and the PC turns off (it leaves iRacing first, and it refuses if the car is moving). Press nothing and the question goes away by itself; EXIT (bottom right) leaves at once. Kids mode blocks it. After it, the deck starts on the main page. |
+| **SLEEP PC** | Asks once, the same way: press **YES, SLEEP** within 5 seconds. It leaves iRacing first, and it refuses if the car is moving. When the PC wakes up, the deck is on the main page. |
 
 ## Second page (MORE)
 | Key | What it does |

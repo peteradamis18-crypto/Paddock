@@ -24,33 +24,9 @@ const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
 let ws = null, pluginUUID = '', deviceId = '', seq = null, playing = false;
 const tiles = {};               // intro profile: "col,row" -> context
 const docKeys = new Set();      // the RIG DOCTOR key(s), if you put one on a profile
-const stateKeys = { smart: new Set(), quit: new Set(), restart: new Set(), skip: new Set() };
 // Keys that FLIP something (on/off, play/pause). A press that reaches the add-on twice must not flip it back, so Screen.press() ignores a
 // second press of the same key within 0.7 s. Only a few keys carried "once: true"; the rest were missing (2026-10-18 audit).
 const ONCE_ACTS = new Set(['ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour']);
-let deckState = null;
-
-// MAIN's state keys use these action ids when the lead includes their images in an add-on batch.
-function paintStateKey(ctx, kind) {
-  const s = deckState || {}, armed = s.armed || {}, seconds = Number(armed[kind] || 0);
-  let big = kind === 'smart' ? (s.label || 'WAIT') : (kind === 'quit' ? 'QUIT' : kind === 'restart' ? 'RESTART' : 'SKIP');
-  let small = kind === 'smart' ? (s.reason || '') : '';
-  if (kind !== 'smart' && seconds > 0) { big = 'ARMED ' + Math.min(3, Math.max(1, Math.ceil(seconds))); small = ''; }
-  const c = document.createElement('canvas'); c.width = c.height = PX;
-  const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, PX, PX);
-  g.strokeStyle = GOLD; g.lineWidth = 2; g.strokeRect(4, 4, PX - 8, PX - 8);
-  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = GOLD;
-  let size = big.length > 8 ? 17 : big.length > 6 ? 20 : 25;
-  g.font = '600 ' + size + 'px ' + FONT; g.fillText(big.toUpperCase(), PX / 2, small ? 39 : 48, PX - 12);
-  if (small) { g.fillStyle = INK; g.font = '400 12px ' + FONT; g.fillText(String(small).toUpperCase(), PX / 2, 66, PX - 12); }
-  send({ event: 'setImage', context: ctx, payload: { image: c.toDataURL('image/png'), target: 0 } });
-}
-function drawStateKeys() { for (const kind of Object.keys(stateKeys)) for (const ctx of stateKeys[kind]) paintStateKey(ctx, kind); }
-async function pollDeckState() {
-  try { deckState = await (await fetch(API + '/deck/state', { cache: 'no-store' })).json(); }
-  catch (e) { deckState = { label: 'WAIT', reason: '', armed: {} }; }
-  drawStateKeys();
-}
 
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function log(m) { send({ event: 'logMessage', payload: { message: 'rigintro: ' + m } }); }   // lands in the plugin log
@@ -62,6 +38,45 @@ if (timerWorker) timerWorker.onmessage = e => { const f = waiting.get(e.data); i
 const sleep = ms => new Promise(r => { if (!timerWorker) { setTimeout(r, ms); return; } const id = timerId++; waiting.set(id, r); timerWorker.postMessage({ id, ms }); });
 const later = (ms, f) => { sleep(ms).then(f); };
 const tick = () => sleep(1000 / FPS);
+
+// ---------------- talking to irdash: every request gives up after 2 s ----------------
+// An irdash that accepts the connection and never answers used to freeze the whole add-on: no fetch had a timeout, so the
+// opener keys and an open screen stopped for good (audit 11, A2). The abort runs on the worker's timer like every other wait.
+const FETCH_MS = 2000;
+function fetchT(url, ms) {
+  const ctl = new AbortController();
+  later(ms || FETCH_MS, () => ctl.abort());
+  return fetch(url, { cache: 'no-store', signal: ctl.signal }).then(r => { Health.lastOk = performance.now(); return r; });
+}
+
+// Is irdash answering? One "tick" = one pass of the 2 s loop. After 3 ticks in a row with no answer the opener keys go grey
+// (they would otherwise keep showing an old state as if it were true: A3); the first good answer brings them back.
+const Health = {
+  lastOk: 0, failed: 0, grey: false,
+  tick(ok) {
+    if (ok) { this.failed = 0; if (this.grey) { this.grey = false; this.repaint(); } return; }
+    this.failed++;
+    if (this.failed >= 3 && !this.grey) { this.grey = true; this.paintGrey(); }
+  },
+  // the words on each opener key, in grey
+  greyPic(word, sub) {
+    const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d');
+    g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144); g.strokeStyle = '#3a3a3a'; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124);
+    g.textAlign = 'center'; g.fillStyle = '#6d6a63'; g.font = '600 24px ' + FONT; g.fillText(word, 72, 66, 120);
+    g.font = '400 17px ' + FONT; g.fillText(sub, 72, 98, 120);
+    return c.toDataURL('image/png');
+  },
+  paintGrey() {
+    log('irdash not answering: opener keys grey');
+    for (const s of Object.values(SCREENS)) for (const ctx of s.keys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic(s.greyWord(ctx), 'NOT ANSWERING'), target: 0 } });
+    for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic('RIG DOCTOR', 'NOT ANSWERING'), target: 0 } });
+  },
+  repaint() {
+    log('irdash answering again: opener keys back');
+    for (const s of Object.values(SCREENS)) { s.keyShown = ''; try { s.keyIcon(true); } catch (e) { } }
+    try { RigDoctor.icon(true); } catch (e) { }
+  },
+};
 
 // ---------------- timing of a screen opening (key press -> pictures on the keys) ----------------
 const Perf = {
@@ -93,6 +108,7 @@ class Screen {
     this.keyPos = {};                 // opener key context -> "col,row" (two keys can open one screen: MY DRIVE and CAR TRACK)
     this.offline = false;             // irdash stopped answering while this screen was open (run() / showOffline())
     this.onceAt = {};                 // key -> when it was last pressed, for keys marked once (toggles)
+    this.keySettings = {};            // opener key context -> its settings (the CONFIRM key says what it confirms)
   }
   get live() { return Object.keys(this.tiles).length > 0; }
   hasState() { return false; }        // is there anything to draw yet
@@ -104,6 +120,7 @@ class Screen {
   keyIcon(force) { }                  // the opener key's picture
 
   setKeyImage(url) { for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } }); }
+  greyWord(ctx) { return this.name.toUpperCase(); }   // the opener key's word while irdash is not answering (Health)
   iconCanvas() { const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d'); g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144); g.strokeStyle = GOLD; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124); g.textAlign = 'center'; return [c, g]; }
 
   // a key of this screen's profile appeared / went away
@@ -205,15 +222,17 @@ class Screen {
   // keep the state fresh while the screen is on the deck. A press makes it look faster for a few seconds.
   async run() {
     this.looping = true; this.offline = false;
-    const t0 = performance.now(), sent0 = this.sent; let polls = 0, bad = 0;
+    const t0 = performance.now(), sent0 = this.sent; let polls = 0, bad = 0, threw = false, answeredAt = performance.now();
     while (this.live) {
       const t = performance.now();
       // A poll that throws (irdash down) or leaves the screen with no state used to change nothing: the keys froze on the last picture,
       // or stayed black from the start, and a press only wrote "irdash not reachable" to a log. After 4 in a row the keys say so.
-      try { await this.poll(); polls++; bad = this.hasState() ? 0 : bad + 1; } catch (e) { bad++; }
-      if (bad >= 4 && !this.offline) { this.offline = true; this.showOffline(); }
+      try { await this.poll(); polls++; threw = false; answeredAt = performance.now(); bad = this.hasState() ? 0 : bad + 1; } catch (e) { bad++; threw = true; }
+      // a hung irdash: each poll now gives up after 2 s (fetchT), so the message shows within about 2 s of the screen opening
+      const down = bad >= 4 || (threw && performance.now() - answeredAt >= 1900);
+      if (down && !this.offline) { this.offline = true; this.showOffline(); }
       else if (bad === 0 && this.offline) { this.offline = false; this.relayout(); }
-      else if (bad >= 4 && this.offline) this.showOffline();    // new tiles may have appeared (shown[] was cleared by appear())
+      else if (down && this.offline) this.showOffline();    // new tiles may have appeared (shown[] was cleared by appear())
       await sleep(Math.max(40, (performance.now() < this.fastUntil ? 220 : this.interval) - (performance.now() - t)));
     }
     this.looping = false;
@@ -260,9 +279,9 @@ class Screen {
   }
 
   async refreshSoon(ms) { await sleep(ms); try { await this.poll(); } catch (e) { } }   // after a press: look again when irdeck has had time to act
-  async get(path) { return await (await fetch(API + path, { cache: 'no-store' })).json(); }
+  async get(path) { return await (await fetchT(API + path)).json(); }
   async cmd(c, a, base) {
-    try { await fetch(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), { cache: 'no-store' }); }
+    try { await fetchT(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); }
     catch (e) { log(this.name + ': irdash not reachable'); }
   }
   switchTo(profile) { send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
@@ -329,7 +348,7 @@ const Friends = new class extends Screen {
     this.relayout();
   }
 
-  draft() { fetch(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb)), { cache: 'no-store' }).catch(() => { }); }
+  draft() { fetchT(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb))).catch(() => { }); }
 
   async act(r) {
     // the name keyboard is handled right here, so typing is instant
@@ -450,10 +469,10 @@ const RigDoctor = {
   },
   async tick() {
     if (!docKeys.size) return;
-    try { this.d = await (await fetch(API + '/doctor', { cache: 'no-store' })).json(); } catch (e) { return; }
+    try { this.d = await (await fetchT(API + '/doctor')).json(); } catch (e) { return; }
     this.icon(false);
   },
-  async press() { try { await fetch(API + '/api/do?c=doctor', { cache: 'no-store' }); } catch (e) { log('doctor: irdash not reachable'); } },
+  async press() { try { await fetchT(API + '/api/do?c=doctor'); } catch (e) { log('doctor: irdash not reachable'); } },
 };
 
 // ---------------- Overlays screen ----------------
@@ -576,22 +595,24 @@ const MyDrive = new class extends Screen {
   repaint() { this.shown = {}; this.relayout(); }
 
   keyIcon(force) {
-    if (!this.keys.size || (!force && this.keyShown)) return;
+    // NO CHOICE (AI RACE pressed with no car chosen): the key says so. The screen never opens by itself any more (audit 11, A1:
+    // it used to switch the whole deck with no press, also while driving).
+    const noChoice = !!(this.m && this.m.aiStatus === 'NO CHOICE' && !(this.m.choice && this.m.choice.has)), sig = noChoice ? 'nc' : 'ok';
+    if (!this.keys.size || (!force && this.keyShown === sig)) return;
     // Two keys open this screen: MY DRIVE and CAR TRACK (MAIN 6,2). setKeyImage() painted MY DRIVE on both, so CAR TRACK
     // showed the wrong word. The CAR TRACK picture goes to the key at 6,2 only.
-    const pic = (a, b) => { const [c, g] = this.iconCanvas(); g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText(a, 72, 66); g.fillText(b, 72, 100); return c.toDataURL('image/png'); };
+    const pic = (a, b) => { const [c, g] = this.iconCanvas(); g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText(a, 72, noChoice ? 58 : 66); g.fillText(b, 72, noChoice ? 90 : 100); if (noChoice) { g.fillStyle = '#d98b2b'; g.font = '600 17px ' + FONT; g.fillText('CHOOSE ONE', 72, 120); } return c.toDataURL('image/png'); };
     const mine = pic('MY', 'DRIVE'), carTrack = pic('CAR', 'TRACK');
-    this.keyShown = '1';
+    this.keyShown = sig;
     for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: (this.keyPos[ctx] === '3,0' || this.keyPos[ctx] === '6,2') ? carTrack : mine   /* deck v2 (2026-10-23): CAR TRACK moved to 3,0 */, target: 0 } });
   }
+  greyWord(ctx) { return (this.keyPos[ctx] === '3,0' || this.keyPos[ctx] === '6,2') ? 'CAR TRACK' : 'MY DRIVE'; }
 
   // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request
   async keyTick() {
     const m = await this.get('/mydrive');
     if (!this.live) {
       this.m = m;
-      if (m.aiStatus === 'NO CHOICE' && !m.choice.has && !this.autoPrompted) { this.autoPrompted = true; this.open({ auto: true }); }
-      if (!m.aiStatus) this.autoPrompted = false;
     }
     const st = m.speedtest;
     if (st) {
@@ -605,7 +626,7 @@ const MyDrive = new class extends Screen {
     if (!deviceId) return;
     Perf.begin('mydrive');
     this.kb = null; this.local = {}; this.finding = null; this.shown = {};
-    this.view = opts && opts.auto ? 'pick' : 'home'; this.pickPage = 'recent'; this.page = 0;
+    this.view = 'home'; this.pickPage = 'recent'; this.page = 0;
     try { this.lists = await this.get('/mydrive/lists'); } catch (e) { this.lists = { recent: [], cars: [], tracks: [] }; }
     const classes = this.classKeys(); if (classes.length && !classes.includes(this.pickClass)) this.pickClass = classes[0];
     this.hiddenAt = this.m && this.m.results ? this.m.results.at : null;    // a search from last time stays away
@@ -1538,6 +1559,7 @@ const AiLevel = new class extends Screen {
     this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
   }
   async keyTick() { this.keyIcon(false); }
+  greyWord() { return 'AI LEVEL'; }
 
   async open() {
     if (!deviceId) return;
@@ -1681,8 +1703,88 @@ const Races = new class extends Screen {
   }
 };
 
+// ---------------- Confirm screen (SHUT DOWN PC / SLEEP PC on the LEAVE page, W0-1) ----------------
+// The LEAVE page used to turn the PC off in one press, and Stream Deck could reopen on that page after a wake (audit 11,
+// top finding 1). Now the key only opens this screen: one big gold YES with 5-4-3-2-1 on it, and EXIT at 7,3. Only YES
+// sends the command (irdash /api/do?c=shutdown or sleep -> irdeck power off / sleep). Nothing pressed for 5 s: the
+// screen closes itself and nothing happens. A doubled YES is one press (once, and nothing more after it was sent).
+const CONFIRM_WHAT = {
+  shutdown: { key: ['SHUT DOWN', 'PC'], ask: 'TURN THE PC OFF?', yes: 'YES, SHUT DOWN', doing: 'SHUTTING DOWN', cmd: 'shutdown' },
+  sleep: { key: ['SLEEP', 'PC'], ask: 'PUT THE PC TO SLEEP?', yes: 'YES, SLEEP', doing: 'GOING TO SLEEP', cmd: 'sleep' },
+};
+const Confirm = new class extends Screen {
+  constructor() {
+    super('confirm', FCOLORS);
+    this.what = 'shutdown'; this.until = 0; this.sentAt = 0; this.token = 0;
+    this.interval = 200;
+  }
+  hasState() { return true; }
+  whatOf(ctx) { const s = this.keySettings[ctx] || {}; return CONFIRM_WHAT[s.what] ? s.what : 'shutdown'; }
+  greyWord(ctx) { return CONFIRM_WHAT[this.whatOf(ctx)].key.join(' '); }
+  keyIcon(force) {
+    if (!this.keys.size || (!force && this.keyShown)) return;
+    for (const ctx of this.keys) {
+      const [c, g] = this.iconCanvas(), w = CONFIRM_WHAT[this.whatOf(ctx)].key;
+      g.fillStyle = '#e0493f'; g.font = '600 26px ' + FONT; g.fillText(w[0], 72, 70, 120);
+      g.fillStyle = INK; g.font = '600 24px ' + FONT; g.fillText(w[1], 72, 102, 120);
+      send({ event: 'setImage', context: ctx, payload: { image: c.toDataURL('image/png'), target: 0 } });
+    }
+    this.keyShown = '1';
+  }
+  async keyTick() { this.keyIcon(false); }
+  secondsLeft() { return Math.max(0, Math.ceil((this.until - performance.now()) / 1000)); }
+
+  async open(opts) {
+    if (!deviceId) return;
+    const ctx = opts && opts.ctx;
+    this.what = (opts && CONFIRM_WHAT[opts.what]) ? opts.what : ctx ? this.whatOf(ctx) : 'shutdown';
+    this.sentAt = 0; this.shown = {}; this.until = performance.now() + 5000;
+    const tok = ++this.token;
+    log('confirm: ' + this.what + ' asked; closes by itself in 5 s');
+    this.switchTo('RigConfirm');
+    this.warm();
+    // the run() loop repaints the count; this makes sure the screen closes even if no tile ever appears
+    later(5200, () => { if (this.token === tok && !this.sentAt) { log('confirm: ' + this.what + ' not confirmed - nothing done'); this.exit(); } });
+  }
+  exit() { this.token++; this.until = 0; this.switchTo(''); }
+
+  async poll() {
+    if (this.sentAt) { if (performance.now() - this.sentAt > 2500) this.exit(); return; }
+    if (this.until && performance.now() >= this.until) { log('confirm: ' + this.what + ' not confirmed - nothing done'); this.exit(); return; }
+    this.relayout();
+  }
+
+  async act(r) {
+    if (r.act === 'exit') { this.exit(); return; }
+    if (r.act !== 'yes' || this.sentAt || !this.until || performance.now() >= this.until) return;
+    this.sentAt = performance.now();
+    log('confirm: YES - ' + this.what);
+    this.relayout();
+    await this.cmd(CONFIRM_WHAT[this.what].cmd);
+  }
+
+  build() {
+    const w = CONFIRM_WHAT[this.what], R = [];
+    const add = (c, r, wd, h, text, sub, act, style, more) => { const o = { c, r, w: wd, h, text, sub, act, arg: null, style: style || '', once: true }; if (more) Object.assign(o, more); R.push(o); };
+    if (this.sentAt) {
+      add(0, 0, 8, 3, w.doing, 'iRacing is closed first if it is open', null, 'amber', { wrap: 2, size: 44, noflash: true });
+      return R;
+    }
+    add(0, 0, 8, 1, w.ask, 'Press YES within 5 seconds. Nothing happens if you wait.', null, 'banner', { wrap: 1, size: 30, noflash: true });
+    // the count is painted big on the YES key itself (sub carries it, so each second is a new look)
+    const n = String(this.secondsLeft() || 1);
+    add(2, 1, 4, 2, w.yes, n, 'yes', 'sel', { paint: (x, px, py, pw, ph, bg, fg) => {
+      x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = '600 40px ' + FONT; x.fillText(w.yes, px + pw / 2, py + 48, pw - 20);
+      x.font = '700 92px ' + FONT; x.fillText(n, px + pw / 2, py + ph - 62);
+    } });
+    add(7, 3, 1, 1, 'EXIT', '', 'exit', 'stop');
+    return R;
+  }
+};
+
 // The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
-const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel, races: Races };
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel, races: Races, confirm: Confirm };
 
 // ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
 // irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.
@@ -1706,27 +1808,25 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
     const keyScreen = Object.values(SCREENS).find(s => e.action === UUID + '.' + s.name);                 // a screen's opener key on your profile
     const p = e.payload && e.payload.settings && e.payload.settings.p;
     const tileScreen = !keyScreen && p && SCREENS[p];                                                     // a key of a screen's profile
-    const action = e.action && e.action.indexOf(UUID + '.') === 0 ? e.action.slice((UUID + '.').length) : '';
-    const stateKey = stateKeys[action] ? action : null;
     const isDocKey = e.action === UUID + '.doctor';
     const pos = e.payload && e.payload.coordinates ? e.payload.coordinates.column + ',' + e.payload.coordinates.row : '';
     if (e.event === 'willAppear') {
-      if (keyScreen) { keyScreen.keys.add(e.context); keyScreen.keyPos[e.context] = pos; keyScreen.keyIcon(true); }
-      else if (stateKey) { stateKeys[stateKey].add(e.context); paintStateKey(e.context, stateKey); pollDeckState(); }
+      if (keyScreen) {
+        keyScreen.keys.add(e.context); keyScreen.keyPos[e.context] = pos; keyScreen.keySettings[e.context] = (e.payload && e.payload.settings) || {}; keyScreen.keyIcon(true);
+        if (Health.grey) send({ event: 'setImage', context: e.context, payload: { image: Health.greyPic(keyScreen.greyWord(e.context), 'NOT ANSWERING'), target: 0 } });
+      }
       else if (tileScreen) tileScreen.appear(pos, e.context);
       else if (isDocKey) { docKeys.add(e.context); RigDoctor.icon(true); }
       else if (pos) { tiles[pos] = e.context; send({ event: 'setImage', context: e.context, payload: { image: blank(), target: 0 } }); }
     }
     if (e.event === 'willDisappear') {
-      if (keyScreen) { keyScreen.keys.delete(e.context); delete keyScreen.keyPos[e.context]; }
-      else if (stateKey) stateKeys[stateKey].delete(e.context);
+      if (keyScreen) { keyScreen.keys.delete(e.context); delete keyScreen.keyPos[e.context]; delete keyScreen.keySettings[e.context]; }
       else if (tileScreen) tileScreen.disappear(pos);
       else if (isDocKey) docKeys.delete(e.context);
       else if (pos) delete tiles[pos];
     }
     if (e.event === 'keyDown') {
-      if (keyScreen) keyScreen.open();
-      else if (stateKey) { /* image only; the MAIN action remains owned by irdeck */ }
+      if (keyScreen) keyScreen.open(keyScreen === Confirm ? { ctx: e.context } : undefined);
       else if (tileScreen) tileScreen.press(e.payload.coordinates.column, e.payload.coordinates.row);
       else if (isDocKey) RigDoctor.press();
       else { playing = true; back(); }   // any key during (or, by any chance, after) the intro returns to your buttons
@@ -1736,9 +1836,13 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
 
 // Asks irdash every 2 s whether to play the intro (and keeps the screens' last state ready for the moment a key opens one).
 async function pollLoop() {
-  later(0, async function stateLoop() { while (true) { if (Object.values(stateKeys).some(x => x.size)) await pollDeckState(); await sleep(1000); } });
   for (;;) {
+    // the /showcase ask doubles as "is irdash answering": no answer = skip the other asks this pass (each would wait 2 s) and count a failed tick
+    const before = Health.lastOk, asked = !playing;
     try { await poll(); } catch (e) { }
+    const answered = Health.lastOk > before;
+    if (asked) Health.tick(answered);
+    if (asked && !answered) { await sleep(2000); continue; }
     try { await Overlays.keyTick(); } catch (e) { }
     try { await Friends.keyTick(); } catch (e) { }
     try { await MyDrive.keyTick(); } catch (e) { }
@@ -1755,7 +1859,7 @@ async function pollLoop() {
 async function poll() {
   if (playing) return;
   let s;
-  try { s = await (await fetch(API + '/showcase?who=deck', { cache: 'no-store' })).json(); }
+  try { s = await (await fetchT(API + '/showcase?who=deck')).json(); }
   catch (e) { if (!poll.warned) { poll.warned = true; log('irdash not reachable yet: ' + e); } return; }
   if (!poll.ok) { poll.ok = true; log('connected to irdash, seq ' + s.seq + (s.play ? ', boot play' : '')); }
   const replay = seq !== null && s.seq > seq && !s.driving;

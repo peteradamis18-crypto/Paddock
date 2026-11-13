@@ -1608,7 +1608,7 @@ namespace IRDeck
                 using (var wc = new System.Net.WebClient())
                 {
                     wc.Proxy = null;   // no proxy lookup: it adds seconds
-                    if (dry) { wc.DownloadString("http://127.0.0.1:8199/tv"); Log("dash " + c + " (dry): irdash answers, nothing was pressed"); return 0; }
+                    if (dry) { wc.DownloadString("http://127.0.0.1:8199/health"); Log("dash " + c + " (dry): irdash answers, nothing was pressed"); return 0; }
                     wc.DownloadString("http://127.0.0.1:8199/api/do?c=" + c);
                 }
                 Log("dash " + c + ": done");
@@ -1686,6 +1686,8 @@ namespace IRDeck
         static int CmdPower(string[] a)
         {
             string c = a.Length > 0 ? a[0].ToLowerInvariant() : "";
+            // SHUT DOWN / SLEEP now arrive through irdash (the CONFIRM screen), not a key exe, so the kids lock is checked here too
+            if ((c == "off" || c == "restart" || c == "sleep") && KidsLocked()) { Log("power " + c + ": kids mode is on - nothing was done"); return 3; }
             if ((c == "off" || c == "restart" || c == "sleep") && SessionActive())
             {
                 int rc = CmdQuitMain();   // leave iRacing cleanly first; refuses if the car is moving

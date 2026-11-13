@@ -19,7 +19,7 @@ namespace IRDeck
         {
             try
             {
-                if (KeyId.Length == 0 || string.IsNullOrEmpty(text)) return;
+                if (KeyId.Length == 0 || string.IsNullOrEmpty(text) || Environment.GetEnvironmentVariable("PADDOCK_KEYMSG_OFF") == "1") return;   // tests run key copies without telling the real top screen
                 KeyMsgSent = true;
                 HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8199/api/keymsg?key=" + Uri.EscapeDataString(KeyId) +
                     "&kind=" + kind + "&text=" + Uri.EscapeDataString(text));

@@ -10,11 +10,15 @@
 # loads. Refuses while you are driving. Re-run after editing plugin.html.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $uuid = 'com.peter.rigintro'
-$ver = '1.8.9.0'   # bump on every change so Stream Deck treats a re-install as an update (1.6: REPLAY screen, name Paddock, garbled signs fixed; 1.6.1: PHOTO key dims when iRacing's screen capture is off; 1.7: ANALYSIS and SOUND screens, MY DRIVE became RACE SETUP, AI RACE tile gone; 1.7.1: ANALYSIS page row with more than 8 pages = 7 + a PAGES key and a page picker, CAREER and PRO named; 1.7.2: AU-1 words - key subtitles only where they add information, no emoji; 1.8: deck v3 - SMART key from /deck/state, ARMED 3-2-1 on QUIT/RESTART/SKIP, MY DRIVE START after a pick; 1.8.2: car/track picker - RECENT / CARS / TRACKS lists, one key per item, NO CHOICE opens it; 1.8.3: CAR TRACK key shows its own name, toggles ignore a doubled press, a screen says DASHBOARD NOT ANSWERING instead of freezing; 1.8.4: deck v2 - CAR TRACK picture at its new place 3,0; 1.8.5: AC screen (RigAC, the AC key on MORE); 1.8.6: AI LEVEL screen (RigAiLevel, the AI LEVEL key on MAIN))
+$ver = '1.9.0.0'   # bump on every change so Stream Deck treats a re-install as an update (1.9: W0-1 deck safety - CONFIRM screen for SHUT DOWN / SLEEP, 2 s timeout on every request, DASHBOARD NOT ANSWERING for a hung irdash, grey opener keys, MY DRIVE never opens by itself, ARMED state keys gone; 1.6: REPLAY screen, name Paddock, garbled signs fixed; 1.6.1: PHOTO key dims when iRacing's screen capture is off; 1.7: ANALYSIS and SOUND screens, MY DRIVE became RACE SETUP, AI RACE tile gone; 1.7.1: ANALYSIS page row with more than 8 pages = 7 + a PAGES key and a page picker, CAREER and PRO named; 1.7.2: AU-1 words - key subtitles only where they add information, no emoji; 1.8: deck v3 - SMART key from /deck/state, ARMED 3-2-1 on QUIT/RESTART/SKIP, MY DRIVE START after a pick; 1.8.2: car/track picker - RECENT / CARS / TRACKS lists, one key per item, NO CHOICE opens it; 1.8.3: CAR TRACK key shows its own name, toggles ignore a doubled press, a screen says DASHBOARD NOT ANSWERING instead of freezing; 1.8.4: deck v2 - CAR TRACK picture at its new place 3,0; 1.8.5: AC screen (RigAC, the AC key on MORE); 1.8.6: AI LEVEL screen (RigAiLevel, the AI LEVEL key on MAIN))
 $build = Join-Path $here "build\$uuid.sdPlugin"
 $dest = Join-Path $env:APPDATA "Elgato\StreamDeck\Plugins\$uuid.sdPlugin"
 $cli = Join-Path (Split-Path -Parent $here) 'irdeck-cli.exe'
-if ((& $cli state) -match 'telemetry=on') { 'iRacing is in a session - run this when you are out of the car.'; exit 1 }
+if ((Test-Path $cli) -and ((& $cli state) -match 'telemetry=on')) { 'iRacing is in a session - run this when you are out of the car.'; exit 1 }
+# the same busy rule the tests and the irdash deploy use (sim running, or a START key in the last 10 minutes): installing restarts Stream Deck
+. (Join-Path (Split-Path -Parent $here) 'tests\guard.ps1')
+$busy = Get-RigBusy
+if ($busy) { "Not now: $busy - run this when the rig is free."; exit 1 }
 
 Add-Type -AssemblyName System.Drawing, System.IO.Compression, System.IO.Compression.FileSystem
 if (Test-Path $build) { Remove-Item -LiteralPath $build -Recurse -Force }
@@ -49,7 +53,8 @@ $manifest = [ordered]@{
                @{ Name = 'RigSound'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigAC'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigAiLevel'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
-               @{ Name = 'RigRaces'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true })
+               @{ Name = 'RigRaces'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
+               @{ Name = 'RigConfirm'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true })
   Actions = @(@{ UUID = "$uuid.tile"; Name = 'Tile'; Icon = 'img/tile'; Tooltip = 'Part of the intro, friends, overlays, race setup, replay, analysis, sound or AC screen'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $false; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.friends"; Name = 'Friends mode'; Icon = 'img/plugin'; Tooltip = 'Opens the friends mode screen'
@@ -71,6 +76,8 @@ $manifest = [ordered]@{
               @{ UUID = "$uuid.ailevel"; Name = 'AI Level'; Icon = 'img/plugin'; Tooltip = 'Opens the AI Level screen: how hard the AI is for the next AI race (adaptive low / medium / high, or a fixed skill range)'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.races"; Name = 'Races'; Icon = 'img/plugin'; Tooltip = 'Opens the Races screen: every whole-race video, watch, YouTube, keep, delete'
+                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
+              @{ UUID = "$uuid.confirm"; Name = 'Confirm'; Icon = 'img/plugin'; Tooltip = 'SHUT DOWN PC or SLEEP PC (the key settings say which): opens a screen with one YES key that must be pressed within 5 seconds'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') })
 }
 ($manifest | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath "$build\manifest.json" -Encoding UTF8
@@ -107,6 +114,7 @@ Build-Profile 'RigSound' 'sound'
 Build-Profile 'RigAC' 'ac'
 Build-Profile 'RigAiLevel' 'ailevel'
 Build-Profile 'RigRaces' 'races'
+Build-Profile 'RigConfirm' 'confirm'
 
 # Package it the way Elgato distributes add-ons. Opening the package makes Stream Deck install it properly,
 # including the bundled RigIntro profile (a hand-copied plugin folder never gets its profile).

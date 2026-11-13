@@ -25,8 +25,11 @@
   // the profiles: your own page (the three opener keys) and the one-page profiles made of 32 tiles
   const OPEN = [['k-friends', 'com.peter.rigintro.friends', 5, 1], ['k-overlays', 'com.peter.rigintro.overlays', 6, 1], ['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1]];
   const TILE = { RigFriends: 'friends', RigOverlays: 'overlays', RigMyDrive: 'mydrive', RigIntro: 'intro' };
+  // W0-1: the LEAVE page's SHUT DOWN PC / SLEEP PC keys open the CONFIRM screen; their settings say which (a separate line, so tests that
+  // edit the two lines above by text keep working)
+  OPEN.push(['k-shutdown', 'com.peter.rigintro.confirm', 6, 3, { what: 'shutdown' }], ['k-sleep', 'com.peter.rigintro.confirm', 7, 3, { what: 'sleep' }]); TILE.RigConfirm = 'confirm';
   function keysOf(profile) {
-    if (profile === 'main') return OPEN.map(k => ({ ctx: k[0], action: k[1], col: k[2], row: k[3], settings: {} }));
+    if (profile === 'main') return OPEN.map(k => ({ ctx: k[0], action: k[1], col: k[2], row: k[3], settings: k[4] || {} }));
     const a = [];
     for (let r = 0; r < 4; r++) for (let c = 0; c < 8; c++) a.push({ ctx: 'T-' + profile + '-' + c + '-' + r, action: 'com.peter.rigintro.tile', col: c, row: r, settings: { p: TILE[profile] } });
     return a;
@@ -77,7 +80,7 @@
     later(20, () => { M.cur = null; M.show('main'); });
   };
   // press an opener key on your own page
-  M.pressOpener = function (which) { const k = keysOf('main').find(x => x.action.endsWith('.' + which)); deliver(ev('keyDown', k)); };
+  M.pressOpener = function (which) { const k = keysOf('main').find(x => x.action.endsWith('.' + which) || x.ctx === 'k-' + which); deliver(ev('keyDown', k)); };
   // press a key of the profile that is showing
   M.pressTile = function (col, row) { const k = keysOf(M.cur).find(x => x.col === col && x.row === row); deliver(ev('keyDown', k)); };
   M.tileCtx = (col, row) => 'T-' + M.cur + '-' + col + '-' + row;
