@@ -639,7 +639,7 @@ namespace IRDash
             try { files.AddRange(Directory.GetFiles(dir)); } catch { }
             string mine = Path.Combine(dir, "mine");
             try { if (Directory.Exists(mine)) files.AddRange(Directory.GetFiles(mine)); } catch { }
-            files.Sort(StringComparer.OrdinalIgnoreCase);
+            files = GalOrder.Order(files, mine);      // newest set first, then by name: the same order every time
             foreach (string f in files)
             {
                 string ext = Path.GetExtension(f).ToLowerInvariant();
@@ -780,11 +780,10 @@ namespace IRDash
             lock (gate) for (int k = 0; k < entries.Count; k++) if (!entries[k].Bad) idx.Add(k);
             if (mode != "pair")
             {
-                // same picture on both screens: shuffle everything once, show each picture once per round
+                // same picture on both screens: every picture once per round, in list order (newest set first, see GalOrder)
                 List<int[]> singles = new List<int[]>();
                 foreach (int k in idx) singles.Add(new int[] { k, k });
-                for (int k = singles.Count - 1; k > 0; k--) { int j = rng.Next(k + 1); int[] t = singles[k]; singles[k] = singles[j]; singles[j] = t; }
-                if (curPair != null && singles.Count > 1 && singles[0][0] == curPair[0]) { int[] t = singles[0]; singles[0] = singles[singles.Count - 1]; singles[singles.Count - 1] = t; }   // never the same picture twice running
+                if (curPair != null && singles.Count > 1 && singles[0][0] == curPair[0]) { int[] t = singles[0]; singles.RemoveAt(0); singles.Add(t); }   // never the same picture twice running
                 pairQueue.Clear(); pairQueue.AddRange(singles);
                 rounds++;
                 return;
@@ -819,7 +818,7 @@ namespace IRDash
                     pairs.Add(new int[] { k, best });
                 }
             }
-            for (int k = pairs.Count - 1; k > 0; k--) { int j = rng.Next(k + 1); int[] t = pairs[k]; pairs[k] = pairs[j]; pairs[j] = t; }
+            pairs.Sort(delegate (int[] x, int[] y) { return Math.Min(x[0], x[1]).CompareTo(Math.Min(y[0], y[1])); });   // newest set first
             // the first pair of the new round must not repeat a picture that is on the screens now
             if (curPair != null)
                 for (int k = 0; k < pairs.Count; k++)

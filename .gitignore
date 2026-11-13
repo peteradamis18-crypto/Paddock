@@ -112,3 +112,6 @@ __pycache__/
 /ac/getkey.log
 /ac/cloud.bin
 /ac/settings.json
+
+# Peter's one-time YouTube sign-in file (client id and secret live here: never commit)
+dash/yt/
