@@ -50,23 +50,14 @@ namespace IRDash
             try { Directory.CreateDirectory(dataDir); } catch { }
             foreach (FieldRow r in ReadAll(true)) { double b; if (!known.TryGetValue(r.DedupKey, out b) || r.Best < b) known[r.DedupKey] = r.Best; }
             try { if (File.Exists(ScannedFile)) foreach (string l in File.ReadAllLines(ScannedFile)) if (l.Length > 0) scanned.Add(l); } catch { }
-            Thread t = new Thread(delegate ()
+            // W0-3: a timer, not a thread that sleeps all day (fewer threads in irdash); the boot and the first career scan come first (150 s),
+            // then every 10 min (a finished session writes a new .ibt). The backfill itself waits on the Jobs queue for the session to end.
+            backfillTimer = new Timer(delegate
             {
-                try
-                {
-                    Thread.Sleep(150000);                          // the boot and the first career scan come first
-                    while (true)
-                    {
-                        Jobs.Run("field laps backfill", delegate { Backfill(); }, true);      // W0-3: waits for the session to end
-
-                        // a finished session writes a new .ibt: look again a few minutes after the next one
-                        Thread.Sleep(600000);
-                    }
-                }
-                catch (Exception ex) { Log.W("field laps: " + ex.Message); }
-            });
-            t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
+                try { Jobs.Run("field laps backfill", delegate { Backfill(); }, true); } catch (Exception ex) { Log.W("field laps: " + ex.Message); }
+            }, null, 150000, 600000);
         }
+        static Timer backfillTimer;
 
         // ---- reading the YAML (pure: tests call this with real .ibt text) ----
         static string Section(string yaml, string name)

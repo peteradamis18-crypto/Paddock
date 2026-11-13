@@ -36,24 +36,26 @@ namespace IRDash
         static bool Connected() { return root != null && (File.Exists(Path.Combine(root, @"ac\ac.json")) || File.Exists(Path.Combine(root, @"ac\cloud.bin"))); }
 
         // W0-3: one thread for both (auto-cool every 2 min, the open AC screen every 20 s): one fewer thread in irdash all day
+        // W0-3: a one-shot timer re-armed after each step (no thread of its own, no overlap); BelowNormal for the ac.py it starts is kept
+        static Timer loopTimer; static DateTime nextAuto;
         public static void Start()
         {
-            Thread t = new Thread(Loop);
-            t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Name = "AcAuto";
-            t.Start();
+            nextAuto = DateTime.UtcNow.AddMilliseconds(60000);   // never compete with boot
+            loopTimer = new Timer(delegate { Step(); }, null, 1000, Timeout.Infinite);
         }
 
-        static void Loop()
+        static void Step()
         {
-            DateTime nextAuto = DateTime.UtcNow.AddMilliseconds(60000);   // never compete with boot
-            while (true)
+            try
             {
-                Thread.Sleep(1000);
                 WatchOnce();
-                if (DateTime.UtcNow < nextAuto) continue;
-                try { Tick(); } catch (Exception ex) { Log.W("ac auto: " + ex.Message); }
-                nextAuto = DateTime.UtcNow.AddMilliseconds(EveryMs);
+                if (DateTime.UtcNow >= nextAuto)
+                {
+                    try { Tick(); } catch (Exception ex) { Log.W("ac auto: " + ex.Message); }
+                    nextAuto = DateTime.UtcNow.AddMilliseconds(EveryMs);
+                }
             }
+            finally { try { loopTimer.Change(1000, Timeout.Infinite); } catch { } }
         }
 
         static void Tick()

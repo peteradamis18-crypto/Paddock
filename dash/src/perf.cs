@@ -664,20 +664,20 @@ namespace IRDash
         static readonly AutoResetEvent kick = new AutoResetEvent(false);
         static readonly Dictionary<string, int> fails = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+        // W0-3: a timer instead of a thread waiting all day (fewer threads); Kick brings the next pass forward
+        static Timer passTimer;
         public static void Start()
         {
-            Thread t = new Thread(Run); t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
+            passTimer = new Timer(delegate { Pass1(); }, null, 150000, Timeout.Infinite);      // the career scan reads the same folder after 2 minutes; boot is busy enough
         }
-        public static void Kick() { kick.Set(); }
+        public static void Kick() { kick.Set(); try { if (passTimer != null) passTimer.Change(0, Timeout.Infinite); } catch { } }
 
-        static void Run()
+        static void Pass1()
         {
-            kick.WaitOne(150000);                // the career scan reads the same folder after 2 minutes; boot is busy enough
-            while (true)
             {
                 // W0-3: a pass is a job on the Jobs queue: it waits for the session to end and reads at background disk priority
                 Jobs.Run("perf reports", delegate { try { Pass(); } catch (Exception ex) { Log.W("perf: report pass: " + ex.Message); } }, true);
-                kick.WaitOne(60000);
+                try { passTimer.Change(60000, Timeout.Infinite); } catch { }
             }
         }
 

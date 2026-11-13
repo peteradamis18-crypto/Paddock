@@ -189,7 +189,7 @@ try {
   for ($sec = 0; $sec -lt 150 -and -not $done; $sec++) {
     Start-Sleep 1
     $why = LiveBusy; if ($why) { $busyStop = $why; break }
-    $p.Refresh(); $th = $p.Threads.Count; if ($th -gt $maxThreads) { $maxThreads = $th }
+    $p.Refresh(); $th = $p.Threads.Count - @($p.Threads | Where-Object { $hookIds -contains $_.Id }).Count; if ($th -gt $maxThreads) { $maxThreads = $th }      # the test hook's 2 threads are not counted
     foreach ($f in Get-ChildItem $dir -Recurse -File) {
       $g = $f.Length - $(if ($size0.ContainsKey($f.FullName)) { $size0[$f.FullName] } else { 0 })
       if ($g -gt $maxGrow) { $maxGrow = $g; $maxGrowFile = $f.FullName.Substring($dir.Length + 1) }
@@ -204,10 +204,18 @@ try {
   $j1 = Json '/jobs'; $scans1 = $j1.proc.scans
   $st = Json '/rig/state'; $stillOn = $st -and $st.sessionOn
   $cpu1 = $p.TotalProcessorTime.TotalSeconds; $wb1 = [LoadProbe]::WriteBytes($p.Handle); $t1 = [DateTime]::UtcNow
+  # the sound chunks irdash itself wrote during the session (the mock video segments are written by the stand-in ffmpeg, not irdash);
+  # the chunk still being written is opened to read its length (a folder listing shows an open file's size late)
+  $pcmBytes = 0L; foreach ($f in Get-ChildItem "$dir\vault\rec" -Filter 'aud-*.pcm' -ErrorAction SilentlyContinue) { $len = $f.Length; try { $fs = [IO.File]::Open($f.FullName, 'Open', 'Read', 'ReadWrite, Delete'); $len = $fs.Length; $fs.Dispose() } catch { }; $pcmBytes += $len - $(if ($size0.ContainsKey($f.FullName)) { $size0[$f.FullName] } else { 0 }) }
   $offAt = [DateTime]::UtcNow
   foreach ($r in $j1.jobs.recent) { if ($r.whenFree -and ([DateTime]::Parse($r.at).ToUniversalTime() -gt $onAt)) { $whenFreeRan += $r.name } }
   $ev = [LoadProbe]::Events() | ForEach-Object { $a = $_.Split("`t"); [pscustomobject]@{ T = [DateTime]::new([long]$a[0], 'Utc'); K = $a[1]; P = $a[2]; N = [long]$a[3] } } | Where-Object { $_.T -ge $onAt -and $_.T -le $offAt }
-  $big = $ev | Where-Object { $_.K -ne 'delete' } | Sort-Object N -Descending | Select-Object -First 1
+  # the recording itself (the video segments and the raw sound chunks in vault\rec) is what a session is for: counted apart, not a ceiling
+  $capRx = '\\vault\\rec\\(aud-[^\\]*\.pcm|[^\\]*\.ts)$'
+  $capBytes = 0L; $capMax = @{}; foreach ($e in $ev) { $pth = $e.P -replace '^.* -> ', ''; if ($pth -match $capRx -and $e.N -gt 0) { if (-not $capMax.ContainsKey($pth) -or $capMax[$pth] -lt $e.N) { $capMax[$pth] = $e.N } } }
+  foreach ($v in $capMax.Values) { $capBytes += $v }
+  $big = $ev | Where-Object { $_.K -ne 'delete' -and ($_.P -replace '^.* -> ', '') -notmatch $capRx } | Sort-Object N -Descending | Select-Object -First 1
+  $maxGrow = 0; $maxGrowFile = ''
   if ($big -and $big.N -gt $maxGrow) { $maxGrow = $big.N; $maxGrowFile = ($big.P -replace '^.* -> ', '').Substring($dir.Length + 1) }
   $dels = @($ev | Where-Object { $_.K -eq 'delete' -and $_.P -notmatch '\.tmp$' })
   if ($busyStop) { throw "the rig got busy: $busyStop" }
@@ -216,18 +224,19 @@ try {
   Check "the replay ran to its end while a session was on ($([math]::Round($wall)) s)" ($done -and $stillOn)
   Check "the pretend top screen got the stream ($($shared.events) frames) and its polls answered ($($shared.req) requests, $($shared.err) errors)" ($shared.events -gt 100 -and $shared.req -gt 50 -and $shared.err -eq 0) $shared.errAt
   Check "no file written over 1 MB (biggest: $([math]::Round($maxGrow / 1KB)) KB, $maxGrowFile; $(@($ev | Where-Object { $_.K -ne 'delete' }).Count) writes seen)" ($maxGrow -le 1MB)
-  Check "irdash wrote under 1 MB in all during the session ($([math]::Round(($wb1 - $wb0) / 1KB)) KB, its own I/O counters)" (($wb1 - $wb0) -lt 1MB)
+  $other = [math]::Max(0, ($wb1 - $wb0) - $pcmBytes)
+  Check "irdash wrote under 1 MB in all besides the recording itself ($([math]::Round($other / 1KB)) KB; its sound chunks $([math]::Round($pcmBytes / 1KB)) KB; its own I/O counters)" ($other -lt 1MB)
   Check "no delete while the session was on ($($dels.Count))" ($dels.Count -eq 0) (($dels | ForEach-Object { $_.P.Substring($dir.Length + 1) }) -join '; ')
   Check "no process scan while the session was on ($($scans1 - $scans0); the perf sampler's 5 s read for the black box is the only one, outside the counter)" (($scans1 - $scans0) -eq 0) ($j1.proc.byName | ConvertTo-Json -Compress)
   Check "irdash under 3 % of one core on average ($([math]::Round($cpuPct, 2)) %; the process $([math]::Round($allPct, 2)) %, of which the test hook's replay and pump $([math]::Round($hookPct, 2)) %, threads $($hookIds -join '/'))" ($cpuPct -lt 3 -and $hook.Count -eq 2)
-  Check "irdash under 40 threads (most: $maxThreads)" ($maxThreads -lt 40)
+  Check "irdash under 40 threads (most: $maxThreads, the test hook's replay and pump not counted)" ($maxThreads -lt 40)
   Check "no job that waits for free ran during the session ($($whenFreeRan.Count))" ($whenFreeRan.Count -eq 0) ($whenFreeRan -join ', ')
   $queuedNow = @($j1.jobs.queued | ForEach-Object { $_.name })
   "  waiting for the session to end: " + $(if ($queuedNow.Count) { $queuedNow -join ', ' } else { '(nothing)' })
   Check 'work was held back for after the session (the recorder''s housekeeping at least)' ($queuedNow.Count -ge 1)
   Check 'KEEP mid-session: one line in marks.tsv now, the Vault''s full save held back' ($keepOk -and (Test-Path "$dir\vault\marks.tsv") -and ((Get-Content "$dir\vault\marks.tsv") -match "`tkeep`t") -and ($queuedNow -contains 'vault save'))
   Check 'the kept lap''s clip cut is held back too' (@($queuedNow | Where-Object { $_ -like 'recorder cut *' }).Count -ge 1) ($queuedNow -join ', ')
-  $summary = "load: avg CPU $([math]::Round($cpuPct, 2)) % of one core (test hook $([math]::Round($hookPct, 2)) % more), max write $([math]::Round($maxGrow / 1KB)) KB, deletes $($dels.Count), scans $($scans1 - $scans0), threads max $maxThreads, disk writes $([math]::Round(($wb1 - $wb0) / 1KB)) KB in $([math]::Round($wall)) s, $($shared.req) page requests, $($shared.events) stream frames"
+  $summary = "load: avg CPU $([math]::Round($cpuPct, 2)) % of one core (test hook $([math]::Round($hookPct, 2)) % more), max write $([math]::Round($maxGrow / 1KB)) KB, deletes $($dels.Count), scans $($scans1 - $scans0), threads max $maxThreads, disk writes $([math]::Round($other / 1KB)) KB besides the recording ($([math]::Round($capBytes / 1KB)) KB) in $([math]::Round($wall)) s, $($shared.req) page requests, $($shared.events) stream frames"
 
   # ---------------------------------------------------------------- 3. after the session
   Assert-RigFree -Where '3. after'

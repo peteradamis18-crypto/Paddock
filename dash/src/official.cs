@@ -75,7 +75,7 @@ namespace IRDash
             if (!enabled) { Log.W("official: switched off (official=0 in irdash.ini)"); return; }   // no thread, no files, no download
             try { Directory.CreateDirectory(dir); } catch { }
             QueueOwned();      // W0-3: the owned cars and tracks, once at start-up when no session is on (then every 6 h from EnsureData)
-            Thread t = new Thread(Loop); t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Start();
+            loopTimer = new Timer(delegate { LoopOnce(); }, null, 20000, 60000);      // W0-3: a timer, not a sleeping thread
         }
 
         static readonly HashSet<string> Commands = new HashSet<string> { "offav", "ofopen", "ofclose", "ofrefresh", "ofscan", "ofdry" };
@@ -149,22 +149,21 @@ namespace IRDash
         }
 
         // ---- background: keep the cached schedule fresh, never during a session ----
-        static void Loop()
+        static Timer loopTimer;
+        static int looping;
+        static void LoopOnce()
         {
-            Thread.Sleep(20000);
-            while (true)
+            if (Interlocked.CompareExchange(ref looping, 1, 0) != 0) return;      // a slow fetch never overlaps the next tick
+            try
             {
-                try
+                if (!Busy())
                 {
-                    if (!Busy())
-                    {
-                        FetchIfAllowed();
-                        if (dirty || snapJson.Length == 0 || (DateTime.UtcNow - snapBuilt).TotalMinutes >= 30) Json(null);
-                    }
+                    FetchIfAllowed();
+                    if (dirty || snapJson.Length == 0 || (DateTime.UtcNow - snapBuilt).TotalMinutes >= 30) Json(null);
                 }
-                catch (Exception ex) { Log.W("official loop: " + ex.Message); }
-                Thread.Sleep(60000);
             }
+            catch (Exception ex) { Log.W("official loop: " + ex.Message); }
+            finally { looping = 0; }
         }
 
         // ---------------------------------------------------------------- files
