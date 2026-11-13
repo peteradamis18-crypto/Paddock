@@ -259,19 +259,41 @@ namespace IRDash
         public static void WatchWww(string www)
         {
             wwwDir = www;
+            recount = new Timer(delegate (object o) { Recount(); if (watcher == null) StartWatcher(); });
             Recount();
+            StartWatcher();
+        }
+        static void StartWatcher()
+        {
+            FileSystemWatcher w = null;
             try
             {
-                watcher = new FileSystemWatcher(www) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size };
-                recount = new Timer(delegate (object o) { Recount(); });
+                w = new FileSystemWatcher(wwwDir) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size };
                 FileSystemEventHandler later = delegate (object s, FileSystemEventArgs e) { try { recount.Change(400, Timeout.Infinite); } catch { } };   // a save is several events: count once after they settle
-                watcher.Changed += later; watcher.Created += later; watcher.Deleted += later;
-                watcher.Renamed += delegate (object s, RenamedEventArgs e) { try { recount.Change(400, Timeout.Infinite); } catch { } };
-                watcher.Error += delegate (object s, ErrorEventArgs e) { try { recount.Change(400, Timeout.Infinite); } catch { } };
-                watcher.EnableRaisingEvents = true;
+                w.Changed += later; w.Created += later; w.Deleted += later;
+                w.Renamed += delegate (object s, RenamedEventArgs e) { try { recount.Change(400, Timeout.Infinite); } catch { } };
+                // a watcher that fails (buffer overflow, the folder gone for a moment) stops for good: drop it, so the 15 s walk takes over
+                // at once, and try a new one with the next count (in 5 s)
+                w.Error += delegate (object s, ErrorEventArgs e)
+                {
+                    FileSystemWatcher dead = watcher; watcher = null;
+                    try { if (dead != null) dead.Dispose(); } catch { }
+                    RigState.LogOnce("www watcher", "www watcher stopped: " + (e.GetException() != null ? e.GetException().Message : "?") + " (recounting, a new watcher in 5 s)");
+                    try { recount.Change(5000, Timeout.Infinite); } catch { }
+                };
+                w.EnableRaisingEvents = true;
+                watcher = w;
             }
-            catch (Exception ex) { watcher = null; Log.W("www watcher: " + ex.Message + " (the version is recounted every 15 s instead)"); }
+            catch (Exception ex)
+            {
+                watcher = null; try { if (w != null) w.Dispose(); } catch { }
+                RigState.LogOnce("www watcher", "www watcher: " + ex.Message + " (the version is recounted every 15 s instead)");
+                try { recount.Change(15000, Timeout.Infinite); } catch { }
+            }
         }
+        // test seam: what happens when the watcher fails
+        public static void WatcherFailedForTest() { FileSystemWatcher dead = watcher; watcher = null; try { if (dead != null) dead.Dispose(); } catch { } try { recount.Change(5000, Timeout.Infinite); } catch { } }
+        public static bool Watching { get { return watcher != null; } }
         static readonly object walkGate = new object();
         static void Recount()
         {
@@ -280,12 +302,23 @@ namespace IRDash
                 lastWalk = clock.ElapsedMilliseconds;
                 try
                 {
-                    long v = 0;
-                    try { v = File.GetLastWriteTimeUtc(System.Reflection.Assembly.GetExecutingAssembly().Location).Ticks; } catch { }
+                    // a hash over every file's name, size and time (and the exe's time): a file copied in with an OLDER time still
+                    // changes it (the newest time alone did not, and ?v= scripts are kept by the browser for good)
+                    ulong h = 14695981039346656037UL;
+                    Action<string> mix = delegate (string t) { foreach (char ch in t) { h ^= ch; h *= 1099511628211UL; } h ^= 0xFF; h *= 1099511628211UL; };
+                    try { mix(File.GetLastWriteTimeUtc(System.Reflection.Assembly.GetExecutingAssembly().Location).Ticks.ToString(CultureInfo.InvariantCulture)); } catch { }
                     if (wwwDir != null)
-                        foreach (string f in Directory.GetFiles(wwwDir, "*", SearchOption.AllDirectories))
-                            if (!f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) v = Math.Max(v, File.GetLastWriteTimeUtc(f).Ticks);
-                    string s = v.ToString(CultureInfo.InvariantCulture);
+                    {
+                        string[] files = Directory.GetFiles(wwwDir, "*", SearchOption.AllDirectories);
+                        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                        foreach (string f in files)
+                        {
+                            if (f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) continue;
+                            FileInfo fi = new FileInfo(f);
+                            mix(f.Substring(wwwDir.Length).ToLowerInvariant()); mix(fi.Length.ToString(CultureInfo.InvariantCulture)); mix(fi.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture));
+                        }
+                    }
+                    string s = (h % 1000000000000000000UL).ToString(CultureInfo.InvariantCulture);
                     if (s != version) { version = s; Changed("version"); }
                 }
                 catch (Exception ex) { RigState.LogOnce("www version", "www version: " + ex.Message); }

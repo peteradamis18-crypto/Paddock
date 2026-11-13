@@ -668,7 +668,7 @@ namespace IRDash
                     {
                         // keep-alive only for a request with no body (a handler that reads a body may leave bytes behind), on HTTP/1.1
                         string cl, te, cn; hdr.TryGetValue("Content-Length", out cl); hdr.TryGetValue("Transfer-Encoding", out te); hdr.TryGetValue("Connection", out cn);
-                        canKeep = (method == "GET" || method == "HEAD" || method == "OPTIONS") && req.Length > 2 && req[2] == "HTTP/1.1" &&
+                        canKeep = (method == "GET" || method == "OPTIONS") && req.Length > 2 && req[2] == "HTTP/1.1" &&
                                   (string.IsNullOrEmpty(cl) || cl.Trim() == "0") && string.IsNullOrEmpty(te) && !string.Equals((cn ?? "").Trim(), "close", StringComparison.OrdinalIgnoreCase);
                     }
                     // Only answer requests addressed to this machine by name or by its own LAN address (blocks DNS-rebinding tricks).
@@ -763,6 +763,7 @@ namespace IRDash
                         string dn; bool typing = ParseQuery(query).TryGetValue("n", out dn);
                         Guest.Draft = typing ? Regex.Replace(dn ?? "", "[^A-Za-z0-9 -]", "").ToUpperInvariant() : null;
                         if (Guest.Draft != null && Guest.Draft.Length > 14) Guest.Draft = Guest.Draft.Substring(0, 14);
+                        StateBuilder.Changed("guest");   // W0-5: each letter typed on the deck shows at once on the top screen
                         Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
@@ -1060,8 +1061,8 @@ namespace IRDash
             StateBuilder.Add("mydrive", 1500, 3000, MyDrive.Json);
             StateBuilder.Add("doctor", 1500, 5000, Doctor.Json);
             StateBuilder.Add("overlays", 2000, 6000, Overlays.Json);
-            StateBuilder.Add("recorder", 3000, 10000, RecorderSlim);
-            StateBuilder.Add("health", 4000, 10000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
+            StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
+            StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };

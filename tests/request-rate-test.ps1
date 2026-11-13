@@ -42,7 +42,9 @@ function Measure-Rate($port) {
   $s = Get-Json "http://localhost:$($port + 1)/__stats"
   $n = 0; $by = @()
   foreach ($p in $s.routes.PSObject.Properties) { if ($p.Name -eq '/stream') { continue }; $n += $p.Value.count; $by += "$($p.Name) x$($p.Value.count)" }
-  [pscustomobject]@{ rate = [math]::Round($n / $SECS, 2); n = $n; routes = ($by -join ', '); streams = $s.streams; streamOpens = $(if ($s.routes.'/stream') { $s.routes.'/stream'.count } else { 0 }); frames = $s.frames - $f0 }
+  # a stream that reconnects is a request each time (the open stream itself is not): every /stream opened in the window counts
+  $opens = $(if ($s.routes.'/stream') { $s.routes.'/stream'.count } else { 0 }); $n += $opens
+  [pscustomobject]@{ rate = [math]::Round($n / $SECS, 2); n = $n; routes = ($by -join ', '); streams = $s.streams; streamOpens = $opens; frames = $s.frames - $f0 }
 }
 
 'W0-5 request rates (pretend irdash, headless Chrome, ' + $SECS + ' s each)'
@@ -61,6 +63,7 @@ try {
   $m = Measure-Rate 8299
   $rates['HOME idle'] = $m.rate
   "  info HOME idle: $($m.n) requests in $SECS s = $($m.rate) / s ($($m.routes)); $($m.streams) stream open"
+  ok "the stream stayed open for the 30 s ($($m.streamOpens) reconnects; each would count as a request)" ($m.streamOpens -eq 0)
   ok "HOME idle: $($m.rate) requests / s (ceiling 2; before W0-5 about 15.7)" ($m.rate -le 2)
   ok 'HOME idle keeps one stream open and asks no telemetry variables' ($m.streams -eq 1 -and (Cdp-Eval 'data.mode') -eq 'idle')
   Cdp-Shot (Join-Path $shots 'home-idle-rate.png')
@@ -87,6 +90,21 @@ try {
   ok 'a pushed kids lock shows its banner (no /api/kids request)' (Wait-Until '!document.getElementById("kidsMode").hidden' 3)
   $null = Get-Json ('http://localhost:8300/__push?part=kids&json=' + [uri]::EscapeDataString('{"on":false,"text":""}'))
 
+  # ------------------------------------------------------------------ 6. the stream comes back by itself
+  Section '6. the stream comes back after irdash answers it with an error (the browser gives up on its own then)'
+  $null = Get-Json 'http://localhost:8300/__fault?mode=down'
+  Start-Sleep -Milliseconds 800
+  $null = Get-Json 'http://localhost:8300/__fault?mode=500&route=/stream'
+  $null = Get-Json 'http://localhost:8300/__fault?mode=ok&route=/none'          # the listener is back; /stream answers 500
+  $gaveUp = Wait-Until 'data.es && data.es.readyState === 2 || data.retryMs > 0' 15
+  ok 'the stream got a 500: the browser closed it for good (readyState 2), data.js has a retry waiting' $gaveUp
+  $null = Get-Json 'http://localhost:8300/__fault?mode=ok'                     # /stream answers again
+  $t0 = Get-Date
+  $back = Wait-Until 'data.online && data.es && data.es.readyState === 1' 40
+  $took = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+  ok "data.js opened it again by itself ($took s after irdash answered again)" $back
+  $null = Get-Json ('http://localhost:8300/__push?part=keymsg&json=' + [uri]::EscapeDataString('{"seq":2001,"key":"w05","text":"after the gap","kind":"ok","at":' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + '}'))
+  ok 'and pushes reach the page again' (Wait-Until '(document.getElementById("keyMsg").textContent || "") === "after the gap"' 5)
   # ------------------------------------------------------------------ 3. Analysis open over HOME
   Section '3. Analysis open over HOME'
   $vaultIbt = 'C:\Users\peter\iRacingDeck\vault\telemetry\chevrolet-corvette-z06-gt3-r\road-atlanta-full-course\2026-10-10 00-13-18.ibt'
@@ -117,7 +135,8 @@ try {
     $m = Measure-Rate 8299
     $rates['Analysis open'] = $m.rate
     "  info Analysis open: $($m.n) requests in $SECS s = $($m.rate) / s ($($m.routes)); $($m.streams) stream open"
-    ok "Analysis open: $($m.rate) requests / s (ceiling 2; before W0-5 about 19-20)" ($m.rate -le 2)
+    ok "the stream stayed open for the 30 s ($($m.streamOpens) reconnects; each would count as a request)" ($m.streamOpens -eq 0)
+  ok "Analysis open: $($m.rate) requests / s (ceiling 2; before W0-5 about 19-20)" ($m.rate -le 2)
     ok 'still one stream for HOME and Analysis together' ($m.streams -eq 1)
     # a deck command reaches the page through the push (not a 300 ms poll)
     $seq0 = Cdp-Eval '(() => { const w = document.querySelector("#sessHost iframe").contentWindow; return w.WB && w.WB.state ? 1 : 1; })()'
@@ -144,7 +163,8 @@ try {
     $rates['HOME driving'] = $m.rate
     $fps = [math]::Round($m.frames / $SECS / [math]::Max(1, $m.streams), 1)
     "  info driving: $($m.n) requests in $SECS s = $($m.rate) / s besides the stream ($($m.routes)); $($m.streams) stream, $fps frames / s"
-    ok "HOME driving: $($m.rate) requests / s besides the stream (ceiling 1; before W0-5 about 11.4)" ($m.rate -le 1)
+    ok "the stream stayed open for the 30 s ($($m.streamOpens) reconnects; each would count as a request)" ($m.streamOpens -eq 0)
+  ok "HOME driving: $($m.rate) requests / s besides the stream (ceiling 1; before W0-5 about 11.4)" ($m.rate -le 1)
     ok "the stream sends about 15 frames a second, not 30 ($fps)" ($fps -ge 10 -and $fps -le 17)
     Cdp-Shot (Join-Path $shots 'incar-driving-rate.png')
     Cdp-Close

@@ -27,6 +27,14 @@ try {
   $cout = & $csc /nologo /target:exe /optimize+ /platform:anycpu /main:IRDash.StatePushMain "/out:$exe" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll @srcs 2>&1 | Out-String
   ok "the harness (dash\src + tests\state-push-main.cs, $($srcs.Count) files) compiles" (Test-Path $exe) ($cout -split "`n" | Select-String 'error' | Select-Object -First 5 | Out-String)
 
+  # wiring that the harness cannot see at run time (no Guest folder, no recorder in it)
+  $ird = [IO.File]::ReadAllText((Join-Path $root 'dash\src\irdash.cs'))
+  ok 'a letter typed on the deck (/api/guest/draft) is pushed at once: StateBuilder.Changed("guest") where Guest.Draft is set' ($ird -match '(?s)Guest\.Draft = Guest\.Draft\.Substring\(0, 14\);\s*StateBuilder\.Changed\("guest"\)')
+  ok 'in the car the recorder and the rig apps are looked at every 2 s and 4 s (a recording that stalls mid-race shows within 2 s)' ($ird -match 'StateBuilder\.Add\("recorder", 3000, 2000,' -and $ird -match 'StateBuilder\.Add\("health", 4000, 4000,')
+  ok 'HEAD never keeps the connection (a body sent to it would corrupt the next reply)' ($ird -match 'canKeep = \(method == "GET" \|\| method == "OPTIONS"\)')
+  $core = [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\core.js'))
+  ok 'the pedal trace keeps 11 s whatever the stream rate (traceMax = 330 x hz / 30)' ($core -match 'L\.traceMax = Math\.max\(30, Math\.round\(330 \* hz / 30\)\)')
+
   # a small www: one page naming a script and a style (and links that must stay as they are)
   $www = Join-Path $tmp 'www'; New-Item -ItemType Directory -Force (Join-Path $www 'v2') | Out-Null
   Set-Content -Encoding utf8 (Join-Path $www 'v2\a.js') '/* a */'

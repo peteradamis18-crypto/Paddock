@@ -454,7 +454,9 @@ const Conn = {
   start() {
     if (QS.has('demo')) { L.demo = true; Demo.start(); this.status = 'demo'; return; }
     // the in-car layouts' variables at 15 Hz (a glance screen); none are asked for while iRacing is not connected
-    data.telemetry(VARS, +(QS.get('hz') || 15));
+    const hz = +(QS.get('hz') || 15);
+    data.telemetry(VARS, hz);
+    L.traceMax = Math.max(30, Math.round(330 * hz / 30));     // the pedal trace keeps showing the last 11 s whatever the frame rate
     data.on('frame', v => { onFrame(v); this.status = 'live'; });
     data.on('status', () => { L.connected = false; this.status = 'nosim'; });
     data.on('online', ok => { if (!ok) { L.connected = false; this.status = 'noserver'; } else if (this.status === 'noserver') this.status = 'connecting'; });

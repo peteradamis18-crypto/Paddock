@@ -189,6 +189,23 @@ namespace IRDash
             Thread.Sleep(1300);
             Dictionary<string, object> sv2 = Obj(Get("/state").Body);
             Ok("and the state carries it", sv2 != null && Convert.ToString(sv2["version"]) == ver2, "");
+            // a file copied in with an OLDER time (Copy-Item keeps the source's time) still gives a new version: ?v= scripts are kept for good
+            string pv = Get("/version").Body.Trim();
+            string old = Path.Combine(www, "v2", "a.js");
+            File.WriteAllText(old, "/* an older copy " + DateTime.Now.Ticks + " */\n"); File.SetLastWriteTimeUtc(old, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            Stopwatch ow = Stopwatch.StartNew(); string ov = pv;
+            while (ow.ElapsedMilliseconds < 4000 && ov == pv) { Thread.Sleep(100); ov = Get("/version").Body.Trim(); }
+            Ok("a file replaced by one with an OLDER time still gives a new version (" + ow.ElapsedMilliseconds + " ms)", ov != pv, pv);
+            // the watcher fails: the version still follows (the 15 s walk), and a new watcher is started
+            StateBuilder.WatcherFailedForTest();
+            Ok("a failed watcher is dropped (the 15 s walk takes over)", !StateBuilder.Watching, "");
+            File.WriteAllText(Path.Combine(www, "v2", "s.css"), "body{color:red}/*" + DateTime.Now.Ticks + "*/");
+            Stopwatch fw = Stopwatch.StartNew(); string fv = ov;
+            while (fw.ElapsedMilliseconds < 20000 && fv == ov) { Thread.Sleep(250); fv = Get("/version").Body.Trim(); }
+            Ok("with no watcher a changed file still gives a new version (" + fw.ElapsedMilliseconds + " ms, at most about 15 s)", fv != ov, "");
+            Thread.Sleep(5600);
+            Ok("a new watcher is running again 5 s later", StateBuilder.Watching, "");
+            ver2 = fv;
             Stopwatch walk = Stopwatch.StartNew(); for (int i = 0; i < 50; i++) Get("/version");
             Info("50 /version requests in " + walk.ElapsedMilliseconds + " ms");
 
@@ -201,6 +218,14 @@ namespace IRDash
                 string c1;
                 Ok("first request on the connection: 200, Connection: keep-alive", r1 != null && r1.Code == 200 && r1.H.TryGetValue("Connection", out c1) && c1 == "keep-alive", r1 == null ? "" : J.Serialize(r1.H));
                 Ok("second and third requests answered on the SAME connection", r2 != null && r2.Code == 200 && r2.Body.Trim() == ver2 && r3 != null && r3.Code == 200, "");
+                // HEAD: no keep-alive (a body sent to a HEAD would become the start of the next reply on the connection)
+                using (TcpClient hc = new TcpClient("127.0.0.1", port))
+                {
+                    hc.ReceiveTimeout = 5000; NetworkStream hs = hc.GetStream();
+                    byte[] hreq = Encoding.ASCII.GetBytes("HEAD /v2/nope.js HTTP/1.1\r\nHost: localhost:" + port + "\r\n\r\n"); hs.Write(hreq, 0, hreq.Length);
+                    string hh = ReadHead(hs);
+                    Ok("a HEAD request is answered with Connection: close", hh != null && hh.Contains("Connection: close") && !hh.Contains("keep-alive"), hh);
+                }
                 Reply r4 = Ask(ns, "/version", "Connection: close\r\n");
                 Ok("a request that says Connection: close gets close, and the server closes it", r4 != null && r4.H.TryGetValue("Connection", out c1) && c1 == "close" && ns.Read(new byte[1], 0, 1) == 0, "");
             }

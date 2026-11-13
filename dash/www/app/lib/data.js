@@ -103,8 +103,17 @@
       api.mode = mode;
       var url = '/stream?state=1&hz=' + api.hz + (mode === 'live' && api.vars ? '&vars=' + api.vars.join(',') : '');
       var es = api.es = new EventSource(url);
-      es.onopen = function () { if (!api.online) { api.online = true; api.emit('online', true); } };
-      es.onerror = function () { api.connected = false; if (api.online) { api.online = false; api.emit('online', false); } };
+      es.onopen = function () { api.retryMs = 0; if (!api.online) { api.online = true; api.emit('online', true); } };
+      es.onerror = function () {
+        api.connected = false; if (api.online) { api.online = false; api.emit('online', false); }
+        // the browser gives up for good on an answer that is not a stream (a 404, a 500 while irdash restarts): everything rides
+        // this one connection, so open it again ourselves - 2 s, then longer, at most 30 s apart, never giving up
+        if (es.readyState === 2 && api.es === es) {
+          api.retryMs = Math.min(30000, (api.retryMs || 1000) * 2);
+          var mode = api.mode;
+          setTimeout(function () { if (api.es === es) { api.es = null; open(mode); } }, api.retryMs);
+        }
+      };
       es.addEventListener('state', function (e) {
         var m; try { m = JSON.parse(e.data); } catch (err) { return; }
         if (m.full) api.state = {};
