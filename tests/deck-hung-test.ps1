@@ -3,7 +3,7 @@
 # OFFLINE: a pretend irdash (a PowerShell HttpListener in a background job on a spare port, never 8199) that holds every request
 # open without an answer, until the test tells it to answer normally. The real add-on page runs in headless Chrome with the
 # pretend Stream Deck app (tests\deck-mock.js), pointed at that port. Nothing reaches the real irdash or Stream Deck.
-#   1. an open screen (OVERLAYS) says DASHBOARD NOT ANSWERING within 3 s, with EXIT at 7,3 (and EXIT works)
+#   4. every add-on screen (all nine) says DASHBOARD NOT ANSWERING within 3 s, with EXIT at 7,3 (and EXIT works)
 #   2. the opener keys are normal before 3 failed ticks and grey after 3
 #   3. one good answer: the opener keys are back to normal
 # Pictures: tests\shots\rework\hung-*.png
@@ -45,6 +45,8 @@ $html = Join-Path $env:TEMP 'deck-hung-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html
 $h = [IO.File]::ReadAllText($html)
 $h2 = $h.Replace("const API = 'http://localhost:8199';", "const API = 'http://localhost:$port';")
+# every add-on screen gets an opener key on the pretend page (the mock only has FRIENDS, OVERLAYS, MY DRIVE and the two CONFIRM keys)
+$h2 = $h2.Replace("TILE.RigConfirm = 'confirm';", "TILE.RigConfirm = 'confirm'; OPEN.push(['k-replay', 'com.peter.rigintro.replay', 0, 0], ['k-analysis', 'com.peter.rigintro.analysis', 1, 0], ['k-sound', 'com.peter.rigintro.sound', 2, 0], ['k-ac', 'com.peter.rigintro.ac', 3, 0], ['k-ailevel', 'com.peter.rigintro.ailevel', 4, 0], ['k-races', 'com.peter.rigintro.races', 5, 0]); Object.assign(TILE, { RigReplay: 'replay', RigAnalysis: 'analysis', RigSound: 'sound', RigAC: 'ac', RigAiLevel: 'ailevel', RigRaces: 'races' });")
 Check 'the add-on page talks to the pretend irdash only' ($h2.Contains("const API = 'http://localhost:$port';") -and -not $h2.Contains("const API = 'http://localhost:8199';"))
 [IO.File]::WriteAllText($html, $h2, (New-Object Text.UTF8Encoding($false)))
 
@@ -62,19 +64,6 @@ try {
 '@
   function Edge($ctx) { Invoke-DeckJs $page "$edge('$ctx')" }
   function Cur { Invoke-DeckJs $page '__sd.cur' }
-
-  Assert-RigFree -Where '1. open screen'
-  '1. an open screen while irdash hangs'
-  $t0 = Get-Date
-  $null = Invoke-DeckJs $page "(async () => { __sd.pressOpener('overlays'); return 1; })()"
-  $shownMs = -1
-  while (((Get-Date) - $t0).TotalSeconds -lt 6) { if ((Invoke-DeckJs $page 'Overlays.offline') -eq $true) { $shownMs = [int]((Get-Date) - $t0).TotalMilliseconds; break }; Start-Sleep -Milliseconds 100 }
-  Check "OVERLAYS says DASHBOARD NOT ANSWERING within 3 s of the press (took $shownMs ms)" ($shownMs -gt 0 -and $shownMs -le 3000)
-  Start-Sleep -Milliseconds 500
-  $n = Save-DeckSheet $page (Join-Path $shots 'hung-screen-offline.png')
-  Check 'all 32 keys show the message' ($n -eq 32 -and (Invoke-DeckJs $page "Object.keys(Overlays.tiles).every(p => Overlays.shown[p] === 'offline')") -eq $true)
-  $null = Invoke-DeckJs $page "(async () => { __sd.pressTile(7, 3); await __sd.sleep(700); return 1; })()"
-  Check 'EXIT at 7,3 still leaves the screen' ((Cur) -eq 'main')
 
   Assert-RigFree -Where '2. grey'
   ''; '2. opener keys after failed ticks'
@@ -97,6 +86,26 @@ try {
   $back = [int]((Get-Date) - $t1).TotalSeconds
   Check "one good answer brings the opener keys back (about $back s; OVERLAYS $(Edge 'k-overlays'), FRIENDS $(Edge 'k-friends'))" ((Invoke-DeckJs $page 'Health.grey') -eq $false -and (Invoke-DeckJs $page 'Health.failed') -eq 0 -and (Edge 'k-overlays') -eq 'gold' -and (Edge 'k-friends') -eq 'gold')
   $u = Invoke-DeckJs $page "__sd.images['k-overlays']"; if ($u) { Save-DataUrlPng $u (Join-Path $shots 'hung-opener-back.png') }
+  Start-Sleep -Seconds 3   # every screen gets one good state while irdash answers (they are drawn from it the moment they open)
+
+  Assert-RigFree -Where '4. every screen'
+  ''; '4. every add-on screen while irdash hangs (SOUND, AC, AI LEVEL and RACES used to say NOT READY instead)'
+  Set-Content $mode 'hang'
+  foreach ($s in @(@('friends', 'Friends'), @('overlays', 'Overlays'), @('mydrive', 'MyDrive'), @('replay', 'Replay'), @('analysis', 'Analysis'), @('sound', 'Sound'), @('ac', 'Ac'), @('ailevel', 'AiLevel'), @('races', 'Races'))) {
+    $key = $s[0]; $obj = $s[1]
+    Assert-RigFree -Where "4. $key"
+    $t0 = Get-Date
+    if ($key -eq 'friends') { $null = Invoke-DeckJs $page 'Friends.g = null' }   # the pretend /guest is {} (not enough to draw FRIENDS); real irdash sends the full state
+    $null = Invoke-DeckJs $page "(async () => { __sd.pressOpener('$key'); return 1; })()"
+    $shownMs = -1
+    while (((Get-Date) - $t0).TotalSeconds -lt 7) { if ((Invoke-DeckJs $page "$obj.offline") -eq $true) { $shownMs = [int]((Get-Date) - $t0).TotalMilliseconds; break }; Start-Sleep -Milliseconds 100 }
+    Start-Sleep -Milliseconds 400
+    $all = (Invoke-DeckJs $page "Object.keys($obj.tiles).length === 32 && Object.keys($obj.tiles).every(p => $obj.shown[p] === 'offline')") -eq $true
+    Check "$($key.ToUpper()) says DASHBOARD NOT ANSWERING on all 32 keys within 3 s of the press (took $shownMs ms)" ($shownMs -gt 0 -and $shownMs -le 3000 -and $all)
+    if ($key -eq 'sound') { $null = Save-DeckSheet $page (Join-Path $shots 'hung-screen-offline.png') }
+    $null = Invoke-DeckJs $page "(async () => { __sd.pressTile(7, 3); await __sd.sleep(700); return 1; })()"
+    Check "... and EXIT at 7,3 leaves it" ((Cur) -eq 'main') (Cur)
+  }
 }
 finally {
   Stop-DeckBrowser $b

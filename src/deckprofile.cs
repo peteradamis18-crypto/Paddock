@@ -48,10 +48,12 @@ namespace IRDeck
                 byte[] outb = bom ? new byte[body.Length + 3] : body;
                 if (bom) { outb[0] = 0xEF; outb[1] = 0xBB; outb[2] = 0xBF; Array.Copy(body, 0, outb, 3, body.Length); }
                 if (AppRunning()) return "running";   // checked again right before the write
+                // SHUT DOWN follows within milliseconds: the new manifest is flushed to disk first, then swapped in by one rename
+                // (File.Replace), so a cut-off write can never leave a half manifest and a deck with no profile. The old one is kept.
                 string tmp = man + ".paddock-tmp";
-                File.WriteAllBytes(tmp, outb);
-                File.Copy(tmp, man, true);
-                File.Delete(tmp);
+                using (FileStream fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                { fs.Write(outb, 0, outb.Length); fs.Flush(true); }
+                File.Replace(tmp, man, man + ".paddock-bak");
                 return "set";
             }
             catch (Exception ex) { return "error: " + ex.Message; }

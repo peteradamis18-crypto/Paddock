@@ -64,10 +64,10 @@
   const realFetch = window.fetch.bind(window);
   window.fetch = function (url, opt) {
     const u = String(url), path = u.replace('http://localhost:8199', '');
-    M.fetchLog.push({ t: performance.now(), u: path });
+    M.fetchLog.push({ t: performance.now(), u: path, h: (opt && opt.headers) || null });   // h: the request headers (X-Paddock on the CONFIRM commands)
     if (M.cfg.fakeFetch) {
       // an /api/ path the test gave data for is a read (the RACES list: /api/rec/races); any other /api/ path is a command
-      if (path.startsWith('/api/') && M.fx[path.split('?')[0]] === undefined) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response('ok')); }));
+      if (path.startsWith('/api/') && M.fx[path.split('?')[0]] === undefined) return new Promise(res => later(M.cfg.apiMs, () => { if (M.onApi) M.onApi(path); res(new Response(M.apiReply ? (M.apiReply(path, opt) || 'ok') : 'ok')); }));
       const fx = M.fx[path.split('?')[0]];
       if (fx !== undefined) return new Promise(res => later(M.cfg.getMs, () => res(new Response(JSON.stringify(typeof fx === 'function' ? fx() : fx), { headers: { 'Content-Type': 'application/json' } }))));
     }

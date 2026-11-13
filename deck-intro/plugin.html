@@ -43,10 +43,11 @@ const tick = () => sleep(1000 / FPS);
 // An irdash that accepts the connection and never answers used to freeze the whole add-on: no fetch had a timeout, so the
 // opener keys and an open screen stopped for good (audit 11, A2). The abort runs on the worker's timer like every other wait.
 const FETCH_MS = 2000;
-function fetchT(url, ms) {
+function fetchT(url, ms, headers) {
   const ctl = new AbortController();
   later(ms || FETCH_MS, () => ctl.abort());
-  return fetch(url, { cache: 'no-store', signal: ctl.signal }).then(r => { Health.lastOk = performance.now(); return r; });
+  const o = { cache: 'no-store', signal: ctl.signal }; if (headers) o.headers = headers;
+  return fetch(url, o).then(r => { Health.lastOk = performance.now(); return r; });
 }
 
 // Is irdash answering? One "tick" = one pass of the 2 s loop. After 3 ticks in a row with no answer the opener keys go grey
@@ -227,11 +228,17 @@ class Screen {
       const t = performance.now();
       // A poll that throws (irdash down) or leaves the screen with no state used to change nothing: the keys froze on the last picture,
       // or stayed black from the start, and a press only wrote "irdash not reachable" to a log. After 4 in a row the keys say so.
-      try { await this.poll(); polls++; threw = false; answeredAt = performance.now(); bad = this.hasState() ? 0 : bad + 1; } catch (e) { bad++; threw = true; }
+      // get() notes a failed request on the screen (lastFail): SOUND, AC, AI LEVEL and RACES catch it themselves and draw a state of
+      // their own, which used to hide a hung irdash behind "NOT READY"
+      this.lastFail = false;
+      this.inPoll = true;
+      try { await this.poll(); polls++; threw = this.lastFail; bad = this.hasState() ? 0 : bad + 1; } catch (e) { bad++; threw = true; }
+      this.inPoll = false;
+      if (!threw) answeredAt = performance.now();
       // a hung irdash: each poll now gives up after 2 s (fetchT), so the message shows within about 2 s of the screen opening
       const down = bad >= 4 || (threw && performance.now() - answeredAt >= 1900);
       if (down && !this.offline) { this.offline = true; this.showOffline(); }
-      else if (bad === 0 && this.offline) { this.offline = false; this.relayout(); }
+      else if (bad === 0 && !threw && this.offline) { this.offline = false; this.relayout(); }
       else if (down && this.offline) this.showOffline();    // new tiles may have appeared (shown[] was cleared by appear())
       await sleep(Math.max(40, (performance.now() < this.fastUntil ? 220 : this.interval) - (performance.now() - t)));
     }
@@ -279,7 +286,9 @@ class Screen {
   }
 
   async refreshSoon(ms) { await sleep(ms); try { await this.poll(); } catch (e) { } }   // after a press: look again when irdeck has had time to act
-  async get(path) { return await (await fetchT(API + path)).json(); }
+  // a request that got no answer at all (refused, or the 2 s timeout) marks the screen; a bad body does not (that is not a hung irdash)
+  // inside one poll, once a request got no answer the next ones are not tried (ANALYSIS asks two routes: 2 x 2 s)
+  async get(path) { if (this.inPoll && this.lastFail) throw new Error('irdash not answering'); let r; try { r = await fetchT(API + path); } catch (e) { this.lastFail = true; throw e; } return await r.json(); }
   async cmd(c, a, base) {
     try { await fetchT(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); }
     catch (e) { log(this.name + ': irdash not reachable'); }
@@ -627,13 +636,16 @@ const MyDrive = new class extends Screen {
     Perf.begin('mydrive');
     this.kb = null; this.local = {}; this.finding = null; this.shown = {};
     this.view = 'home'; this.pickPage = 'recent'; this.page = 0;
-    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { this.lists = { recent: [], cars: [], tracks: [] }; }
-    const classes = this.classKeys(); if (classes.length && !classes.includes(this.pickClass)) this.pickClass = classes[0];
+    // the deck switches at once; the lists follow (a hung irdash used to hold the switch for the 2 s timeout, and the message came at ~4 s)
+    if (!this.lists) this.lists = { recent: [], cars: [], tracks: [] };
     this.hiddenAt = this.m && this.m.results ? this.m.results.at : null;    // a search from last time stays away
     this.switchTo('RigMyDrive'); Perf.mark('mydrive', 'switchSent');
     this.fastUntil = performance.now() + 2500;
     if (!(opts && opts.test)) { this.pinged = performance.now(); this.cmd('mdopen'); this.cmd('mdclear'); }
     if (this.m && this.m.ready) this.warm();
+    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { }
+    const classes = this.classKeys(); if (classes.length && !classes.includes(this.pickClass)) this.pickClass = classes[0];
+    if (this.m && this.m.ready) this.relayout();
   }
   exit(opts) {
     if (!(opts && opts.test)) { this.cmd('mdclose'); this.cmd('mddraft'); }
@@ -1738,11 +1750,13 @@ const Confirm = new class extends Screen {
     if (!deviceId) return;
     const ctx = opts && opts.ctx;
     this.what = (opts && CONFIRM_WHAT[opts.what]) ? opts.what : ctx ? this.whatOf(ctx) : 'shutdown';
-    this.sentAt = 0; this.shown = {}; this.until = performance.now() + 5000;
+    this.sentAt = 0; this.answer = ''; this.shown = {}; this.until = performance.now() + 5000; this.openedAt = performance.now();
     const tok = ++this.token;
     log('confirm: ' + this.what + ' asked; closes by itself in 5 s');
     this.switchTo('RigConfirm');
     this.warm();
+    // irdash takes YES only within 5 s of this arm, with the X-Paddock header (a web page or a stray GET cannot end the PC)
+    this.paddock('confirmarm', CONFIRM_WHAT[this.what].cmd);
     // the run() loop repaints the count; this makes sure the screen closes even if no tile ever appears
     later(5200, () => { if (this.token === tok && !this.sentAt) { log('confirm: ' + this.what + ' not confirmed - nothing done'); this.exit(); } });
   }
@@ -1754,18 +1768,31 @@ const Confirm = new class extends Screen {
     this.relayout();
   }
 
+  // confirmarm / shutdown / sleep carry X-Paddock: 1; the answer text comes back ('ok', 'kids', 'no', or '' when irdash did not answer)
+  async paddock(c, a) {
+    try { const r = await fetchT(API + '/api/do?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), 0, { 'X-Paddock': '1' }); return (await r.text()).trim(); }
+    catch (e) { log('confirm: irdash not reachable (' + c + ')'); return ''; }
+  }
+
   async act(r) {
+    // SLEEP PC sits at 7,3 where EXIT is: a doubled opener press (29 ms - 1 s later) would land on EXIT or YES. The first second is deaf.
+    if (performance.now() - (this.openedAt || 0) < 1000) return;
     if (r.act === 'exit') { this.exit(); return; }
     if (r.act !== 'yes' || this.sentAt || !this.until || performance.now() >= this.until) return;
     this.sentAt = performance.now();
     log('confirm: YES - ' + this.what);
     this.relayout();
-    await this.cmd(CONFIRM_WHAT[this.what].cmd);
+    const ans = await this.paddock(CONFIRM_WHAT[this.what].cmd);
+    if (ans !== 'ok') { this.answer = ans === 'kids' ? 'kids' : 'no'; this.sentAt = performance.now(); log('confirm: irdash said ' + (ans || 'nothing') + ' - nothing done'); this.relayout(); }
   }
 
   build() {
     const w = CONFIRM_WHAT[this.what], R = [];
     const add = (c, r, wd, h, text, sub, act, style, more) => { const o = { c, r, w: wd, h, text, sub, act, arg: null, style: style || '', once: true }; if (more) Object.assign(o, more); R.push(o); };
+    if (this.sentAt && this.answer) {
+      add(0, 0, 8, 3, this.answer === 'kids' ? 'KIDS MODE IS ON' : 'NOT DONE', this.answer === 'kids' ? 'Unlock first: KIDS, then HOME' : 'The dashboard did not take it. Try again.', null, 'amber', { wrap: 2, size: 44, noflash: true });
+      return R;
+    }
     if (this.sentAt) {
       add(0, 0, 8, 3, w.doing, 'iRacing is closed first if it is open', null, 'amber', { wrap: 2, size: 44, noflash: true });
       return R;

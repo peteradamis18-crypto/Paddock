@@ -74,7 +74,7 @@ Useful routes (all GET):
 | `/health` | watchdog JSON |
 | `/version` | the page, to decide when to reload |
 | `/stream` | live telemetry (server-sent events) |
-| `/api/do?c=<command>&a=<arg>` | add-on screens. Whitelisted. Friends, overlays, My Drive, replay, gallery, performance, and the same friends commands as below. One repeat guard first (`src/deckguard.cs`): the same command + argument within 0.7 s is dropped (steps such as deltaup, sndvol, rp*, wb-* and screen housekeeping are free). `shutdown` / `sleep` (only the CONFIRM screen sends them) start `irdeck power off` / `power sleep`. |
+| `/api/do?c=<command>&a=<arg>` | add-on screens. Whitelisted. Friends, overlays, My Drive, replay, gallery, performance, and the same friends commands as below. One repeat guard first (`src/deckguard.cs`): the same command + argument within 0.7 s is dropped (steps such as deltaup, sndvol, rp*, wb-* and screen housekeeping are free). `shutdown` / `sleep` are taken only from this PC with the `X-Paddock: 1` header, kids lock off, within 5 s of the CONFIRM screen's `confirmarm` (`DeckGuard.PowerGate`); they start `irdeck power off --confirmed` / `power sleep --confirmed` (irdeck refuses `power off/sleep` without `--confirmed` or from a key exe). `key`shutdown` / `sleep` (only the CONFIRM screen sends them) start `irdeck power off` / `power sleep`. |a=shutdown|sleep` is refused. |
 | `/api/guest/do?c=&a=` | friends screen |
 | `/guest`, `/overlays`, `/replay`, `/gallery`, `/mydrive`, `/doctor`, `/career` | JSON for those screens |
 | `/api/doctor/run` | run Rig Doctor (`?quiet=1` checks without showing the list) |

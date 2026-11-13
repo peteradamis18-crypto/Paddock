@@ -204,6 +204,9 @@ $leave = [ordered]@{
 # keys appear only once the INSTALLED add-on has the Confirm action (a key for an action that is not installed would be dead); until
 # then the cells stay empty, so the PC can never be turned off in one press. -Preview always shows them (it is the plan).
 $confirmOn = $Preview -or ((Test-Path $sdPlugin) -and ((Get-Content $sdPlugin -Raw) -match 'rigintro\.confirm'))
+if (-not $confirmOn) {
+  Write-Warning 'SHUT DOWN PC and SLEEP PC are LEFT OFF the LEAVE page: the installed add-on has no Confirm action yet. Run deck-intro\install.ps1, have Peter click Install, then RE-RUN build-deck.ps1.'
+}
 if ($confirmOn) {
   $leave['6,3'] = K 'SHUT' 'DOWN PC' 'stop' 'power'             @{ plugin = 'com.peter.rigintro.confirm'; name = 'Confirm'; settings = [ordered]@{ what = 'shutdown' } }   # quits iRacing cleanly first, then turns the PC off
   $leave['7,3'] = K 'SLEEP' 'PC' 'stop' 'moon'                  @{ plugin = 'com.peter.rigintro.confirm'; name = 'Confirm'; settings = [ordered]@{ what = 'sleep' } }
@@ -391,3 +394,4 @@ $tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Curre
 [IO.File]::WriteAllText("$profDir\manifest.json", ($tm | ConvertTo-Json -Depth 10), $u8)
 if ($ownLock) { Remove-Item -LiteralPath $buildLock -Force -ErrorAction SilentlyContinue }   # deck-refresh owns it otherwise, until Stream Deck is back
 "built: MAIN $($main.Count) keys, MORE $($more.Count) keys, LEAVE $($leave.Count) keys; $($keyMap.Count) key exes"
+if (-not $confirmOn) { "NOT DONE: SHUT DOWN PC / SLEEP PC are missing until the add-on with Confirm is installed - click Install, then run build-deck.ps1 again." }

@@ -606,6 +606,7 @@ namespace IRDash
         };
 
         static readonly IRDeck.DeckGuard.DoMemory DeckDo = new IRDeck.DeckGuard.DoMemory();   // /api/do repeat guard (W0-1)
+        static readonly IRDeck.DeckGuard.PowerGate PowerGate = new IRDeck.DeckGuard.PowerGate();   // SHUT DOWN / SLEEP arm window (W0-1)
         static bool StartIrdeck(string args)
         {
             if (Watch.IrdeckPath == null || !File.Exists(Watch.IrdeckPath)) { Log.W("api/do: irdeck.exe not found"); return false; }
@@ -701,6 +702,16 @@ namespace IRDash
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
+                    // W0-1: the add-on sends X-Paddock: 1 with confirmarm / shutdown / sleep, which makes the browser ask first. Only the add-on's own
+                    // page (a local file: Origin null or file://) is told yes, so no web page can send the header.
+                    if (method == "OPTIONS" && path == "/api/do")
+                    {
+                        string org; hdr.TryGetValue("Origin", out org);
+                        if (local && (org == null || org == "null" || org.StartsWith("file://", StringComparison.OrdinalIgnoreCase)))
+                            Send(s, 204, "text/plain", new byte[0], "Access-Control-Allow-Origin: " + (org ?? "*") + "\r\nAccess-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: X-Paddock\r\n");
+                        else Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("forbidden"));
+                        return;
+                    }
                     // one dispatcher for every Stream Deck screen: friends commands go to Guest, the rest to Overlays (both whitelisted)
                     if (method == "GET" && path == "/api/do")
                     {
@@ -708,8 +719,19 @@ namespace IRDash
                         if (dc == "vault") dc = "vkopen";      // the deck's VAULT key sends "vault"; it had no handler (2026-10-18), the Vault's open command is vkopen
                         // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
                         if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
-                        // SHUT DOWN / SLEEP: only the YES key of the add-on's confirm screen sends these; irdeck quits iRacing, sends the deck to MAIN, then powers off
-                        if (dc == "shutdown" || dc == "sleep") { bool pk = StartIrdeck(dc == "shutdown" ? "power off" : "power sleep"); Send(s, pk ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(pk ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with X-Paddock: 1,
+                        // kids lock off, within 5 s of that arm (DeckGuard.PowerGate). irdeck then quits iRacing, sends the deck to MAIN, powers off.
+                        // The old one-press key exes (c=key&a=shutdown|sleep) are refused outright.
+                        string xp; hdr.TryGetValue("X-Paddock", out xp); bool xpOk = xp == "1";
+                        if (dc == "key" && (da == "shutdown" || da == "sleep")) { Log.W("api/do: key " + da + " refused (only the CONFIRM screen ends the PC)"); Send(s, 400, "text/plain", Encoding.ASCII.GetBytes("no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (dc == "confirmarm") { bool ak = local && xpOk && PowerGate.Arm(da, DateTime.UtcNow.Ticks); Send(s, ak ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ak ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (IRDeck.DeckGuard.IsPowerCommand(dc))
+                        {
+                            string why = PowerGate.Check(dc, xpOk, local, KidsLockOn(), DateTime.UtcNow.Ticks);
+                            bool pk = why == "ok" && StartIrdeck(dc == "shutdown" ? "power off --confirmed" : "power sleep --confirmed");
+                            if (why != "ok") Log.W("api/do: " + dc + " refused (" + why + ")");
+                            Send(s, pk ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "no"), "Access-Control-Allow-Origin: *\r\n"); return;
+                        }
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");

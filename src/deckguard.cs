@@ -70,6 +70,41 @@ namespace IRDeck
 
         public static string DoKey(string c, string a) { return (c ?? "").ToLowerInvariant() + "\t" + (a ?? ""); }
 
+        // ---------- SHUT DOWN / SLEEP through irdash (review of W0-1, finding 1) ----------
+        // The 5 s confirm must not live only in the add-on: one GET to /api/do?c=shutdown from any page in a browser on this PC
+        // (an <img> needs no CORS) would turn the PC off. So the add-on's CONFIRM screen arms irdash when it opens
+        // (c=confirmarm&a=shutdown|sleep), and irdash takes shutdown / sleep only with the X-Paddock: 1 header, from this PC, with
+        // the kids lock off, and within ArmMs of an arm for the same thing. The arm is used up by the first YES.
+        public const int ArmMs = 5500;   // the screen gives Peter 5 s from opening; half a second for the requests themselves
+
+        public static bool IsPowerCommand(string c) { return c == "shutdown" || c == "sleep"; }
+
+        public sealed class PowerGate
+        {
+            string what; long at;
+            readonly object gate = new object();
+            public bool Arm(string w, long nowTicks)
+            {
+                if (!IsPowerCommand(w)) return false;
+                lock (gate) { what = w; at = nowTicks; }
+                return true;
+            }
+            // "ok" (and the arm is gone), or why not: "no-header", "not-local", "kids", "not-armed"
+            public string Check(string c, bool headerOk, bool local, bool kidsLocked, long nowTicks)
+            {
+                if (!local) return "not-local";
+                if (!headerOk) return "no-header";
+                if (kidsLocked) return "kids";
+                lock (gate)
+                {
+                    bool fresh = what == c && nowTicks >= at && nowTicks - at <= TimeSpan.FromMilliseconds(ArmMs).Ticks;
+                    if (!fresh) return "not-armed";
+                    what = null; at = 0;
+                    return "ok";
+                }
+            }
+        }
+
         // One per irdash: remembers when each command + argument last ran. Thread-safe (irdash answers on many threads).
         public sealed class DoMemory
         {

@@ -1686,8 +1686,14 @@ namespace IRDeck
         static int CmdPower(string[] a)
         {
             string c = a.Length > 0 ? a[0].ToLowerInvariant() : "";
+            bool ends = c == "off" || c == "restart" || c == "sleep";
+            // Ending the PC only through the CONFIRM screen: irdash passes --confirmed after the YES. A key copy (an old keys\shutdown.exe
+            // whose keys.map line still says power off) or a plain `irdeck power off` does nothing, whatever keys.map says.
+            if (ends && (KeyId.Length > 0 || Array.IndexOf(a, "--confirmed") < 0)) { Log("power " + c + ": refused - only the CONFIRM screen on the deck ends the PC"); return 3; }
             // SHUT DOWN / SLEEP now arrive through irdash (the CONFIRM screen), not a key exe, so the kids lock is checked here too
-            if ((c == "off" || c == "restart" || c == "sleep") && KidsLocked()) { Log("power " + c + ": kids mode is on - nothing was done"); return 3; }
+            if (ends && KidsLocked()) { Log("power " + c + ": kids mode is on - nothing was done"); return 3; }
+            // tests: say what would happen and touch nothing (no iRacing quit, no Stream Deck stop, no power step)
+            if (ends && Environment.GetEnvironmentVariable("PADDOCK_POWER_DRYRUN") == "1") { Log("power " + c + ": dry run - would quit iRacing, send the deck to MAIN and " + (c == "sleep" ? "sleep" : c == "off" ? "turn the PC off" : "restart")); return 0; }
             if ((c == "off" || c == "restart" || c == "sleep") && SessionActive())
             {
                 int rc = CmdQuitMain();   // leave iRacing cleanly first; refuses if the car is moving

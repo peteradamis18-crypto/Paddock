@@ -70,7 +70,7 @@ if ($haveReal) {
   Check 'the page folders are untouched (same files as the real profile)' $pagesSame
   $r = Run $copy $false
   Check "a second run says 'already' and writes nothing ('$r')" ($r -eq 'already' -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($man)) -eq [Convert]::ToBase64String($after))
-  Check 'no temp file is left beside the manifest' (-not (Test-Path "$man.paddock-tmp"))
+  Check 'no temp file is left beside the manifest, and the old manifest is kept as manifest.json.paddock-bak (the swap is one File.Replace)' (-not (Test-Path "$man.paddock-tmp") -and (Test-Path "$man.paddock-bak") -and [Convert]::ToBase64String([IO.File]::ReadAllBytes("$man.paddock-bak")) -eq [Convert]::ToBase64String($before))
   Check 'the REAL profile manifest was not changed by this test' ((Get-FileHash (Join-Path $real 'manifest.json')).Hash -eq $realBefore)
 
   Section '3. no MAIN, no profile'
@@ -91,8 +91,8 @@ $rs = $dash.Substring($dash.IndexOf('static void RestartDeck(string why)'), 2500
 Check 'watchdog restart: kill, wait, set MAIN, then start (in that order)' ($rs.IndexOf('p.Kill()') -lt $rs.IndexOf('DeckToMain(why)') -and $rs.IndexOf('DeckToMain(why)') -lt $rs.IndexOf('Process.Start('))
 Check 'watchdog "Stream Deck was not running": MAIN first, then start' ($dash -match 'lastDeckStart = now; DeckToMain\("start"\);')
 Check 'irdash DeckToMain uses IRDeck.DeckProfile.SetCurrentToMain' ($dash -match 'IRDeck\.DeckProfile\.SetCurrentToMain\(IRDeck\.DeckProfile\.ProfileDir\(\)\)')
-$pw = $ir.Substring($ir.IndexOf('static int CmdPower(string[] a)'), 2600)
-Check 'SHUT DOWN / SLEEP: deck to MAIN before the PC goes (sleep starts Stream Deck again)' ($pw.IndexOf('DeckToMain(c == "sleep")') -gt 0 -and $pw.IndexOf('DeckToMain(c == "sleep")') -lt $pw.IndexOf('shutdown.exe') -and $ir -match 'static void DeckToMain\(bool startAgain\)')
+$pw = $ir.Substring($ir.IndexOf('static int CmdPower(string[] a)'), 4500)
+Check 'SHUT DOWN / SLEEP: deck to MAIN before the PC goes (sleep starts Stream Deck again)' ($pw.IndexOf('DeckToMain(c == "sleep")') -gt 0 -and $pw.IndexOf('DeckToMain(c == "sleep")') -lt $pw.IndexOf('"shutdown.exe"') -and $ir -match 'static void DeckToMain\(bool startAgain\)')
 Check 'RIG ON: MAIN before it starts Stream Deck' ($ir.IndexOf('DeckProfile.SetCurrentToMain') -lt $ir.IndexOf('StartApp("StreamDeck"'))
 Check 'build-deck.ps1 writes MAIN as Current' ($bd -match 'Current = \$ids\.main')
 Check 'both builds compile deckprofile.cs' (([IO.File]::ReadAllText((Join-Path $root 'build-irdeck.ps1'))) -match 'deckprofile\.cs' -and ([IO.File]::ReadAllText((Join-Path $root 'dash\build.ps1'))) -match 'deckprofile\.cs')
