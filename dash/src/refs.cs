@@ -1,4 +1,4 @@
-﻿// O5 - the all-time personal best as a delta reference (notes in docs\benchmark.md).
+// O5 - the all-time personal best as a delta reference (notes in docs\benchmark.md).
 //   - Combo: which car + track + layout is loaded (from the session YAML, live or from an .ibt).
 //   - PbRef: for one combo, "time at every 0.05 % of the lap" of the best lap ever driven, cached in dash\refs\<car>__<track>.json.
 //     Built from the best .ibt (Career knows the best lap per file); after a new best lap it is rebuilt from the live frames,
@@ -287,7 +287,8 @@ namespace IRDash
         static double smooth; static DateTime smoothAt = DateTime.MinValue;
         static float[] recP = new float[LiveMax], recT = new float[LiveMax], penP = new float[LiveMax], penT = new float[LiveMax];
         static int recN, penN; static double recLastPct;
-        static bool penOn; static double penLastBefore; static DateTime penAt = DateTime.MinValue, penSeen = DateTime.MinValue; static int penLap;
+        static bool penOn; static int penLap, incStart; static double lastBestTick;
+        static readonly LiveJudge judge = new LiveJudge();      // W0-6: the one counted rule, live (lapstore.cs): only a lap iRacing counted becomes the reference
 
         public static string KeyNow { get { return curKey; } }
         public static Combo.Info ComboNow { get { return combo; } }
@@ -326,10 +327,11 @@ namespace IRDash
                     if (recN > 30 && recLastPct > 0.97)
                     {
                         float[] a = penP; penP = recP; recP = a; a = penT; penT = recT; recT = a;
-                        penN = recN; penOn = true; penLastBefore = lastLastTime; penAt = now; penSeen = DateTime.MinValue; penLap = lastLap;
+                        penN = recN; penOn = true; penLap = lastLap;
+                        judge.Line(lastLap, now.Ticks / 1e7, penT[penN - 1], lastBestTick, false, (int)f.Num("PlayerCarMyIncidentCount") > incStart, 0, lastLastTime);
                     }
                 }
-                lapStarted = !inPits; dirty = inPits; recN = 0; recLastPct = 0; haveSmooth = false; bad = 0;
+                lapStarted = !inPits; dirty = inPits; recN = 0; recLastPct = 0; haveSmooth = false; bad = 0; incStart = (int)f.Num("PlayerCarMyIncidentCount");
             }
             else if (lastPct >= 0)
             {
@@ -338,8 +340,9 @@ namespace IRDash
             }
             if (inPits) { dirty = true; lapStarted = false; }
             lastLap = lap; lastPct = pct;
-            lastLastTime = f.Num("LapLastLapTime");
+            lastLastTime = f.Num("LapLastLapTime"); judge.Seen(lastLastTime);
             if (penOn) CheckPending(f, now);
+            lastBestTick = f.Num("LapBestLapTime");
 
             Flying = lapStarted && !dirty;
             if (!Flying) { Ok = false; return; }
@@ -371,24 +374,20 @@ namespace IRDash
 
         static void ResetLap()
         {
-            lapStarted = false; dirty = false; haveSmooth = false; Ok = false; Flying = false; recN = 0; recLastPct = 0; lastLap = -1; lastPct = -1; bad = 0; penOn = false;
+            lapStarted = false; dirty = false; haveSmooth = false; Ok = false; Flying = false; recN = 0; recLastPct = 0; lastLap = -1; lastPct = -1; bad = 0; penOn = false; judge.Cancel();
         }
 
-        // the sim announces a lap's time a moment after the line (up to ~1.5 s); then a counted new best becomes the reference
+        // the sim announces a lap's time a moment after the line (1-2 s) and its best follows; the live judge (LapRules, the same rule as every page)
+        // compares with the last lap it saw, not the previous frame, so a time announced in the same frame as the lap counter is not missed (09 audit)
         static void CheckPending(Frame f, DateTime now)
         {
-            double last = f.Num("LapLastLapTime");
-            bool changed = Math.Abs(last - penLastBefore) > 0.0005;
-            if (changed && penSeen == DateTime.MinValue) penSeen = now;
-            if (!changed && (now - penAt).TotalSeconds < 4) return;
-            if (changed && (now - penSeen).TotalSeconds < 0.6) return;      // give the sim a moment to update its best-lap time too
-            penOn = false; penSeen = DateTime.MinValue;
-            if (!changed) return;
+            LapRec jr = judge.Poll(now.Ticks / 1e7, f.Num("LapLastLapTime"), f.Num("LapBestLapTime"));
+            if (jr == null) return;
+            penOn = false;
+            double last = jr.Time;
             RefData rd = current;
             double bar = rd != null ? rd.Time : (knownBest > 0 ? knownBest : double.MaxValue);
-            double best = f.Num("LapBestLapTime");
-            // iRacing's own best-lap time only takes laps it counted, so "equals the session best" doubles as the validity check
-            if (last < 15 || last >= bar - 0.0005 || Math.Abs(best - last) > 0.0006 || penN < 30) return;
+            if (!jr.Counted || last >= bar - 0.0005 || penN < 30) return;
             float[] p = new float[penN], t = new float[penN];
             Array.Copy(penP, p, penN); Array.Copy(penT, t, penN);
             string key = curKey; Combo.Info ci = combo; int n = penN, lapNo = penLap; double kb = knownBest;

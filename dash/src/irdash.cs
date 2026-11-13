@@ -1350,17 +1350,7 @@ namespace IRDash
                           name + (cfg.Length > 0 ? " - " + cfg : ""), lat, lon, acc.pit);
         }
 
-        internal static double Read(byte[] b, VarDef d)
-        {
-            switch (d.Type)
-            {
-                case 0: case 1: return b[d.Offset];
-                case 2: case 3: return BitConverter.ToInt32(b, d.Offset);
-                case 4: return BitConverter.ToSingle(b, d.Offset);
-                case 5: return BitConverter.ToDouble(b, d.Offset);
-            }
-            return 0;
-        }
+        internal static double Read(byte[] b, VarDef d) { return IbtFile.At(b, 0, d); }      // W0-6: the one record decoder (ibtfile.cs)
 
         // Adds one .ibt file's clean samples to the accumulator. Returns its session YAML, or null if unusable.
         static string AddIbt(string path, Acc acc)
