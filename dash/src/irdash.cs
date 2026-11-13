@@ -164,6 +164,19 @@ namespace IRDash
             }
         }
 
+        // the .ibt has no field arrays, so the car's own channels go into its own slot and every other slot stays empty (not in the world)
+        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
+        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
+        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
+        static void Derive(Dictionary<string, double> vals)
+        {
+            double pi; if (!vals.TryGetValue("PlayerCarIdx", out pi) || pi < 0 || pi > 63) return;
+            for (int a = 0; a < derivedName.Length; a++)
+            {
+                double mine = derivedIdle[a]; if (derivedFrom[a] != "") vals.TryGetValue(derivedFrom[a], out mine);
+                for (int k = 0; k < 64; k++) vals[derivedName[a] + "_" + k] = k == (int)pi ? mine : derivedIdle[a];
+            }
+        }
         static void Run(TrackMaps.Ibt t, int tick, List<VarDef> scal, List<VarDef> arrs)
         {
             try
@@ -185,6 +198,7 @@ namespace IRDash
                         int sz = (v.Type == 0 || v.Type == 1) ? 1 : (v.Type == 5 ? 8 : 4);
                         for (int k = 0; k < 64; k++) { int p = v.Offset + k * sz; if (p + sz <= rec.Length) vals[v.Name + "_" + k] = Read(rec, p, v.Type); }
                     }
+                    if (arrs.Count == 0) Derive(vals);       // iRacing's disk telemetry has no CarIdx arrays: fill the player's own slot
                     double lap; if (vals.TryGetValue("Lap", out lap)) lastLap = lap;
                     posS = ts; sent++;
                     Sdk.FakeSet(vals);
