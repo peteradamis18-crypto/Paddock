@@ -125,7 +125,7 @@ try {
   New-Item -ItemType Directory -Force $fd | Out-Null
   Check "the real race log fixture is there ($raceId)" (Test-Path $realField)
   if (-not (Test-Path $realField)) { throw "no race log fixture at $realField" }
-  Check 'the deployed irdash answers the lap analysis (the cross-check routes)' ((Code '/field/status') -eq 200)
+  Check 'the deployed irdash answers the lap analysis (the cross-check routes)' ((Code '/health') -eq 200)
   $script:routeMethod = $db
   function Db([string]$id) {
     $q = New-Object 'System.Collections.Generic.Dictionary[string,string]'; $q['id'] = $id

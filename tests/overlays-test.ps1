@@ -308,7 +308,7 @@ Check 'the test hook is switched off again' (-not (Test-Path $hook))
 
 Section '8. delta bar settings (out of the car the bar shows sample values for a few seconds, so you can see where it sits)'
 $fg0 = [OvT]::GetForegroundWindow()
-$null = Invoke-WebRequest -UseBasicParsing "$api/api/delta/preview?s=8" -TimeoutSec 5
+Api 'deltaup'; Api 'deltadown'      # nudge and nudge back: the bar shows sample values for 5 s (was /api/delta/preview)
 Start-Sleep -Milliseconds 1200
 $hb = [OvT]::Find('irdash delta bar')
 Check 'the bar is a window of its own and is showing' ($hb -ne [IntPtr]::Zero -and [OvT]::IsWindowVisible($hb))

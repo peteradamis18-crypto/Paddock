@@ -212,39 +212,6 @@ $ph = J ('/corners?track=' + (Q 'phoenix road') + '&id=990002&key=t990002-phoeni
 Check 'a road course with no Lovely list is numbered 1..n from the shape of its outline, marked auto / outline' ($ph.source -eq 'auto' -and $ph.basis -eq 'outline' -and @($ph.turns).Count -ge 6 -and (@($ph.turns | ForEach-Object { $_.n }) -join ',') -eq (1..@($ph.turns).Count -join ','))
 Check 'where Lovely has the corners it still wins over the outline (Monza: 8 turns, Prima Variante first)' ((J ('/corners?track=' + (Q 'monza full'))).source -eq 'lovely' -and (J ('/corners?track=' + (Q 'monza full'))).turns[0].name -eq 'Prima Variante')
 Check 'rubbish in the query is harmless' ((Get-Raw ('/corners?track=' + (Q ('x' * 400)) + '&key=..\..\x&id=abc')).code -eq 200)
-Check 'the detection dry run refuses names that are not telemetry files' ((Get-Raw '/corners/detect?file=..\..\Windows\win.ini').code -eq 404 -and (Get-Raw '/corners/detect').code -eq 404)
-
-Section '3. corners found in real driving (Road Atlanta, 11 laps, compared with Lovely)'
-$d = J ('/corners/detect?file=' + (Q $big))
-$cnt = @($d.turns).Count
-Check "the best clean lap gives a believable number of corners for Road Atlanta: $cnt (Lovely lists 14, the circuit has 12)" ($cnt -ge 10 -and $cnt -le 18)
-Check 'numbered 1..n in lap order, apexes rising' ((@($d.turns | ForEach-Object { $_.n }) -join ',') -eq (1..$cnt -join ',') -and (@($d.turns | ForEach-Object { $_.pctApex }) | Sort-Object { [double]$_ }) -join ',' -eq (@($d.turns | ForEach-Object { $_.pctApex }) -join ','))
-# the same lap time found independently, straight from the file (LapLastLapTime changes when iRacing announces a lap)
-function Ibt-Best($file) {
-  $b = [IO.File]::ReadAllBytes($file)
-  $bl = [BitConverter]::ToInt32($b, 36); $bo = [BitConverter]::ToInt32($b, 52); $rc = [BitConverter]::ToInt32($b, 140); $nv = [BitConverter]::ToInt32($b, 24); $vho = [BitConverter]::ToInt32($b, 28)
-  $vars = @{}; for ($i = 0; $i -lt $nv; $i++) { $p = $vho + 144 * $i; $vars[[Text.Encoding]::ASCII.GetString($b, $p + 16, 32).Trim([char]0)] = [BitConverter]::ToInt32($b, $p + 4) }
-  $oL = $vars['LapLastLapTime']; $oOn = $vars['IsOnTrack']; $oP = $vars['OnPitRoad']; $prev = -999.0; $best = 9999.0
-  for ($r = 0; $r -lt $rc; $r++) {
-    $base = $bo + $r * $bl; if ($b[$base + $oOn] -eq 0) { continue }
-    $v = [double][BitConverter]::ToSingle($b, $base + $oL)
-    if ($prev -gt -900 -and $v -gt 15 -and [math]::Abs($v - $prev) -gt 0.0005 -and $v -lt $best) { $best = $v }
-    $prev = $v
-  }
-  return $best
-}
-$hand = Ibt-Best (Join-Path $tel $big)
-Check "the lap it used ($($d.lapTime) s, lap $($d.lap)) is the file's quickest lap by hand ($([math]::Round($hand, 3)) s)" (Near $d.lapTime $hand 0.003)
-$lov = @($r.turns); $hit = 0; $order = $true; $last = -1
-foreach ($lt in $lov) {
-  $m = @($d.turns | Where-Object { $a = $_.pctApex; if ($lt.pct1 -ge $lt.pct0) { $a -ge $lt.pct0 - 0.012 -and $a -le $lt.pct1 + 0.012 } else { $a -ge $lt.pct0 - 0.012 -or $a -le $lt.pct1 + 0.012 } })
-  if ($m.Count -gt 0) { $hit++; if ($m[0].n -lt $last) { $order = $false }; $last = $m[0].n }
-}
-Check "Lovely's order is kept: $hit of 14 Lovely stretches hold a detected apex, and they come in the same order" ($hit -ge 11 -and $order)
-$nl = Get-Raw ('/corners/detect?file=' + (Q 'bmwm4evogt4_okayama full 2026-10-09 22-50-16.ibt'))
-Check 'a file with no full clean lap says so plainly instead of guessing' ($nl.code -eq 404 -and $nl.body -match 'no clean full lap')
-Check 'a lap number that is not a number is refused' ((Get-Raw ('/corners/detect?file=' + (Q $big) + '&lap=abc')).code -eq 400)
-
 Section '4. a track Lovely has no corners for (Sonoma Long): found from the outline irdash holds'
 $autoFile = Join-Path $autoDir 't98-sonoma-long.json'
 $b1 = J '/corners?track=sonoma%20long&id=98&build=1'
@@ -254,24 +221,6 @@ Check 'there is no credit line for corners we found ourselves' ($b1.credit -eq '
 $ra2 = J '/corners?track=roadatlanta%20full&id=127&build=1'
 Check 'Lovely wins where both exist: asking for a build at Road Atlanta keeps Lovely''s list and writes no auto file' ($ra2.source -eq 'lovely' -and -not (Test-Path (Join-Path $autoDir 't127-roadatlanta-full.json')))
 
-Section '5. coverage of the 43 owned tracks'
-$au = J '/corners/audit'
-$rows = @($au.layouts); $inst = @($rows | Where-Object { $_.installed })
-$tracksOwned = @(Get-ChildItem $au.tracksDir -Directory | ForEach-Object { $_.Name.ToLowerInvariant() })
-Check "$($tracksOwned.Count) track folders are installed and every one is in the list" ($tracksOwned.Count -eq 43 -and @($inst | Group-Object folder).Count -eq $tracksOwned.Count)
-$covered = @(); $uncovered = @()
-foreach ($f in $tracksOwned) {
-  $mine = @($inst | Where-Object { $_.folder -eq $f })
-  if (@($mine | Where-Object { $_.lovelyTurns -gt 0 -or $_.autoTurns -gt 0 -or $_.libTurns -gt 0 }).Count -gt 0) { $covered += $f } else { $uncovered += $f }
-}
-Note "$($covered.Count) of 43 owned tracks have numbered corners on at least one layout (Lovely, found in his laps, or found from the shape of the outline copy)"
-Note ("no corner list: never driven, Lovely has none and there is no outline copy: " + ($uncovered -join ', '))
-$drivenRows = @($rows | Where-Object { $_.driven -gt 0 })
-$drivenNo = @($drivenRows | Where-Object { $_.lovelyTurns -le 0 -and $_.autoTurns -le 0 -and $_.libTurns -le 0 })
-Check "every layout he has driven has numbered corners ($(@($drivenRows).Count) layouts: $((@($drivenRows | ForEach-Object { $_.id }) -join ', ')))" ($drivenRows.Count -ge 5 -and $drivenNo.Count -eq 0)
-Check 'a track without corner numbers is one he has not driven (on its installed layouts) and Lovely has no corner names for' (@($uncovered | Where-Object { $f = $_; @($inst | Where-Object { $_.folder -eq $f -and ($_.driven -gt 0 -or $_.lovelyTurns -gt 0 -or $_.libTurns -gt 0) }).Count -gt 0 }).Count -eq 0)
-Check 'most of them are covered (the rest are listed above, with the reason)' ($covered.Count -ge 30)
-
 Section '6. the real map.js with the internet blocked'
 Pages-Check
 
@@ -280,8 +229,7 @@ Set-Content $hook 'on for the test'
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/session?file=$(Q $big)" -TimeoutSec 8
 Fake 'IsOnTrack=1&OnPitRoad=0&SessionNum=2&PlayerCarIdx=0&Lap=4&LapDistPct=0.4&Speed=45&Gear=4&SessionFlags=0'
 Start-Sleep -Milliseconds 2600
-Check 'the detection dry run is refused while driving (HTTP 503)' ((Get-Raw ('/corners/detect?file=' + (Q $big))).code -eq 503)
-Check 'so is building and the coverage list' ((Get-Raw '/corners?track=sonoma%20long&id=98&build=1').code -eq 503 -and (Get-Raw '/corners/audit').code -eq 503)
+Check 'so is building' ((Get-Raw '/corners?track=sonoma%20long&id=98&build=1').code -eq 503)
 Check 'but the corner list itself still answers (it only reads small files)' ((Get-Raw '/corners?track=roadatlanta%20full&id=127').code -eq 200)
 Fake 'IsOnTrack=0&Speed=0'; Start-Sleep -Milliseconds 800
 

@@ -509,7 +509,7 @@ namespace IRDash
         {
             try
             {
-                if (dash == null) return "";
+                if (dash == null || !Sdk.TestHook) return "";   // test hook only: a stand-in owner for tests
                 string f = Path.Combine(dash, "stray-owner.txt");
                 if (!File.Exists(f)) return "";
                 string s = File.ReadAllText(f);

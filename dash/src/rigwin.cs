@@ -129,7 +129,7 @@ namespace IRDash
         {
             try
             {
-                if (string.IsNullOrEmpty(OwnerFile) || !File.Exists(OwnerFile)) return "";
+                if (!Sdk.TestHook || string.IsNullOrEmpty(OwnerFile) || !File.Exists(OwnerFile)) return "";   // test hook only
                 string s = File.ReadAllText(OwnerFile);
                 int n = s.IndexOfAny(new char[] { '\r', '\n' });
                 if (n >= 0) s = s.Substring(0, n);

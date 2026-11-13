@@ -339,7 +339,6 @@ static class T
         Check("there is no register / join / withdraw command at all", !Official.Handles("ofregister") && !Official.Handles("ofjoin") && !Official.Handles("ofwithdraw") && !Official.Handles("ofpay"));
         Check("a star needs a real series id (no path tricks, no empty, no upper case)", !Official.Do("offav", "") && !Official.Do("offav", "..\\..\\x") && !Official.Do("offav", "o12") && !Official.Do("offav", "oABCDEF12") && !Official.Do("offav", "o00000000"));
         Check("the UI-touching commands refuse while a session is on", Dry());
-        Check("import accepts file names only (no folders, no non-PDF)", Route("/official/import", "name", "..\\..\\Windows\\win.ini") == 400 && Route("/official/import", "name", "x.exe") == 400 && Route("/official/import", "name", "nothere.pdf") == 400);
 
         Console.WriteLine("10. ownership overrules: iRacing's own list said Mini Stock is not his");
         File.WriteAllText(Path.Combine(dir, "owned-ui.json"), "{\"checkedAt\":\"2026-10-10T00:00:00Z\",\"cars\":{\"Mini Stock\":false,\"BMW M4 GT3 EVO\":true},\"tracks\":{}}");

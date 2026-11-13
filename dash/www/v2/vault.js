@@ -71,7 +71,6 @@ function renderMeter() {
   setHTML('meter', bytesTxt(d.usedBytes) + ' of ' + bytesTxt(d.budgetBytes) + '<i><u style="width:' + pc.toFixed(1) + '%"></u></i>');
 }
 
-function isKeeper(m) { return m.keeper; }
 const hasVid = m => !!(m.video || m.vid);
 const isRace = m => m.kind === 'race';
 const isBestLap = m => !isRace(m) && m.lapTime > 0 && (m.tags.indexOf('PB') >= 0 || m.tags.indexOf('BEST LAP') >= 0 || m.tags.indexOf('TOP 10') >= 0 || (isNum(m.gap) && Math.abs(m.gap) < 0.0005));

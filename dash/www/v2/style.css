@@ -249,26 +249,12 @@ h2 .sub { color: var(--dim); letter-spacing: .04em; text-transform: none; font-s
   background: radial-gradient(120% 100% at 30% 40%, #101010 0%, #060606 55%, #020202 100%); }
 #overlay.show { display: block; animation: idleIn 1.6s ease both; }
 @keyframes idleIn { from { opacity: 0; } }
-/* a slow pool of warm light drifting across, like pit-lane lamps through a garage door */
-.idle-glow { position: absolute; width: 1400px; height: 1400px; left: -300px; top: -500px; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(242, 194, 48, .10), rgba(242, 194, 48, .03) 55%, transparent);
-  animation: idleDrift 46s ease-in-out infinite alternate; }
-@keyframes idleDrift { to { transform: translate(900px, 260px); } }
-.idle-mark { position: absolute; right: 90px; bottom: -30px; font-size: 860px; line-height: 1; font-weight: 300; font-stretch: condensed;
-  color: transparent; -webkit-text-stroke: 1.5px rgba(242, 194, 48, .16); pointer-events: none; }
 .idle-top { position: absolute; left: 64px; right: 64px; top: 34px; padding-bottom: 18px; border-bottom: 1px solid var(--line);
   display: flex; justify-content: space-between; font-size: 15px; letter-spacing: .32em; text-transform: uppercase; color: var(--mute); }
 .idle-top b { color: var(--ink); font-weight: 600; letter-spacing: .2em; }
 .idle-top .idle-name { color: var(--gold); font-weight: 600; letter-spacing: .5em; }   /* the PADDOCK wordmark */
-.idle-mid { position: absolute; left: 64px; top: 50%; transform: translateY(-52%); max-width: 1250px; }
 .idle-time { font-size: 30px; letter-spacing: .4em; color: var(--gold); font-variant-numeric: tabular-nums; }
 .idle-greet { font-size: 96px; font-weight: 300; letter-spacing: .01em; margin-top: 18px; line-height: 1.05; }
-.idle-line { font-size: 36px; font-weight: 300; color: #c9c5bb; margin-top: 26px; letter-spacing: .02em; transition: opacity 1.4s ease; }
-.idle-line.fade { opacity: 0; }
-.idle-line small { display: block; margin-top: 16px; font-size: 16px; letter-spacing: .32em; text-transform: uppercase; color: var(--gold); }
-.idle-foot { position: absolute; left: 64px; right: 64px; bottom: 34px; padding-top: 18px; border-top: 1px solid var(--line);
-  display: flex; justify-content: space-between; align-items: center; font-size: 15px; letter-spacing: .26em; text-transform: uppercase; color: var(--mute); }
-.idle-foot b { color: var(--ink); font-weight: 600; }
 .idle-status { display: flex; align-items: center; gap: 14px; }
 .idle-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: idleBreath 3.2s ease-in-out infinite; }
 .idle-status em { font-style: normal; text-transform: none; letter-spacing: .04em; }

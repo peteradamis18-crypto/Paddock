@@ -240,7 +240,6 @@ namespace IRDash
         static long budgetOverride = -1;
         public static int RecentDays = 30;
         static double budgetGb = 60; static string clipMode = "copy"; static bool enabled = false;   // vault=1 in irdash.ini is the only ON
-        public static bool Enabled { get { return enabled; } }
         // the test sandbox answers even while vault=0, so the gate can run before the switch is turned on
         public static bool Serving { get { return enabled || sandbox; } }
         public static bool SandboxOn { get { return sandbox; } }

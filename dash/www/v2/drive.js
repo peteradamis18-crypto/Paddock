@@ -3,15 +3,15 @@
 // The screen hangs above the middle race screen, so the glance band (position, gap ahead, delta, laps left, fuel, REC)
 // sits at the bottom; the complete map is upper left, a 7-row battle tower centred on Peter upper right.
 // Everything is built from the frames already in this page: no network on the render path. The REC pill is tv.js
-// Tower.recorder (irdash's one capture verdict). The old five-panel grid stays underneath for the garage and old tests.
+// Drive.recorder (irdash's one capture verdict). The old five-panel grid stays underneath for the garage and old tests.
 const Drive = {
   shown: false, at: 0, mapSig: '', layer: null, layerKey: '', labels: [], gapHist: [], offLap: null, model: null,
-  DASH: '—', DOT: ' · ',
+  DASH: '—', DOT: ' · ', recAt: 0, recBusy: false,
 
   // in the car: a live frame with IsOnTrack. A frozen feed keeps the screen (greyed, with its age) for a minute.
   want() {
     // off until the lead's visual sign-off: only ?drive=1 (tests, previews) or TV VIEW (the camera lives in Drive's map slot)
-    if (QS.has('grid') || !(QS.has('drive') || (typeof Tv !== 'undefined' && Tv.on))) return false;
+    if (QS.has('grid') || !(QS.has('drive'))) return false;
     const v = L.v;
     if (!L.connected || !v || !v.IsOnTrack || v.IsReplayPlaying) return false;
     return performance.now() - L.lastFrameAt < 60000;
@@ -32,7 +32,7 @@ const Drive = {
     }
     if (!want || now - this.at < 250) return;
     this.at = now;
-    if (typeof Tower !== 'undefined') Tower.recorder();
+    this.recorder();
     try {
       this.model = this.build();
       this.paint(this.model);
@@ -40,6 +40,24 @@ const Drive = {
     } catch (e) { console.error(e); }
   },
 
+  recorder() {
+    const now = Date.now(); if (this.recBusy || now - this.recAt < 2000) return;
+    this.recBusy = true; this.recAt = now;
+    fetch('/vault/recorder', { cache: 'no-store' }).then(r => r.json()).then(d => this.showRec(d))
+      .catch(() => this.showRec(null)).then(() => { this.recBusy = false; });
+  },
+  // irdash's one verdict (recorder.cs CaptureJson): REC only while video is really landing on disk. null = irdash did not answer.
+  showRec(d) {
+    const el = $('dRec'); if (!el) return;
+    const c = d && d.capture, st = c && c.state;
+    const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+    const mute = st === 'recording' && c.audio === 'failed';      // the picture is landing, the sound is not: say so, nothing more
+    const words = { recording: 'REC ' + mmss(c && c.secs) + (mute ? ' · NO SOUND' : ''), starting: 'REC STARTING', 'paused-disk': 'REC PAUSED: DISK FULL', stalled: 'NOT RECORDING', failed: 'NOT RECORDING' };
+    const text = d ? words[st] || '' : 'RECORDING UNKNOWN';
+    el.hidden = !text;
+    el.querySelector('span').textContent = text;
+    el.className = !text ? '' : !d ? 'warn' : st === 'recording' ? (mute ? 'warn' : '') : st === 'stalled' || st === 'failed' ? 'bad' : 'warn';
+  },
   /* ---------- formatting ---------- */
   lap(t) { if (!isNum(t) || t <= 0) return this.DASH; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); },
   clock(s) { if (!isNum(s) || s < 0) return this.DASH; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60, p = n => (n < 10 ? '0' : '') + n; return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x); },
@@ -214,7 +232,7 @@ const Drive = {
   /* ---------- the map ---------- */
   // called by the dashboard's canvas loop (30 fps cap); redraws only when a car moved a visible amount
   frame() {
-    if (!this.shown || (typeof Tv !== 'undefined' && Tv.on)) return;
+    if (!this.shown) return;
     const v = L.v, stale = this.model ? this.model.stale > 0 : false;
     const sig = [TrackMap.key, TrackMap.source, TrackMap.pts ? TrackMap.pts.length : 0, TrackMap.status, TrackInfo.version, S.version, stale, v.PlayerCarIdx,
       (v.CarIdxLapDistPct || []).map(x => isNum(x) ? Math.round(x * 2000) : -1).join(',')].join('|');

@@ -296,7 +296,7 @@ if (Test-Path $chrome) {
     $rj = $null; try { $rj = $res | ConvertFrom-Json } catch { }
     # webkitAudioDecodedByteCount counts the COMPRESSED sound bytes decoded: the test clicks are mostly silence (~6 kbit/s), so 2.5 s is ~2 kB
     Check "Chrome plays the session file with sound, not muted (decoded $(if ($rj) { $rj.a } else { $res }) bytes of AAC in $(if ($rj) { [math]::Round($rj.t, 1) }) s)" ($rj -and $rj.a -gt 1000 -and $rj.t -gt 1 -and -not $rj.muted)
-    $syn = Ev "(async()=>{const out=[];for(const f of ['workbench-video.js','home.js','tv.js','debrief-v4.js','vault.js']){try{new Function(await (await fetch('/v2/'+f,{cache:'no-store'})).text());out.push(f+' ok')}catch(e){out.push(f+' '+e.message)}}return out.join(', ')})()"
+    $syn = Ev "(async()=>{const out=[];for(const f of ['workbench-video.js','home.js','debrief-v4.js','vault.js']){try{new Function(await (await fetch('/v2/'+f,{cache:'no-store'})).text());out.push(f+' ok')}catch(e){out.push(f+' '+e.message)}}return out.join(', ')})()"
     Check "the changed scripts parse ($syn)" ($syn -notmatch 'js error' -and ([regex]::Matches($syn, ' ok').Count -eq 5))
   } finally {
     try { $ws.Dispose() } catch { }; try { $p | Stop-Process -Force } catch { }
