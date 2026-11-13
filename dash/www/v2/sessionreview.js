@@ -11,7 +11,7 @@
 const SessionReview = (function () {
   // typed text (design 3A). No made-up team: it said PRATT MILLER MOTORSPORTS on a BMW and a Porsche when the file had no team name.
 const MY = { name: 'PETER', team: '', number: '4' };   // the number and team come from the session when it has them
-  const GOLD = '#f2c230', GAIN = '#3ccf7e', LOSS = '#e5534b', MUTE = '#8b877d', DIM = '#5d5a54', INK = '#ece8df';
+  const GOLD = '#C9A24B', GAIN = '#3ccf7e', LOSS = '#e5534b', MUTE = '#8b877d', DIM = '#5d5a54', INK = '#ece8df';
   const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'], MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const EPS = 1e-6, MAXROWS = 19;
   const MAPW = 824, MAPH = 470;

@@ -8,8 +8,8 @@
 // /api/do?c=wb-<name>, which the page polls at /workbench/cmd.
 (function () {
 'use strict';
-var C = { gold: '#f2c230', ref: '#cfd8e3', gain: '#3ccf7e', loss: '#e5534b', mute: '#8b877d', dim: '#5d5a54', line: '#26262a', abs: '#ff9f43',
-  purple: '#b46cff', ink: '#ece8df', band: '#131316', bandOn: 'rgba(242,194,48,.07)', rear: '#e8a94a', wf: '#9b87d6' };
+var C = { gold: '#C9A24B', ref: '#cfd8e3', gain: '#3ccf7e', loss: '#e5534b', mute: '#8b877d', dim: '#5d5a54', line: '#26262a', abs: '#ff9f43',
+  purple: '#b46cff', ink: '#ece8df', band: '#131316', bandOn: 'rgba(201, 162, 75,.07)', rear: '#e8a94a', wf: '#9b87d6' };
 var FONT = 'Bahnschrift, "Segoe UI", sans-serif';
 var GRAV = 9.81, PH = 20;                                   // PH: the display title line above every canvas
 var CHANS = ['Speed', 'Throttle', 'Brake', 'BrakeABSactive', 'SteeringWheelAngle', 'SteeringWheelPctTorque', 'Gear', 'RPM', 'LatAccel', 'LongAccel',
@@ -34,7 +34,7 @@ var CAT = {
   rideLF: { label: 'Ride height LF mm', dec: 1 }, rideRF: { label: 'Ride height RF mm', dec: 1 }, rideLR: { label: 'Ride height LR mm', dec: 1 }, rideRR: { label: 'Ride height RR mm', dec: 1 },
   rake: { label: 'Rake mm', dec: 1 }
 };
-var MULTI = ['#cfd8e3', '#3ccf7e', '#a77bff', '#f2c230', '#88888f'];
+var MULTI = ['#cfd8e3', '#3ccf7e', '#a77bff', '#C9A24B', '#88888f'];
 
 var P = new URLSearchParams(location.search);
 var LIVE = !P.get('data');
@@ -764,7 +764,7 @@ StintChart.prototype.drawStatic = function () {
     var tickT = function (t) { var m = Math.floor(t / 60); return m + ':' + (t - m * 60 < 10 ? '0' : '') + (t - m * 60).toFixed(1); };
     [lo, (lo + hi) / 2, hi].forEach(function (t) { g.strokeStyle = '#17171a'; g.beginPath(); g.moveTo(X0, Math.round(Y(t)) + 0.5); g.lineTo(X1, Math.round(Y(t)) + 0.5); g.stroke(); self.text(g, self.tbS, tickT(t), 0, Y(t) + 5, 14, C.dim, 'left'); });
     if (rt != null) { g.setLineDash([2, 3]); g.strokeStyle = C.ref; g.lineWidth = 1.2; g.beginPath(); g.moveTo(X0, Y(rt)); g.lineTo(X1, Y(rt)); g.stroke(); g.setLineDash([]); self.text(g, self.tbS, 'REF', w - 2, Y(rt) + 5, 14, C.ref, 'right'); }
-    g.strokeStyle = 'rgba(242,194,48,.45)'; g.lineWidth = 1; g.beginPath(); pts.forEach(function (l, k) { if (k) g.lineTo(X(l.n), Y(l.time)); else g.moveTo(X(l.n), Y(l.time)); }); g.stroke();
+    g.strokeStyle = 'rgba(201, 162, 75,.45)'; g.lineWidth = 1; g.beginPath(); pts.forEach(function (l, k) { if (k) g.lineTo(X(l.n), Y(l.time)); else g.moveTo(X(l.n), Y(l.time)); }); g.stroke();
     var bt = Math.min.apply(null, pts.filter(function (l) { return l.counted; }).map(function (l) { return l.time; }));      // the best is a lap iRacing counted; a faster one it did not count is drawn grey
     pts.forEach(function (l) {
       var isBest = l.counted && l.time === bt, cur = l.n === D.head.lap.lap;
@@ -775,7 +775,7 @@ StintChart.prototype.drawStatic = function () {
   } else if (which === 'fuel') {
     var mx = Math.max.apply(null, pts.map(function (l) { return l.fuel; })) * 1.5, bwid = Math.min(40, (X1 - X0) / pts.length * 0.6), Yf = function (v) { return Y1 - v / mx * (Y1 - Y0 - 14); };
     var avg = pts.reduce(function (a, l) { return a + l.fuel; }, 0) / pts.length;
-    pts.forEach(function (l) { g.fillStyle = l.n === D.head.lap.lap ? C.gold : 'rgba(242,194,48,.62)'; g.fillRect(X(l.n) - bwid / 2, Yf(l.fuel), bwid, Y1 - Yf(l.fuel)); if (bwid >= 26) self.text(g, self.tbS, l.fuel.toFixed(2), X(l.n), Yf(l.fuel) - 5, 14, C.mute, 'center'); });
+    pts.forEach(function (l) { g.fillStyle = l.n === D.head.lap.lap ? C.gold : 'rgba(201, 162, 75,.62)'; g.fillRect(X(l.n) - bwid / 2, Yf(l.fuel), bwid, Y1 - Yf(l.fuel)); if (bwid >= 26) self.text(g, self.tbS, l.fuel.toFixed(2), X(l.n), Yf(l.fuel) - 5, 14, C.mute, 'center'); });
     g.setLineDash([3, 4]); g.strokeStyle = C.ref; g.lineWidth = 1.2; g.beginPath(); g.moveTo(X0, Yf(avg)); g.lineTo(X1, Yf(avg)); g.stroke(); g.setLineDash([]);
     var last = pts[pts.length - 1], left = last.fuelStart != null ? last.fuelStart - last.fuel : null;
     self.text(g, self.tbS, 'average ' + avg.toFixed(2) + ' l per lap' + (left != null ? ' · ' + left.toFixed(1) + ' l left after lap ' + last.n + ' · ' + (left / avg).toFixed(1) + ' laps left' : ''), 0, 20, 16, C.ink, 'left');
@@ -838,7 +838,7 @@ Histo.prototype.drawStatic = function () {
   var bx = function (b) { return X0 + b / H.nb * (X1 - X0); }, by = function (v) { return Y1 - v / ymax * (Y1 - Y0); };
   g.strokeStyle = '#17171a'; g.lineWidth = 1; g.beginPath(); g.moveTo(X0, Math.round(by(ymax)) + 0.5); g.lineTo(X1, Math.round(by(ymax)) + 0.5); g.stroke();
   g.strokeStyle = C.line; g.beginPath(); g.moveTo(X0, Y1 + 0.5); g.lineTo(X1, Y1 + 0.5); g.stroke();
-  g.fillStyle = 'rgba(242,194,48,.78)'; for (k = 0; k < H.nb; k++) if (H.a[k] > 0) g.fillRect(bx(k) + 0.5, by(H.a[k]), Math.max(1, bx(k + 1) - bx(k) - 1), Y1 - by(H.a[k]));
+  g.fillStyle = 'rgba(201, 162, 75,.78)'; for (k = 0; k < H.nb; k++) if (H.a[k] > 0) g.fillRect(bx(k) + 0.5, by(H.a[k]), Math.max(1, bx(k + 1) - bx(k) - 1), Y1 - by(H.a[k]));
   if (H.r) { g.strokeStyle = C.ref; g.lineWidth = 1.4; g.setLineDash([]); g.beginPath(); for (k = 0; k < H.nb; k++) { var yy = by(H.r[k]); if (k) { g.lineTo(bx(k), by(H.r[k - 1])); g.lineTo(bx(k), yy); } else g.moveTo(bx(k), yy); g.lineTo(bx(k + 1), yy); } g.stroke(); }
   this.text(g, this.tbS, ymax.toFixed(0) + ' %', 0, Y0 + 13, 14, C.dim, 'left');
   var lab = function (v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(0); };
@@ -1245,7 +1245,7 @@ function modeLine() {
   if (D.R) m.push((S.offsetMode ? '<b>OFFSET MODE</b> · ' : '') + 'OFFSET <button class="offbtn" data-off="-1" aria-label="Offset minus one metre">−</button> <b>' + sgn(S.offsetM, 0) + ' m · ' + sgn(S.offsetS, 2) + ' s</b> <button class="offbtn" data-off="1" aria-label="Offset plus one metre">+</button>' + (S.autoResult === 'unavailable' ? ' · AUTO UNAVAILABLE' : ''));
   if (S.refCur != null) m.push('R CURSOR'); if (zoomed()) m.push('ZOOM <b>' + ((S.z1 - S.z0) * D.step / 1000).toFixed(2) + ' km</b>');
   document.getElementById('mode').innerHTML = m.join(' · ');
-  Array.prototype.forEach.call(document.querySelectorAll('.offbtn'), function (b) { b.onclick = function () { WB.cmd('offset', b.getAttribute('data-off')); }; b.style.cssText = 'background:#121214;border:1px solid #5a4a14;color:#f2c230;font:inherit;font-size:16px;line-height:18px;width:28px;height:20px;padding:0;vertical-align:middle;cursor:pointer'; });
+  Array.prototype.forEach.call(document.querySelectorAll('.offbtn'), function (b) { b.onclick = function () { WB.cmd('offset', b.getAttribute('data-off')); }; b.style.cssText = 'background:#121214;border:1px solid #5a4a14;color:#C9A24B;font:inherit;font-size:16px;line-height:18px;width:28px;height:20px;padding:0;vertical-align:middle;cursor:pointer'; });
 }
 function openLap(n, ref) {
   if (!LIVE) return;                                     // a fixture is one lap; nothing to open

@@ -1,6 +1,6 @@
 /* Vault: the same black-and-gold broadcast look as the sessions page and the debrief. Gold = yours / kept / chosen.
    Result colours are fixed everywhere in Paddock (style.css): purple = your fastest ever, green = a new personal best that day, gold = a win / podium / top laps. */
-:root { --gold: #f2c230; --ink: #f4f1ea; --mute: #a29e94; --dim: #6f6b63; --line: rgba(244, 241, 234, .14); --hair: rgba(244, 241, 234, .08);
+:root { --gold: #C9A24B; --ink: #f4f1ea; --mute: #a29e94; --dim: #6f6b63; --line: rgba(244, 241, 234, .14); --hair: rgba(244, 241, 234, .08);
   --cmp: #29d3f5; --good: #2fe07a; --bad: #ff5a4d; --surface: #060606; --purple: #c46cff; --green: #3ccf7e; --cols: 4; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--surface); color: var(--ink); overflow: hidden;
@@ -42,7 +42,7 @@ h1 { margin: 0; font-size: 44px; font-weight: 300; letter-spacing: .01em; line-h
 .tab { background: none; border: 0; border-right: 1px solid var(--line); padding: 0 24px; height: 60px; font-size: 22px; letter-spacing: .04em; color: #d8d4ca; white-space: nowrap; }
 .tab:last-child { border-right: 0; }
 .tab i { font-style: normal; color: var(--mute); margin-left: 10px; font-size: 20px; }
-.tab:hover { background: rgba(242, 194, 48, .08); }
+.tab:hover { background: rgba(201, 162, 75, .08); }
 .tab.on { background: var(--gold); color: #111; font-weight: 600; }
 .tab.on i { color: #3b3110; }
 .drops { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -58,14 +58,14 @@ h1 { margin: 0; font-size: 44px; font-weight: 300; letter-spacing: .01em; line-h
 .sizes label { padding: 0 14px 0 18px; font-size: 20px; color: var(--mute); }
 .sz { width: 60px; height: 60px; background: none; border: 0; border-left: 1px solid var(--line); font-size: 22px; font-weight: 600; color: #d8d4ca; }
 .sz.on { background: var(--gold); color: #111; }
-.sz:hover:not(.on) { background: rgba(242, 194, 48, .08); }
+.sz:hover:not(.on) { background: rgba(201, 162, 75, .08); }
 
 /* the big list a drop-down opens (56 px rows, nothing to type) */
 #pop { position: absolute; z-index: 20; min-width: 420px; max-width: 640px; max-height: 70vh; overflow-y: auto; background: #0e0e0c; border: 1px solid var(--gold);
   border-radius: 6px; box-shadow: 0 18px 50px rgba(0, 0, 0, .7); padding: 6px 0; scrollbar-width: thin; scrollbar-color: #3a3832 transparent; }
 #pop button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 24px; min-height: 58px; padding: 0 22px; background: none; border: 0; font-size: 22px; color: var(--ink); text-align: left; }
 #pop button i { font-style: normal; color: var(--mute); font-size: 20px; }
-#pop button:hover, #pop button:focus-visible { background: rgba(242, 194, 48, .12); outline: none; }
+#pop button:hover, #pop button:focus-visible { background: rgba(201, 162, 75, .12); outline: none; }
 #pop button.on { color: var(--gold); font-weight: 600; }
 
 /* ---------- the grid, grouped by day, then by session ---------- */
@@ -78,7 +78,7 @@ h1 { margin: 0; font-size: 44px; font-weight: 300; letter-spacing: .01em; line-h
 .day em { font-style: normal; font-weight: 400; font-size: 20px; color: var(--mute); letter-spacing: .03em; }
 .dgrid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 26px 22px; padding: 4px 2px 30px; align-items: start; }
 .sgrp { min-width: 0; }
-.sess { display: flex; align-items: baseline; gap: 12px; padding: 10px 2px 10px; border-top: 2px solid rgba(242, 194, 48, .35); font-size: 22px; color: #d8d4ca; white-space: nowrap; overflow: hidden; }
+.sess { display: flex; align-items: baseline; gap: 12px; padding: 10px 2px 10px; border-top: 2px solid rgba(201, 162, 75, .35); font-size: 22px; color: #d8d4ca; white-space: nowrap; overflow: hidden; }
 .sess b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sess .ty { flex: none; color: var(--gold); letter-spacing: .08em; text-transform: uppercase; font-size: 20px; }
 .sess em { flex: none; margin-left: auto; font-style: normal; color: var(--mute); font-size: 20px; }
@@ -87,7 +87,7 @@ h1 { margin: 0; font-size: 44px; font-weight: 300; letter-spacing: .01em; line-h
 #grid.s-S { --cols: 5; } #grid.s-M { --cols: 4; } #grid.s-L { --cols: 3; }
 
 .card { position: relative; background: #0c0c0b; border: 1px solid var(--hair); border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; overflow: hidden; transition: border-color .15s, transform .15s; }
-.card:hover { border-color: rgba(242, 194, 48, .7); }
+.card:hover { border-color: rgba(201, 162, 75, .7); }
 .card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; z-index: 2; background: transparent; }
 .card.r-fast::before { background: var(--purple); }
 .card.r-pb::before { background: var(--green); }
@@ -145,7 +145,7 @@ h1 { margin: 0; font-size: 44px; font-weight: 300; letter-spacing: .01em; line-h
 .lap { display: grid; grid-template-columns: 36px 1fr 96px 60px; align-items: center; gap: 8px; height: 44px; padding: 0 8px; border-bottom: 1px solid var(--hair); font-size: 20px; cursor: pointer; border-left: 3px solid transparent; font-variant-numeric: tabular-nums; }
 .lap:hover { background: rgba(244, 241, 234, .05); }
 .lap .n { color: var(--mute); } .lap .d { text-align: right; color: var(--mute); font-size: 18px; } .lap .fl { color: var(--dim); font-size: 16px; letter-spacing: .06em; }
-.lap.cur { border-left-color: var(--gold); background: rgba(242, 194, 48, .08); }
+.lap.cur { border-left-color: var(--gold); background: rgba(201, 162, 75, .08); }
 .lap.dim { opacity: .5; }
 #lapScroll { max-height: 300px; }
 textarea.note { width: 100%; min-height: 70px; resize: vertical; background: rgba(244, 241, 234, .03); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; font-size: 20px; color: var(--ink); }
@@ -192,7 +192,7 @@ select.pick { background: #0b0b0a; border: 1px solid var(--line); border-radius:
 #cornerBox { flex: none; display: flex; flex-direction: column; }
 .ct { display: grid; grid-template-columns: 50px minmax(0, 1fr) 76px 84px 100px; gap: 8px; align-items: center; height: 38px; padding: 0 6px; border-bottom: 1px solid var(--hair); font-size: 18px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .ct.h { height: 30px; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: default; position: sticky; top: 0; background: #0a0a09; }
-.ct:not(.h):hover { background: rgba(242, 194, 48, .07); }
+.ct:not(.h):hover { background: rgba(201, 162, 75, .07); }
 .ct .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d8d4ca; }
 .ct .nm b { color: var(--gold); font-weight: 600; margin-right: 8px; }
 .ct .r { text-align: right; }

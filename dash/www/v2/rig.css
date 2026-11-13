@@ -1,5 +1,5 @@
 /* Rig Doctor (top screen), the idle-screen rig line, overlay notices. Same look as the idle screen (gold on near-black). */
-#doctor { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --good: #2fe07a; --amb: #ffb21e; --bad: #ff4d4d;
+#doctor { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --good: #2fe07a; --amb: #ffb21e; --bad: #ff4d4d;
   position: fixed; inset: 0; z-index: 940; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .6s ease;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 30% 40%, #101010 0%, #060606 55%, #020202 100%); }
@@ -35,6 +35,6 @@
 
 /* a few seconds at the top when the Stream Deck changes the overlays */
 #ovlToast { position: fixed; top: 176px; left: 50%; transform: translate(-50%, -8px); max-width: 1000px; z-index: 6; opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease;
-  background: #1c1704; border: 1px solid #f2c230; color: var(--text); border-radius: 6px; padding: 10px 18px; font-size: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, .6); }
+  background: #1c1704; border: 1px solid #C9A24B; color: var(--text); border-radius: 6px; padding: 10px 18px; font-size: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, .6); }
 #ovlToast.on { opacity: 1; transform: translate(-50%, 0); }
-#ovlToast b { color: #f2c230; margin-right: 12px; letter-spacing: .12em; text-transform: uppercase; font-size: 14px; }
+#ovlToast b { color: #C9A24B; margin-right: 12px; letter-spacing: .12em; text-transform: uppercase; font-size: 14px; }

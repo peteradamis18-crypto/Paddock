@@ -92,7 +92,7 @@ $audit = @'
     if (parseFloat(cs.fontSize) < 20) small.push(e.textContent.trim().slice(0, 24) + ' ' + cs.fontSize);
     if (!e.classList.contains('nm') && !e.closest('.nm') && e.scrollWidth > e.clientWidth + 1 && cs.display !== 'inline') clip.push(e.textContent.trim().slice(0, 24));
     if (r.right > 1920.5 || r.bottom > 1080.5 || r.left < -0.5 || r.top < -0.5) off.push(e.textContent.trim().slice(0, 24));
-    if (cs.color === 'rgb(242, 194, 48)' && !e.closest('.trow.me')) gold.push(e.textContent.trim().slice(0, 24));
+    if (cs.color === 'rgb(201, 162, 75)' && !e.closest('.trow.me')) gold.push(e.textContent.trim().slice(0, 24));
     text += ' ' + e.textContent;
   });
   // text boxes of the band cells and the regions must not overlap
@@ -103,7 +103,7 @@ $audit = @'
   for (var i = 0; i < reg.length; i++) for (var j = i + 1; j < reg.length; j++) { var a = reg[i].r, b = reg[j].r; if (Math.min(a.right, b.right) > Math.max(a.left, b.left) + 0.5 && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top) + 0.5) over.push(reg[i].id + '|' + reg[j].id); }
   // gold pixels on the map only around Peter's dot
   var cv = document.getElementById('dMapCv'), g = cv.getContext('2d'), im = g.getImageData(0, 0, cv.width, cv.height).data, me = Drive.mePt, goldPx = 0, goldFar = 0;
-  for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) { var p = (y * cv.width + x) * 4; if (im[p] > 215 && im[p + 1] > 165 && im[p + 1] < 215 && im[p + 2] < 90) { goldPx++; if (!me || Math.hypot(x - me[0], y - me[1]) > 24) goldFar++; } }
+  for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) { var p = (y * cv.width + x) * 4; if (im[p] > 185 && im[p + 1] > 145 && im[p + 1] < 215 && im[p + 2] < 100) { goldPx++; if (!me || Math.hypot(x - me[0], y - me[1]) > 24) goldFar++; } }
   var rows = [].slice.call(dr.querySelectorAll('#dRows .trow')).map(function(r){ return { idx: +r.dataset.idx, p: r.querySelector('.p').textContent, n: r.querySelector('.n').textContent, nm: r.querySelector('.nm').textContent, g: r.querySelector('.g').textContent, me: r.classList.contains('me'), pit: r.classList.contains('pit'), cls: r.style.getPropertyValue('--class') }; });
   var rec = document.getElementById('dRec');
   var dr0 = dr.getBoundingClientRect();

@@ -1,7 +1,7 @@
 /* Startup intro: plays once per Windows start (and on the SHOWCASE key), then fades into the dashboard.
    Corvette Racing yellow-gold on black, broadcast timing-graphics style. Click or any key skips it. */
 #intro {
-  --gold: #f2c230; --gold-dim: rgba(242, 194, 48, .55); --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
+  --gold: #C9A24B; --gold-dim: rgba(201, 162, 75, .55); --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
   --green: #1fbf5f;
   position: fixed; inset: 0; z-index: 1000; overflow: hidden; cursor: none;
   background: radial-gradient(120% 90% at 50% 45%, #121212 0%, #060606 60%, #020202 100%);
