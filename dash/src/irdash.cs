@@ -657,7 +657,7 @@ namespace IRDash
                     if (method == "GET" && path == "/debrief/nav") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Debrief.NavJson()), "Access-Control-Allow-Origin: *\r\n"); return; }   // D-05: the DEEP DIVE the deck asked for, for the dashboard's debrief screen
                     if (method == "GET" && path == "/debrief/video") { var vq = ParseQuery(query); string vid; vq.TryGetValue("id", out vid); Debrief.ServeVideo(s, vid, hdr); return; }   // D-04: the corner/incident clip this engine cut (Range works)
                     if (method == "GET" && path == "/analysis/session") { int sc; string sj = Analysis.SessionRoute(ParseQuery(query), out sc); Send(s, sc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(sj), "Access-Control-Allow-Origin: *\r\n"); return; }   // Session Review data (sessionreview.cs, C-40): one JSON for the whole timing screen, 503 while he drives
-                    if (method == "GET" && (path != "/analysis/lap" && path.StartsWith("/analysis/")))      // lap analysis engines (analysis.cs). Reads old files only; 503 while he is driving.
+                    if (method == "GET" && (path == "/analysis/lap" || path.StartsWith("/analysis/")))      // lap analysis engines (analysis.cs). Reads old files only; 503 while he is driving.
                     {
                         int ac; string aj = Analysis.Route(path, ParseQuery(query), out ac);
                         Send(s, ac, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(aj), "Access-Control-Allow-Origin: *\r\n"); return;

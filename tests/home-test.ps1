@@ -309,7 +309,7 @@ public static class PitProbe {
   Check 'with a picture: the official picture is asked for at its native 480 px, and the name row sits under the button' ($fixture.cached.frame -and $fixture.cached.calls -eq 1 -and $fixture.cached.width -eq 480 -and $fixture.cached.row -match 'Peter Fixture') ($fixture.cached | ConvertTo-Json -Compress)
   Check 'no picture for that car: his number and name take the car slot in clean type, no frame, no drawing' (-not $fixture.absent.frame -and $fixture.absent.big -match '4' -and $fixture.absent.big -match 'Peter Fixture' -and $fixture.absent.svg -eq 0) ($fixture.absent | ConvertTo-Json -Compress)
   Check 'no identity at all: nothing is invented (no name, number or picture)' (-not $fixture.empty.frame -and -not $fixture.empty.big -and -not $fixture.empty.row) ($fixture.empty | ConvertTo-Json -Compress)
-  $nocar = Cdp-Json "({ pcars: document.querySelectorAll('svg.pcar').length, api: typeof window.PCars, dormant: typeof window.PCarsDormant, hero: !!document.getElementById('heroImg') })"
+  $nocar = Cdp-Json "({ pcars: document.querySelectorAll('svg.pcar').length, api: typeof window.PCars, hero: !!document.getElementById('heroImg') })"
   Check "no DRAWN car and no stock photo on HOME (svg.pcar $($nocar.pcars), window.PCars $($nocar.api), hero photo element present: $($nocar.hero))" ($nocar.pcars -eq 0 -and $nocar.api -eq 'undefined' -and -not $nocar.hero)
 
   Section '2b. the numbers on screen equal the endpoints'
