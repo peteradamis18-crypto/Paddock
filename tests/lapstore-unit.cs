@@ -56,7 +56,9 @@ namespace IRDash
                 Case("lap 0 (formation / out lap) is never a lap", false, "lap0", 0, 220.9, true, false, false, true, -1, -1);
                 Case("a slower clean lap iRacing timed is counted", true, "", 4, 94.933, true, false, false, true, 93.919, 93.919);
                 Case("a new best that iRacing's best lap became is counted", true, "", 9, 93.832, true, false, false, true, 93.919, 93.832);
-                Case("an incident lap is not counted, even with a time", false, "incident", 6, 93.639, true, false, true, true, 93.919, 93.919);
+                Case("an incident lap is not counted, even with a time", false, "incident", 7, 94.831, true, false, true, true, 93.919, 93.919);
+                Case("a quicker incident lap iRacing's best did not take is not counted (12 Nov lap 6)", false, "not-best", 6, 93.639, true, false, true, true, 93.919, 93.919);
+                Case("a quicker lap iRacing's best became counts even with an incident (practice)", true, "", 4, 104.133, true, false, true, true, 106.687, 104.133);
                 Case("a quicker lap iRacing's best did not follow is not counted", false, "not-best", 6, 93.639, true, false, false, true, 93.919, 93.919);
                 Case("a lap with one off-track record but iRacing's own time is counted", true, "", 3, 93.919, true, false, false, true, 94.863, 93.919);
                 Case("a pit lap is not counted", false, "pit", 5, 120.0, true, true, false, true, 93.919, 93.919);

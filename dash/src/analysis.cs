@@ -915,7 +915,7 @@ namespace IRDash
                     if (fl.Car != main.Car || fl.Track != main.Track || fl.Config != main.Config) continue;
                     if (fl.Size == mainLen && main.HeaderTicks > 0 && fl.StartUtc == new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(main.HeaderTicks)) continue;   // a copy of the same session
                     LapRec b = fl.BestLap;
-                    if (b != null) known.Add(new KeyValuePair<double, string>(b.Time, f));
+                    known.Add(new KeyValuePair<double, string>(b != null ? b.Time : double.MaxValue, f));      // no counted lap: last, but still one of his sessions here
                     continue;
                 }
                 long ticks, size;

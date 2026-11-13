@@ -45,12 +45,17 @@ namespace IRDash
             if (pit) { why = "pit"; return false; }
             if (!timed) { why = "no-time"; return false; }
             if (time < MinLap || time > MaxLap) { why = "short"; return false; }
-            if (incident) { why = "incident"; return false; }                    // iRacing leaves an incident lap out of its best
             if (haveBest && (bestBefore <= 0 || time < bestBefore - Slack))
             {
-                // quicker than iRacing's best so far: its own best must become this lap, or it did not count it
+                // quicker than iRacing's best so far: iRacing's own verdict decides. Its best became this lap = counted, even with an incident
+                // (practice, Ferrari 2026-10-10 17-45-41: every lap had incidents and iRacing counted each); it did not = not counted.
                 if (!(bestAfter > 0 && Math.Abs(bestAfter - time) <= Slack)) { why = "not-best"; return false; }
+                why = "";
+                return true;
             }
+            // not quicker, so iRacing's best cannot tell: an incident in the lap means not counted (in races iRacing leaves incident laps out:
+            // 12 Nov lap 6, Corvette 2026-10-06 lap 15 were quicker and had incidents, and its best did not take them)
+            if (incident) { why = "incident"; return false; }
             why = "";
             return true;
         }
@@ -106,7 +111,7 @@ namespace IRDash
             pending = false;
             LapRec r = new LapRec(); r.N = lapNo; r.Pit = pit; r.Incident = incident; r.OffRecords = offRecords; r.Off = offRecords > 0;
             bool timed = !double.IsNaN(announced);
-            r.Time = timed ? announced : computed;
+            r.Time = Math.Round(timed ? announced : computed, 3);
             if (timed) lastSeen = announced;
             string why;
             r.Counted = LapRules.Judge(lapNo, r.Time, timed, pit, incident, true, bestBefore, seenBest, out why);
@@ -255,7 +260,7 @@ namespace IRDash
                 for (int x = b; x < end; x++) if (llt[x] > 1 && Math.Abs(llt[x] - before) > 0.0005) { announced = llt[x]; at = x; break; }
                 if (announced < 0 && before > 1 && Math.Abs(before - computed) < 0.01) { announced = before; at = b; }   // the same time as the lap before: it never changes
                 bool timed = announced > 0 && Math.Abs(announced - computed) < computed * LapRules.TimeTolPart;
-                l.Time = timed ? announced : computed;
+                l.Time = Math.Round(timed ? announced : computed, 3);      // to the millisecond, as iRacing shows it and as the cache stores it (a fresh read and a cached one must agree)
                 double bb = -1, ba = -1;
                 if (best != null)
                 {

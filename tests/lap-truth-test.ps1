@@ -80,7 +80,7 @@ try {
     ok '7 counted: laps 2, 3, 4, 5, 8, 9, 10' ($f['store.counted'] -eq '7') "counted $($f['store.counted'])"
     $cnt = @(); for ($n = 1; $n -le 10; $n++) { if ($f["store.lap$n"] -match ' counted ') { $cnt += $n } }
     ok '... exactly those laps' (($cnt -join ',') -eq '2,3,4,5,8,9,10') ($cnt -join ',')
-    ok 'lap 6 (1:33.639) had an incident and is not counted' ($f['store.lap6'] -match '^93\.639 not-counted incident incident') $f['store.lap6']
+    ok 'lap 6 (1:33.639, an incident) is not counted: iRacing kept 1:33.919 as its best' ($f['store.lap6'] -match '^93\.639 not-counted not-best incident') $f['store.lap6']
     ok 'lap 7 had an incident too (+1 at 09:41:51) and is not counted' ($f['store.lap7'] -match '^94\.831 not-counted incident incident') $f['store.lap7']
     ok 'lap 1 is not counted: iRacing''s best lap stayed empty after it' ($f['store.lap1'] -eq '101.580 not-counted not-best') $f['store.lap1']
     ok 'laps 3 and 9 had one off-track record each and still count (iRacing''s own verdict)' ($f['store.lap3'] -eq '93.919 counted - off' -and $f['store.lap9'] -eq '93.832 counted - off') "$($f['store.lap3']) | $($f['store.lap9'])"

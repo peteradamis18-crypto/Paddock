@@ -49,17 +49,17 @@ function Read-Raw($file) {
   for ($i = 0; $i -lt $nv; $i++) { $p = $vho + 144 * $i; $vars[[Text.Encoding]::ASCII.GetString($b, $p + 16, 32).Trim([char]0)] = [BitConverter]::ToInt32($b, $p + 4) }
   $n = [int](($b.Length - $bo) / $bl)
   $lap = New-Object 'int[]' $n; $llt = New-Object 'double[]' $n; $pct = New-Object 'double[]' $n; $st = New-Object 'double[]' $n; $on = New-Object 'byte[]' $n
-  $surf = New-Object 'int[]' $n; $bst = New-Object 'double[]' $n      # L-1: PlayerTrackSurface (0 = off track) and iRacing's own best lap of the session (LapBestLapTime, -1 = none yet)
-  $oL = $vars['Lap']; $oT = $vars['LapLastLapTime']; $oP = $vars['LapDistPct']; $oS = $vars['SessionTime']; $oO = $vars['IsOnTrack']; $oSf = $vars['PlayerTrackSurface']; $oBt = $vars['LapBestLapTime']
+  $surf = New-Object 'int[]' $n; $bst = New-Object 'double[]' $n; $inc = New-Object 'int[]' $n      # W0-6: PlayerCarMyIncidentCount too      # L-1: PlayerTrackSurface (0 = off track) and iRacing's own best lap of the session (LapBestLapTime, -1 = none yet)
+  $oL = $vars['Lap']; $oT = $vars['LapLastLapTime']; $oP = $vars['LapDistPct']; $oS = $vars['SessionTime']; $oO = $vars['IsOnTrack']; $oSf = $vars['PlayerTrackSurface']; $oBt = $vars['LapBestLapTime']; $oI = $vars['PlayerCarMyIncidentCount']
   for ($r = 0; $r -lt $n; $r++) {
     $base = $bo + $r * $bl
     $lap[$r] = [BitConverter]::ToInt32($b, $base + $oL); $llt[$r] = [BitConverter]::ToSingle($b, $base + $oT)
     $pct[$r] = [BitConverter]::ToSingle($b, $base + $oP); $st[$r] = [BitConverter]::ToDouble($b, $base + $oS); $on[$r] = $b[$base + $oO]
-    $surf[$r] = [BitConverter]::ToInt32($b, $base + $oSf); $bst[$r] = [BitConverter]::ToSingle($b, $base + $oBt)
+    $surf[$r] = [BitConverter]::ToInt32($b, $base + $oSf); $bst[$r] = [BitConverter]::ToSingle($b, $base + $oBt); $inc[$r] = [BitConverter]::ToInt32($b, $base + $oI)
   }
   $yaml = $null
   $ilen = [BitConverter]::ToInt32($b, 16); $ioff = [BitConverter]::ToInt32($b, 20); $yaml = [Text.Encoding]::GetEncoding(28591).GetString($b, $ioff, $ilen)
-  return @{ n = $n; lap = $lap; llt = $llt; pct = $pct; st = $st; on = $on; surf = $surf; best = $bst; yaml = $yaml }
+  return @{ n = $n; lap = $lap; llt = $llt; pct = $pct; st = $st; on = $on; surf = $surf; best = $bst; inc = $inc; yaml = $yaml }
 }
 # the runs of one lap number on track, with the line crossings and iRacing's announced time
 function Raw-Laps($raw) {
@@ -78,23 +78,28 @@ function Raw-Laps($raw) {
     if (-not ($pre -and $post)) { continue }
     $cross = { param($i) $p0 = $raw.pct[$i - 1]; $f = (1 - $p0) / ((1 - $p0) + $raw.pct[$i]); $raw.st[$i - 1] + ($raw.st[$i] - $raw.st[$i - 1]) * $f }
     $t0 = & $cross $a; $t1 = & $cross $b
-    $at = [math]::Min($b + 90, $runs[$r + 1].b - 1)
-    $llt = $raw.llt[$at]
     $computed = $t1 - $t0
-    $official = ($llt -gt 1 -and [math]::Abs($llt - $computed) -lt 0.15)
+    # W0-6: iRacing's time = the first change of LapLastLapTime within 4 s (240 records) after the line, against the last lap it announced
+    $hi = [math]::Min($raw.n, $b + 240); $llt = -1.0; $at = -1
+    for ($x = $b; $x -lt $hi; $x++) { if ($raw.llt[$x] -gt 1 -and [math]::Abs($raw.llt[$x] - $raw.llt[$b - 1]) -gt 0.0005) { $llt = [double]$raw.llt[$x]; $at = $x; break } }
+    if ($llt -lt 0 -and $raw.llt[$b - 1] -gt 1 -and [math]::Abs($raw.llt[$b - 1] - $computed) -lt 0.01) { $llt = [double]$raw.llt[$b - 1]; $at = $b }
+    $official = ($llt -gt 1 -and [math]::Abs($llt - $computed) -lt $computed * 0.05)
     # L-1, iRacing's verdict from the raw records (nothing shared with Paddock). iRacing's own best lap of the session (LapBestLapTime) is the evidence: read at the
     # last record of the lap and 1.5 to 2.5 s after the line. A lap quicker than the best so far that BECAME the best was counted (whatever the off-track record says);
     # a quicker lap that left the best unchanged was not. Only a lap that is not quicker than the best so far gives no evidence: then any record of the lap with
     # PlayerTrackSurface 0 (off track) decides.
     $offN = 0; for ($x = $a; $x -lt $b; $x++) { if ($raw.surf[$x] -eq 0) { $offN++ } }
     $off = $offN -gt 0
-    $bestAfter = -1.0; $lo = $b + 90; $hi = [math]::Min($raw.n, $b + 150)
-    for ($x = $lo; $x -lt $hi; $x++) { $v = $raw.best[$x]; if ($v -gt 1 -and ($bestAfter -lt 0 -or $v -lt $bestAfter)) { $bestAfter = $v } }
+    $bestAfter = -1.0
+    for ($x = [math]::Max($b, $at); $x -lt $hi; $x++) { $v = $raw.best[$x]; if ($v -gt 1 -and ($bestAfter -lt 0 -or $v -lt $bestAfter)) { $bestAfter = $v } }
     $bestBefore = if ($raw.best[$b - 1] -gt 1) { [double]$raw.best[$b - 1] } else { -1.0 }
+    $incident = $raw.inc[$b - 1] -gt $raw.inc[$a]
     $faster = ($bestBefore -le 0) -or ($llt -lt $bestBefore - 0.0015)
-    if (-not $official) { $counted = $false; $by = 'iRacing gave the lap no time' }
-    elseif ($faster) { $counted = ($bestAfter -gt 0) -and ($bestAfter -le $llt + 0.0015); $by = if ($counted) { "iRacing's best lap became this lap" } else { "quicker than iRacing's best so far, its best lap did not change" } }
-    else { $counted = -not $off; $by = if ($off) { "not quicker than iRacing's best so far, so no evidence; off-track record" } else { "not quicker than iRacing's best so far, so no evidence; no off-track record" } }
+    # the rule: no time = not counted; quicker than iRacing's best = its best must become the lap; otherwise an incident in the lap = not counted; an off-track record alone never decides
+    if (-not $official) { $counted = $false; $by = 'no-time' }
+    elseif ($faster) { $counted = ($bestAfter -gt 0) -and ([math]::Abs($bestAfter - $llt) -le 0.0015); $by = if ($counted) { '' } else { 'not-best' } }
+    elseif ($incident) { $counted = $false; $by = 'incident' }
+    else { $counted = $true; $by = '' }
     $laps[[int]$run.n] = @{ a = $a; b = $b; t0 = $t0; t1 = $t1; computed = $computed; official = $official; llt = $llt; off = $off; offN = $offN; bestBefore = $bestBefore; bestAfter = $bestAfter; counted = $counted; by = $by }
   }
   return $laps
@@ -324,7 +329,7 @@ try {
       if (-not $r -or -not $r.official -or (F3 $l.time) -ne (F3 $r.llt)) { $okTimes = $false; Note "lap $($l.n): server $($l.time) raw $(F3 $r.llt)" }
     }
   }
-  Check 'every valid lap time equals LapLastLapTime, iRacing''s own figure, to 0.001 (3 counted laps: 6, 7, 8)' ($okTimes -and @($laps | Where-Object { $_.valid }).Count -eq 3 -and (($laps | Where-Object { $_.valid } | ForEach-Object { $_.n }) -join ',') -eq '6,7,8')
+  Check 'every valid lap time equals LapLastLapTime, iRacing''s own figure, to 0.001 (4 counted laps: 6, 7, 8, 10)' ($okTimes -and @($laps | Where-Object { $_.valid }).Count -eq 4 -and (($laps | Where-Object { $_.valid } | ForEach-Object { $_.n }) -join ',') -eq '6,7,8,10')
   # L-1: one lap rule, iRacing's. Worked out here from the raw records alone (off-track surface, iRacing's best lap after the line) for every full lap.
   $ruleOk = $true; $nTimedRaw = 0; $nCountedRaw = 0
   foreach ($l in $laps) {
@@ -336,17 +341,17 @@ try {
   foreach ($l in $laps) { $r = $rl[[int]$l.n]; if ($r -and $r.official) { Note ("lap {0,2}  {1}  off-track records {2,2}  iRacing best before {3} after {4}  -> {5}: {6}" -f $l.n, (F3 $r.llt), $r.offN, (F3 $r.bestBefore), (F3 $r.bestAfter), $(if ($r.counted) { 'COUNTED' } else { 'not counted' }), $r.by) } }
   $evOk = $true
   foreach ($l in $laps) { $r = $rl[[int]$l.n]; if (-not $r -or -not $r.official) { continue }
-    if ($l.offSamples -ne $r.offN -or -not (Near $l.bestBefore $r.bestBefore 0.0006) -or -not (Near $l.bestAfter $r.bestAfter 0.0006) -or $l.countedBy -ne $r.by) { $evOk = $false; Note "lap $($l.n): server off $($l.offSamples) before $($l.bestBefore) after $($l.bestAfter) '$($l.countedBy)'; raw off $($r.offN) before $($r.bestBefore) after $($r.bestAfter) '$($r.by)'" } }
-  Check 'the evidence the server gives for every timed lap (off-track records, iRacing''s best lap before and after the line, the words that decided) is what the raw records say' $evOk
-  Check 'the lap rule is iRacing''s: laps 6, 7, 8 became or stayed iRacing''s best with no off-track record (counted); laps 2 and 5 are quicker than its best so far (it had none) and it did not change (not counted); laps 9 and 10 give no evidence (slower than its best) and have an off-track record (not counted)' ($ruleOk -and $nTimedRaw -eq 7 -and $nCountedRaw -eq 3 -and $rl[6].by -like '*became this lap' -and $rl[7].by -like '*became this lap' -and $rl[8].by -like '*no evidence*no off-track record' -and $rl[2].by -like 'quicker than*did not change' -and $rl[5].by -like 'quicker than*did not change' -and $rl[9].by -like '*no evidence*; off-track record' -and $rl[10].by -like '*no evidence*; off-track record')
-  $offTimed = @(2, 5, 9, 10 | ForEach-Object { $laps[$_ - 1] })
-  Check 'a timed lap with a short off-track (laps 2, 5, 9, 10) keeps its time, is NOT valid, has no skip of our own, and is flagged OFF - a fact, iRacing''s verdict' (@($offTimed | Where-Object { $_.valid -or -not $_.timed -or -not $_.offTrack -or $_.flag -ne 'OFF' -or $_.skip -ne '' -or $null -eq $_.time -or $null -eq $_.sectors }).Count -eq 0 -and ($offTimed | ForEach-Object { $rl[[int]$_.n].off }) -notcontains $false)
+    if ($l.offSamples -ne $r.offN -or $l.why -ne $r.by) { $evOk = $false; Note "lap $($l.n): server off $($l.offSamples) '$($l.why)'; raw off $($r.offN) '$($r.by)'" } }
+  Check 'the evidence the server gives for every timed lap (off-track records, the verdict and why) is what the raw records say' $evOk
+  Check 'the lap rule (W0-6): laps 6, 7 became iRacing''s best, 8 and 10 are slower with no incident (10 has one off-track record: not fatal) - counted; laps 2 and 5 are quicker than its best so far (it had none) and it did not change - not counted; lap 9 had an incident - not counted' ($ruleOk -and $nTimedRaw -eq 7 -and $nCountedRaw -eq 4 -and $rl[6].by -eq '' -and $rl[7].by -eq '' -and $rl[8].by -eq '' -and $rl[10].by -eq '' -and $rl[10].off -and $rl[2].by -eq 'not-best' -and $rl[5].by -eq 'not-best' -and $rl[9].by -eq 'incident')
+  $offTimed = @(2, 5, 9 | ForEach-Object { $laps[$_ - 1] })
+  Check 'a timed lap iRacing did not count with a short off-track (laps 2, 5, 9) keeps its time, is NOT valid, has no skip of our own, and is flagged OFF - a fact, iRacing''s verdict' (@($offTimed | Where-Object { $_.valid -or -not $_.timed -or -not $_.offTrack -or $_.flag -ne 'OFF' -or $_.skip -ne '' -or $null -eq $_.time -or $null -eq $_.sectors }).Count -eq 0 -and ($offTimed | ForEach-Object { $rl[[int]$_.n].off }) -notcontains $false)
   # and it is left out of everything that counts: the best lap, the optimal, the best-5, the previous-best history
   $timedAll = @($laps | Where-Object { $_.timed -and $_.sectors })
   $allSec = @(0..3 | ForEach-Object { $k = $_; [double](($timedAll | ForEach-Object { [double]$_.sectors[$k] } | Measure-Object -Minimum).Minimum) })
   $valSec = @(0..3 | ForEach-Object { $k = $_; [double](($laps | Where-Object { $_.valid } | ForEach-Object { [double]$_.sectors[$k] } | Measure-Object -Minimum).Minimum) })
   Check 'left out of the optimal: the optimal joins the best sectors of the 3 counted laps; joining all 7 timed laps would give a different (quicker) lap' ((Near $mA.optimal (($valSec | ForEach-Object { [math]::Round($_, 3, 'AwayFromZero') } | Measure-Object -Sum).Sum) 0.0001) -and (($allSec | Measure-Object -Sum).Sum) -lt (($valSec | Measure-Object -Sum).Sum) - 0.005)
-  Check 'left out of the best-5 average and the lap count: 3 laps (the counted ones), not the 7 timed ones' ($mA.consistency.n -eq 3 -and $mA.validLaps -eq 3)
+  Check 'left out of the best-5 average and the lap count: 4 laps (the counted ones), not the 7 timed ones' ($mA.consistency.n -eq 4 -and $mA.validLaps -eq 4)
   $untimed = (-not $laps[2].valid) -and (-not $laps[3].valid) -and ($rl[3].llt -lt 1) -and ($rl[4].llt -lt 1)
   Check 'the best lap is lap 7, 1:19.549, and the laps iRacing did not time are not valid (laps 3 and 4: LapLastLapTime -1)' ($mA.best.lap -eq 7 -and (F3 $mA.best.time) -eq '79.549' -and $untimed)
   Check 'flags: lap 1 OUT, lap 3 OFF (our rule saw the car off track), lap 4 INVALID (iRacing gave no time, our rules saw nothing), lap 11 IN, the valid laps have none' ($laps[0].flag -eq 'OUT' -and $laps[2].flag -eq 'OFF' -and $laps[2].skip -eq 'off' -and $laps[3].flag -eq 'INVALID' -and $laps[3].skip -eq '' -and $laps[10].flag -eq 'IN' -and @($laps | Where-Object { $_.valid -and $_.flag -ne '' }).Count -eq 0)
@@ -359,8 +364,8 @@ try {
     for ($k = 0; $k -lt 4; $k++) { $d = [math]::Abs([double]$l.sectors[$k] - $exp[$k]); if ($d -gt $maxDiff) { $maxDiff = $d }; $sum += [double]$l.sectors[$k]; $cnt++ }
     if ([math]::Abs($sum - [double]$l.time) -gt 0.0025) { $sumOk = $false }
   }
-  Note "HAND CHECK sectors: $cnt sector times of the 3 counted laps, largest difference from the raw records $([math]::Round($maxDiff, 4)) s"
-  Check 'every sector time equals the one worked out from the raw records (LapDistPct crossing the split point) within 0.002 s' ($cnt -eq 12 -and $maxDiff -lt 0.002)
+  Note "HAND CHECK sectors: $cnt sector times of the 4 counted laps, largest difference from the raw records $([math]::Round($maxDiff, 4)) s"
+  Check 'every sector time equals the one worked out from the raw records (LapDistPct crossing the split point) within 0.002 s' ($cnt -eq 16 -and $maxDiff -lt 0.002)
   Check 'S1 + S2 + S3 + S4 add up to the lap time (within the rounding of four 3-decimal figures)' $sumOk
   $l7 = $laps[6]; $exp7 = Raw-Slices $raw $rl[7] @(0..23 | ForEach-Object { $_ / 24.0 })
   $md = 0.0; $ms = 0.0; for ($i = 0; $i -lt 24; $i++) { $md = [math]::Max($md, [math]::Abs([double]$l7.mini[$i] - $exp7[$i])); $ms += [double]$l7.mini[$i] }
@@ -370,7 +375,7 @@ try {
   Check 'optimal = the best iRacing sectors of the counted laps joined, each at the millisecond it is shown (11.577 + 22.441 + 27.577 + 17.566 = 79.161)' ((Near $mA.optimal (($bs | ForEach-Object { [math]::Round($_, 3, 'AwayFromZero') } | Measure-Object -Sum).Sum) 0.0001) -and (F3 $mA.optimal) -eq '79.161' -and (Near $mA.bestSectors[0] 11.577 0.0006) -and (Near $mA.bestSectors[1] 22.441 0.0006) -and (Near $mA.bestSectors[3] 17.566 0.0006))
   $tt = @($valid | ForEach-Object { [double]$_.time } | Sort-Object | Select-Object -First 5); $avg = ($tt | Measure-Object -Average).Average
   $sd = [math]::Sqrt((($tt | ForEach-Object { ($_ - $avg) * ($_ - $avg) }) | Measure-Object -Sum).Sum / $tt.Count)
-  Check 'consistency = the average of the best valid laps (3 counted laps: 1:19.786) and their spread (0.17 s)' ($mA.consistency.n -eq 3 -and $tt.Count -eq 3 -and (Near $mA.consistency.avg $avg 0.0006) -and (Near $mA.consistency.sd $sd 0.0006) -and (F3 $mA.consistency.avg) -eq '79.786')
+  Check 'consistency = the average of the best valid laps (4 counted laps: 1:19.859) and their spread' ($mA.consistency.n -eq 4 -and $tt.Count -eq 4 -and (Near $mA.consistency.avg $avg 0.0006) -and (Near $mA.consistency.sd $sd 0.0006) -and (F3 $mA.consistency.avg) -eq '79.859')
   Check 'seconds on track come from the file: 60508 records at 60 Hz = 1008 s' ((Near $mA.seconds 1008 1) -and $raw.n -eq 60508)
   $modExp = [long]((Get-Item -LiteralPath (Join-Path $dAB $pbName)).LastWriteTimeUtc - (New-Object DateTime 1970, 1, 1, 0, 0, 0, ([DateTimeKind]::Utc))).TotalMilliseconds
   Check 'the reply says when the file was last written (the page tells this session from an older one with it)' ([math]::Abs([double]$mA.modMs - $modExp) -lt 2000)
@@ -423,7 +428,7 @@ try {
   $lD = @($mD.laps)
   foreach ($ln in 1, 2, 3) { $x = @($lD | Where-Object { $_.n -eq $ln })[0]; if ($x) { $r = $rawD[$ln]; Note ("lap {0}  {1}  off-track records {2,2}  iRacing best before {3} after {4}  -> {5}: {6}" -f $ln, (F3 $r.llt), $r.offN, (F3 $r.bestBefore), (F3 $r.bestAfter), $(if ($r.counted) { 'COUNTED' } else { 'not counted' }), $r.by) } }
   $dOk = $runD.exit -eq 0 -and @($lD | Where-Object { $_.n -in 1, 2, 3 }).Count -eq 3
-  foreach ($ln in 2, 3) { $x = @($lD | Where-Object { $_.n -eq $ln })[0]; $r = $rawD[$ln]; if (-not ($x -and $x.valid -and $x.offTrack -and $x.flag -eq '' -and $r.counted -and $r.off -and $x.offSamples -eq $r.offN -and $x.countedBy -eq "iRacing's best lap became this lap")) { $dOk = $false; Note "lap $ln not as expected" } }
+  foreach ($ln in 2, 3) { $x = @($lD | Where-Object { $_.n -eq $ln })[0]; $r = $rawD[$ln]; if (-not ($x -and $x.valid -and $x.offTrack -and $x.flag -eq '' -and $r.counted -and $r.off -and $x.offSamples -eq $r.offN -and $x.why -eq '')) { $dOk = $false; Note "lap $ln not as expected" } }
   Check 'laps 2 (1:21.380, 42 off-track records) and 3 (1:20.695, 34) are COUNTED: iRacing''s best lap became each of them (82.436 then 81.380 then 80.695), so its evidence beats our off-track record; they carry no flag word' ($dOk -and (F3 $rawD[2].llt) -eq '81.380' -and $rawD[2].offN -eq 42 -and (F3 $rawD[3].llt) -eq '80.695' -and $rawD[3].offN -eq 34 -and (F3 $rawD[3].bestBefore) -eq '81.380' -and (F3 $rawD[3].bestAfter) -eq '80.695')
   Check 'so the best lap of that session is lap 3 (1:20.695, a lap with an off-track record that iRacing counted) and 3 laps are valid' ($mD.best.lap -eq 3 -and (F3 $mD.best.time) -eq '80.695' -and $mD.validLaps -eq 3)
   # a practice session (Ferrari, Road Atlanta): the laps have hundreds of off-track records (our C-30 skip is "off") but iRacing's best became every one of them from lap 1 to 4 -
@@ -436,10 +441,10 @@ try {
   $lF = @($mF.laps)
   foreach ($ln in 1, 2, 3, 4, 5) { $r = $rawF[$ln]; if ($r) { Note ("lap {0}  {1}  off-track records {2,4}  iRacing best before {3} after {4}  -> {5}: {6}" -f $ln, (F3 $r.llt), $r.offN, (F3 $r.bestBefore), (F3 $r.bestAfter), $(if ($r.counted) { 'COUNTED' } else { 'not counted' }), $r.by) } }
   $fOk = $runF.exit -eq 0
-  foreach ($ln in 1, 2, 3, 4) { $x = @($lF | Where-Object { $_.n -eq $ln })[0]; $r = $rawF[$ln]; if (-not ($x -and $x.valid -and $x.skip -eq 'off' -and $r.counted -and $r.offN -gt 45 -and $x.countedBy -eq "iRacing's best lap became this lap")) { $fOk = $false; Note "ferrari lap $ln not as expected" } }
+  foreach ($ln in 1, 2, 3, 4) { $x = @($lF | Where-Object { $_.n -eq $ln })[0]; $r = $rawF[$ln]; if (-not ($x -and $x.valid -and $x.skip -eq 'off' -and $r.counted -and $r.offN -gt 45 -and $x.why -eq '')) { $fOk = $false; Note "ferrari lap $ln not as expected" } }
   $x5 = @($lF | Where-Object { $_.n -eq 5 })[0]
   Check 'practice: laps 1 to 4 have 3107, 1766, 513 and 686 off-track records (over our 45) but iRacing''s best became each of them: all COUNTED; the best lap is lap 4, 1:44.133' ($fOk -and $mF.best.lap -eq 4 -and (F3 $mF.best.time) -eq '104.133' -and $mF.validLaps -eq 4)
-  Check 'lap 5 (1:50.527) is not quicker than iRacing''s best so far (104.133), so its best says nothing; it has off-track records: not counted, flagged OFF' ($x5 -and -not $x5.valid -and $x5.flag -eq 'OFF' -and $x5.countedBy -like '*no evidence; off-track record' -and -not $rawF[5].counted)
+  Check 'lap 5 (1:50.527) is not quicker than iRacing''s best so far (104.133), so its best says nothing; it had an incident: not counted, flagged OFF' ($x5 -and -not $x5.valid -and $x5.flag -eq 'OFF' -and $x5.why -eq 'incident' -and -not $rawF[5].counted)
   # L-1b: the optimal / theoretical best joins sectors only from counted laps with NO off-track record (and not skip "off"). Every counted lap of the Ferrari practice has hundreds of
   # records, so there is nothing to join: no optimal at all (before: 1:30.279 against a best of 1:44.133, built from sectors across the grass). Best lap, best-N stay on iRacing's verdict.
   $pureF = @($lF | Where-Object { $_.valid -and -not $_.offTrack -and $_.skip -ne 'off' })
@@ -496,7 +501,7 @@ try {
   # C-41b: the longest flag word (INVALID) fits its column, on one line, clear of the lap time and the sector columns beside it
   $fit = Cdp-Json '(function(){var o=[];[].forEach.call(document.querySelectorAll(".sr .sr-flag"),function(f){var r=f.getBoundingClientRect(),p=f.previousElementSibling.getBoundingClientRect(),row=f.parentNode.getBoundingClientRect();o.push({s:f.textContent,w:f.scrollWidth,cw:f.clientWidth,h:r.height,left:r.left,prevRight:p.right,right:r.right,rowRight:row.right})});return o})()'
   Note ('flag words on screen: ' + ((@($fit) | ForEach-Object { "$($_.s) $([math]::Round($_.w))/$([math]::Round($_.cw)) px" }) -join ', '))
-  Check 'the flag words OUT, OFF (five laps), INVALID and IN fit the GAP column without being cut or overlapping the cell beside it' (@($fit).Count -eq 8 -and (@($fit | Where-Object { $_.s -eq 'INVALID' }).Count -eq 1) -and (@($fit | Where-Object { $_.s -eq 'OFF' }).Count -eq 5) -and @($fit | Where-Object { $_.w -gt $_.cw + 0.5 -or $_.h -gt 40 -or $_.left -lt $_.prevRight - 0.5 -or $_.right -gt $_.rowRight + 0.5 }).Count -eq 0)
+  Check 'the flag words OUT, OFF (four laps), INVALID and IN fit the GAP column without being cut or overlapping the cell beside it' (@($fit).Count -eq 7 -and (@($fit | Where-Object { $_.s -eq 'INVALID' }).Count -eq 1) -and (@($fit | Where-Object { $_.s -eq 'OFF' }).Count -eq 4) -and @($fit | Where-Object { $_.w -gt $_.cw + 0.5 -or $_.h -gt 40 -or $_.left -lt $_.prevRight - 0.5 -or $_.right -gt $_.rowRight + 0.5 }).Count -eq 0)
   $exp = Expect-Colours $mA
   $colOk = $true; $seen = @{ sp = 0; sn = 0; sy = 0; sg = 0; p = 0; n = 0; y = 0; g = 0 }
   for ($i = 0; $i -lt 11; $i++) {
@@ -513,7 +518,7 @@ try {
   Check 'the best lap row is gold and its time is purple (a new personal best)' ($rows[6].best -and $rows[6].tcls -match 'sp' -and @($rows | Where-Object { $_.best }).Count -eq 1 -and $rows[0].grey -and $rows[10].grey -and -not $rows[6].grey)
   Check 'the OPTIMAL row shows 1:19.161, the best sectors of the counted laps joined, and −0.388 against the best lap' ($txt -match '1:19\.161' -and $txt -match 'OPTIMAL' -and $txt -match '−0\.388')
   $nums = Cdp-Eval '(function(){return Array.prototype.map.call(document.querySelectorAll(".sr .nums > div"),function(d){return d.innerText.replace(/\s+/g," ")}).join(" | ")})()'
-  Check 'the four numbers: best lap 1:19.549 (new PB, -0.026 s, lap 7), optimal, consistency 1:19.786 ±0.17 s over the best 3, laps 11 · 3 clean · 17 min' ($nums -match 'BEST LAP 1:19\.549 new PB, −0\.026 s · lap 7' -and $nums -match 'OPTIMAL 1:19\.16\d' -and $nums -match 'CONSISTENCY 1:19\.786 average of best 3 · spread ±0\.17 s' -and $nums -match 'LAPS 11 · 3 clean 17 min on track')
+  Check 'the four numbers: best lap 1:19.549 (new PB, -0.026 s, lap 7), optimal, consistency 1:19.859 over the best 4, laps 11 · 4 clean · 17 min' ($nums -match 'BEST LAP 1:19\.549 new PB, −0\.026 s · lap 7' -and $nums -match 'OPTIMAL 1:19\.16\d' -and $nums -match 'CONSISTENCY 1:19\.859 average of best 4 · spread ±0\.\d\d s' -and $nums -match 'LAPS 11 · 4 clean 17 min on track')
   # the map: coloured by gain / loss of lap 7 against the afternoon lap 7
   $mp = Cdp-Json '(function(){var s=document.querySelector(".mapbox"),L=s.querySelectorAll("line"),g=0,r=0,n=0;L.forEach(function(l){var c=l.getAttribute("stroke");if(c.indexOf("60,207,126")>0)g++;else if(c.indexOf("229,83,75")>0)r++;else n++});var ci=s.querySelectorAll("circle");var lab=Array.prototype.map.call(s.querySelectorAll("text"),function(t){return t.textContent});return {seg:L.length,g:g,r:r,n:n,circles:ci.length,labels:lab}})()'
   Note "map: $($mp.seg) segments (green $($mp.g), red $($mp.r), grey $($mp.n)), $($mp.circles) corner rings"
