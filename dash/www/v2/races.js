@@ -50,6 +50,7 @@ const Races = {
       if (r.laps) facts.push(r.laps + (r.laps === 1 ? ' lap' : ' laps'));
       if (r.best > 0) facts.push('best <b>' + lap(r.best) + '</b>');
       facts.push(size(r.mb || 0));
+      if (r.exportMissing) facts.push('<b>no longer in Videos\\Paddock</b> (still kept here)');   // W0-2: a renamed or moved YouTube copy never deletes the race
       const armed = this.armed === r.id, id = esc(r.id);
       return '<div class="race" data-id="' + id + '">' +
         '<div class="info"><div class="when">' + esc(when(r.startMs)) + (k ? ' · ' + esc(k) : '') + '</div>' +
@@ -90,7 +91,7 @@ const Races = {
       if (what === 'del') {
         const r = await this.send('/api/rec/delete?id=' + a + '&confirm=yes'), st = r && r.state;
         if (st === 'DELETED') { this.data.races = this.data.races.filter(x => x.id !== id); this.data.freeGb = (this.data.freeGb | 0) + Math.round((race.mb || 0) / 1024); this.say('Deleted. ' + size(race.mb || 0) + ' is free again.'); }
-        else this.say(st === 'RECORDING' || st === 'IN USE' || st === 'BUSY' ? 'That one is still being written. Try again in a minute.' : 'Could not delete that one.', true);
+        else this.say(st === 'SESSION' ? 'Not while a session is on. Delete it after the session.' : st === 'RECORDING' || st === 'IN USE' || st === 'BUSY' ? 'That one is still being written. Try again in a minute.' : 'Could not delete that one.', true);
       } else if (what === 'share') {
         const ok = await this.send('/api/do?c=raceexport&a=' + a);
         if (ok === 'ok') { race.exported = true; this.say('YouTube is open, with the folder holding this race next to it. Drag the race file onto the YouTube page.'); }

@@ -124,7 +124,7 @@ namespace IRDeck
             if (what.Length == 0) { Log("official fav: give a series id or its name"); return 1; }
             if (Regex.IsMatch(what, "^o[0-9a-f]{8}$"))
             {
-                try { using (WebClient wc = new WebClient()) wc.DownloadString("http://127.0.0.1:8199/api/do?c=offav&a=" + what); Log("official: star toggled for " + what); return 0; }
+                try { using (WebClient wc = new WebClient()) { wc.Headers["X-Paddock"] = "1"; wc.DownloadString("http://127.0.0.1:8199/api/do?c=offav&a=" + what); } Log("official: star toggled for " + what); return 0; }
                 catch (Exception ex) { Log("official fav: irdash is not answering (" + ex.Message + ")"); return 1; }
             }
             string f = Path.Combine(OfDir, "favourites.ini");

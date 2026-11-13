@@ -262,7 +262,7 @@ class Screen {
   async refreshSoon(ms) { await sleep(ms); try { await this.poll(); } catch (e) { } }   // after a press: look again when irdeck has had time to act
   async get(path) { return await (await fetch(API + path, { cache: 'no-store' })).json(); }
   async cmd(c, a, base) {
-    try { await fetch(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), { cache: 'no-store' }); }
+    try { await fetch(API + (base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : ''), { cache: 'no-store', headers: { 'X-Paddock': '1' } }); }   // W0-2: irdash refuses a command without it
     catch (e) { log(this.name + ': irdash not reachable'); }
   }
   switchTo(profile) { send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
@@ -329,7 +329,7 @@ const Friends = new class extends Screen {
     this.relayout();
   }
 
-  draft() { fetch(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb)), { cache: 'no-store' }).catch(() => { }); }
+  draft() { fetch(API + '/api/guest/draft' + (this.kb == null ? '' : '?n=' + encodeURIComponent(this.kb)), { cache: 'no-store', headers: { 'X-Paddock': '1' } }).catch(() => { }); }
 
   async act(r) {
     // the name keyboard is handled right here, so typing is instant
@@ -453,7 +453,7 @@ const RigDoctor = {
     try { this.d = await (await fetch(API + '/doctor', { cache: 'no-store' })).json(); } catch (e) { return; }
     this.icon(false);
   },
-  async press() { try { await fetch(API + '/api/do?c=doctor', { cache: 'no-store' }); } catch (e) { log('doctor: irdash not reachable'); } },
+  async press() { try { await fetch(API + '/api/do?c=doctor', { cache: 'no-store', headers: { 'X-Paddock': '1' } }); } catch (e) { log('doctor: irdash not reachable'); } },
 };
 
 // ---------------- Overlays screen ----------------

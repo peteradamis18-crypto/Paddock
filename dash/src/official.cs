@@ -80,22 +80,10 @@ namespace IRDash
         static readonly HashSet<string> Commands = new HashSet<string> { "offav", "ofopen", "ofclose", "ofrefresh", "ofscan", "ofdry" };
         public static bool Handles(string c) { return enabled && Commands.Contains(c ?? ""); }
 
-        static bool Busy()
-        {
-            try { return Program.IsDriving || Sdk.Latest.Connected; } catch { return false; }
-        }
-
-        // Sdk.RealBusy exists in irdash; the offline unit stub may omit it. Never start a fetch while he is driving.
-        static bool FetchBusy()
-        {
-            try
-            {
-                System.Reflection.MethodInfo m = typeof(Sdk).GetMethod("RealBusy", Type.EmptyTypes);
-                if (m != null) { object r = m.Invoke(null, null); if (r != null) return true; }
-            }
-            catch { }
-            return Busy();
-        }
+        // W0-2: one rig state (rigstate.cs) instead of a rule of its own and a lookup by reflection
+        static bool Busy() { return RigState.SessionOn; }
+        // never start a fetch while he races or is about to (the sim is up or a START key was just pressed)
+        static bool FetchBusy() { return Sdk.RealBusy() != null || Busy(); }
 
         // ---- the whitelisted deck presses ----
         public static bool Do(string c, string a)

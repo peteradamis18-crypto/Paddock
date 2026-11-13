@@ -22,7 +22,7 @@ namespace IRDeck
             try
             {
                 HttpWebRequest rq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:8199/api/spot?" + query);
-                rq.Timeout = ms; rq.ReadWriteTimeout = ms; rq.Proxy = null; rq.KeepAlive = false;
+                rq.Timeout = ms; rq.ReadWriteTimeout = ms; rq.Proxy = null; rq.KeepAlive = false; rq.Headers["X-Paddock"] = "1";
                 using (WebResponse rs = rq.GetResponse())
                 using (StreamReader sr = new StreamReader(rs.GetResponseStream(), Encoding.UTF8)) return sr.ReadToEnd();
             }
