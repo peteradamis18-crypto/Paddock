@@ -98,7 +98,11 @@ namespace IRDash
         public static void Procs(Dictionary<string, double> g)
         {
             if (g == null || SelfScan) return;
-            lock (gate) { groups = new Dictionary<string, double>(g); AddUsual(g); }
+            lock (gate)
+            {
+                if (DateTime.Now >= fastUntil) groups = new Dictionary<string, double>(g);   // during a dip our own one-second looks are fresher
+                AddUsual(g);
+            }
         }
 
         static void AddUsual(Dictionary<string, double> g)
@@ -229,7 +233,11 @@ namespace IRDash
                     if (s[0] >= 0 && dt > 0)
                     {
                         double pct = (cpu - s[0]) / 1e7 / dt * 100.0;
-                        if (pct > 0.05) { string grp = GroupOf != null ? GroupOf(name, pid) : name; double v; g.TryGetValue(grp, out v); g[grp] = v + pct; }
+                        if (pct > 0.05)
+                        {
+                            string grp = GroupOf != null ? GroupOf(name, pid) : name;
+                            if (grp != null) { double v; g.TryGetValue(grp, out v); g[grp] = v + pct; }     // null: a program not counted (test isolation)
+                        }
                     }
                     s[0] = cpu;
                 }
@@ -302,17 +310,19 @@ namespace IRDash
             Write(sb.ToString());
             Rows++; if (fast) FastRows++;
 
-            // the snapshot, one second into the dip: who was busy then, against their own usual
-            if (snapAt != DateTime.MinValue && now >= snapAt)
+            // The snapshot, one second into the dip: who was busy then, against their own usual. It takes the one-second look made in
+            // this row (never a new look: a few milliseconds of Windows' 15.6 ms CPU clock would read as 15-100 % of a core).
+            if (snapAt != DateTime.MinValue && now >= snapAt && (scanNow || now >= snapAt.AddSeconds(1.5)))
             {
                 snapAt = DateTime.MinValue;
-                if (!SelfScan || (now - lastScan).TotalSeconds > 0.5) { lastScan = now; Dictionary<string, double> g = Scan(); if (g != null) lock (gate) groups = g; }
-                List<KeyValuePair<string, double>> all;
-                lock (gate) all = new List<KeyValuePair<string, double>>(groups);
-                all.RemoveAll(delegate (KeyValuePair<string, double> kv) { return kv.Key == SimGroup || kv.Value < 1; });
-                all.Sort(delegate (KeyValuePair<string, double> a, KeyValuePair<string, double> b) { return b.Value.CompareTo(a.Value); });
                 StringBuilder pr = new StringBuilder();
-                for (int i = 0; i < all.Count && i < 5; i++) { if (pr.Length > 0) pr.Append(';'); pr.Append(Clean(all[i].Key)).Append('=').Append(F(all[i].Value, "0.0")).Append('/').Append(F(UsualOf(all[i].Key), "0.0")); }
+                lock (gate)
+                {
+                    List<KeyValuePair<string, double>> all = new List<KeyValuePair<string, double>>(groups);
+                    all.RemoveAll(delegate (KeyValuePair<string, double> kv) { return kv.Key == SimGroup || kv.Value < 1; });
+                    all.Sort(delegate (KeyValuePair<string, double> a, KeyValuePair<string, double> b) { return b.Value.CompareTo(a.Value); });
+                    for (int i = 0; i < all.Count && i < 5; i++) { if (pr.Length > 0) pr.Append(';'); pr.Append(Clean(all[i].Key)).Append('=').Append(F(all[i].Value, "0.0")).Append('/').Append(F(UsualOf(all[i].Key), "0.0")); }
+                }
                 List<string> ours = new List<string>();
                 lock (gate) foreach (KeyValuePair<DateTime, string> e in recentEv) if ((now - e.Key).TotalSeconds <= 5 && Ours(e.Value)) ours.Add(e.Value);
                 Write("snapshot\t" + F(Unix(now), "0.000") + "\t" + F(snapFps, "0.0") + "\t" + F(snapAvg, "0.0") + "\t" + (s.Connected ? F(s.Gpu, "0.000") : "") + "\t" + (s.Connected ? F(s.CpuFG, "0.000") : "") + "\t" +
@@ -411,7 +421,7 @@ namespace IRDash
                 for (int i = 0; i < rows.Count; i++)
                 {
                     BbRow b = rows[i]; if (b.T < from || b.T > to) continue;
-                    if (b.Gpu > d.Gpu) { d.Gpu = b.Gpu; d.Cpu = b.Cpu; }
+                    if (b.T >= fr.At && b.Gpu > d.Gpu) { d.Gpu = b.Gpu; d.Cpu = b.Cpu; }     // the card's load only inside the freeze, not the normal driving before it
                     if (b.Pf > d.PageFaults) d.PageFaults = b.Pf;
                     if (b.T <= fr.At + 0.5) foreach (string e in b.Ev.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) if (Ours(e) && !d.Paddock.Contains(e)) d.Paddock.Add(e);
                 }
@@ -463,10 +473,11 @@ namespace IRDash
         // ---------------- the cause rules (pure; tests\perf-verdict-test.ps1 has one case each) ----------------
         // In Peter's words, the part after "Likely cause: ". The order is the order of 05: graphics card, a program, Paddock, memory, the sim.
         // The SDK's GpuUsage / CpuUsageFG are shares of the frame time: in a stalled frame both go over 100 % together (12 Nov: 317 % and
-        // 309 %), which says the frame stalled, not that the card was the limit. So "graphics card" needs the card busy and the processor not.
+        // 309 %), which says the frame stalled, not that the card was the limit. So "graphics card" needs the card busy (95-105 %: over
+        // that it is a stalled frame, never "card busy") and the processor not. Gpu/Cpu are read only from rows inside the freeze.
         public static string Cause(BbDip d)
         {
-            if (d.Gpu >= 0.95 && (d.Cpu < 0 || d.Cpu < d.Gpu * 0.8)) return "the graphics card (busy " + Math.Round(d.Gpu * 100).ToString("0", Inv) + " % of the frame)";
+            if (d.Gpu >= 0.95 && d.Gpu <= 1.05 && (d.Cpu < 0 || d.Cpu < d.Gpu * 0.8)) return "the graphics card (busy " + Math.Round(d.Gpu * 100).ToString("0", Inv) + " % of the frame)";
             string prog = null; double ratio = 0;
             for (int i = 0; i < d.Programs.Count; i++)
             {

@@ -88,17 +88,26 @@ try {
   # ---------------------------------------------------------------- 4. the real freeze
   Assert-RigFree -Where '4. freeze'
   'Section 4. the real lap-9 freeze replayed, read back as one sentence'
+  # Only the harness itself counts as a program here, so the cause is fixed: on 12 Nov GPU and CPU went over 300 % together (a stalled
+  # frame, not the card), no Paddock work and no page-fault storm -> "inside the sim". Run twice: the black box looking at the programs
+  # itself, and as in irdash (programs handed over every 5 s, its own looks only during the dip).
   if (Test-Path $frz) {
-    $d4 = Join-Path $tmp 'freeze'; New-Item -ItemType Directory -Force $d4 | Out-Null
-    $o4 = & "$tmp\bb.exe" freeze $frz 12 44 $d4
-    $o4 | Where-Object { $_ -match '^(ROWS|FREEZE)' } | ForEach-Object { "    $_" }
-    $fz = @($o4 | Where-Object { $_ -like 'FREEZE*' })
-    ok 'the real drop (112 to 67 fps) switched fast mode on and wrote a snapshot' (($o4 -match '^ROWS \d+ FAST [1-9]\d* SNAPS [1-9]').Count -eq 1) (($o4 | Where-Object { $_ -like 'ROWS*' }) -join '')
-    ok 'one freeze found in the file' ($fz.Count -eq 1) ($fz -join ' / ')
-    if ($fz.Count -ge 1) {
-      $sent = ($fz[0] -split ' \| ')[1]
-      "    BLACK BOX SENTENCE: $sent"
-      ok "it says lap 9, start/finish and gives a likely cause: $sent" ($sent -match '^Lap 9, start/finish: the picture froze for \d+ s \(worst second (2\d|3\d)\.\d fps\)\. Likely cause: .+\.$')
+    foreach ($mode in 'self', 'fed') {
+      $d4 = Join-Path $tmp "freeze-$mode"; New-Item -ItemType Directory -Force $d4 | Out-Null
+      $o4 = & "$tmp\bb.exe" freeze $frz 12 44 $d4 $mode
+      $o4 | Where-Object { $_ -match '^(ROWS|FREEZE|SNAPPROGS)' } | ForEach-Object { "    [$mode] $_" }
+      $fz = @($o4 | Where-Object { $_ -like 'FREEZE*' })
+      ok "[$mode] the real drop (112 to 67 fps) switched fast mode on and wrote a snapshot" (($o4 -match '^ROWS \d+ FAST [1-9]\d* SNAPS [1-9]').Count -eq 1) (($o4 | Where-Object { $_ -like 'ROWS*' }) -join '')
+      $snap = @($o4 | Where-Object { $_ -like 'SNAPPROGS*' })
+      $nows = @(foreach ($sp in $snap) { foreach ($e in (($sp -replace '^SNAPPROGS ?', '') -split ';' | Where-Object { $_ })) { Num (($e -split '=')[1] -split '/')[0] } })
+      $maxNow = if ($nows.Count) { ($nows | Measure-Object -Maximum).Maximum } else { 0 }
+      ok ("[$mode] the snapshot's CPU figures are measured over a whole second (largest {0:N1} % of a core, a few-ms window reads 15-100 %)" -f $maxNow) ($snap.Count -ge 1 -and $maxNow -lt 10) ($snap -join ' / ')
+      ok "[$mode] one freeze found in the file" ($fz.Count -eq 1) ($fz -join ' / ')
+      if ($fz.Count -ge 1) {
+        $sent = ($fz[0] -split ' \| ')[1]
+        "    [$mode] BLACK BOX SENTENCE: $sent"
+        ok "[$mode] it says lap 9, start/finish, and the cause is inside the sim (the stalled frame is not blamed on the card or a program)" ($sent -match '^Lap 9, start/finish: the picture froze for \d+ s \(worst second (2\d|3\d)\.\d fps\)\. Likely cause: inside the sim \(likely a graphics hitch\)\.$') $sent
+      }
     }
   } else { '  skip the freeze fixture: no 12 Nov source on this PC' }
 

@@ -159,23 +159,22 @@ namespace IRDash
 
         // one plain sentence for Rig Doctor and the deck
         // Always about the session just driven (09 1b: it once named an older file right after the 12 Nov freeze), with its track and date.
-        public static string Summary()
+        public static string Summary() { bool froze; return Summary(out froze); }
+
+        // froze: the last session had a freeze (Rig Doctor shows its line in amber). A v1 report never measured freezes: unknown, not "no".
+        // One LastSession per call. Reads the telemetry listing: never on the UI thread.
+        public static string Summary(out bool froze)
         {
+            froze = false;
             string pending;
             PerfRow last = LastSession(PerfStore.All(), PerfFiles.List(), PerfReports.SimBusy, out pending);
             if (pending != null) return pending;
             if (last == null) return PerfReports.State == "done" ? "No frame-rate report yet" : "Frame-rate reports are being prepared.";
+            froze = last.V >= 2 && last.FrzLen > 0;
             string s = PerfText.LastLine(last);
             int look = PerfCheck.AttentionCount();
             if (look > 0) s += " " + look + (look == 1 ? " thing" : " things") + " to look at on the Performance page.";
             return s;
-        }
-
-        // true when the last session had a freeze (Rig Doctor shows its line in amber)
-        public static bool LastFroze()
-        {
-            string pending; PerfRow last = LastSession(PerfStore.All(), PerfFiles.List(), PerfReports.SimBusy, out pending);
-            return pending == null && last != null && last.FrzLen > 0;
         }
 
         // The newest session file decides (pure: tests\perf-verdict-test.ps1). Newest first: a file without a report (or with a report of
@@ -404,9 +403,9 @@ namespace IRDash
         }
 
         // throws when the file cannot be read; a file with no driving gives a row with Secs = 0
-        public static PerfRow Compute(string path) { return Compute(path, SimSettings.FpsCapNow()); }
+        public static PerfRow Compute(string path) { return Compute(path, -1); }
 
-        // limit: the sim's own frame limit (0 = none or unknown)
+        // limit: the sim's own frame limit (0 = none or unknown; -1 = the one in force at the session's start, PerfChanges.LimitAt)
         public static PerfRow Compute(string path, double limit)
         {
             FileInfo fi = new FileInfo(path);
@@ -514,6 +513,7 @@ namespace IRDash
                     row.FrzAt = row.Start + (startSess >= 0 && startSess <= sts[a] ? sts[a] - startSess : 0);
                 }
                 // the verdict, with fps-report.ps1's thresholds; "held" against the sim's own frame limit (the highest sample when there is none)
+                if (limit < 0) { try { limit = PerfChanges.LimitAt(row.Start); } catch { limit = 0; } }     // the limit that session had, not today's
                 row.Limit = limit > 0 ? limit : 0;
                 double lim = limit > 0 ? limit : cap;
                 if (avg >= lim - 3 && gpuP < 0.7 && cpuP < 0.7) row.Verdict = "held";
@@ -605,6 +605,8 @@ namespace IRDash
         public static string LastLine(PerfRow r)
         {
             string where = (r.Track.Length > 0 ? r.Track : "Last session") + ", " + When(r.Start);
+            // a report from before the freeze check (v1) never looked: say nothing about freezes rather than "no freezes"
+            if (r.V < 2) return where + ": avg " + P(r.Avg) + " fps (not checked for freezes yet). " + Short(r);
             string frz = Freeze(r);
             if (frz.Length > 0) return where + ". " + frz + " Average " + P(r.Avg) + " fps.";
             return "No freezes in your last race (avg " + P(r.Avg) + " fps): " + where + ". " + Short(r);
@@ -1562,6 +1564,34 @@ namespace IRDash
                 foreach (KeyValuePair<string, string> kv in now) sb.Append(kv.Key).Append('\t').Append(kv.Value).Append("\r\n");
                 try { File.WriteAllText(gfxFile, sb.ToString(), new UTF8Encoding(false)); } catch { }
             }
+        }
+
+        // ---- the frame limit a session had (W0-9: "held" is judged against it) ----
+        // A session after the last graphics change had today's limit. Before it: the first graphics change after the session start
+        // decides; a gfx-set.ps1 change ("gfx:<backup>") kept the settings that were in force in its backup file; a change made inside
+        // iRacing ("gfxapp:") kept nothing, so the limit stays unknown (0).
+        public static double LimitAt(long start)
+        {
+            return LimitFrom(All(), start, SimSettings.FpsCapNow(), delegate (string snap)
+            {
+                foreach (Snap s in Snapshots()) if (s.Name == snap) { try { return SimSettings.FpsCap(SimSettings.Graphics(s.Path)); } catch { return 0; } }
+                return 0;
+            });
+        }
+
+        // pure (tests\perf-verdict-test.ps1)
+        internal static double LimitFrom(List<PerfChange> changes, long start, double current, Func<string, double> capOfBackup)
+        {
+            PerfChange first = null; long last = 0;
+            foreach (PerfChange c in changes)
+            {
+                if (c.Kind != "graphics") continue;
+                if (c.Ts > last) last = c.Ts;
+                if (c.Ts > start && (first == null || c.Ts < first.Ts)) first = c;
+            }
+            if (first == null || start > last) return current;
+            if (first.Id.StartsWith("gfx:", StringComparison.Ordinal)) return capOfBackup(first.Id.Substring(4));
+            return 0;
         }
 
         // ---- the build iRacing was on in each session: an update shows up as a change between two sessions ----

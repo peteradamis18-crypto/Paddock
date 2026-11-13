@@ -137,6 +137,30 @@ namespace IRDash
             {
                 string ibt = a[1]; double from = double.Parse(a[2], Inv), to = double.Parse(a[3], Inv);
                 Wire(a[4]);
+                // Only this harness is counted as a program, so the cause does not depend on what else this PC is doing.
+                // "fed" = as in irdash: no own look every 5 s, the programs handed over every 5 s (PerfSampler), own looks only in a dip.
+                int me = Process.GetCurrentProcess().Id;
+                BlackBox.GroupOf = delegate (string n, int pid) { return pid == me ? "blackbox harness" : null; };
+                bool fed = a.Length > 5 && a[5] == "fed";
+                BlackBox.SelfScan = !fed;
+                if (fed)
+                {
+                    Thread feeder = new Thread(delegate ()
+                    {
+                        long c0 = Process.GetCurrentProcess().TotalProcessorTime.Ticks; DateTime t0 = DateTime.Now;
+                        while (true)
+                        {
+                            Thread.Sleep(5000);
+                            long c1; using (Process p = Process.GetCurrentProcess()) c1 = p.TotalProcessorTime.Ticks;
+                            DateTime t1 = DateTime.Now;
+                            Dictionary<string, double> g = new Dictionary<string, double>();
+                            g["blackbox harness"] = (c1 - c0) / 1e7 / (t1 - t0).TotalSeconds * 100;
+                            c0 = c1; t0 = t1;
+                            BlackBox.Procs(g);
+                        }
+                    });
+                    feeder.IsBackground = true; feeder.Start();
+                }
                 string err = IbtReplay.Start(ibt, 1, from, to);
                 if (err != null) { Console.WriteLine("START-FAILED " + err); return 1; }
                 Thread.Sleep(500);
@@ -146,6 +170,8 @@ namespace IRDash
                 running = false; Thread.Sleep(2500);
                 Console.WriteLine("ROWS " + BlackBox.Rows + " FAST " + BlackBox.FastRows + " SNAPS " + BlackBox.Snapshots);
                 BlackBox.Stop(); IbtReplay.Stop();
+                foreach (string f in Directory.GetFiles(a[4], "*.tsv"))
+                    foreach (string l in File.ReadAllLines(f)) if (l.StartsWith("snapshot\t", StringComparison.Ordinal)) Console.WriteLine("SNAPPROGS " + l.Split('\t')[9]);
                 foreach (string f in Directory.GetFiles(a[4], "*.tsv"))
                     foreach (BbFreeze z in BlackBox.Freezes(f))
                         Console.WriteLine("FREEZE lap " + z.Lap.ToString("0", Inv) + " pct " + z.Pct.ToString("0.000", Inv) + " len " + z.Len.ToString("0.0", Inv) + " worst " + z.Worst.ToString("0.0", Inv) + " avg " + z.Avg.ToString("0.0", Inv) +

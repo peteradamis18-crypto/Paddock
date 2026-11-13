@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 
 namespace IRDash
 {
@@ -41,6 +42,27 @@ namespace IRDash
             Ok("cause: nothing unusual -> inside the sim (" + c + ")", c == "inside the sim (likely a graphics hitch)", c);
             c = BlackBox.Cause(Dip(3.17, 3.09, 8));
             Ok("cause: a stalled frame (12 Nov: GPU 317 % and CPU 309 % together) is not blamed on the graphics card (" + c + ")", c == "inside the sim (likely a graphics hitch)", c);
+            c = BlackBox.Cause(Dip(1.5, 1.1, 8));
+            Ok("cause: GPU 150 % with CPU 110 % is a stalled frame, not the graphics card (" + c + ")", c == "inside the sim (likely a graphics hitch)", c);
+            // read back from a file: a busy card in the normal driving before, a stall with a quiet card inside the freeze
+            string tmpf = Path.Combine(Path.GetTempPath(), "bb-driver-" + Process.GetCurrentProcess().Id + ".tsv");
+            Func<double, double, double, double, string> row = delegate (double t, double fps, double gpu, double cpu)
+            { return t.ToString("0.000", inv) + "\t100\t5\t0.5000\t40\t" + fps.ToString("0.0", inv) + "\t" + cpu.ToString("0.000", inv) + "\t0.1\t" + gpu.ToString("0.000", inv) + "\t5\t20\tSimHub\t15\t\t\t\t\t0\t1\t\t\t\t\t"; };
+            Func<double, double, string> both = delegate (double fg, double fc)
+            {
+                StringBuilder sb = new StringBuilder(BlackBox.Header + "\r\n" + BlackBox.SnapHeader + "\r\n");
+                for (int i = 0; i < 30; i++) sb.Append(row(1000 + i, 110, 0.98, 0.5)).Append("\r\n");             // normal driving, card at 98 %
+                for (int i = 0; i < 4; i++) sb.Append(row(1030 + i, 30, fg, fc)).Append("\r\n");                 // the freeze
+                for (int i = 0; i < 10; i++) sb.Append(row(1034 + i, 110, 0.6, 0.4)).Append("\r\n");
+                File.WriteAllText(tmpf, sb.ToString());
+                List<BbFreeze> fz = BlackBox.Freezes(tmpf);
+                return fz.Count == 1 ? fz[0].Cause : "freezes: " + fz.Count;
+            };
+            c = both(0.5, 0.4);
+            Ok("a low-GPU stall after normal rows with a busy card is not blamed on the card (" + c + ")", c == "inside the sim (likely a graphics hitch)", c);
+            c = both(0.99, 0.5);
+            Ok("a freeze with the card at 99 % and the processor at 50 % inside it is the graphics card (" + c + ")", c.StartsWith("the graphics card", StringComparison.Ordinal), c);
+            try { File.Delete(tmpf); } catch { }
             BbDip small = Dip(0.45, 0.32, 5); small.Programs.Add("Spotify"); small.Now.Add(3); small.Usual.Add(0.6);
             Ok("cause: a program at 5x of almost nothing (3 % of a core) is not a cause", BlackBox.Cause(small) == "inside the sim (likely a graphics hitch)", BlackBox.Cause(small));
 
@@ -60,6 +82,18 @@ namespace IRDash
             Ok("fps cap: LimitFrameRate=0 means no cap (0)", SimSettings.FpsCap(SimSettings.ParseGraphics("[Graphics Options]\nLimitFrameRate=0\nDesiredFPSLimit=160\n")) == 0, "");
             Ok("fps cap: no graphics section means unknown (0)", SimSettings.FpsCap(SimSettings.ParseGraphics("[Display]\nLimitFrameRate=1\n")) == 0, "");
 
+            // ---- the limit a session had (not today's) ----
+            Func<string, double> backups = delegate (string n) { return n == "rendererDX11Monitor-20261020-1200.ini" ? 120 : 0; };
+            List<PerfChange> chg = new List<PerfChange>();
+            Ok("limit: no graphics change known -> today's limit", PerfChanges.LimitFrom(chg, 1000, 160, backups) == 160, "");
+            PerfChange g1 = new PerfChange(); g1.Id = "gfx:rendererDX11Monitor-20261020-1200.ini"; g1.Kind = "graphics"; g1.Ts = 2000; chg.Add(g1);
+            Ok("limit: a session after the last graphics change -> today's limit", PerfChanges.LimitFrom(chg, 2500, 160, backups) == 160, "");
+            Ok("limit: a session before a gfx-set change -> the limit in that change's backup (120)", PerfChanges.LimitFrom(chg, 1500, 160, backups) == 120, PerfChanges.LimitFrom(chg, 1500, 160, backups).ToString(inv));
+            PerfChange g0 = new PerfChange(); g0.Id = "gfxapp:1800"; g0.Kind = "graphics"; g0.Ts = 1800; chg.Add(g0);
+            Ok("limit: a session before a change made inside iRacing (no backup) -> unknown (0)", PerfChanges.LimitFrom(chg, 1500, 160, backups) == 0, "");
+            PerfChange other = new PerfChange(); other.Id = "build:1"; other.Kind = "iracing"; other.Ts = 9000; chg.Add(other);
+            Ok("limit: other kinds of change do not count", PerfChanges.LimitFrom(chg, 2500, 160, backups) == 160, "");
+
             // ---- the session start ----
             DateTime lw = new DateTime(2026, 11, 13, 8, 0, 0, DateTimeKind.Utc);
             Ok("start: the header time first", PerfReport.StartOf("x 2026-11-12 09-28-07.ibt", 1794493687L, lw) == 1794493687L, "");
@@ -74,6 +108,8 @@ namespace IRDash
             string v1 = string.Join("\t", new string[] { "b.ibt", "9", "1794493687", "100", "90", "T", "", "k", "t", "car", "Race", "1", "0", "1", "1", "114", "92", "23.7", "130", "5", "2", "30", "40", "45", "60", "-1", "-1", "close", "-1", "-1", "-1", "-1", "-1", "-1", "", "1794493700", "1" });
             PerfRow old = PerfRow.Parse(v1);
             Ok("a v1 row (37 columns) still reads, with no freeze and version 1 (so it is done again once)", old != null && old.V == 1 && old.FrzLen == 0 && old.FrzLap == -1, old == null ? "null" : "");
+            string l1 = PerfText.LastLine(old);
+            Ok("a v1 report never says \"No freezes\" (it never looked): " + l1, !l1.Contains("No freezes") && l1.Contains("not checked for freezes"), l1);
 
             // ---- "still being processed" ----
             PerfRow ra = new PerfRow(); ra.File = "older 2026-11-12 09-28-07.ibt"; ra.Size = 100; ra.Start = 1794493687; ra.Secs = 1180; ra.Avg = 114; ra.Track = "Road Atlanta";

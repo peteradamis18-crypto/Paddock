@@ -450,24 +450,34 @@ namespace IRDash
         // A freeze in the last race shows in amber with the black box sentence (lap, place, likely cause).
         static Item CheckPerf()
         {
+            bool froze; string line = Perf.Summary(out froze);
             int look = PerfCheck.AttentionCount();
-            bool froze = Perf.LastFroze();
-            return Mk("performance", "Frame rate", look > 0 || froze ? "warn" : "ok", Perf.Summary(), look > 0 || froze ? "Open the Performance page" : "");
+            return Mk("performance", "Frame rate", look > 0 || froze ? "warn" : "ok", line, look > 0 || froze ? "Open the Performance page" : "");
         }
 
-        // Once a minute out of the car (on the 20 s tick): the frame-rate line follows the reports as they land ("still being processed" ->
-        // the race's own sentence) without a whole new check. Cheap: the telemetry listing and the checklist are cached (perf.cs).
+        // Once a minute with the sim closed (Tick's 20 s timer runs on the UI thread, so the work goes to a background thread): the
+        // frame-rate line follows the reports as they land ("still being processed" -> the race's own sentence) without a whole new check.
         static DateTime lastPerf = DateTime.MinValue;
+        static int perfBusy;
         static void RefreshPerf()
         {
-            if ((DateTime.Now - lastPerf).TotalSeconds < 60) return;
+            if ((DateTime.Now - lastPerf).TotalSeconds < 60 || PerfSampler.SimRunning) return;
+            bool has; lock (gate) has = !running && items.Exists(delegate (Item i) { return i.Id == "performance"; });
+            if (!has || Interlocked.CompareExchange(ref perfBusy, 1, 0) != 0) return;
             lastPerf = DateTime.Now;
-            bool has; lock (gate) has = items.Exists(delegate (Item i) { return i.Id == "performance"; });
-            if (!has) return;
-            Item fresh = CheckPerf();
-            lock (gate)
-                for (int k = 0; k < items.Count; k++)
-                    if (items[k].Id == "performance" && (items[k].Detail != fresh.Detail || items[k].State != fresh.State)) { items[k] = fresh; Log.W("doctor: frame rate now: " + fresh.Detail); }
+            Thread t = new Thread(delegate ()
+            {
+                try
+                {
+                    Item fresh = CheckPerf();
+                    lock (gate)
+                        for (int k = 0; k < items.Count; k++)
+                            if (items[k].Id == "performance" && (items[k].Detail != fresh.Detail || items[k].State != fresh.State)) { items[k] = fresh; Log.W("doctor: frame rate now: " + fresh.Detail); }
+                }
+                catch (Exception ex) { Log.W("doctor: frame rate: " + ex.Message); }
+                finally { Interlocked.Exchange(ref perfBusy, 0); }
+            });
+            t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Start();
         }
 
         static Item CheckSimPriority()
