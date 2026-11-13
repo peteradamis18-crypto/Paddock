@@ -29,3 +29,6 @@ deployed = on the rig; live = the live checks in the card were run by the lead; 
 - Peter: click **Install** when Stream Deck asks (add-on 1.9.0.0: the CONFIRM screen for SHUT DOWN / SLEEP, timeouts, grey keys).
   Until then SHUT DOWN PC and SLEEP PC on the deck do nothing (the new irdeck refuses power from a bare key), on purpose.
   After the click the lead runs `build-deck.ps1` with Stream Deck closed, then the live deck checks in W0-1.
+- Live checkout tests 2026-11-13 after W0-5: keys-test 136/0, mydrive-test -DeckOnly -Offline 27/0 (its log slice was bytes-vs-chars, fixed),
+  photo-order 4/0, dead-code 49/0, design-lint 14/0; perf-test -Offline 51/1: the one failure is the 2 Nov "Overlays changed" marker
+  tripping an old check (pre-existing, not wave 0). HOME idle in the browser pane after the deploy: one stream, no polling at all.

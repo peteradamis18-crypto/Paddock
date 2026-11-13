@@ -42,7 +42,7 @@ $goLog = Join-Path $root 'irdeck.log'
 $goBefore = if (Test-Path $goLog) { (Get-Item $goLog).Length } else { 0 }
 $goOutput = & (Join-Path $root 'irdeck-cli.exe') go 2>&1 | Out-String
 $goExit = $LASTEXITCODE
-$goAdded = if (Test-Path $goLog) { [IO.File]::ReadAllText($goLog).Substring([Math]::Min($goBefore, (Get-Item $goLog).Length)) } else { '' }
+$goAdded = if (Test-Path $goLog) { $gb = [IO.File]::ReadAllBytes($goLog); $gs = [Math]::Min($goBefore, $gb.Length); [Text.Encoding]::UTF8.GetString($gb, $gs, $gb.Length - $gs) } else { '' }   # bytes, not chars: the log has non-ASCII lines
 Check 'CmdGo returns and logs sim not running before the button hunt' ($goExit -ne 0 -and (($goOutput + $goAdded) -match 'go: sim not running') -and (($goOutput + $goAdded) -notmatch 'green button never appeared|screen saved to'))
 
 # ================= 1. the deck screen =================
