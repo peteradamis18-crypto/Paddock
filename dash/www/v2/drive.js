@@ -11,7 +11,7 @@ const Drive = {
   // in the car: a live frame with IsOnTrack. A frozen feed keeps the screen (greyed, with its age) for a minute.
   want() {
     // off until the lead's visual sign-off: only ?drive=1 (tests, previews) or TV VIEW (the camera lives in Drive's map slot)
-    if (QS.has('grid') || !(QS.has('drive') || (typeof Tv !== 'undefined' && Tv.on))) return false;
+    if (QS.has('grid') || !(QS.has('drive'))) return false;
     const v = L.v;
     if (!L.connected || !v || !v.IsOnTrack || v.IsReplayPlaying) return false;
     return performance.now() - L.lastFrameAt < 60000;
@@ -232,7 +232,7 @@ const Drive = {
   /* ---------- the map ---------- */
   // called by the dashboard's canvas loop (30 fps cap); redraws only when a car moved a visible amount
   frame() {
-    if (!this.shown || (typeof Tv !== 'undefined' && Tv.on)) return;
+    if (!this.shown) return;
     const v = L.v, stale = this.model ? this.model.stale > 0 : false;
     const sig = [TrackMap.key, TrackMap.source, TrackMap.pts ? TrackMap.pts.length : 0, TrackMap.status, TrackInfo.version, S.version, stale, v.PlayerCarIdx,
       (v.CarIdxLapDistPct || []).map(x => isNum(x) ? Math.round(x * 2000) : -1).join(',')].join('|');

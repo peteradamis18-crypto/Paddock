@@ -198,7 +198,7 @@ namespace IRDash
         public static bool Hidden(string path, string method)
         {
             return method != "GET" || path.StartsWith("/api/test/", StringComparison.Ordinal) || path.StartsWith("/vault/test/", StringComparison.Ordinal) ||
-                   path == "/api/open" || path == "/phone/qr" || path.StartsWith("/maps/", StringComparison.Ordinal) ||
+                   path == "/api/open" || path == "/phone/qr" ||
                    path == "/share/open" || path == "/share/jump" || path.StartsWith("/share/test/", StringComparison.Ordinal);      // share studio: the folder and the sim's replay are this PC's business
         }
 

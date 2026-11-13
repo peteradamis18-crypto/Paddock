@@ -629,6 +629,7 @@ namespace IRDash
                         Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Replay.TestLog(ParseQuery(query).ContainsKey("clear"))));
                         return;
                     }
+                    if (method == "GET" && path == "/gallery") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Gallery.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // charset: captions have accents
                     if (method == "GET" && path == "/corners")      // corner model (corners.cs, docs\corners.md)
                     {
                         int cc; string cj = Corners.Route(path, ParseQuery(query), out cc);

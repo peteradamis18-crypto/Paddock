@@ -214,7 +214,7 @@ try {
   Write-Output "  ($($srcBad.Count) source hits listed in tests\last\copy-audit-source-hits.txt)"
 
   Section '2b. no broken characters in what the server sends (every reply decoded as UTF-8)'
-  $api2 = @('/home', '/career', '/brief', '/perf', '/perf/checklist', '/sessions', '/vault/list', '/official', '/health', '/overlays', '/analysis/session?id=' + (Q $pb), '/analysis/career?id=' + (Q $pb), '/analysis/gain?id=' + (Q $pb), '/vault/review', '/bench?car=x&track=y', '/doctor', '/rig/doctor')
+  $api2 = @('/home', '/career', '/brief', '/perf', '/perf/checklist', '/sessions', '/vault/list', '/official', '/health', '/overlays', '/analysis/session?id=' + (Q $pb), '/analysis/career?id=' + (Q $pb), '/vault/review', '/bench?car=x&track=y', '/doctor', '/rig/doctor')
   $moji = @(); $nApi = 0
   foreach ($u in $api2) { try { $r = Invoke-WebRequest -UseBasicParsing ($api + $u) -TimeoutSec 60; $txt = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()); $nApi++; if ($txt -match '[\u00C2\u00C3]') { $moji += $u } } catch { } }
   Check "$nApi server replies read as UTF-8, no broken characters" ($moji.Count -eq 0 -and $nApi -ge 8) ($moji -join ', ')

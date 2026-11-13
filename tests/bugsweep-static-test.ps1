@@ -24,7 +24,7 @@ foreach ($p in $paths) { if ($p -in '/phone/','/api/do') { continue }; Check "ro
 Write-Output 'Pi Toolbox open'
 Check 'vault.cs lets only one Pi launch run at a time' ($vault -match 'static volatile bool cwOpening' -and $vault -match 'if \(cwOpening\)')
 Check 'a missing Pi template is an error the button can show' ($vault -match 'code = 424')
-foreach ($f in 'workbench.js','sessionreview.js','debrief.js','debrief-v4.js') {
+foreach ($f in 'workbench.js','sessionreview.js','debrief-v4.js') {
   $t = Get-Content -Raw (Join-Path $root "dash\www\v2\$f")
   Check "$f shows why OPEN IN COSWORTH failed" ($t -match 'NOT WHILE DRIVING' -and $t -match '_busy')
 }

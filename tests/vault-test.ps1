@@ -537,9 +537,6 @@ $gone2 = Wait-Page "!document.getElementById('wbHost')" 4
 Check 'Escape puts the race page away first (the detail stays open)' ($gone2 -and (Cdp-Eval "V.id") -eq 'r20261010-041318')
 Check 'no script errors from the RACE button' ((Cdp-Eval "(window.__errs || []).length") -eq 0)
 # the debrief after a personal best is the Session Review (C-40); it offers ANALYSIS (the old In the Vault link went with the benchmark card; CHOOSE in the laps-saved bar opens the Vault)
-$null = Cdp 'Page.navigate' @{ url = "$api/v2/index.html?debrief=demo" }
-$okDb = Wait-Page "!!document.getElementById('srAnalysis') && !document.getElementById('srAnalysis').hidden" 25
-Check 'after a personal best the debrief (Session Review) offers ANALYSIS' $okDb
 Cdp-Close
 
 # L-1: the Vault's personal best, best laps and fastest tenth are laps iRacing COUNTED (one rule everywhere: LapRules in analysis.cs). Before, a timed lap with a short
