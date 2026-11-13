@@ -1214,6 +1214,9 @@ namespace IRDeck
                 for (int i = 0; i < 20 && Find(els, isLast) == null; i++) { Thread.Sleep(400); els = UiAll(root); }
             }
             Cards cards = ReadCards(els);
+            // 2026-11-13 16:48: a fresh UI opened the dialog in 0.7 s and its "Last settings" link showed before the car and track cards did;
+            // one read found no cards and START stopped. The same retry the 1 Nov fix gave the panel read: look a few more times.
+            for (int i = 0; i < 8 && (cards == null || cards.CarName == null || cards.TrackName == null); i++) { Thread.Sleep(300); els = UiAll(root); if (Find(els, isLast) == null) break; cards = ReadCards(els); }
             Log("tdsetup: dialog " + (Find(els, isLast) != null ? "open" : "NOT open") + ", " + els.Count + " elements, cards " +
                 (cards == null ? "not found" : (cards.CarName != null ? cards.CarName.Name : "?") + " / " + (cards.TrackName != null ? cards.TrackName.Name : "?")));
             if (cards == null || cards.CarName == null || cards.TrackName == null) { TdWhy = "The Test Drive window isn't open in iRacing."; return 1; }

@@ -38,3 +38,26 @@ deployed = on the rig; live = the live checks in the card were run by the lead; 
 - Live checkout tests 2026-11-13 after W0-5: keys-test 136/0, mydrive-test -DeckOnly -Offline 27/0 (its log slice was bytes-vs-chars, fixed),
   photo-order 4/0, dead-code 49/0, design-lint 14/0; perf-test -Offline 51/1: the one failure is the 2 Nov "Overlays changed" marker
   tripping an old check (pre-existing, not wave 0). HOME idle in the browser pane after the deploy: one stream, no polling at all.
+
+## 2026-11-13 evening: Peter's real race on wave 0 (Road Atlanta, Toyota GR86: Practice, Lone Qualify, Race, 10 laps, P4 of 19)
+- W0-3 held: nothing heavy ran during the session. After "iRacing disconnected" at 16:48:14 the log shows every job
+  "ran (waited 1866.9 s …)": housekeeping, perf reports, 11 clip cuts, 4 session files, field laps, the career scan.
+- W0-9: `data\blackbox\20261113-161653.tsv` (2368 rows, 538 fast, 4 snapshots, 339 KB, 0.033 % of a core). `/perf/summary`:
+  "No freezes in your last race (avg 107 fps): Road Atlanta, 13 Nov 16:27. Smooth. 1 thing to look at on the Performance page."
+- BUG (W0-3 follow-up, card `cards/W0-11.md`; merged 5d01821 and deployed 2026-11-13 17:08, recorder-owner-test 17/0, jobs-test
+  57/0; the lead checks the next multi-session evening for "missing segment" lines): because the session file now waits for the sim to close, the next
+  session adopted the previous one's segments: Qualify's file swallowed Practice 2 (74 s), Practice 2 "had no closed segments",
+  the Race file was marked "partial - 1 gap(s)" after 35 "missing segment" lines although its own 1268 s are complete (it is in
+  Videos\Paddock for YouTube).
+- MY DRIVE START at 16:48:42 stopped at "tdsetup: dialog open, 416 elements, cards not found": the Test Drive dialog's
+  "Last settings" link showed 0.7 s after the click, before its car and track cards, and `CmdTdSetup` read the cards once. Fix:
+  the same 8 × 0.3 s retry the 1 Nov fix gave the panel read (`src\testdrive.cs`); irdeck rebuilt and all 46 key copies updated
+  17:06; pickname-test 81/2 and deck-behaviour-test 123/0 (the 2 pickname failures, Snetterton 200 and Laguna Seca names from
+  `career-cache.tsv`, were 80/2 before the change: pre-existing, not wave 0); live check owed (Peter away).
+- The SHUT DOWN PC press: Peter saw the confirm close by itself, but no log has it: the add-on's own log
+  (`%APPDATA%\Elgato\StreamDeck\logs\com.peter.rigintro0.log`) holds only "connected to irdash" since 16:03:55 and `open()`
+  logs "confirm: shutdown asked" first thing; irdash has no `confirmarm`; `deck-secret.txt` is still not promoted. Peter is
+  asked to press it once more while the lead watches the three logs.
+- Seen, not wave 0: QUIT TO MENU pressed at 16:16:31 (in the pit) ran on until 16:17:53 and then said "did not reach Home"
+  because the sim had been relaunched in between (fail-quitmain.png shows him in the car); it pressed nothing after the relaunch.
+  Stream Deck offers its 7.6.1 update (not installed).

@@ -133,6 +133,7 @@ Check '"Grand Prix Circuit" is "Grand Prix"' ((L @('Grand Prix', 'National') 'Gr
 Check 'a layout iRacing does not offer = nothing picked' ($null -eq (L $sonoma 'Nordschleife'))
 Check 'no layout asked = nothing picked here (tdsetup takes the first one)' ($null -eq (L $sonoma ''))
 Check 'START retries the card read before giving up (2026-11-01 13:28 "cards not found")' ($src -match 'for \(int i = 0; i < 8 && cards == null; i\+\+\)')
+Check 'the first card read after the dialog opens retries too (2026-11-13 16:48 "dialog open, 416 elements, cards not found")' ($src -match 'for \(int i = 0; i < 8 && \(cards == null \|\| cards\.CarName == null \|\| cards\.TrackName == null\); i\+\+\) \{ Thread\.Sleep\(300\); els = UiAll\(root\); if \(Find\(els, isLast\) == null\) break; cards = ReadCards\(els\); \}')
 Check 'every layout menu iRacing shows is saved for the deck (mydrive\track-layouts.tsv)' ($src -match 'TdRememberLayouts\(words\[1\], offered\)' -and $src -match 'TdRememberLayouts\(track, names\)')
 Check 'a learned session-name -> menu-name pair is tried first, and START learns it once the session is up' ($src -match 'BestLayout\(items, u => u\.Name, LayoutAlias\(words\[1\], layout\)\)' -and [IO.File]::ReadAllText((Join-Path $root 'src\mydrive.cs')) -match 'LearnLayoutAlias\(c\.Track, running\.Layout, TdPickedLayout\)')
 Check 'Sonoma "Long" is never guessed as "Cup Long" by spelling (must be learned or picked on the deck)' ($null -eq (L $sonoma 'Long'))
