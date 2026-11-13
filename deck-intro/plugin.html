@@ -6,7 +6,7 @@
 'use strict';
 // Paddock add-on (folder and UUID keep the old name "rigintro"): the startup flag sequence across all 32 keys, and the live
 // screens drawn on the deck: FRIENDS mode, OVERLAYS, MY DRIVE (race setup), REPLAY, ANALYSIS, SOUND (each a bundled one-page profile whose 32 tiles this page paints).
-// irdash decides when the intro plays (http://localhost:8199/showcase?who=deck): once per Windows start, again whenever
+// irdash decides when the intro plays (its showcase answer, in http://localhost:8199/deck/summary since W0-5): once per Windows start, again whenever
 // the SHOWCASE key / "Play intro" bumps seq, never while driving. Switches to the bundled RigIntro profile,
 // animates its 32 tiles, then switches back to the profile that was showing before.
 //
@@ -55,7 +55,7 @@ function sendCmd(path) {
   return fetchT(API + path, 0, { 'X-Paddock': PADDOCK_SECRET });
 }
 
-// Is irdash answering? One "tick" = one pass of the 2 s loop. After 3 ticks in a row with no answer the opener keys go grey
+// Is irdash answering? One "tick" = one /deck/summary pass (every 5 s). After 3 ticks in a row with no answer the opener keys go grey
 // (they would otherwise keep showing an old state as if it were true: A3); the first good answer brings them back.
 const Health = {
   lastOk: 0, failed: 0, grey: false,
@@ -333,9 +333,9 @@ const Friends = new class extends Screen {
   }
 
   // the opener key on your profile: keeps the last state at hand, so the screen can be drawn the moment it opens
-  async keyTick() {
-    if (!this.keys.size || this.live) return;
-    this.g = await this.get('/guest');
+  async keyTick(sum) {
+    if (!this.keys.size || this.live || !sum.guest) return;
+    this.g = sum.guest;
     this.warm();
   }
 
@@ -481,9 +481,9 @@ const RigDoctor = {
     const url = c.toDataURL('image/png');
     for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } });
   },
-  async tick() {
-    if (!docKeys.size) return;
-    try { this.d = await (await fetchT(API + '/doctor')).json(); } catch (e) { return; }
+  async tick(sum) {
+    if (!docKeys.size || !sum.doctor) return;
+    this.d = sum.doctor;
     this.icon(false);
   },
   async press() { try { await sendCmd('/api/do?c=doctor'); } catch (e) { log('doctor: irdash not reachable'); } },
@@ -519,9 +519,9 @@ const Overlays = new class extends Screen {
     this.setKeyImage(c.toDataURL('image/png'));
   }
 
-  async keyTick() {
-    if (!this.keys.size || this.live) return;
-    this.o = await this.get('/overlays');
+  async keyTick(sum) {
+    if (!this.keys.size || this.live || !sum.overlays) return;
+    this.o = sum.overlays;
     this.keyIcon(false);
     this.warm();
   }
@@ -624,7 +624,8 @@ const MyDrive = new class extends Screen {
 
   // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request
   async keyTick() {
-    const m = await this.get('/mydrive');
+    // W0-5: from /deck/summary (the speed-test trigger and the auto-open flag ride in it); called with no summary it asks /mydrive itself
+    const sum = arguments[0], m = sum ? sum.mydrive : await this.get('/mydrive'); if (!m) return;
     if (!this.live) {
       this.m = m;
     }
@@ -965,9 +966,9 @@ const Replay = new class extends Screen {
 
   // while the opener key is on the deck: keep the last state at hand (not drawn: it changes every second, so it is only
   // drawn - once - when the screen opens)
-  async keyTick() {
-    if (!this.keys.size || this.live) return;
-    this.r = await this.get('/replay');
+  async keyTick(sum) {
+    if (!this.keys.size || this.live || !sum.replay) return;
+    this.r = sum.replay;
     this.keyIcon(false);
   }
 
@@ -1209,9 +1210,9 @@ const Analysis = new class extends Screen {
   }
 
   // while the opener key is on the deck: the last state at hand, so the screen can be drawn the moment it opens
-  async keyTick() {
-    if (!this.keys.size || this.live) return;
-    await this.readState();
+  async keyTick(sum) {
+    if (!this.keys.size || this.live || !sum.workbench) return;
+    this.a = sum.workbench;            // /workbench/state, in the summary
     this.keyIcon(false);
     this.warm();
   }
@@ -1387,9 +1388,9 @@ const Sound = new class extends Screen {
   }
 
   // while the opener key is on the deck: the last known state (a peek: irdash does not ask Windows for it)
-  async keyTick() {
+  async keyTick(sum) {
     if (!this.keys.size || this.live) return;
-    try { this.s = await this.get('/sound?peek=1'); } catch (e) { this.s = { ready: false, off: true }; }
+    this.s = sum.sound || { ready: false, off: true };     // the peek (/sound?peek=1), in the summary
     this.keyIcon(false);
     this.warm();
   }
@@ -1489,9 +1490,9 @@ const Ac = new class extends Screen {
     this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
   }
 
-  async keyTick() {
+  async keyTick(sum) {
     if (!this.keys.size || this.live) return;
-    try { this.s = await this.get('/ac'); } catch (e) { this.s = { connected: false }; }
+    this.s = sum.ac || { connected: false };
     this.keyIcon(false);
     this.warm();
   }
@@ -1641,9 +1642,9 @@ const Races = new class extends Screen {
     g.fillStyle = INK; g.font = '400 20px ' + FONT; g.fillText(sub, 72, 100);
     this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
   }
-  async keyTick() {
+  async keyTick(sum) {
     if (!this.keys.size || this.live) return;
-    try { this.s = await this.get('/api/rec/races'); } catch (e) { this.s = null; }
+    this.s = sum.races || null;        // /api/rec/races, in the summary
     this.keyIcon(false);
     if (this.s) this.warm();
   }
@@ -1868,33 +1869,35 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
   };
 }
 
-// Asks irdash every 2 s whether to play the intro (and keeps the screens' last state ready for the moment a key opens one).
+// W0-5: ONE request every 5 s (/deck/summary: whether to play the intro, and what every opener key paints), and only while an
+// opener key is on the deck. It used to be six requests every 2 s, all day, also while Peter raced (audit 11, finding 6). A screen
+// that is open asks its own route at its own pace, as before; nothing is asked while no opener key is showing.
+const SUMMARY_MS = 5000;
+function openerShowing() { return docKeys.size > 0 || Object.values(SCREENS).some(s => s.keys.size > 0); }
 async function pollLoop() {
+  let last = -1e9;
   for (;;) {
-    // the /showcase ask doubles as "is irdash answering": no answer = skip the other asks this pass (each would wait 2 s) and count a failed tick
-    const before = Health.lastOk, asked = !playing;
-    try { await poll(); } catch (e) { }
-    const answered = Health.lastOk > before;
-    if (asked) Health.tick(answered);
-    if (asked && !answered) { await sleep(2000); continue; }
-    try { await Overlays.keyTick(); } catch (e) { }
-    try { await Friends.keyTick(); } catch (e) { }
-    try { await MyDrive.keyTick(); } catch (e) { }
-    try { await Replay.keyTick(); } catch (e) { }
-    try { await Analysis.keyTick(); } catch (e) { }
-    try { await Sound.keyTick(); } catch (e) { }
-    try { await Ac.keyTick(); } catch (e) { }
-    try { await Races.keyTick(); } catch (e) { }
-    try { await RigDoctor.tick(); } catch (e) { }
-    await sleep(2000);
+    // looked at 4 times a second (the worker's timer, no request): the first summary comes as soon as the opener keys appear
+    if (!playing && openerShowing() && performance.now() - last >= SUMMARY_MS) {
+      last = performance.now();
+      // the summary doubles as "is irdash answering": three passes without an answer grey the opener keys (Health)
+      const before = Health.lastOk;
+      let sum = null;
+      try { sum = await (await fetchT(API + '/deck/summary')).json(); }
+      catch (e) { if (!poll.warned) { poll.warned = true; log('irdash not reachable yet: ' + e); } }
+      Health.tick(Health.lastOk > before && !!sum);
+      if (sum) {
+        try { poll(sum.showcase); } catch (e) { }
+        for (const s of [Overlays, Friends, MyDrive, Replay, Analysis, Sound, Ac, Races]) { try { await s.keyTick(sum); } catch (e) { } }
+        try { await RigDoctor.tick(sum); } catch (e) { }
+      }
+    }
+    await sleep(250);
   }
 }
 
-async function poll() {
-  if (playing) return;
-  let s;
-  try { s = await (await fetchT(API + '/showcase?who=deck')).json(); }
-  catch (e) { if (!poll.warned) { poll.warned = true; log('irdash not reachable yet: ' + e); } return; }
+function poll(s) {
+  if (playing || !s) return;
   if (!poll.ok) { poll.ok = true; log('connected to irdash, seq ' + s.seq + (s.play ? ', boot play' : '')); }
   const replay = seq !== null && s.seq > seq && !s.driving;
   seq = s.seq;
