@@ -315,10 +315,24 @@ namespace IRDash
             return on;
         }
 
+        // W0-3 test mode (irdash --test): no screen capture. irdash.exe itself stands in for ffmpeg and ffprobe (RecMock below): 1 KB
+        // "segments" every 10 s and 2 KB "clips", so the load test runs the real recorder code (laps, cuts, the session file, retention)
+        public static bool Mock;
+        static string SelfExe { get { return System.Reflection.Assembly.GetExecutingAssembly().Location; } }
+
+        // W0-3: the heavy work (a clip cut, an incident clip, the session file) waits on the Jobs queue until the session is over.
+        // The recorder sandbox (tests\recorder-test.ps1, testOn) keeps its own worker, so its pretend session can still check the cuts.
+        static void Heavy(string name, ThreadStart a)
+        {
+            if (testOn) { Enqueue(a); return; }
+            Jobs.Run(name, delegate { a(); }, true);
+        }
+
         public static void Init(string rootDir)
         {
             RecAudio.Say = delegate (string m) { Log.W(m); };
             try { if (Program.IniFile != null && File.Exists(Program.IniFile)) { string t = File.ReadAllText(Program.IniFile); enabled = ParseSwitch(t); audioMode = ParseAudioSwitch(t) ? "auto" : "off"; } } catch (Exception ex) { Log.W("recorder: irdash.ini: " + ex.Message); }
+            if (Mock) { enabled = true; audioMode = "off"; }
             LoadClips();       // clips already made are served even while the recorder is off
             LoadSessions();
         }
@@ -326,7 +340,7 @@ namespace IRDash
         public static void Start()
         {
             if (!enabled) { Log.W("recorder: switched off (recorder=0 in irdash.ini)"); note = "off"; return; }
-            if (!File.Exists(FfmpegPath)) { note = "ffmpeg is missing (vault\\bin\\ffmpeg.exe)"; Log.W("recorder: " + note); return; }
+            if (!Mock && !File.Exists(FfmpegPath)) { note = "ffmpeg is missing (vault\\bin\\ffmpeg.exe)"; Log.W("recorder: " + note); return; }
             bool leftoversSaved = FinishLeftovers(); // Keep the only copy when recovery cannot finish.
             if (leftoversSaved) WipeRecDir();
             Log.W("recorder: on - records the middle race screen while you are in the car (ffmpeg, " + encoder + ", 60 fps, one file per session; sound " + (audioMode == "off" ? "off (recorder_audio=0)" : "from iRacing and CrewChief") + ")");
@@ -388,7 +402,7 @@ namespace IRDash
         {
             if (!(enabled || testOn) || !f.Connected) return false;
             if (f.Num("IsOnTrack") == 0 || f.Num("IsReplayPlaying") != 0) return false;
-            return testOn || !Sdk.Pretend;        // a pretend session never films the real screen, unless a test asked for exactly that (the real-screen section of tests\recorder-test.ps1)
+            return testOn || Mock || !Sdk.Pretend;        // a pretend session never films the real screen, unless a test asked for exactly that (the real-screen section of tests\recorder-test.ps1); Mock films nothing
         }
 
         static void Lifecycle(Frame f, double now)
@@ -451,10 +465,10 @@ namespace IRDash
         static void StartFfmpeg(double now)
         {
             string exe = FfmpegPath;
-            if (!File.Exists(exe)) { gaveUp = true; note = "ffmpeg is missing (vault\\bin\\ffmpeg.exe)"; Log.W("recorder: " + note); return; }
+            if (!Mock && !File.Exists(exe)) { gaveUp = true; note = "ffmpeg is missing (vault\\bin\\ffmpeg.exe)"; Log.W("recorder: " + note); return; }
             try { Directory.CreateDirectory(RecDir); } catch { }
             int idx = 0, adapter = 0, rot = 3; string enc = source == "test" ? "libx264" : encoder;
-            if (source == "screen")
+            if (source == "screen" && !Mock)
             {
                 string why; RecDxgi.Out mid = RecDxgi.Middle(RecDxgi.All(), out why);
                 if (mid == null)
@@ -468,6 +482,7 @@ namespace IRDash
             RecRun r = new RecRun(); r.No = ++runNo; r.BaseMs = Math.Floor(WallMs() / 1000.0) * 1000.0; r.Rot = rot; r.Encoder = enc;
             r.List = Path.Combine(RecDir, "list-" + r.No + ".csv"); r.StartMs = now; r.Sess = openSess;
             string args = BuildArgs(r, idx, adapter, enc); lastRunArgs = args;
+            if (Mock) { args = "--mock ffmpeg " + args; exe = SelfExe; }
             ProcessStartInfo psi = new ProcessStartInfo(exe, args);
             psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardInput = true; psi.RedirectStandardError = true; psi.RedirectStandardOutput = true; psi.WorkingDirectory = RecDir;
             lock (errLines) errLines.Clear();
@@ -693,10 +708,25 @@ namespace IRDash
             RetryProbes(now);
             ResolveCuts(now);
             ResolveIncidents(now);
-            PruneSegs(now);
-            if (now - lastAudPrune > 2000) { lastAudPrune = now; PruneAudio(now); }
+            if (testOn)
+            {
+                // the sandbox keeps the old inline upkeep (tests\recorder-test.ps1 checks the rolling window during its pretend session)
+                PruneSegs(now);
+                if (now - lastAudPrune > 2000) { lastAudPrune = now; PruneAudio(now); }
+                if (now - lastSessHk > 5000) { lastSessHk = now; try { RetainSessions(); } catch { } try { SyncExports(); } catch { } }
+            }
+            else if (now - lastSessHk > 5000)
+            {
+                // W0-3: the deletes (old segments, sound chunks, sessions over the budget) and the export sync wait for the session to end
+                lastSessHk = now;
+                Jobs.Routine("recorder housekeeping", delegate
+                {
+                    double t = WallMs();
+                    PruneSegs(t); lastAudPrune = t; PruneAudio(t);
+                    try { RetainSessions(); } catch { } try { SyncExports(); } catch { }
+                });
+            }
             if (ff == null) QueueFinishing();
-            if (now - lastSessHk > 5000) { lastSessHk = now; try { RetainSessions(); } catch { } try { SyncExports(); } catch { } }
             if (r != null && ff != null && !r.FirstSeg && !r.StuckSaid && now - r.StartMs > 30000)
             {
                 r.StuckSaid = true; black = true; note = "no picture came from the screen";
@@ -852,7 +882,7 @@ namespace IRDash
                     // wait until the video covers a second past the line (a segment is closed every ~10 s), or no more video is coming
                     bool ready = lastEnd >= c.E || (ff == null && probing == 0) || now > c.E + 30000;
                     if (!ready) continue;
-                    c.Started = true; c.Result = ""; RecCut cc = c; Enqueue(delegate { RunCut(cc); });
+                    c.Started = true; c.Result = ""; RecCut cc = c; Heavy("recorder cut " + ClipId(c.Lap), delegate { RunCut(cc); });
                 }
             }
         }
@@ -1070,16 +1100,22 @@ namespace IRDash
         static int RunBytes(string exe, string args, string cwd, int timeoutMs, out byte[] stdout, out string stderr)
         {
             stdout = new byte[0]; stderr = "";
+            if (Mock) { args = "--mock " + (exe == FfprobePath ? "ffprobe " : "ffmpeg ") + args; exe = SelfExe; }
             ProcessStartInfo psi = new ProcessStartInfo(exe, args); psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
             if (cwd != null) psi.WorkingDirectory = cwd;
             using (Process p = Process.Start(psi))
             {
-                try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
+                // W0-3: below-normal CPU and very low disk priority (a 90 MB clip write must not compete with the sim for the disk)
+                Jobs.LowerChild(p);
                 MemoryStream ms = new MemoryStream(); StringBuilder se = new StringBuilder();
                 Thread t = new Thread(delegate () { try { p.StandardOutput.BaseStream.CopyTo(ms); } catch { } }); t.IsBackground = true; t.Start();
                 p.ErrorDataReceived += delegate (object s, DataReceivedEventArgs e) { if (e.Data != null) lock (se) se.AppendLine(e.Data); };
                 p.BeginErrorReadLine();
-                if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } stderr = "timed out"; return -1; }
+                // a job that runs when free stops when a session starts: the cut or the session file is retried after it (-1, like a timeout)
+                Stopwatch waited = Stopwatch.StartNew(); bool exited = false;
+                while (!(exited = p.WaitForExit(250)) && waited.ElapsedMilliseconds < timeoutMs)
+                    if (Jobs.ShouldYield) { try { p.Kill(); } catch { } stderr = "stopped: a session started"; Log.W("recorder: stopped " + Path.GetFileName(exe) + " - a session started; it runs again after the session"); return -1; }
+                if (!exited) { try { p.Kill(); } catch { } stderr = "timed out"; return -1; }
                 p.WaitForExit(); t.Join(3000);
                 lock (ms) stdout = ms.ToArray();
                 lock (se) stderr = se.ToString();
@@ -1269,7 +1305,7 @@ namespace IRDash
                 foreach (RecCut c in cuts)
                 {
                     if (c.Started || c.Lap == null || !s.Laps.Contains(c.Lap)) continue;
-                    c.Started = true; RecCut cc = c; Enqueue(delegate () { RunCut(cc); });
+                    c.Started = true; RecCut cc = c; Heavy("recorder cut " + ClipId(c.Lap), delegate () { RunCut(cc); });
                 }
             }
             if (ff == null) QueueFinish(s, waitVideo);
@@ -1297,7 +1333,7 @@ namespace IRDash
         static void QueueFinish(RecSess s, bool waitVideo)
         {
             lock (gate) { if (s.FinishQueued) return; s.FinishQueued = true; }
-            Enqueue(delegate () { FinishSession(s, waitVideo); });
+            Heavy("recorder session file " + s.Id, delegate () { FinishSession(s, waitVideo); });
         }
 
         // A finish that waited too long gives up cleanly: the segments stay, the session says so, and the normal retry picks it up.
@@ -1688,7 +1724,7 @@ namespace IRDash
 
         // ---------------- RACES screen (2026-11-06, Peter: "full races, delete when done so I don't nuke the hard drive, export so I
         // can easily go to YouTube"): the whole-session videos newest first, deleted for good, or handed to YouTube ----------------
-        static string ExportDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Paddock"); } }
+        static string ExportDir { get { return Program.TestMode ? Path.Combine(Program.RootDir, "videos") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Paddock"); } }
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
         static extern bool CreateHardLink(string newName, string existing, IntPtr security);
 
@@ -2056,7 +2092,7 @@ namespace IRDash
                     if (x.Ready) continue;
                     bool ready = lastEnd >= x.E || (ff == null && probing == 0) || now > x.E + 30000;
                     if (!ready) continue;
-                    x.Ready = true; x.Result = ""; RecInc xx = x; Enqueue(delegate () { RunIncident(xx); });
+                    x.Ready = true; x.Result = ""; RecInc xx = x; Heavy("recorder incident " + Stamp(x.At), delegate () { RunIncident(xx); });
                 }
             }
         }
@@ -2263,4 +2299,71 @@ namespace IRDash
             code = 404; return Err("not found");
         }
     }
-}
+
+    // ---------------- W0-3: irdash --test stands in for ffmpeg and ffprobe ----------------
+    // irdash.exe --mock ffmpeg|ffprobe <the real arguments>. No picture, no encoder: a capture writes a 1 KB "segment" every segment time
+    // and the csv list ffmpeg writes; a cut or a session file writes a 2 KB file; ffprobe answers from the segment's own text. Used only
+    // when Recorder.Mock is on (test mode), so the load test runs the recorder's own code without a screen, a GPU or ffmpeg.
+    static class RecMock
+    {
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        static string Quoted(string args, bool last)
+        {
+            MatchCollection m = Regex.Matches(args, "\"([^\"]*)\"");
+            if (m.Count == 0) return "";
+            return last ? m[m.Count - 1].Groups[1].Value : m[0].Groups[1].Value;
+        }
+        static double SegStart(string path)
+        {
+            try { Match m = Regex.Match(File.ReadAllText(path), "start=([0-9.]+)"); if (m.Success) return double.Parse(m.Groups[1].Value, Inv); } catch { }
+            return 0;
+        }
+        public static int Run()
+        {
+            string cl = Environment.CommandLine;
+            int k = cl.IndexOf("--mock ", StringComparison.Ordinal); if (k < 0) return 2;
+            string rest = cl.Substring(k + 7), tool = rest.StartsWith("ffprobe", StringComparison.Ordinal) ? "ffprobe" : "ffmpeg";
+            string args = rest.Substring(tool.Length).Trim();
+            try
+            {
+                if (tool == "ffprobe")
+                {
+                    string path = Quoted(args, true);
+                    double st = SegStart(path);
+                    if (args.Contains("-read_intervals")) Console.WriteLine(st.ToString("0.000000", Inv));
+                    else if (args.Contains("packet=pts_time,flags")) for (int i = 0; i < 10; i++) Console.WriteLine((st + i).ToString("0.000000", Inv) + ",K_");
+                    else if (args.Contains("stream=start_time,duration")) Console.WriteLine("start_time=0.000000\nduration=12.000000");
+                    else Console.WriteLine("12.000000");
+                    return 0;
+                }
+                if (args.Contains("-f segment"))
+                {
+                    string list = Regex.Match(args, "-segment_list \"([^\"]+)\"").Groups[1].Value, pattern = Quoted(args, true);
+                    double baseMs = 0; Match b = Regex.Match(args, "RTCTIME-([0-9]+)"); if (b.Success) baseMs = double.Parse(b.Groups[1].Value, Inv) / 1000.0;
+                    double segSec = 10; Match sm = Regex.Match(args, "-segment_time ([0-9.]+)"); if (sm.Success) segSec = Math.Max(1, double.Parse(sm.Groups[1].Value, Inv) + 0.1);
+                    bool stop = false;
+                    Thread inp = new Thread(delegate () { try { while (true) { string l = Console.In.ReadLine(); if (l == null || l.Trim() == "q") { stop = true; return; } } } catch { stop = true; } });
+                    inp.IsBackground = true; inp.Start();
+                    Func<double> now = delegate { return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; };
+                    int n = 0; double segStart = (now() - baseMs) / 1000.0;
+                    while (true)
+                    {
+                        bool last = false;
+                        for (int i = 0; i < segSec * 10 && !stop; i++) Thread.Sleep(100);
+                        if (stop) last = true;
+                        double end = (now() - baseMs) / 1000.0;
+                        string name = pattern.Replace("%05d", n.ToString("00000", Inv));
+                        File.WriteAllText(name, "mock segment start=" + segStart.ToString("0.000000", Inv) + " " + new string('x', 980));
+                        File.AppendAllText(list, Path.GetFileName(name) + "," + segStart.ToString("0.000000", Inv) + "," + end.ToString("0.000000", Inv) + "\n");
+                        n++; segStart = end;
+                        if (last) return 0;
+                    }
+                }
+                if (args.Contains("-f rawvideo")) { byte[] g = new byte[576 * 4]; for (int i = 0; i < g.Length; i++) g[i] = 128; using (Stream o = Console.OpenStandardOutput()) o.Write(g, 0, g.Length); return 0; }
+                string outFile = Quoted(args, true);
+                if (outFile.Length > 0) File.WriteAllText(outFile, "mock clip " + new string('x', 2040));
+                return 0;
+            }
+            catch (Exception ex) { Console.Error.WriteLine("mock " + tool + ": " + ex.Message); return 1; }
+        }
+    }}

@@ -383,6 +383,8 @@ namespace IRDash
                     }
                     if (data == null || tick == lastTick) continue;
                     lastTick = tick;
+                    // W0-3: a test copy of irdash (--test) never runs beside a real session: it ends itself the moment iRacing connects
+                    if (!wasConnected && Program.TestMode) { Log.W("test mode: a real iRacing session started - this test copy of irdash stops now"); Log.Flush(1000); Environment.Exit(3); }
                     if (!wasConnected) { Log.W("iRacing connected"); wasConnected = true; realUp = true; if (fakeUp) FakeEnd(); Timings.OnConnected(); }
                     Frame f = new Frame();
                     f.Connected = true; f.Data = data; f.Vars = vars; f.SessionVersion = sessVer; f.SessionYaml = yaml;
@@ -580,7 +582,7 @@ namespace IRDash
             Frame f = Sdk.Latest;
             IRDeck.Snapshot s = new IRDeck.Snapshot();
             s.Sim = RigState.SimRunning;
-            s.Ui = Process.GetProcessesByName("iRacingUI").Length > 0;
+            s.Ui = Proc.RunningCached("iRacingUI", 2);      // W0-3: the deck asks ~3 times a second; a held handle or a 2 s old answer, no scan per request
             s.Fresh = Sdk.FreshDeck;
             s.Connected = f.Connected && f.Vars != null && f.Vars.ContainsKey("IsOnTrack") && f.Vars.ContainsKey("Speed") && f.Vars.ContainsKey("IsReplayPlaying");
             s.SessionKnown = !string.IsNullOrEmpty(f.SessionYaml);
@@ -658,6 +660,9 @@ namespace IRDash
                         if (hr != null) { RigState.LogOnce("header " + path, "http: refused " + path + " (" + hr + ")"); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("refused: " + hr), "Access-Control-Allow-Origin: *\r\n"); return; }
                     }
                     if (method == "GET" && path == "/rig/state") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(RigState.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    // W0-3: what the Jobs queue waits for, ran and how long; how many process scans (read-only, for RIG, the lead and the load test)
+                    if (method == "GET" && path == "/jobs") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes("{\"jobs\":" + Jobs.Status() + ",\"proc\":" + Proc.Json() + ",\"testMode\":" + (Program.TestMode ? "true" : "false") + "}")); return; }
+                    if (method == "GET" && path == "/api/test/quit" && Program.TestMode && local) { Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); Program.TestQuit.Set(); return; }
                     {
                         // W0-2: routes that copy or delete files wait until the session is over
                         string sg = Gate.GuardRoute(path, ParseQuery(query));
@@ -1134,77 +1139,68 @@ namespace IRDash
             return AddGps(key, json);
         }
 
-        // ---- background builder: one thread, below normal, the active telemetry file excluded ----
+        // ---- background builder: the Jobs queue (one job per track), the active telemetry file excluded ----
         static readonly object qgate = new object();
-        static readonly Queue<string[]> buildQ = new Queue<string[]>();
         static readonly Dictionary<string, DateTime> nextTry = new Dictionary<string, DateTime>();
         static readonly Dictionary<string, int> fails = new Dictionary<string, int>();
         static readonly Dictionary<string, string> lastError = new Dictionary<string, string>();
-        static Thread builder;
 
+        // W0-3: one build is one job on the Jobs queue: it waits until no session is on (a build reads up to 15 big .ibt files), runs at
+        // background disk priority, and stops between files when a session starts (the rest of it is queued again for after the session)
         static void QueueBuild(string key, string name)
         {
             lock (qgate)
             {
                 DateTime t;
                 if (nextTry.TryGetValue(key, out t) && DateTime.UtcNow < t) return;
-                foreach (string[] q in buildQ) if (q[0] == key) return;
-                buildQ.Enqueue(new string[] { key, name ?? "" });
                 nextTry[key] = DateTime.UtcNow.AddSeconds(30);     // no re-queue while this one is pending
-                if (builder == null)
-                {
-                    builder = new Thread(BuildLoop) { IsBackground = true, Priority = ThreadPriority.BelowNormal, Name = "map builder" };
-                    builder.Start();
-                }
-                Monitor.Pulse(qgate);
             }
+            string k = key, n = name ?? "";
+            Jobs.Run("map " + k, delegate { BuildOne(k, n); }, true);
         }
 
-        static void BuildLoop()
+        [ThreadStatic] static bool stoppedForSession;      // FromIbt stopped between files because a session started
+
+        static void BuildOne(string key, string name)
         {
-            while (true)
+            string file = Path.Combine(MapsDir, key + ".json"), err = "";
+            bool ok = false; stoppedForSession = false;
+            try
             {
-                string[] job;
-                lock (qgate) { while (buildQ.Count == 0) Monitor.Wait(qgate); job = buildQ.Dequeue(); }
-                string key = job[0], name = job[1], file = Path.Combine(MapsDir, key + ".json"), err = "";
-                bool ok = false;
-                try
+                lock (gate)
                 {
-                    lock (gate)
-                    {
-                        string have = File.Exists(file) ? File.ReadAllText(file) : null;
-                        if (have != null && have.Contains("\"source\":\"ibt\"")) ok = true;
-                        else
-                        {
-                            string built = FromIbt(key);
-                            if (built != null) { Save(file, built); ok = true; }
-                            else if (have == null)
-                            {
-                                string lib = FromLibrary(key, name);
-                                if (lib != null) { Save(file, lib); ok = true; }
-                                else err = "no clean lap in telemetry and no library outline";
-                            }
-                            else ok = true;     // a library map stays until telemetry can do better
-                        }
-                    }
-                }
-                catch (Exception ex) { err = ex.Message; }
-                lock (qgate)
-                {
-                    // retry 1 / 5 / 15 / 60 minutes after failures; a success re-checks in 15 min (new laps may improve it)
-                    int n; fails.TryGetValue(key, out n);
-                    if (ok) { fails[key] = 0; lastError.Remove(key); nextTry[key] = DateTime.UtcNow.AddMinutes(15); }
+                    string have = File.Exists(file) ? File.ReadAllText(file) : null;
+                    if (have != null && have.Contains("\"source\":\"ibt\"")) ok = true;
                     else
                     {
-                        n++; fails[key] = n; lastError[key] = err;
-                        int[] back = { 1, 5, 15, 60 };
-                        nextTry[key] = DateTime.UtcNow.AddMinutes(back[Math.Min(n - 1, back.Length - 1)]);
-                        Log.W("maps: " + key + " not built (" + err + ") - next try in " + back[Math.Min(n - 1, back.Length - 1)] + " min");
+                        string built = FromIbt(key);
+                        if (stoppedForSession) { Jobs.Again("map " + key, delegate { BuildOne(key, name); }); return; }
+                        if (built != null) { Save(file, built); ok = true; }
+                        else if (have == null)
+                        {
+                            string lib = FromLibrary(key, name);
+                            if (lib != null) { Save(file, lib); ok = true; }
+                            else err = "no clean lap in telemetry and no library outline";
+                        }
+                        else ok = true;     // a library map stays until telemetry can do better
                     }
                 }
             }
+            catch (Exception ex) { err = ex.Message; }
+            lock (qgate)
+            {
+                // retry 1 / 5 / 15 / 60 minutes after failures; a success re-checks in 15 min (new laps may improve it)
+                int n; fails.TryGetValue(key, out n);
+                if (ok) { fails[key] = 0; lastError.Remove(key); nextTry[key] = DateTime.UtcNow.AddMinutes(15); }
+                else
+                {
+                    n++; fails[key] = n; lastError[key] = err;
+                    int[] back = { 1, 5, 15, 60 };
+                    nextTry[key] = DateTime.UtcNow.AddMinutes(back[Math.Min(n - 1, back.Length - 1)]);
+                    Log.W("maps: " + key + " not built (" + err + ") - next try in " + back[Math.Min(n - 1, back.Length - 1)] + " min");
+                }
+            }
         }
-
         // what the builder knows about one track, for the 202 answer
         public static string BuildState(string key)
         {
@@ -1218,10 +1214,11 @@ namespace IRDash
         }
 
         // the telemetry file iRacing may be writing right now: never read on any map path
-        static bool ActiveIbt(FileInfo fi)
+        // simUp: looked up once per build by the caller (W0-3), never per file (590 files)
+        static bool ActiveIbt(FileInfo fi, bool simUp)
         {
             if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 120) return true;
-            return RigState.SimRunning && (DateTime.Now - fi.LastWriteTime).TotalMinutes < 30;      // one cached answer, not a scan per file (590 files)
+            return simUp && (DateTime.Now - fi.LastWriteTime).TotalMinutes < 30;
         }
 
         // The measured GPS line (gpsmap.cs) is exposed beside the geometry; with no geometry at all it is the map.
@@ -1309,9 +1306,11 @@ namespace IRDash
             var files = new List<FileInfo>(new DirectoryInfo(TelemetryDir).GetFiles("*.ibt"));
             files.Sort(delegate (FileInfo a, FileInfo b) { return b.LastWriteTime.CompareTo(a.LastWriteTime); });
             var mine = new List<FileInfo>(); StringBuilder sigs = new StringBuilder();
+            bool simUp = RigState.SimRunning;      // once per build, not per file
             foreach (FileInfo fi in files)
             {
-                if (ActiveIbt(fi)) continue;
+                if (ActiveIbt(fi, simUp)) continue;
+                if (Jobs.ShouldYield) { stoppedForSession = true; return null; }
                 string sig, k = IbtKey(fi.FullName, out sig);
                 if (k != key) continue;
                 mine.Add(fi); sigs.Append(sig).Append(';');
@@ -1324,6 +1323,7 @@ namespace IRDash
             Acc acc = new Acc(); string yaml = "";
             foreach (FileInfo fi in mine)
             {
+                if (Jobs.ShouldYield) { stoppedForSession = true; return null; }      // a session started: stop between files (W0-3)
                 try { string y = AddIbt(fi.FullName, acc); if (y != null) { acc.files++; if (yaml == "") yaml = y; } }
                 catch (Exception ex) { Log.W("ibt " + fi.Name + ": " + ex.Message); }
             }
@@ -1568,11 +1568,13 @@ namespace IRDash
         {
             lock (gate)
             {
+                stoppedForSession = false;
                 foreach (string key in IbtTracks())
                 {
                     string file = Path.Combine(MapsDir, key + ".json");
                     if (File.Exists(file) && File.ReadAllText(file).Contains("\"source\":\"ibt\"")) continue;
                     string json = FromIbt(key);
+                    if (stoppedForSession) { Jobs.Again("maps at start", BuildAll); return; }      // W0-3: the rest after the session
                     if (json != null) Save(file, json);
                 }
             }
@@ -1594,7 +1596,8 @@ namespace IRDash
         public static string SimState = "off";
         public static string IrdeckPath;
 
-        static bool Running(string name) { return Process.GetProcessesByName(name).Length > 0; }
+        // W0-3: through Proc (counted; a program once found is watched by its handle, so a running Stream Deck costs no scan)
+        static bool Running(string name) { return Proc.Running(name); }
 
         public static void Note(string msg)
         {
@@ -1629,11 +1632,11 @@ namespace IRDash
             // Stream Deck app lost the device (USB blip) but Windows can see it again: restart the app (2026-10-09)
             try { CheckDeckDevice(now); } catch (Exception ex) { Log.W("watchdog: deck device check: " + ex.Message); }
 
-            // Sim health
-            Process[] sims = Process.GetProcessesByName("iRacingSim64DX11");
-            bool launcher = Running("start_protected_game");
+            // Sim health (W0-3: no lookups at all while the sim is connected: it is live)
             if (sdConnected) { SimState = "live"; simPid = -1; cpu.Clear(); launcherAloneSince = DateTime.MinValue; return; }
-            if (sims.Length == 0)
+            Process sim = RigState.SimRunning ? Proc.Held(RigState.SimProcess) : null;
+            bool launcher = Running("start_protected_game");
+            if (sim == null)
             {
                 simPid = -1; cpu.Clear();
                 if (launcher)
@@ -1647,7 +1650,7 @@ namespace IRDash
                 return;
             }
             launcherAloneSince = DateTime.MinValue;
-            Process p = sims[0];
+            Process p = sim;
             try
             {
                 if (p.Id != simPid) { simPid = p.Id; cpu.Clear(); }
@@ -1686,6 +1689,16 @@ namespace IRDash
                 byte[] b = new byte[fs.Length - start]; int n = fs.Read(b, 0, b.Length);
                 return Encoding.UTF8.GetString(b, 0, n);
             }
+        }
+
+        // W0-3: the 2 s watchdog asks this one: a WMI query can take 50-300 ms and wakes WmiPrvSE, so the answer is kept 30 s
+        // (the guard runs on its own thread now, never the UI thread). The wake restart below asks the real one, on its own thread.
+        static bool deckSeen; static DateTime deckSeenAt = DateTime.MinValue;
+        static bool DeckPresentCached()
+        {
+            if ((DateTime.Now - deckSeenAt).TotalSeconds < 30) return deckSeen;
+            deckSeen = DeckPresent(); deckSeenAt = DateTime.Now;
+            return deckSeen;
         }
 
         // is the Stream Deck (USB VID 0FD9) plugged in and seen by Windows
@@ -1752,7 +1765,7 @@ namespace IRDash
             int disc = tail == null ? -1 : tail.LastIndexOf("Device disconnected, id:", StringComparison.Ordinal);
             if (disc >= 0 && deckLostSince == DateTime.MinValue) deckLostSince = now;
             double age = 0; try { age = (now - sd[0].StartTime).TotalSeconds; } catch { }
-            string act = DeckWatch.Action(tail, true, age, DeckPresent(), deckLostSince == DateTime.MinValue ? 0 : (now - deckLostSince).TotalSeconds, (now - lastDeckRestart).TotalSeconds);
+            string act = DeckWatch.Action(tail, true, age, DeckPresentCached(), deckLostSince == DateTime.MinValue ? 0 : (now - deckLostSince).TotalSeconds, (now - lastDeckRestart).TotalSeconds);
             if (act != "") RestartDeck(act);
         }
 
@@ -1785,6 +1798,9 @@ namespace IRDash
         }
 
         // Health for the dashboard's status strip.
+        // /health is polled by the pages: a held handle or a 5 s old answer, never a scan per request (W0-3)
+        static bool Cached(string name) { return Proc.RunningCached(name, 5); }
+
         public static string Json(bool sdConnected)
         {
             StringBuilder sb = new StringBuilder("{\"apps\":[");
@@ -1793,13 +1809,13 @@ namespace IRDash
                 if (sb[sb.Length - 1] == '}') sb.Append(',');
                 sb.Append("{\"id\":").Append(Json_.S(id)).Append(",\"name\":").Append(Json_.S(name)).Append(",\"state\":").Append(Json_.S(state)).Append('}');
             };
-            app("deck", "Stream Deck", Running("StreamDeck") ? "ok" : "down");
-            app("ui", "iRacing UI", Running("iRacingUI") ? "ok" : "off");
+            app("deck", "Stream Deck", Cached("StreamDeck") ? "ok" : "down");
+            app("ui", "iRacing UI", Cached("iRacingUI") ? "ok" : "off");
             app("sim", "Sim", sdConnected ? "live" : SimState);
-            if (File.Exists(@"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe") || Running("CrewChiefV4")) app("cc", "CrewChief", Running("CrewChiefV4") ? "ok" : "off");
+            if (File.Exists(@"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe") || Cached("CrewChiefV4")) app("cc", "CrewChief", Cached("CrewChiefV4") ? "ok" : "off");
             // always listed when installed, so overlays that failed to start show up as "off"
-            if (Running("irdashies") || Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "irdashies")))
-                app("overlays", "Overlays", Running("irdashies") ? "ok" : "off");
+            if (Cached("irdashies") || Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "irdashies")))
+                app("overlays", "Overlays", Cached("irdashies") ? "ok" : "off");
             sb.Append("],\"events\":[");
             lock (gate)
             {
@@ -1954,19 +1970,17 @@ namespace IRDash
         static readonly Dictionary<string, Rec> recs = new Dictionary<string, Rec>();
         static bool loaded, scanning; static int lastCount = -1, pendingUpgrade; static DateTime lastScanEnd = DateTime.MinValue;
 
+        // W0-3: the scan is a job on the Jobs queue: it waits until no session is on (not only until he is out of the car), runs at
+        // background disk priority, and stops between files when a session starts (the rest is picked up by the next scan)
         public static void ScanLater(int delayMs)
         {
             lock (gate) { if (scanning) return; scanning = true; }
             Thread t = new Thread(delegate ()
             {
-                try
-                {
-                    Thread.Sleep(delayMs);
-                    while (Program.IsDriving) Thread.Sleep(30000);
-                    Scan();
-                }
-                catch (Exception ex) { Log.W("career: " + ex.Message); }
-                finally { lock (gate) scanning = false; }
+                try { Thread.Sleep(delayMs); }
+                catch { }
+                if (!Jobs.Run("career scan", delegate { try { Scan(); } catch (Exception ex) { Log.W("career: " + ex.Message); } finally { lock (gate) scanning = false; } }, true))
+                    lock (gate) scanning = false;
             });
             t.IsBackground = true; t.Priority = ThreadPriority.Lowest; t.Start();
         }
@@ -2037,7 +2051,7 @@ namespace IRDash
             lock (gate) Load();
             foreach (string path in files)
             {
-                if (Program.IsDriving) { left++; break; }   // pick it up next time
+                if (Program.IsDriving || Jobs.ShouldYield) { left++; break; }   // pick it up next time (W0-3: a session started)
                 FileInfo fi = new FileInfo(path);
                 if ((DateTime.Now - fi.LastWriteTime).TotalSeconds < 30) continue;   // still being written
                 string sig = fi.Name + "|" + fi.Length;
@@ -2661,6 +2675,8 @@ namespace IRDash
                 ServicePointManager.SecurityProtocol = protocols;
             }
             catch { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; }
+            // W0-3: irdash.exe --mock ffmpeg|ffprobe ... stands in for the encoder in test mode (recorder.cs RecMock). Nothing else starts.
+            if (args != null && args.Length >= 2 && args[0] == "--mock") Environment.Exit(RecMock.Run());
             // Offline lap analysis for tests\analysis-test.ps1. Exit before the log, the config and the window.
             if (args != null && Array.IndexOf(args, "--analysis") >= 0) Environment.Exit(Analysis.Cli(args));
             if (args != null && Array.IndexOf(args, "--home") >= 0) Environment.Exit(Career.HomeCli(args));      // HOME / outings over a pretend cache (home.cs, tests\home-test.ps1)
@@ -2671,9 +2687,25 @@ namespace IRDash
             DeltaBar.Configure(cfg.DeltaOn, cfg.DeltaRef, cfg.DeltaPos, cfg.DeltaScale);
             SimPriority.Mode = cfg.SimPriority;
             bool noBrowser = Array.IndexOf(args, "--no-browser") >= 0;
+            // W0-3 test mode: irdash.exe --test <folder> --port <n>, run from a copy in <folder>\dash. The real server, SDK reader (with the
+            // test hook's pretend pump), jobs, vault, maps and recorder code; no window, no tray, no watchdog, no delta bar, no screen capture
+            // (RecMock), no CrewChief / Stream Deck / overlay launching, every file under <folder>. tests\server-load-test.ps1 uses it.
+            string testDir = ArgAfter(args, "--test");
+            if (testDir != null)
+            {
+                int tp; int.TryParse(ArgAfter(args, "--port") ?? "", out tp);
+                string want = "";
+                try { want = Path.GetFullPath(testDir).TrimEnd('\\'); } catch { }
+                if (tp <= 0 || tp == 8199) { Log.W("test mode: needs --port <n> (never 8199, the real one)"); Log.Flush(1000); return; }
+                if (!string.Equals(want, RootDir, StringComparison.OrdinalIgnoreCase)) { Log.W("test mode: run a copy of irdash.exe from " + testDir + "\\dash (this one is in " + Dir + ")"); Log.Flush(1000); return; }
+                TestMode = true; cfg.Port = tp; noBrowser = true;
+            }
             Watch.IrdeckPath = Path.Combine(Path.GetDirectoryName(Dir), "irdeck.exe");
             TrackMaps.MapsDir = Path.Combine(Dir, "maps");
-            TrackMaps.TelemetryDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "iRacing\\telemetry");
+            TrackMaps.TelemetryDir = TestMode ? Path.Combine(RootDir, "telemetry") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "iRacing\\telemetry");
+            // W0-3: the heavy work waits for the session to end (jobs.cs); page polls never scan the process list during one (proc.cs)
+            Jobs.SessionOn = delegate { return RigState.SessionOn; };
+            Proc.InSession = delegate { return RigState.SessionOn; };
             if (Array.IndexOf(args, "--build-maps") >= 0)
             {
                 // one-shot: build maps from every .ibt file, report to the log, exit
@@ -2684,7 +2716,8 @@ namespace IRDash
             }
 
             bool created;
-            Mutex mutex = new Mutex(true, "Local\\IRDashSingleInstance", out created);
+            Mutex mutex = new Mutex(true, TestMode ? "Local\\IRDashTest-" + cfg.Port : "Local\\IRDashSingleInstance", out created);
+            if (!created && TestMode) { Log.W("test mode: another test copy already uses port " + cfg.Port); Log.Flush(1000); return; }
             if (!created)
             {
                 // Already running: ask that copy to (re)open the dashboard window.
@@ -2721,11 +2754,24 @@ namespace IRDash
                 Log.Flush(2000);
                 return;
             }
+            if (TestMode)
+            {
+                // the sim, as test mode sees it: iRacing's SDK memory exists (no process scan, so the load test counts none of its own).
+                // A real session that starts ends this copy at once (Sdk.Run); the test script also stops it when the rig gets busy.
+                RigState.SimProbe = delegate
+                {
+                    try { using (MemoryMappedFile.OpenExisting("Local\\IRSDKMemMapFileName", MemoryMappedFileRights.Read)) return true; } catch { return false; }
+                };
+                try { File.WriteAllText(Path.Combine(Dir, "test-hook.on"), "test mode"); } catch { }
+                Recorder.Mock = true;
+                Log.W("test mode: port " + cfg.Port + ", data under " + RootDir + " - no window, no watchdog, no delta bar, no capture");
+            }
             RigState.Start();      // the sim process and the START mark, every 2 s on its own thread (rigstate.cs)
+            Jobs.Start();          // W0-3: watches the session from now on (the grace period after a session is never skipped)
             Thread sdk = new Thread(Sdk.Run);
             sdk.IsBackground = true;
             sdk.Start();
-            SpotterGuard.Start();
+            if (!TestMode) SpotterGuard.Start();      // test mode never starts or stops CrewChief
             // career stats for the intro: first read two minutes after start, so it never competes with boot
             Career.TelemetryDir = TrackMaps.TelemetryDir;
             Career.CacheFile = Path.Combine(Dir, "career-cache.tsv");
@@ -2735,27 +2781,36 @@ namespace IRDash
             MyDrive.Init(Path.Combine(RootDir, "mydrive"));
             Replay.Init(Path.Combine(RootDir, "replay"));
             Gallery.Init(Path.Combine(RootDir, @"paddock\gallery"));
-            try { Cars.Init(RootDir); } catch (Exception ex) { Log.W("cars: could not start: " + ex.Message); }   // CP-1: iRacing's own car pictures
+            if (!TestMode) { try { Cars.Init(RootDir); } catch (Exception ex) { Log.W("cars: could not start: " + ex.Message); } }   // CP-1: iRacing's own car pictures
             Perf.Init(Path.Combine(RootDir, "data"));
             try { Perf.Start(); } catch (Exception ex) { Log.W("perf: could not start: " + ex.Message); }
             try { Vault.Init(RootDir); Vault.Start(); } catch (Exception ex) { Log.W("vault: could not start: " + ex.Message); }   // vault=0: both return at once
             try { Recorder.Init(RootDir); Recorder.Start(); } catch (Exception ex) { Log.W("recorder: could not start: " + ex.Message); }   // recorder=0 (the default): Start returns at once; Init only reads the clips already made
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
-            try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); }
+            if (!TestMode) { try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); } }   // test mode: no internet
             Coverage.Init(RootDir);   // where to watch in the U.S. (dash\coverage.json, coverage.cs)
             Doctor.Init(RootDir, Dir);
             try { AcAuto.Init(RootDir); AcAuto.Start(); } catch (Exception ex) { Log.W("ac auto: could not start: " + ex.Message); }   // auto-cool the rig room (ac.cs, ac\ac.py); idle until ac\ac.json exists
             Phone.Init(RootDir, Dir); Home.Init(RootDir, cfg.Port);   // P1: the phone app's pairing + HOME's hero picture
             Career.ScanLater(File.Exists(Career.CacheFile) ? 120000 : 5000);
-            Thread maps = new Thread(delegate () { try { TrackMaps.BuildAll(); } catch (Exception ex) { Log.W("maps: " + ex.Message); } });
-            maps.IsBackground = true;
-            maps.Start();
+            // W0-3: one map build per track, on the Jobs queue (waits for the session to end)
+            Jobs.Run("maps at start", delegate { TrackMaps.BuildAll(); }, true);
             // real GPS lines from Peter's own telemetry (gpsmap.cs): built once, below normal, never while a session runs
             Thread gpsmaps = new Thread(delegate () { try { Analysis.BuildAllGps(TrackMaps.TelemetryDir, TrackMaps.MapsDir); } catch (Exception ex) { Log.W("gpsmap: " + ex.Message); } });
             gpsmaps.IsBackground = true;
             gpsmaps.Priority = ThreadPriority.BelowNormal;
             gpsmaps.Start();
+
+            if (TestMode)
+            {
+                // no tray, no window, no timers on a UI thread: the server and the workers run until /api/test/quit or the test ends the process
+                TestQuit.WaitOne();
+                Log.W("test mode: quit");
+                Log.Flush(2000);
+                GC.KeepAlive(mutex);
+                return;
+            }
 
             SynchronizationContext ui = null;
             server.OpenRequested = delegate { if (ui != null) ui.Post(delegate { OpenDashboard(); }, null); };
@@ -2789,32 +2844,63 @@ namespace IRDash
                 try { DeltaBar.Start(); } catch (Exception ex) { Log.W("delta bar: could not start: " + ex.Message); }
                 try { Gallery.Start(); } catch (Exception ex) { Log.W("gallery: could not start: " + ex.Message); }
                 try { Spot.Start(); } catch (Exception ex) { Log.W("spot: could not start: " + ex.Message); }
+                // W0-3: every 2 s the checks run on their own thread and post only window moves here (the delta bar keeps this thread to itself)
+                SynchronizationContext uiNow = ui; bool nb = noBrowser;
+                Thread guard = new Thread(delegate () { GuardLoop(uiNow, nb); });
+                guard.IsBackground = true; guard.Priority = ThreadPriority.BelowNormal; guard.Name = "Guard";
+                guard.Start();
             };
             first.Start();
-
-            // Every 2 s: keep the sim window across the race monitors and the dashboard on its monitor.
-            System.Windows.Forms.Timer guard = new System.Windows.Forms.Timer();
-            guard.Interval = 2000;
-            guard.Tick += delegate
-            {
-                try { Frame lf = Sdk.Latest; Driving = lf.Connected && lf.Num("IsOnTrack") != 0; } catch { Driving = false; }
-                try { if (Driving && (DateTime.Now - lastOverlayRaise).TotalSeconds > 5) RaiseOverlays(); } catch { }
-                try { if (cfg.PlaceSim) PlaceSim(); } catch (Exception ex) { Log.W("place sim: " + ex.Message); }
-                try { if (cfg.KeepDash && !noBrowser) KeepDash(); } catch (Exception ex) { Log.W("keep dash: " + ex.Message); }
-                try { if (cfg.LogAllCars) EnsureLogAllCars(); } catch (Exception ex) { Log.W("log all cars: " + ex.Message); }
-                try { if (cfg.SyncSimIni) EnsureSimIni(); } catch (Exception ex) { Log.W("sim ini: " + ex.Message); }
-                try { if (cfg.Watchdog) Watch.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("watchdog: " + ex.Message); }
-                Guest.Tick();
-                try { Timings.Tick(); } catch (Exception ex) { Log.W("timings: " + ex.Message); }
-                try { SimPriority.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("sim priority: " + ex.Message); }
-                try { Nav.Tick(Driving); } catch { }
-                try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); }
-            };
-            guard.Start();
 
             Application.Run();
             Log.Flush(2000);
             GC.KeepAlive(mutex);
+        }
+
+        // ---- W0-3 test mode ----
+        public static bool TestMode;
+        public static readonly ManualResetEvent TestQuit = new ManualResetEvent(false);
+        static string ArgAfter(string[] args, string name)
+        {
+            if (args == null) return null;
+            int i = Array.IndexOf(args, name);
+            return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+        }
+
+        // ---- W0-3: the 2 s guard, off the UI thread ----
+        static void GuardLoop(SynchronizationContext ui, bool noBrowser)
+        {
+            while (true)
+            {
+                Thread.Sleep(2000);
+                try { GuardTick(ui, noBrowser); } catch (Exception ex) { Log.W("guard: " + ex.Message); }
+            }
+        }
+
+        // Window moves and z-order changes go to the UI thread (OverTaskbar's COM object and the delta bar live there); the looking
+        // (process lookups, window titles, WMI, files) stays here.
+        static void Post(SynchronizationContext ui, Action a)
+        {
+            if (ui == null) return;
+            ui.Post(delegate { try { a(); } catch (Exception ex) { Log.W("guard (window): " + ex.Message); } }, null);
+        }
+
+        static void GuardTick(SynchronizationContext ui, bool noBrowser)
+        {
+            bool was = Driving;
+            try { Frame lf = Sdk.Latest; Driving = lf.Connected && lf.Num("IsOnTrack") != 0; } catch { Driving = false; }
+            // irdashies overlays: raised once when driving starts, then only when a check sees one that is not above the sim (no 5 s loop)
+            try { if (Driving && (!was || OverlayBelow())) Post(ui, RaiseOverlays); } catch (Exception ex) { Log.W("overlays raise: " + ex.Message); }
+            try { if (cfg.PlaceSim) { IntPtr h = SimWindow(); if (h != IntPtr.Zero) Post(ui, delegate { PlaceSim(h); }); else simHwnd = IntPtr.Zero; } } catch (Exception ex) { Log.W("place sim: " + ex.Message); }
+            try { if (cfg.KeepDash && !noBrowser) KeepDash(ui); } catch (Exception ex) { Log.W("keep dash: " + ex.Message); }
+            try { if (cfg.LogAllCars) EnsureLogAllCars(); } catch (Exception ex) { Log.W("log all cars: " + ex.Message); }
+            try { if (cfg.SyncSimIni) EnsureSimIni(); } catch (Exception ex) { Log.W("sim ini: " + ex.Message); }
+            try { if (cfg.Watchdog) Watch.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("watchdog: " + ex.Message); }
+            Guest.Tick();
+            try { Timings.Tick(); } catch (Exception ex) { Log.W("timings: " + ex.Message); }
+            try { SimPriority.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("sim priority: " + ex.Message); }
+            try { Nav.Tick(Driving); } catch { }
+            try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); }
         }
 
         static Icon MakeIcon()
@@ -2878,9 +2964,11 @@ namespace IRDash
         {
             List<Process> r = new List<Process>();
             foreach (string n in new[] { "chrome", "msedge" })
-                foreach (Process p in Process.GetProcessesByName(n))
+                foreach (Process p in Proc.ByName(n))
                 {
-                    try { string wt = p.MainWindowTitle; if (wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/")) r.Add(p); } catch { }
+                    bool mine = false;
+                    try { string wt = p.MainWindowTitle; mine = wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/"); } catch { }
+                    if (mine) r.Add(p); else { try { p.Dispose(); } catch { } }
                 }
             return r;
         }
@@ -2943,11 +3031,18 @@ namespace IRDash
             return u;
         }
 
-        static void PlaceSim()
+        // the guard thread: the sim's main window, found through the sim process Proc holds (no scan once it is found)
+        static IntPtr SimWindow()
         {
-            Process[] ps = Process.GetProcessesByName("iRacingSim64DX11");
-            if (ps.Length == 0) { simHwnd = IntPtr.Zero; return; }
-            IntPtr h = ps[0].MainWindowHandle;
+            if (!RigState.SimRunning) return IntPtr.Zero;
+            Process p = Proc.Held(RigState.SimProcess);
+            if (p == null) return IntPtr.Zero;
+            try { p.Refresh(); return p.MainWindowHandle; } catch { return IntPtr.Zero; }
+        }
+
+        // the UI thread: h was found by the guard thread
+        static void PlaceSim(IntPtr h)
+        {
             if (h == IntPtr.Zero || Native.IsIconic(h)) return;
             RECT r;
             if (!Native.GetWindowRect(h, out r)) return;
@@ -2966,10 +3061,28 @@ namespace IRDash
             Log.W("placed iRacing window at " + t + " (was " + r.Left + "," + r.Top + " " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top) + ")");
         }
 
-        static void KeepDash()
+        // W0-3: the dashboard windows found last time are checked by handle and title (no process scan); the browsers are looked
+        // through again only when none is left, and never while he drives (nothing would be reopened then anyway)
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+        static List<IntPtr> dashKnown = new List<IntPtr>();
+        static bool DashTitle(IntPtr h)
+        {
+            if (!IsWindow(h)) return false;
+            StringBuilder t = new StringBuilder(256); GetWindowText(h, t, 256); string wt = t.ToString();
+            return wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/");
+        }
+
+        // the guard thread
+        static void KeepDash(SynchronizationContext ui)
         {
             if (!DashScreenFound()) return;       // never drag the dashboard onto a race screen
-            List<Process> ws = DashWindows();
+            List<IntPtr> ws = new List<IntPtr>();
+            foreach (IntPtr h in dashKnown) if (DashTitle(h)) ws.Add(h);
+            if (ws.Count == 0 && !Driving)
+            {
+                foreach (Process p in DashWindows()) { try { IntPtr h = p.MainWindowHandle; if (h != IntPtr.Zero) ws.Add(h); } catch { } }
+            }
+            dashKnown = ws;
             Rectangle b = PickScreen().Bounds;
             if (ws.Count == 0)
             {
@@ -2978,18 +3091,27 @@ namespace IRDash
                 if (f.Connected && f.Num("IsOnTrack") != 0) return;
                 if ((DateTime.Now - lastAutoOpen).TotalSeconds < 20) return;
                 lastAutoOpen = DateTime.Now;
-                IntPtr prev = Native.GetForegroundWindow();
-                OpenDashboard();
-                // hand focus back to whatever had it (e.g. the sim) once the browser window is up
-                System.Windows.Forms.Timer back = new System.Windows.Forms.Timer();
-                back.Interval = 2500;
-                back.Tick += delegate { back.Stop(); back.Dispose(); GiveFocus(prev); };
-                back.Start();
+                Post(ui, delegate
+                {
+                    IntPtr prev = Native.GetForegroundWindow();
+                    OpenDashboard();
+                    // hand focus back to whatever had it (e.g. the sim) once the browser window is up
+                    System.Windows.Forms.Timer back = new System.Windows.Forms.Timer();
+                    back.Interval = 2500;
+                    back.Tick += delegate { back.Stop(); back.Dispose(); GiveFocus(prev); };
+                    back.Start();
+                });
                 return;
             }
-            foreach (Process p in ws)
+            List<IntPtr> moves = ws;
+            Post(ui, delegate { PlaceDash(moves, b); });
+        }
+
+        // the UI thread: the moves themselves
+        static void PlaceDash(List<IntPtr> ws, Rectangle b)
+        {
+            foreach (IntPtr h in ws)
             {
-                IntPtr h = p.MainWindowHandle;
                 RECT r;
                 if (h == IntPtr.Zero || !Native.GetWindowRect(h, out r)) continue;
                 if (Native.IsIconic(h)) { Native.ShowWindow(h, 4); continue; }   // SW_SHOWNOACTIVATE
@@ -3004,18 +3126,30 @@ namespace IRDash
         }
 
         // Tells the Windows taskbar this window is full screen (so it steps behind it) and keeps the window on top.
-        static bool Driving;              // in the car, on track (updated every guard tick)
-        static DateTime lastOverlayRaise = DateTime.MinValue;
+        static volatile bool Driving;     // in the car, on track (updated every guard tick, on the guard thread)
 
         delegate bool EnumProc(IntPtr h, IntPtr l);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
 
-        // irdashies overlay windows (titled "irDashies - <display>") must sit in front of the sim while driving.
+        // the guard thread: is an irdashies overlay showing that is not TOPMOST (so the sim can cover it)? Looks only, changes nothing.
+        static bool OverlayBelow()
+        {
+            bool below = false;
+            EnumWindows(delegate (IntPtr h, IntPtr l)
+            {
+                StringBuilder t = new StringBuilder(128);
+                GetWindowText(h, t, 128);
+                if (t.ToString().StartsWith("irDashies -") && IsWindowVisible(h) && (Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOPMOST) == 0) { below = true; return false; }
+                return true;
+            }, IntPtr.Zero);
+            return below;
+        }
+
+        // irdashies overlay windows (titled "irDashies - <display>") must sit in front of the sim while driving. UI thread.
         static void RaiseOverlays()
         {
-            lastOverlayRaise = DateTime.Now;
             EnumWindows(delegate (IntPtr h, IntPtr l)
             {
                 StringBuilder t = new StringBuilder(128);
