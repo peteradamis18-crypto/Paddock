@@ -39,6 +39,7 @@ namespace IRDash
                 atUtc = DateTime.UtcNow;
                 atMs = (long)(atUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
             }
+            StateBuilder.Changed("keymsg");   // W0-5: pushed to the top screen now, not at the next look
             return clean;
         }
 

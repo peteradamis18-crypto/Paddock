@@ -1216,7 +1216,7 @@ namespace IRDash
             }
         }
 
-        static string NavJson()
+        internal static string NavJson()
         {
             lock (navGate)
             {

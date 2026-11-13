@@ -854,7 +854,7 @@ namespace IRDash
             lock (gate)
             {
                 if (to != "" && Program.IsDriving) return false;
-                if (want != to) { want = to; since = DateTime.Now; seq++; Log.W("page request: " + (to == "" ? "back to the dashboard" : to)); }
+                if (want != to) { want = to; since = DateTime.Now; seq++; Log.W("page request: " + (to == "" ? "back to the dashboard" : to)); StateBuilder.Changed("nav"); }
                 else since = DateTime.Now;
                 return true;
             }
