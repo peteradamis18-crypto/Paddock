@@ -32,7 +32,6 @@ const Home = {
   nyKey(d) { return d.toLocaleDateString('en-CA', { timeZone: this.NY }); },                    // 2026-10-18: sorts and compares as a New York calendar day
   // when a session starts: Today / Tomorrow / 'Sat 24 Oct' (a weekday alone reads as yesterday for a session a week away)
   nyWhen(d) { const k = this.nyKey(d), n = new Date(); return k === this.nyKey(n) ? 'Today' : k === this.nyKey(new Date(n.getTime() + 86400000)) ? 'Tomorrow' : this.nyDay(d); },
-  nyWd(d) { return d.toLocaleDateString('en-US', { timeZone: this.NY, weekday: 'short' }); },
   nyDate(d, part) { return d.toLocaleDateString('en-US', { timeZone: this.NY, [part]: part === 'month' ? 'short' : 'numeric' }); },
   clock() { const d = new Date(); setText('idleDate', this.nyDay(d)); setText('idleClock', this.nyTime(d) + ' ET'); },
 

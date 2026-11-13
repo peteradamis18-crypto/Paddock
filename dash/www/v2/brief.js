@@ -20,7 +20,6 @@ const Brief = {
     if (Date.now() - this.seen[L.sessKey] > this.MAX_MS) return false;
     if (L.demo || v.IsReplayPlaying) return false;
     if (typeof Guest !== 'undefined' && Guest.g && Guest.g.active) return false;
-    if (typeof Debrief !== 'undefined' && Debrief.el) return false;
     if (typeof Rig !== 'undefined' && Rig.el) return false;
     if (typeof SessionsHost !== 'undefined' && SessionsHost.el) return false;
     return true;

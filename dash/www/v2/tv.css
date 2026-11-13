@@ -1,2 +1,0 @@
-﻿/* Live TV view (C-22). Since Drive v1 the broadcast camera fills Drive's map slot; its styles live in drive.css
-   (#tvHero, .tv-live, body.tv-on). Canvas 2D rather than WebGL: the tests run Chrome with the GPU off. */

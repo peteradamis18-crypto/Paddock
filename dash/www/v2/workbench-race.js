@@ -38,7 +38,6 @@ function heroHtml() {
   return h ? '<span class="rph">' + h + '</span>' : '';
 }
 function who(i) { var c = RS.by[i]; return c ? '#' + esc(c.num) + ' ' + esc(c.name) : '#' + i; }
-function who0(i) { var c = RS.by[i]; return c ? '#' + c.num + ' ' + c.name : '#' + i; }
 function lastName(c) { var p = String(c.name || '').trim().split(/\s+/); return p.length > 1 ? p.slice(1).join(' ') : c.name; }
 function stage() { var s = RS.sm; return s.race ? (RS.R.complete ? 'FINAL' : 'LIVE') : 'FIELD'; }
 
