@@ -193,7 +193,7 @@ foreach ($f in 'irdash', 'data') {
 $gi = $irdash.IndexOf('A press on the Stream Deck friends screen'); $gj = $irdash.IndexOf('default: return false;', $gi)
 $guestCmds = @(); if ($gi -gt 0 -and $gj -gt $gi) { $guestCmds = Case-Labels $irdash.Substring($gi, $gj - $gi) }
 foreach ($g in $guestCmds) { if (-not $handled.ContainsKey($g)) { $handled[$g] = 'guest' } }
-Check "irdash's accepted deck commands were read ($($handled.Count) of them, $($guestCmds.Count) from the friends switch)" ($handled.Count -gt 60 -and $guestCmds.Count -ge 15 -and $handled.ContainsKey('tvview') -and $handled.ContainsKey('vkkeep'))
+Check "irdash's accepted deck commands were read ($($handled.Count) of them, $($guestCmds.Count) from the friends switch)" ($handled.Count -gt 60 -and $guestCmds.Count -ge 15 -and $handled.ContainsKey('vkkeep'))   # tvview went with W0-4
 
 # Deck aliases irdash rewrites before dispatch in /api/do (2026-10-18: `if (dc == "vault") dc = "vkopen";`).
 foreach ($x in [regex]::Matches($irdash, 'if \(dc == "(\w+)"\) dc = "(\w+)";')) { if ($handled.ContainsKey($x.Groups[2].Value)) { $handled[$x.Groups[1].Value] = 'alias of ' + $x.Groups[2].Value } }
@@ -563,7 +563,7 @@ Section '9. regressions: dead keys, lying labels, doubled presses, frozen screen
 # 9a. no deck key sends irdash a command that irdash always answers with an error (the key could only beep)
 $refused = @([regex]::Matches($irdash, 'if \(dc == "(\w+)"\) \{ Send\(s, 4\d\d') | ForEach-Object { $_.Groups[1].Value })
 $badDash = @($deckKeys | Where-Object { $c = ($_.what -split '=', 2)[1]; $c -match '^dash\s+(\w+)' -and $refused -contains $Matches[1] })
-Check "no deck key sends irdash a command it always refuses ($($refused -join ', '))" ($refused.Count -ge 1 -and $badDash.Count -eq 0) (($badDash | ForEach-Object { $_.label }) -join ', ')
+Check "no deck key sends irdash a command it always refuses ($($refused -join ', '))" ($badDash.Count -eq 0)   # W0-4 removed the last always-refused command (tvview); none may come back on a key (($badDash | ForEach-Object { $_.label }) -join ', ')
 # 9b. GET IN (`smart`) must never arm a SKIP. Its picture is fixed (the add-on has no smart key action), but the resolver says SKIP in a Test Drive / AI garage.
 $smart = Get-Body $irSrc 'static int CmdSmart(string[] args)'
 $realPath = $smart + (Get-Body $irSrc 'static int SmartGetIn()')   # the real GET IN: CmdSmart + SmartGetIn (the old fake-only resolver path is SmartFakeRun)
