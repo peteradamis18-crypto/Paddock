@@ -97,6 +97,107 @@ namespace IRDash
         }
     }
 
+    // ---------------- Telemetry replay (test hook only: /api/test/ibt, W0-8) ----------------
+    // Plays an .ibt file into the pretend session below: every scalar plus the CarIdx* arrays, at <speed>x real time.
+    // Gated exactly like /api/test/frame (404 without dash\test-hook.on, 409 while a real session is on).
+    static class IbtReplay
+    {
+        static volatile bool on, done;
+        static Thread th;
+        static string file = "", note = "";
+        static double speed, fromS, toS, posS;
+        static long sent, total;
+        static double lastLap;
+        static volatile Dictionary<string, int> types = new Dictionary<string, int>();
+
+        // the pump asks: is this a whole number / flag / double? (-1 = no idea, the old rules apply). A float loses SessionFlags bits.
+        public static int TypeFor(string name) { int t; return types.TryGetValue(name, out t) ? t : -1; }
+
+        public static string Status()
+        {
+            return "{\"running\":" + (on && !done ? "true" : "false") + ",\"done\":" + (done ? "true" : "false") + ",\"file\":" + Json.Str(file) +
+                   ",\"speed\":" + speed.ToString(CultureInfo.InvariantCulture) + ",\"pos\":" + posS.ToString("0.00", CultureInfo.InvariantCulture) +
+                   ",\"from\":" + fromS.ToString(CultureInfo.InvariantCulture) + ",\"to\":" + toS.ToString(CultureInfo.InvariantCulture) +
+                   ",\"sent\":" + sent + ",\"records\":" + total + ",\"lap\":" + lastLap.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Json.Str(note) + "}";
+        }
+
+        public static void Stop() { on = false; }
+
+        // null = started, else the reason it did not
+        public static string Start(string path, double spd, double from, double to)
+        {
+            if (!File.Exists(path)) return "no such file";
+            TrackMaps.Ibt t = TrackMaps.OpenIbt(path, true);
+            if (t == null) return "not an .ibt file";
+            int tick = 60;
+            try { byte[] h = new byte[12]; t.fs.Position = 0; t.fs.Read(h, 0, 12); tick = BitConverter.ToInt32(h, 8); if (tick < 1 || tick > 1000) tick = 60; } catch { }
+            on = false; if (th != null) th.Join(500);
+            // scalars + 64-slot CarIdx arrays; the rest (wheel arrays, strings) nobody reads
+            var scal = new List<VarDef>(); var arrs = new List<VarDef>(); var ty = new Dictionary<string, int>();
+            foreach (VarDef v in t.vars.Values)
+            {
+                if (v.Type < 0 || v.Type > 5) continue;
+                if (v.Count == 1) { scal.Add(v); ty[v.Name] = (v.Type == 0 || v.Type == 2) ? 2 : v.Type; }
+                else if (v.Count == 64 && v.Name.StartsWith("CarIdx", StringComparison.Ordinal)) arrs.Add(v);
+            }
+            types = ty;
+            file = path; speed = Math.Max(0.1, Math.Min(200, spd)); fromS = Math.Max(0, from);
+            toS = to > 0 ? to : t.records / (double)tick;
+            posS = fromS; sent = 0; total = t.records; lastLap = 0; note = ""; done = false;
+            Sdk.FakeSession(t.yaml);
+            on = true;
+            th = new Thread(delegate () { Run(t, tick, scal, arrs); });
+            th.IsBackground = true; th.Start();
+            return null;
+        }
+
+        static double Read(byte[] b, int p, int type)
+        {
+            switch (type)
+            {
+                case 0: return b[p];
+                case 1: return b[p] != 0 ? 1 : 0;
+                case 2: return BitConverter.ToInt32(b, p);
+                case 3: return BitConverter.ToUInt32(b, p);
+                case 4: { float f = BitConverter.ToSingle(b, p); return float.IsNaN(f) || float.IsInfinity(f) ? 0 : f; }
+                default: { double d = BitConverter.ToDouble(b, p); return double.IsNaN(d) || double.IsInfinity(d) ? 0 : d; }
+            }
+        }
+
+        static void Run(TrackMaps.Ibt t, int tick, List<VarDef> scal, List<VarDef> arrs)
+        {
+            try
+            {
+                byte[] rec = new byte[t.bufLen];
+                Stopwatch sw = Stopwatch.StartNew();
+                while (on)
+                {
+                    double ts = fromS + sw.Elapsed.TotalSeconds * speed;
+                    if (ts >= toS) break;
+                    long idx = Math.Min(t.records - 1, (long)(ts * tick));
+                    t.fs.Position = t.dataOff + idx * (long)t.bufLen;
+                    int got = 0; while (got < rec.Length) { int n = t.fs.Read(rec, got, rec.Length - got); if (n <= 0) break; got += n; }
+                    if (got < rec.Length) break;
+                    var vals = new Dictionary<string, double>();
+                    foreach (VarDef v in scal) { if (v.Offset + 1 <= rec.Length) vals[v.Name] = Read(rec, v.Offset, v.Type); }
+                    foreach (VarDef v in arrs)
+                    {
+                        int sz = (v.Type == 0 || v.Type == 1) ? 1 : (v.Type == 5 ? 8 : 4);
+                        for (int k = 0; k < 64; k++) { int p = v.Offset + k * sz; if (p + sz <= rec.Length) vals[v.Name + "_" + k] = Read(rec, p, v.Type); }
+                    }
+                    double lap; if (vals.TryGetValue("Lap", out lap)) lastLap = lap;
+                    posS = ts; sent++;
+                    Sdk.FakeSet(vals);
+                    if (!Sdk.Pretend) break;
+                    Thread.Sleep(Sdk.FakePumpMs);
+                }
+                done = on;      // reached the end (not stopped); the last frame stays until /api/test/end
+            }
+            catch (Exception e) { note = e.Message; Log.W("ibt replay: " + e.Message); }
+            finally { try { t.fs.Dispose(); } catch { } }
+        }
+    }
+
     // ---------------- iRacing SDK reader ----------------
     static class Sdk
     {
@@ -201,10 +302,12 @@ namespace IRDash
                         {
                             if (ArrayKey.IsMatch(kv.Key)) continue;
                             VarDef d = new VarDef(); d.Name = kv.Key; d.Count = 1; d.Offset = i * 8;
-                            bool flag = kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
-                            d.Type = flag ? 1 : kv.Key == "Lap" ? 2 : 4;
+                            int rt = IbtReplay.TypeFor(kv.Key);      // an .ibt replay knows the real type (W0-8); -1 = old rules
+                            bool flag = rt == 1 || kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
+                            d.Type = flag ? 1 : rt >= 0 ? rt : kv.Key == "Lap" ? 2 : 4;
                             if (flag) f.Data[d.Offset] = (byte)(kv.Value != 0 ? 1 : 0);
-                            else if (d.Type == 2) Array.Copy(BitConverter.GetBytes((int)kv.Value), 0, f.Data, d.Offset, 4);
+                            else if (d.Type == 2 || d.Type == 3) Array.Copy(BitConverter.GetBytes(unchecked((int)(long)kv.Value)), 0, f.Data, d.Offset, 4);
+                            else if (d.Type == 5) Array.Copy(BitConverter.GetBytes(kv.Value), 0, f.Data, d.Offset, 8);
                             else Array.Copy(BitConverter.GetBytes((float)kv.Value), 0, f.Data, d.Offset, 4);
                             f.Vars[kv.Key] = d; i++;
                         }
@@ -706,7 +809,7 @@ namespace IRDash
                         Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"));
                         return;
                     }
-                    if (method == "GET" && (path == "/api/test/frame" || path == "/api/test/end"))
+                    if (method == "GET" && (path == "/api/test/frame" || path == "/api/test/end" || path == "/api/test/ibt"))
                     {
                         // test hook for tests\overlays-test.ps1: a pretend session for irdash's own readers. Off unless dash\test-hook.on exists.
                         if (!Sdk.TestHook)
@@ -717,7 +820,17 @@ namespace IRDash
                             if (busy != null) { Log.W("test hook refused: " + busy); Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + busy)); return; }
                             Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return;
                         }
-                        if (path == "/api/test/end") Sdk.FakeEnd();
+                        if (path == "/api/test/end") { IbtReplay.Stop(); Sdk.FakeEnd(); }
+                        else if (path == "/api/test/ibt")
+                        {
+                            var iq = ParseQuery(query); string ia, ib, ic, id2; double isp = 20, ifr = 0, ito = 0;
+                            if (iq.ContainsKey("status")) { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(IbtReplay.Status())); return; }
+                            if (iq.TryGetValue("speed", out ia)) double.TryParse(ia, NumberStyles.Float, CultureInfo.InvariantCulture, out isp);
+                            if (iq.TryGetValue("from", out ib)) double.TryParse(ib, NumberStyles.Float, CultureInfo.InvariantCulture, out ifr);
+                            if (iq.TryGetValue("to", out ic)) double.TryParse(ic, NumberStyles.Float, CultureInfo.InvariantCulture, out ito);
+                            string ierr = iq.TryGetValue("file", out id2) ? IbtReplay.Start(id2, isp, ifr, ito) : "file= is missing";
+                            if (ierr != null) { Send(s, 400, "text/plain", Encoding.UTF8.GetBytes(ierr)); return; }
+                        }
                         else
                         {
                             var vals = new Dictionary<string, double>();
