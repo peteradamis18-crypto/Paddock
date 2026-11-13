@@ -96,6 +96,7 @@ namespace IRDash
 
         static int TypeSize(int type) { return type == 5 ? 8 : type >= 2 ? 4 : 1; }
 
+        // stays (W0-6): reads one element of an array channel by its own position and type, which IbtFile.At (whole variables) does not
         static double Read(byte[] b, int p, int type)
         {
             switch (type)

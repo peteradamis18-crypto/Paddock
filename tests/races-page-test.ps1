@@ -17,7 +17,7 @@ if (-not $chrome) { '  FAIL  Chrome not found'; exit 1 }
 $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 $fixture = @"
 {"freeGb":283,"races":[
- {"id":"r-today","track":"Road Atlanta","car":"Toyota GR86","type":"Race","startMs":$($now - 3600000),"min":20,"laps":11,"best":93.639,"mb":1101,"saved":true,"exported":true},
+ {"id":"r-today","track":"Road Atlanta","car":"Toyota GR86","type":"Race","startMs":$($now - 3600000),"min":20,"laps":10,"counted":7,"best":93.832,"mb":1101,"saved":true,"exported":true},
  {"id":"p-today","track":"Road Atlanta","car":"Toyota GR86","type":"Practice","startMs":$($now - 7200000),"min":9,"laps":4,"best":96.44,"mb":536,"saved":false,"exported":false},
  {"id":"r-old","track":"Road America","car":"Porsche 718 Cayman GT4","type":"Race","startMs":$($now - 20 * 86400000),"min":19,"laps":8,"best":138.485,"mb":1130,"saved":true,"exported":false}]}
 "@
@@ -56,7 +56,7 @@ $run = @'
   ok('newest race first, its day and track shown', r1 && r1.dataset.id === 'r-today' && /Today/.test(r1.textContent) && /Road Atlanta/.test(r1.textContent));
   ok('a race shows WATCH, SHARE ON YOUTUBE and DELETE FROM PC', !!btn('r-today', 'watch') && /Share on YouTube/i.test(btn('r-today', 'share').textContent) && /Delete from PC/i.test(btn('r-today', 'del').textContent));
   ok('a kept race says Kept and has no KEEP button', /Kept/.test(r1.textContent) && !btn('r-today', 'keep'));
-  ok('the facts: car, minutes, laps, best lap, size', /Toyota GR86/.test(r1.textContent) && /20 min/.test(r1.textContent) && /11 laps/.test(r1.textContent) && /1:33\.639/.test(r1.textContent) && /1\.1 GB/.test(r1.textContent), r1.textContent);
+  ok('the facts: car, minutes, laps, best lap, size', /Toyota GR86/.test(r1.textContent) && /20 min/.test(r1.textContent) && /10 laps/.test(r1.textContent) && /1:33\.832/.test(r1.textContent) && /1\.1 GB/.test(r1.textContent), r1.textContent);
 
   document.getElementById('tabAll').click(); await sleep(100);
   ok('Practice and qualifying too: all 3 sessions', rows().length === 3, rows().length + ' rows');

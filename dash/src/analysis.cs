@@ -59,10 +59,9 @@ namespace IRDash
             public double T0, Computed;               // line-crossing time and the unpinned lap time (set for full laps)
             public double LengthM, Time, Official, Drift;
             public bool Clean, DriftOk, HasOfficial, Measured;
-            // L-1, iRacing's verdict (LapRules): any off-track record in the lap's records, and what its own best-lap channel said just after the line
-            public bool OffAny, BestChan;
+            public bool OffAny;                       // any off-track record in the lap (information: iRacing decides whether it counted)
             public int OffSamples;                    // records of the lap with PlayerTrackSurface 0
-            public double BestBefore = -1, BestAfter = -1;      // iRacing's best lap of the session at the end of the lap, and 1.5 to 2.5 s after the line (-1 = none)
+            public LapRec Truth;                      // W0-6: the lap store's record of this lap (counted, why, iRacing's time); null = not a full lap there
             public double[] Tm, Mini, SectorT, SectorAt;
             public float[] Spd, Brk, Thr;
             public string SectorFrom = "";
@@ -303,19 +302,7 @@ namespace IRDash
             return st[k - 1] + (st[k] - st[k - 1]) * Math.Max(0, Math.Min(1, f));
         }
 
-        static double At(byte[] b, int o, VarDef d)
-        {
-            if (d == null) return 0;
-            int p = o + d.Offset;
-            switch (d.Type)
-            {
-                case 0: case 1: return b[p];
-                case 2: case 3: return BitConverter.ToInt32(b, p);
-                case 4: return BitConverter.ToSingle(b, p);
-                case 5: return BitConverter.ToDouble(b, p);
-            }
-            return 0;
-        }
+        static double At(byte[] b, int o, VarDef d) { return IbtFile.At(b, o, d); }      // W0-6: the one record decoder (ibtfile.cs)
 
         static VarDef V(TrackMaps.Ibt t, string name) { VarDef d; return t.vars.TryGetValue(name, out d) ? d : null; }
 
@@ -362,7 +349,7 @@ namespace IRDash
                 if (vSt == null || vPct == null || vLap == null || vOn == null || vSpd == null) throw new IOException("this file has no lap data");
                 int n = (int)Math.Min(t.records, 2000000L);
                 double[] st = new double[n]; float[] pct = new float[n], spd = new float[n], thr = new float[n], brk = new float[n], llt = new float[n];
-                float[] lbt = vBest != null ? new float[n] : null;      // iRacing's own best lap of the session, for the lap rule (laprules: LapRules.Counted)
+                FileLaps truth = LapStore.ForFile(path);               // W0-6: the one lap truth (counted, iRacing's time) for this file
                 int[] lap = new int[n]; byte[] fl = new byte[n];
                 int per = Math.Max(1, (4 << 20) / t.bufLen); byte[] buf = new byte[per * t.bufLen];
                 t.fs.Position = t.dataOff;
@@ -377,7 +364,6 @@ namespace IRDash
                         int o = k * t.bufLen;
                         st[i] = At(buf, o, vSt); pct[i] = (float)At(buf, o, vPct); lap[i] = (int)At(buf, o, vLap);
                         spd[i] = (float)At(buf, o, vSpd); thr[i] = (float)At(buf, o, vThr); brk[i] = (float)At(buf, o, vBrk); llt[i] = (float)At(buf, o, vLlt);
-                        if (lbt != null) lbt[i] = (float)At(buf, o, vBest);
                         int surf = vSurf == null ? 3 : (int)At(buf, o, vSurf);
                         fl[i] = (byte)((At(buf, o, vOn) != 0 ? 1 : 0) | (vPit != null && At(buf, o, vPit) != 0 ? 2 : 0) | (surf == 0 ? 4 : 0));
                     }
@@ -416,14 +402,14 @@ namespace IRDash
                     lapTr.SectorAt = s.SectorAt; lapTr.SectorFrom = s.SectorFrom;
                     lapTr.RecA = a; lapTr.RecB = b;
                     lapTr.OffSamples = off; lapTr.OffAny = off > 0;      // PlayerTrackSurface 0 at any record of the lap (the C-30 rule above needs 45 of them to call the lap not clean)
-                    lapTr.BestChan = lbt != null;
-                    if (lbt != null) { lapTr.BestBefore = LapRules.BestBefore(lbt, n, b); lapTr.BestAfter = LapRules.BestAfter(lbt, n, b); }
+                    lapTr.Truth = full ? LapStore.LapAt(truth, a) : null;      // W0-6: iRacing's time and whether it counted come from the lap store only
                     if (full)
                     {
                         double t0 = Cross(st, pct, a), t1 = Cross(st, pct, b), computed = t1 - t0;
                         lapTr.T0 = t0; lapTr.Computed = computed;
-                        int at = r + 1 < runs.Count ? Math.Min(b + 90, runs[r + 1][1] - 1) : -1;
-                        if (at >= 0 && at < n && llt[at] > 1 && Math.Abs(llt[at] - computed) < 0.15) { lapTr.Official = llt[at]; lapTr.HasOfficial = true; }
+                        LapRec lr = lapTr.Truth;
+                        // the trace is pinned to iRacing's time when it gave one that matches (a counted lap always is)
+                        if (lr != null && lr.Why != "no-time" && (lr.Counted || Math.Abs(lr.Time - computed) < 0.15)) { lapTr.Official = lr.Time; lapTr.HasOfficial = true; }
                         if (computed > 1 && computed < 900) Resample(lapTr, st, pct, spd, brk, thr, a, b, t0, computed);
                         else lapTr.Clean = false;
                         if (lapTr.Clean && (lapTr.Time < 15 || lapTr.Time > 900)) { lapTr.Clean = false; lapTr.Skip = "partial"; }
@@ -683,10 +669,9 @@ namespace IRDash
         // records or more) does NOT keep a lap out of here: whether such a lap counts is iRacing's to say (it counts them in practice sessions, not in the AI races) ...
         static bool Timed(LapTrace lap) { return lap != null && (lap.Clean || lap.Skip == "off") && lap.Tm != null && lap.HasOfficial; }
 
-        // ... and one iRacing COUNTED, decided by its own best lap first and by the off-track record only where that says nothing (LapRules.Judge).
-        // The one place that decides what counts: Session Review, SPLITS, the career, the PB reference, the Vault's PB, the Sessions page's best.
-        static bool Counted(LapTrace lap) { string why; return Timed(lap) && LapRules.Judge(true, lap.OffAny, lap.BestChan, lap.BestBefore, lap.BestAfter, lap.Time, out why); }
-        static string CountedBy(LapTrace lap) { string why = "iRacing gave the lap no time"; if (Timed(lap)) LapRules.Judge(true, lap.OffAny, lap.BestChan, lap.BestBefore, lap.BestAfter, lap.Time, out why); return why; }
+        // ... and one iRacing COUNTED: the lap store's verdict (lapstore.cs, LapRules.Judge), the same for every page.
+        static bool Counted(LapTrace lap) { return Timed(lap) && lap.Truth != null && lap.Truth.Counted; }
+        static string CountedBy(LapTrace lap) { return lap != null && lap.Truth != null ? LapRules.Words(lap.Truth.Why) : "not a full lap"; }
 
         // The pool the references and the statistics are counted from (the PB, the session best, the optimal lap, the best-5 average):
         // laps iRacing counted. A lap it did not count is still real data and can be asked for by name (FindRef's "file:lap"), it just never becomes "the best".
@@ -911,22 +896,37 @@ namespace IRDash
             string newest = null; DateTime nt = DateTime.MinValue;
             foreach (string f in all) { DateTime w = File.GetLastWriteTime(f); if (newest == null || w > nt) { newest = f; nt = w; } }
             bool sim = liveRules && (Program.IsDriving || Process.GetProcessesByName("iRacingSim64DX11").Length > 0);
-            int extra = 0;
+            // W0-6 (N6): every file of this car and track is SEEN through the lap cache (LapStore, no 40-file cap), so the PB is the real one.
+            // The full traces (74 MB files) are loaded only for the 40 with the quickest counted laps (the PB always among them); files not yet in
+            // the lap cache fill the rest, newest first.
+            List<KeyValuePair<double, string>> known = new List<KeyValuePair<double, string>>(); List<string> unknown = new List<string>();
+            long mainLen = new FileInfo(mainPath).Length;
             foreach (string f in all)
             {
-                if (extra >= 40) break;
                 string full = Path.GetFullPath(f);
                 if (string.Equals(full, Path.GetFullPath(mainPath), StringComparison.OrdinalIgnoreCase)) continue;
                 FileInfo fi = new FileInfo(f);
                 if (Career.OnlineOnly(fi)) continue;
                 if (liveRules && fi.LastWriteTime > DateTime.Now.AddMinutes(-2)) continue;
                 if (sim && newest != null && string.Equals(full, Path.GetFullPath(newest), StringComparison.OrdinalIgnoreCase)) continue;
+                FileLaps fl = LapStore.Peek(f);
+                if (fl != null)
+                {
+                    if (fl.Car != main.Car || fl.Track != main.Track || fl.Config != main.Config) continue;
+                    if (fl.Size == mainLen && main.HeaderTicks > 0 && fl.StartUtc == new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(main.HeaderTicks)) continue;   // a copy of the same session
+                    LapRec b = fl.BestLap;
+                    known.Add(new KeyValuePair<double, string>(b != null ? b.Time : double.MaxValue, f));      // no counted lap: last, but still one of his sessions here
+                    continue;
+                }
                 long ticks, size;
                 if (!HeaderMatch(f, main.Car, main.Track, main.Config, out ticks, out size)) continue;
-                if (ticks == main.HeaderTicks && size == new FileInfo(mainPath).Length) continue;
-                list.Add(Get(f));
-                extra++;
+                if (ticks == main.HeaderTicks && size == mainLen) continue;
+                unknown.Add(f);
             }
+            known.Sort(delegate (KeyValuePair<double, string> a, KeyValuePair<double, string> b) { return a.Key.CompareTo(b.Key); });
+            int extra = 0;
+            foreach (KeyValuePair<double, string> kv in known) { if (extra >= 40) break; list.Add(Get(kv.Value)); extra++; }
+            foreach (string f in unknown) { if (extra >= 40) break; list.Add(Get(f)); extra++; }      // `all` is newest first
             return list;
         }
 
@@ -1121,70 +1121,13 @@ namespace IRDash
 
         // The quickest lap iRacing counted in one telemetry file (the Sessions page's best for that session and so the delta bar's PB reference).
         // -1 = the file cannot be read as laps (the caller keeps its own estimate); 0 = it has laps but none counted.
+        // W0-6: LapStore.Best of the file (cached in dash\data\laps); -1 = no counted lap or unreadable
         internal static double CountedBest(string path)
         {
-            try
-            {
-                Sess s = Load(path);
-                double best = 0;
-                foreach (LapTrace lap in s.Laps) if (Counted(lap) && (best <= 0 || lap.Time < best)) best = lap.Time;
-                return best;
-            }
-            catch { return -1; }
+            FileLaps f = LapStore.ForFile(path);
+            return f == null ? -1 : LapStore.BestTime(f.Laps);
         }
     }
 
-    // L-1: ONE rule for "did iRacing count this lap", used everywhere a lap can become a best (docs\tasks\log\L-1-laprules.md).
-    // iRacing shows a lap time for every lap, but only a lap it COUNTED can be its session best. So its own best lap (LapBestLapTime) is the evidence, read at
-    // the end of the lap and 1.5 to 2.5 s after the line; the off-track record (PlayerTrackSurface 0) decides only where that evidence says nothing:
-    //   1. iRacing gave the lap no time                                        -> not counted
-    //   2. the lap is quicker than iRacing's best so far (or it had none):
-    //        its best became this lap's time                                   -> COUNTED, whatever the off-track record says (practice sessions count laps with long off-tracks)
-    //        its best did not change                                           -> NOT counted (W6c: 13-28-11 laps 2-6, in the AI races an off-track lap is left out)
-    //   3. the lap is not quicker than the best so far: its best cannot tell   -> the off-track record decides: any off-track record = not counted, none = counted
-    // A file without the best-lap channel has no evidence: the off-track record decides alone.
-    // The callers read their records their own way (Analysis.Load, IbtLaps.Load) and hand the plain facts here, so the rule is written once.
-    static class LapRules
-    {
-        public const int Version = 3;                     // stored with what was worked out under the rule (Vault rows, the career cache, the PB reference files, the Sessions page cache); a lower number = made under an older rule and read again
-        const int AfterFrom = 90, AfterTo = 150;          // records after the line (60 per second): where the sim has updated its best-lap time
-        const double Slack = 0.0015;                      // the figures are 32-bit floats
-
-        // iRacing's best lap of the session as the file says it just after record `end` (the line): the lowest positive value there, -1 when there is none or the file ends first
-        public static double BestAfter(float[] best, int n, long end)
-        {
-            long from = end + AfterFrom, to = Math.Min((long)n, end + AfterTo);
-            if (from >= n || to <= from) return -1;
-            double b = -1;
-            for (long k = from; k < to; k++) { double v = best[k]; if (v > 1 && (b < 0 || v < b)) b = v; }
-            return b;
-        }
-
-        // iRacing's best lap of the session at the last record of the lap (before it can know the lap): -1 when it had none
-        public static double BestBefore(float[] best, int n, long end)
-        {
-            if (end < 1 || end - 1 >= n) return -1;
-            double v = best[end - 1];
-            return v > 1 ? v : -1;
-        }
-
-        // timed: iRacing gave the lap a time. offTrack: any off-track record in it. haveBest: the file has the best-lap channel. bestBefore / bestAfter: see above. time: the lap's time.
-        // why: the evidence that decided, in words.
-        public static bool Judge(bool timed, bool offTrack, bool haveBest, double bestBefore, double bestAfter, double time, out string why)
-        {
-            if (!timed) { why = "iRacing gave the lap no time"; return false; }
-            if (!haveBest) { why = offTrack ? "no best-lap channel in the file; off-track record" : "no best-lap channel in the file; no off-track record"; return !offTrack; }
-            bool faster = bestBefore <= 0 || time < bestBefore - Slack;
-            if (faster)
-            {
-                bool became = bestAfter > 0 && bestAfter <= time + Slack;
-                why = became ? "iRacing's best lap became this lap" : "quicker than iRacing's best so far, its best lap did not change";
-                return became;
-            }
-            why = offTrack ? "not quicker than iRacing's best so far, so no evidence; off-track record" : "not quicker than iRacing's best so far, so no evidence; no off-track record";
-            return !offTrack;
-        }
-
-        public static bool Counted(bool timed, bool offTrack, bool haveBest, double bestBefore, double bestAfter, double time) { string why; return Judge(timed, offTrack, haveBest, bestBefore, bestAfter, time, out why); }
-    }
+    // LapRules (the one counted rule) lives in lapstore.cs (W0-6)
 }
