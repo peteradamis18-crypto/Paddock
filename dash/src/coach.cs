@@ -59,13 +59,19 @@ namespace IRDash
             // clean lap, but no best is claimed ("best": null = no clean lap).
             FileLaps truth = LapStore.ForFile(mine.Path);
             LapRec tb = truth != null ? truth.BestLap : null;
-            LapTrace best = null;
-            if (tb != null) foreach (LapTrace l in all) if (l.Lap == tb.N) best = l;
+            LapTrace best = null; bool anchored = true;
+            if (tb != null)
+            {
+                foreach (LapTrace l in all) if (l.RecA == tb.StartRecord) best = l;          // by its first record (lap numbers repeat across sessions)
+                // the counted best has no clean trace here (a long off-track): the quickest counted lap that has one, else no rhythm filter at all
+                if (best == null) foreach (LapTrace l in all) if (Counted(l) && (best == null || l.Time < best.Time)) best = l;
+                if (best == null) anchored = false;
+            }
             if (best == null) foreach (LapTrace l in all) if (best == null || l.Time < best.Time) best = l;
             // laps in his normal rhythm only: within 2 % of that best. A race start, a traffic lap or a cool-down lap is not
-            // a habit and would make every corner look slow.
+            // a habit and would make every corner look slow. Never anchored on a lap iRacing did not count while a counted best exists.
             List<LapTrace> clean = new List<LapTrace>();
-            foreach (LapTrace l in all) if (best != null && l.Time <= best.Time * 1.02) clean.Add(l);
+            foreach (LapTrace l in all) if (best != null && (!anchored || l.Time <= best.Time * 1.02)) clean.Add(l);
             StringBuilder sb = new StringBuilder(4096);
             sb.Append("{\"ok\":true,\"file\":").Append(Json_.S(mine.File)).Append(",\"car\":").Append(Json_.S(mine.Car)).Append(",\"track\":").Append(Json_.S(CoachTrackName(mine)))
               .Append(",\"config\":").Append(Json_.S(mine.Config)).Append(",\"units\":\"imperial\",\"clean\":").Append(clean.Count)

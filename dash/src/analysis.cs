@@ -402,7 +402,7 @@ namespace IRDash
                     lapTr.SectorAt = s.SectorAt; lapTr.SectorFrom = s.SectorFrom;
                     lapTr.RecA = a; lapTr.RecB = b;
                     lapTr.OffSamples = off; lapTr.OffAny = off > 0;      // PlayerTrackSurface 0 at any record of the lap (the C-30 rule above needs 45 of them to call the lap not clean)
-                    lapTr.Truth = full ? LapStore.Lap(truth, lap[a]) : null;      // W0-6: iRacing's time and whether it counted come from the lap store only
+                    lapTr.Truth = full ? LapStore.LapAt(truth, a) : null;      // W0-6: iRacing's time and whether it counted come from the lap store only
                     if (full)
                     {
                         double t0 = Cross(st, pct, a), t1 = Cross(st, pct, b), computed = t1 - t0;

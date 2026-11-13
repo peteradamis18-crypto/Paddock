@@ -19,14 +19,15 @@ $script:pass = 0; $script:fail = 0
 function ok($what, $cond, $why = '') { if ($cond) { $script:pass++; "  ok   $what" } else { $script:fail++; "  FAIL $what $why" } }
 $source = 'C:\Users\peter\OneDrive\Documents\iRacing\telemetry\toyotagr86_roadatlanta full 2026-11-12 09-28-07.ibt'
 $fileName = Split-Path -Leaf $source
-$race = Join-Path $fx 'race-12nov.ibt'; $lap9 = Join-Path $fx 'race-12nov-lap9-whole.ibt'
+$race = Join-Path $fx 'race-12nov.ibt'; $lap9 = Join-Path $fx 'race-12nov-lap9-whole.ibt'; $endCut = Join-Path $fx 'race-12nov-ends-1s-after-lap10.ibt'
 $sidecar = Join-Path $fx 'race-12nov-sidecar.json'
 $tmp = Join-Path $env:TEMP ('lap-truth-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory -Force $tmp | Out-Null
 
 # the harness: dash\src (the build.ps1 list) + tests\lap-truth-main.cs, its own Main
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $srcs = @([regex]::Matches((Get-Content (Join-Path $root 'dash\build.ps1') -Raw), '"\$d\\src\\([A-Za-z0-9_]+\.cs)"') | ForEach-Object { Join-Path $root ('dash\src\' + $_.Groups[1].Value) }) + @((Join-Path $root 'src\deckstate.cs'), (Join-Path $PSScriptRoot 'lap-truth-main.cs'))
-$harness = Join-Path $tmp 'lap-truth.exe'
+$harness = Join-Path $tmp 'lap-truth.exe'; $liveExe = Join-Path $tmp 'live-judge.exe'
+$lcout = & $csc /nologo /target:exe "/out:$liveExe" /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $root 'dash\src\ibtfile.cs') (Join-Path $root 'dash\src\lapstore.cs') (Join-Path $PSScriptRoot 'live-judge-harness.cs') 2>&1 | Out-String
 $cout = & $csc /nologo /target:exe /optimize+ /platform:anycpu /main:IRDash.LapTruthMain "/out:$harness" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll @srcs 2>&1 | Out-String
 function Run($ibt, $cacheName, $teleDir) {
   $cache = Join-Path $tmp $cacheName; New-Item -ItemType Directory -Force $cache | Out-Null
@@ -42,6 +43,7 @@ function Run($ibt, $cacheName, $teleDir) {
 'W0-6 lap truth: the 12 Nov race'
 try {
   ok 'the harness (dash\src + tests\lap-truth-main.cs) compiles' (Test-Path $harness) $cout
+  ok 'the live-judge harness (lapstore.cs + tests\live-judge-harness.cs) compiles' (Test-Path $liveExe) $lcout
   if (-not (Test-Path $harness)) { throw 'no harness' }
   $haveSource = Test-Path $source
   if (-not $haveSource) { '  skip the 12 Nov telemetry file is not on this PC: sections 1b, 2 and 3 cannot run' }
@@ -66,6 +68,14 @@ try {
     ok 'the cut around lap 9: the lap list (/ibt/laps) says the same' ($b['ibtlaps.best'] -eq '93.832' -and $b['ibtlaps.bestLap'] -eq '9') "$($b['ibtlaps.best']) lap $($b['ibtlaps.bestLap'])"
     ok 'the lap store wrote its cache file (dash\data\laps\<file>.json)' ($b['store.cacheFile'] -eq '1')
   } else { '  skip the lap 9 cut is missing and cannot be built here' }
+  # review finding 6: the recording stops 1 s after lap 10's line (he leaves the car), before iRacing announces the time
+  if (-not (Test-Path $endCut) -and $haveSource) { & (Join-Path $tools 'ibt-cut.ps1') -Source $source -Out $endCut -From 970 -To 1170.1 | Out-Null }
+  if (Test-Path $endCut) {
+    $d4 = Join-Path $tmp 'fx4'; New-Item -ItemType Directory -Force $d4 | Out-Null; Copy-Item $endCut (Join-Path $d4 $fileName)
+    $e = Run (Join-Path $d4 $fileName) 'c4' $d4
+    ok 'a file that ends 1 s after the line: lap 10 is not counted with its own reason (file-end, not no-time)' ($e['store.lap10'] -match ' not-counted file-end') $e['store.lap10']
+    ok '... and lap 9 before it is still the counted 93.832' ($e['store.lap9'] -match '^93\.832 counted -' -and $e['store.best'] -eq '93.832') $e['store.lap9']
+  } else { '  skip the end cut is missing and cannot be built here' }
 
   if ($haveSource) {
     # ---------------------------------------------------------------- 2. the full file
@@ -86,6 +96,15 @@ try {
     ok 'laps 3 and 9 had one off-track record each and still count (iRacing''s own verdict)' ($f['store.lap3'] -eq '93.919 counted - off' -and $f['store.lap9'] -eq '93.832 counted - off') "$($f['store.lap3']) | $($f['store.lap9'])"
     ok 'Best() = lap 9, 1:33.832' ($f['store.best'] -eq '93.832' -and $f['store.bestLap'] -eq '9') "$($f['store.best']) lap $($f['store.bestLap'])"
 
+    # ---------------------------------------------------------------- 2b. the live judge on the same frames (review finding 8)
+    Assert-RigFree -Where '2b. live judge'
+    'Section 2b. the live judge, fed the race frame by frame the way the recorder and the PB reference call it (pit stop in lap 4, a tow in lap 5, a 3 s disconnect in lap 8)'
+    if (Test-Path $liveExe) {
+      $lo = & $liveExe (Join-Path $d3 $fileName) --pit 4 --dirty 5 --reconnect 8
+      foreach ($l in $lo) { if ($l -match '^ok (.*)') { ok $Matches[1] $true } elseif ($l -match '^FAIL (.*)') { ok $Matches[1] $false } }
+      ok 'the live-judge harness ran to the end' ($lo -contains 'LIVE-DONE')
+    }
+
     # ---------------------------------------------------------------- 3. every JSON with a best for that session
     Assert-RigFree -Where '3. every page'
     'Section 3. every page that shows a best for the 12 Nov race'
@@ -102,7 +121,7 @@ try {
     ok 'CountedBest (the PB reference build): 93.832' ($f['countedBest'] -eq '93.832') $f['countedBest']
     Same 'My Races and the deck RACES list (/api/rec/races, from the .ibt)' 'races'
     ok 'My Races: 10 laps, not 11 (lap 0 out)' ($f['races.laps'] -eq '10') "laps $($f['races.laps'])"
-    ok 'My Races without the .ibt (old sidecar alone): still 1:33.832, lap 0 out, the two incident laps out' ($f['racesNoIbt.best'] -eq '93.832' -and $f['racesNoIbt.laps'] -eq '10' -and $f['racesNoIbt.counted'] -eq '8') "best $($f['racesNoIbt.best']) laps $($f['racesNoIbt.laps']) counted $($f['racesNoIbt.counted'])"
+    ok 'My Races without the .ibt (old sidecar alone): still 1:33.832 and 7 counted: lap 0 out, the race start lap and the two incident laps out' ($f['racesNoIbt.best'] -eq '93.832' -and $f['racesNoIbt.laps'] -eq '10' -and $f['racesNoIbt.counted'] -eq '7') "best $($f['racesNoIbt.best']) laps $($f['racesNoIbt.laps']) counted $($f['racesNoIbt.counted'])"
     Same 'Session Review' 'review'
     Same 'Coach' 'coach'
     if ($f.ContainsKey('career.error')) { ok 'Career says 1:33.832 and 7 counted' $false ("error: " + $f['career.error']) }

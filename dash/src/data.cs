@@ -611,14 +611,14 @@ namespace IRDash
                 int off = 0;
                 for (int x = r.Start; x < r.End; x++) { if ((c.Flags[x] & 2) != 0) r.Pit = true; if (c.Surf[x] == 1) off++; }   // stored +1: 1 = off track
                 r.Off = off > 0;                                           // information only: iRacing decides whether the lap counted
-                LapRec lr = LapStore.Lap(truth, r.N);
+                LapRec lr = LapStore.LapAt(truth, r.Start);      // by its first record: lap numbers repeat in a file with two sessions
                 if (lr != null) { r.Time = lr.Time; r.Official = lr.Why != "no-time"; r.Counted = lr.Counted; }
                 r.Inc = Math.Max(0, c.Inc[r.End - 1] - c.Inc[r.Start]);
                 c.Laps.Add(r);
             }
             // best: LapStore.Best, the quickest COUNTED lap; none counted = no best (the page says "no clean lap")
             LapRec best = truth != null ? truth.BestLap : null;
-            if (best != null) for (int k = 0; k < c.Laps.Count; k++) if (c.Laps[k].N == best.N) { c.Best = k; break; }
+            if (best != null) for (int k = 0; k < c.Laps.Count; k++) if (c.Laps[k].Start == best.StartRecord) { c.Best = k; break; }
         }
 
         static string F(double d, string fmt) { return d.ToString(fmt, Inv); }

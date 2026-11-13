@@ -79,13 +79,13 @@ namespace IRDash
             else if (mode == "live")
             {
                 // frames at 60 Hz: the line at t=0, iRacing announces the time at +1.2 s, its best follows in the SAME frame
-                LiveJudge j = new LiveJudge(); j.Seen(93.919);
+                LiveJudge j = new LiveJudge();
                 j.Line(9, 0, 93.84, 93.919, false, false, 0, 93.919);
                 LapRec r = null;
                 for (int k = 0; k < 300 && r == null; k++) { double s = k / 60.0; bool on = s >= 1.2; r = j.Poll(s, on ? 93.832 : 93.919, on ? 93.832 : 93.919); }
                 Ok("live: a same-frame time + best update is a counted new best", r != null && r.Counted && Math.Abs(r.Time - 93.832) < 1e-6, r == null ? "null" : r.Why);
                 // the time changes at the line frame itself (no frame between): still seen, because we compare with the last lap seen
-                j.Line(10, 10, 94.99, 93.832, false, false, 0, 94.996);
+                j.Line(10, 10, 94.99, 93.832, false, false, 0, 93.832);      // the frame before the line still showed lap 9's time
                 r = j.Poll(10, 94.996, 93.832);
                 Ok("live: a time announced in the same frame as the lap counter is not missed", r != null && r.Counted && Math.Abs(r.Time - 94.996) < 1e-6, r == null ? "null" : r.Why);
                 // a quicker lap whose best never follows: not counted, decided when the window ends
@@ -102,6 +102,16 @@ namespace IRDash
                 j.Line(8, 60, 94.1, 93.919, false, false, 0, 94.831);
                 r = null; for (int k = 0; k < 400 && r == null; k++) { double s = 60 + k / 60.0; r = j.Poll(s, 94.831, 93.919); }
                 Ok("live: no time within the window = not counted (no-time)", r != null && !r.Counted && r.Why == "no-time", r == null ? "null" : r.Why);
+                // review finding 1: lap 20 judged (95.000), lap 21 NOT judged (an in-lap / tow) though iRacing timed it (96.500, shown from 1.5 s
+                // into lap 22), lap 22 judged: its new best 93.000 comes 1.5 s after the line. The stale 96.500 on screen must not be taken for lap 22.
+                LiveJudge jj = new LiveJudge();
+                jj.Line(20, 100, 95.0, 95.5, false, false, 0, 95.5);
+                r = null; for (int f = 0; f < 300 && r == null; f++) { double s = 100 + f / 60.0; r = jj.Poll(s, s >= 101.5 ? 95.0 : 95.5, s >= 101.5 ? 95.0 : 95.5); }
+                Ok("live: lap 20 judged first (95.000 counted)", r != null && r.Counted && Math.Abs(r.Time - 95.0) < 1e-6, r == null ? "null" : r.Why);
+                // lap 21 ends at t=195 with no Line call; its 96.500 is on screen from t=196.5; lap 22 ends at t=288
+                jj.Line(22, 288, 93.0, 95.0, false, false, 0, 96.5);
+                r = null; for (int f = 0; f < 300 && r == null; f++) { double s = 288 + f / 60.0; bool on = s >= 289.5; r = jj.Poll(s, on ? 93.0 : 96.5, on ? 93.0 : 95.0); }
+                Ok("live: after an unjudged timed lap, the next lap's new best is iRacing's 93.000, counted (not the stale 96.500)", r != null && r.Counted && Math.Abs(r.Time - 93.0) < 1e-6, r == null ? "null" : r.Time.ToString("0.000") + " " + r.Why);
             }
             else if (mode == "file")
             {

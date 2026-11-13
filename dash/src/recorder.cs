@@ -552,7 +552,6 @@ namespace IRDash
             }
             if (!haveConn) { haveConn = true; ResetTracker(); restarts = 0; gaveUp = false; }
             double llt = f.Num("LapLastLapTime"), prevLlt = lastLastTime, bestNow = f.Num("LapBestLapTime"), prevBest = lastBestFrame;
-            judge.Seen(llt);
             if (pendLap != null)
             {
                 // W0-6: iRacing announces the time 1-2 s after the line and its best follows; the judge waits up to 4 s (LapRules.WindowSec)
@@ -1436,7 +1435,7 @@ namespace IRDash
                 s.Created = (long)WallMs();
                 s.LapRows = new List<double[]>();
                 // W0-6: lap 0 (formation / out lap) is no lap; [3] = counted by iRacing (the live judge), [4] = a PB among counted laps
-                foreach (RecLap l in lapSnapshot) { if (l.N < 1) continue; bool ok = l.Counted && !l.Dirty && l.Time > minLap; s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, ok ? 1 : 0, (ok && (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005))) ? 1 : 0, l.Start }); }   // [5] = wall start, so a time inside the lap maps through the same spans even over a gap
+                foreach (RecLap l in lapSnapshot) { if (l.N < 1) continue; bool ok = l.Counted && !l.Dirty && l.Time > minLap; s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, ok ? 1 : 0, (ok && (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005))) ? 1 : 0, l.Start, 1 }); }   // [6] = 1: judged live (W0-6); [5] = wall start, so a time inside the lap maps through the same spans even over a gap
                 List<double[]> inc = new List<double[]>();
                 foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
@@ -1511,7 +1510,7 @@ namespace IRDash
         static string SessJson(RecSess s)
         {
             StringBuilder lb = new StringBuilder("[");
-            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"counted\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
+            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + (r.Length > 6 && r[6] == 1 ? ",\"counted\":" + (r[3] != 0 ? "true" : "false") : "") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
             lb.Append(']');
             StringBuilder ib = new StringBuilder("[");
             for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + Num(r[0]) + ",\"count\":" + ((int)r[1]) + "}"); }
@@ -1596,7 +1595,7 @@ namespace IRDash
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
-                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs") }); }
+                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs"), r.ContainsKey("counted") ? 1 : 0 }); }      // [6]: the live judge decided "counted" (a sidecar from before W0-6 has only "clean")
                 System.Collections.IList inc = d.ContainsKey("incidents") ? d["incidents"] as System.Collections.IList : null;
                 if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DN(r, "offset"), DD(r, "count") }); }
                 System.Collections.IList gaps = d.ContainsKey("gaps") ? d["gaps"] as System.Collections.IList : null;
@@ -1817,13 +1816,19 @@ namespace IRDash
         {
             FileLaps fl = TruthFor(s);
             List<LapRec> rows = new List<LapRec>();
-            if (fl != null && fl.Laps.Count > 0) rows = fl.Laps;
+            if (fl != null && fl.Laps.Count > 0) rows = LapStore.OfSession(fl, s.SessionNum);      // only this recording's iRacing session (a file can also hold qualifying)
             else
                 foreach (double[] r in s.LapRows)
                 {
                     if (r.Length < 4 || r[0] < 1 || r[2] <= 0) continue;
                     LapRec l = new LapRec(); l.N = (int)r[0]; l.Time = r[2]; l.Counted = r[3] != 0;
-                    foreach (double[] x in s.Incidents) if (x.Length > 0 && x[0] >= r[1] && x[0] < r[1] + r[2]) { l.Incident = true; l.Counted = false; }
+                    if (!(r.Length > 6 && r[6] == 1))
+                    {
+                        // a sidecar from before the live judge: its "clean" never asked iRacing. What iRacing does that the row can still show: an incident
+                        // lap is out, and lap 1 of a race is out (iRacing's best stays empty after the start lap: 12 Nov, Corvette 6 and 10 Oct)
+                        foreach (double[] x in s.Incidents) if (x.Length > 0 && x[0] >= r[1] && x[0] < r[1] + r[2]) { l.Incident = true; l.Counted = false; }
+                        if (l.N == 1 && Regex.IsMatch(s.Type ?? "", "race", RegexOptions.IgnoreCase)) l.Counted = false;
+                    }
                     rows.Add(l);
                 }
             laps = rows.Count; counted = 0; foreach (LapRec l in rows) if (l.Counted) counted++;

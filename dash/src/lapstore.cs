@@ -22,6 +22,7 @@ namespace IRDash
     {
         public int N, OffRecords; public double Time, Start; public bool Counted, Pit, Off, Incident; public string Why = "";
         public long StartRecord, EndRecord;
+        public int SessionNum = -1;          // iRacing's SessionNum: a file can hold practice, qualifying and the race, and the lap counter starts again in each
     }
 
     static class LapRules
@@ -71,27 +72,28 @@ namespace IRDash
                 case "short": return "not a full lap";
                 case "incident": return "incident in the lap";
                 case "not-best": return "iRacing did not count it";
+                case "file-end": return "the recording stopped before iRacing gave its time";
             }
             return why;
         }
     }
 
     // The same rule, live: a lap ends at the line, then iRacing announces its time (LapLastLapTime) and, if it is a new best,
-    // LapBestLapTime follows. Compare with the LAST LAP SEEN, not the previous frame, so a same-frame update is never missed.
+    // LapBestLapTime follows. The new time is whatever differs from what iRacing showed in the frame (or tick) BEFORE the line - passed to Line
+    // by the caller - so a time announced in the same frame as the lap counter is never missed, and a lap this watcher did not judge (an in-lap,
+    // a tow, a dirty lap) can never leave a stale "last time" behind (W0-6 review finding 1: refs.cs then missed the next real PB).
     sealed class LiveJudge
     {
-        double lastSeen = double.NaN;      // the last lap time iRacing announced that this watcher saw
+        double lastSeen = double.NaN;      // LapLastLapTime just before the line of the lap being judged
         bool pending; double lineAt, computed, bestBefore, seenBest = -1; int lapNo; bool pit, incident; int offRecords; double announced;
 
         public bool Pending { get { return pending; } }
 
-        // every frame (also between laps): remembers what iRacing shows as its last lap
-        public void Seen(double llt) { if (!pending && double.IsNaN(lastSeen)) lastSeen = llt; }
-
-        // the car crossed the line: lap lapNo ended. nowSec: any clock in seconds. best: LapBestLapTime just before the line.
-        public void Line(int lap, double nowSec, double lineToLine, double best, bool wasPit, bool hadIncident, int offs, double llt)
+        // the car crossed the line: lap lapNo ended. nowSec: any clock in seconds. best and lltBefore: LapBestLapTime and LapLastLapTime in the
+        // frame before the line (the caller's previous frame or tick, never the frame of the line itself).
+        public void Line(int lap, double nowSec, double lineToLine, double best, bool wasPit, bool hadIncident, int offs, double lltBefore)
         {
-            if (double.IsNaN(lastSeen)) lastSeen = llt;
+            lastSeen = lltBefore;
             pending = true; lineAt = nowSec; lapNo = lap; computed = lineToLine; bestBefore = best; pit = wasPit; incident = hadIncident; offRecords = offs;
             announced = double.NaN; seenBest = -1;
         }
@@ -171,7 +173,7 @@ namespace IRDash
                     {
                         if (t == null) return null;
                         f = Read(t);
-                        finished = t.IsFinished;
+                        finished = t.IsFinished || Abandoned(fi);
                     }
                     if (finished) SaveCache(f);
                 }
@@ -179,6 +181,20 @@ namespace IRDash
                 return f;
             }
             catch (Exception ex) { try { Log.W("lap store " + Path.GetFileName(path) + ": " + ex.Message); } catch { } return null; }
+        }
+
+        // The sim writes the record count into the header only when it closes the file; after a crash it never does. Such a file is done when
+        // nobody has written it for 10 minutes and the sim is not running (review finding 5), so it is cached instead of being read again and again.
+        static bool Abandoned(FileInfo fi)
+        {
+            try
+            {
+                if ((DateTime.UtcNow - fi.LastWriteTimeUtc).TotalMinutes < 10) return false;
+                System.Diagnostics.Process[] ps = System.Diagnostics.Process.GetProcessesByName("iRacingSim64DX11");
+                bool sim = ps.Length > 0; foreach (System.Diagnostics.Process x in ps) x.Dispose();
+                return !sim;
+            }
+            catch { return false; }
         }
 
         // The laps of a file only if they are already worked out (memory or cache file): never reads the .ibt. For request threads.
@@ -208,11 +224,11 @@ namespace IRDash
             f.Track = t.YamlValue("TrackDisplayName"); f.Config = t.YamlValue("TrackConfigName"); f.TrackId = t.YamlValue("TrackID");
             f.Car = CarOf(t.Yaml);
             VarDef vSt = t.Var("SessionTime"), vLap = t.Var("Lap"), vPct = t.Var("LapDistPct"), vOn = t.Var("IsOnTrack"), vPit = t.Var("OnPitRoad"),
-                   vSurf = t.Var("PlayerTrackSurface"), vLlt = t.Var("LapLastLapTime"), vBest = t.Var("LapBestLapTime"), vInc = t.Var("PlayerCarMyIncidentCount");
+                   vSurf = t.Var("PlayerTrackSurface"), vLlt = t.Var("LapLastLapTime"), vBest = t.Var("LapBestLapTime"), vInc = t.Var("PlayerCarMyIncidentCount"), vSn = t.Var("SessionNum");
             if (vSt == null || vLap == null || vPct == null || vOn == null) return f;
             int n = (int)Math.Min(t.Records, 4000000L);
             double[] st = new double[n]; int[] lap = new int[n]; float[] pct = new float[n], llt = new float[n], best = vBest != null ? new float[n] : null;
-            short[] inc = new short[n]; byte[] fl = new byte[n];          // fl: 1 on track, 2 pit road, 4 off track
+            short[] inc = new short[n], sn = new short[n]; byte[] fl = new byte[n];          // fl: 1 on track, 2 pit road, 4 off track
             int per = Math.Max(1, (4 << 20) / t.BufLen); byte[] buf = new byte[per * t.BufLen];
             int i = 0;
             while (i < n)
@@ -224,7 +240,7 @@ namespace IRDash
                     int o = k * t.BufLen;
                     st[i] = IbtFile.At(buf, o, vSt); lap[i] = (int)IbtFile.At(buf, o, vLap); pct[i] = (float)IbtFile.At(buf, o, vPct);
                     llt[i] = (float)IbtFile.At(buf, o, vLlt); if (best != null) best[i] = (float)IbtFile.At(buf, o, vBest);
-                    inc[i] = (short)Math.Min(32000, IbtFile.At(buf, o, vInc));
+                    inc[i] = (short)Math.Min(32000, IbtFile.At(buf, o, vInc)); sn[i] = (short)(vSn == null ? 0 : IbtFile.At(buf, o, vSn));
                     int surf = vSurf == null ? 3 : (int)IbtFile.At(buf, o, vSurf);
                     fl[i] = (byte)((IbtFile.At(buf, o, vOn) != 0 ? 1 : 0) | (vPit != null && IbtFile.At(buf, o, vPit) != 0 ? 2 : 0) | (surf == 0 ? 4 : 0));
                 }
@@ -232,13 +248,13 @@ namespace IRDash
             }
             n = i;
             int win = (int)(LapRules.WindowSec * t.Tick);
-            // runs: one lap counter value, on track, no gap in time
+            // runs: one lap counter value in one session, on track, no gap in time
             List<int[]> runs = new List<int[]>();
             for (int k = 0; k < n; )
             {
                 if ((fl[k] & 1) == 0) { k++; continue; }
                 int j = k + 1;
-                while (j < n && (fl[j] & 1) != 0 && lap[j] == lap[k] && st[j] - st[j - 1] < 0.5) j++;
+                while (j < n && (fl[j] & 1) != 0 && lap[j] == lap[k] && sn[j] == sn[k] && st[j] - st[j - 1] < 0.5) j++;
                 runs.Add(new int[] { k, j }); k = j;
             }
             for (int r = 0; r < runs.Count; r++)
@@ -248,7 +264,7 @@ namespace IRDash
                 bool post = b < n && r + 1 < runs.Count && runs[r + 1][0] == b && lap[b] == lap[a] + 1 && pct[b - 1] > 0.8 && pct[b] < 0.2;
                 if (!pre || !post) continue;                       // not a full lap (got in part-way, a tow, the file ended)
                 if (lap[a] <= 0) continue;                         // lap 0: the formation or out lap is never a lap
-                LapRec l = new LapRec(); l.N = lap[a]; l.StartRecord = a; l.EndRecord = b;
+                LapRec l = new LapRec(); l.N = lap[a]; l.StartRecord = a; l.EndRecord = b; l.SessionNum = sn[a];
                 double t0 = Cross(st, pct, a), t1 = Cross(st, pct, b), computed = t1 - t0;
                 l.Start = t0;
                 for (int x = a; x < b; x++) { if ((fl[x] & 2) != 0) l.Pit = true; if ((fl[x] & 4) != 0) l.OffRecords++; }
@@ -270,6 +286,8 @@ namespace IRDash
                 string why;
                 l.Counted = LapRules.Judge(l.N, l.Time, timed, l.Pit, l.Incident, best != null, bb, ba, out why);
                 l.Why = why;
+                // the recording stopped less than 4 s after the line (he left the car): the file cannot know iRacing's time - its own reason, not "no-time"
+                if (why == "no-time" && announced < 0 && b + win > n) l.Why = "file-end";
                 f.Laps.Add(l);
             }
             return f;
@@ -317,7 +335,7 @@ namespace IRDash
         {
             sb.Append("{\"n\":").Append(l.N).Append(",\"time\":").Append(l.Time.ToString("0.000", Inv)).Append(",\"counted\":").Append(l.Counted ? "true" : "false")
               .Append(",\"why\":").Append(Json_.S(l.Why)).Append(",\"pit\":").Append(l.Pit ? "true" : "false").Append(",\"off\":").Append(l.Off ? "true" : "false")
-              .Append(",\"offRecords\":").Append(l.OffRecords).Append(",\"incident\":").Append(l.Incident ? "true" : "false")
+              .Append(",\"offRecords\":").Append(l.OffRecords).Append(",\"session\":").Append(l.SessionNum).Append(",\"incident\":").Append(l.Incident ? "true" : "false")
               .Append(",\"start\":").Append(l.Start.ToString("0.000", Inv)).Append(",\"startRecord\":").Append(l.StartRecord.ToString(Inv)).Append(",\"endRecord\":").Append(l.EndRecord.ToString(Inv)).Append('}');
         }
 
@@ -355,7 +373,7 @@ namespace IRDash
                         LapRec l = new LapRec();
                         l.N = (int)Num(x, "n"); l.Time = Num(x, "time"); l.Counted = Bool(x, "counted"); l.Why = Str(x, "why"); l.Pit = Bool(x, "pit"); l.Off = Bool(x, "off");
                         l.OffRecords = (int)Num(x, "offRecords"); l.Incident = Bool(x, "incident"); l.Start = Num(x, "start");
-                        l.StartRecord = (long)Num(x, "startRecord"); l.EndRecord = (long)Num(x, "endRecord");
+                        l.StartRecord = (long)Num(x, "startRecord"); l.EndRecord = (long)Num(x, "endRecord"); l.SessionNum = x.ContainsKey("session") ? (int)Num(x, "session") : -1;
                         f.Laps.Add(l);
                     }
                 return f;
@@ -371,7 +389,15 @@ namespace IRDash
         static string Str(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o != null ? o.ToString() : ""; }
         static bool Bool(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o is bool && (bool)o; }
 
-        // A lap of a file by its number (null = not a full lap there)
-        public static LapRec Lap(FileLaps f, int n) { if (f != null) foreach (LapRec l in f.Laps) if (l.N == n) return l; return null; }
+        // A lap of a file by the record it starts at (lap numbers repeat when a file holds two sessions); null = not a full lap there
+        public static LapRec LapAt(FileLaps f, long startRecord) { if (f != null) foreach (LapRec l in f.Laps) if (l.StartRecord == startRecord) return l; return null; }
+
+        // The laps of one iRacing session of a file (sessionNum < 0 = all of them)
+        public static List<LapRec> OfSession(FileLaps f, int sessionNum)
+        {
+            List<LapRec> r = new List<LapRec>();
+            if (f != null) foreach (LapRec l in f.Laps) if (sessionNum < 0 || l.SessionNum < 0 || l.SessionNum == sessionNum) r.Add(l);
+            return r;
+        }
     }
 }

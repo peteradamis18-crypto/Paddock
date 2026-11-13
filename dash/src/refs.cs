@@ -249,7 +249,8 @@ namespace IRDash
             RefData have = Load(key);
             double cb = 0; string f0; DateTime d0;
             Career.BestFor(car, track, config, out cb, out f0, out d0);
-            bool fresh = have != null && (cb <= 0 || have.Time <= cb + 0.0005 || have.CareerBest >= cb - 0.0005) && !NotCounted(have, cb);
+            bool fresh = have != null && (cb <= 0 || have.Time <= cb + 0.0005 || have.CareerBest >= cb - 0.0005) && !NotCounted(have, cb)
+                         && !(have.Rules < LapRules.Version && have.Source == "ibt");      // W0-6 review finding 3: built from a file under an older lap rule = built again (12 Nov kept 1:33.919)
             if (have != null && fresh && !force) return have;
             RefData built = BuildFromIbt(car, track, config, out why);
             if (built == null) return NotCounted(have, cb) ? null : have;
@@ -340,7 +341,7 @@ namespace IRDash
             }
             if (inPits) { dirty = true; lapStarted = false; }
             lastLap = lap; lastPct = pct;
-            lastLastTime = f.Num("LapLastLapTime"); judge.Seen(lastLastTime);
+            lastLastTime = f.Num("LapLastLapTime");
             if (penOn) CheckPending(f, now);
             lastBestTick = f.Num("LapBestLapTime");
 

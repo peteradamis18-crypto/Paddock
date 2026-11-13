@@ -78,7 +78,7 @@ namespace IRDash
             {
                 Dictionary<string, object> sc = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(sidecar)) as Dictionary<string, object>;
                 RecSess s = new RecSess();
-                s.Id = (string)sc["id"]; s.Track = (string)sc["track"]; s.Car = (string)sc["car"]; s.StartMs = Convert.ToDouble(sc["startMs"], Inv); s.Duration = Convert.ToDouble(sc["durationSec"], Inv);
+                s.Id = (string)sc["id"]; s.Track = (string)sc["track"]; s.Car = (string)sc["car"]; s.StartMs = Convert.ToDouble(sc["startMs"], Inv); s.Duration = Convert.ToDouble(sc["durationSec"], Inv); s.SessionNum = Convert.ToInt32(sc["sessionNum"], Inv); s.Type = (string)sc["sessionType"];
                 foreach (object o in (object[])sc["laps"])
                 {
                     Dictionary<string, object> l = (Dictionary<string, object>)o;
