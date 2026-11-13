@@ -981,7 +981,6 @@ namespace IRDash
             code = 200;
             try
             {
-                if (path == "/field/status") return Status();
                 if (path.StartsWith("/api/test/field", StringComparison.Ordinal))
                 {
                     if (!Sdk.TestHook)

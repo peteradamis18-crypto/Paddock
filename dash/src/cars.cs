@@ -3,7 +3,6 @@
 //   GET /cars/manifest.json    {"keys":[...]}  every picture that is on disk now (the pages read it once and show only those)
 //   GET /cars/need?path=<CarPath>   the page asks for a car it has no picture for: if iRacing's image server has one and NO session is on,
 //                              it is fetched in the background (one file at a time, throttled) and kept for good. {"key","have","queued","why"}
-//   GET /cars/status           counters for the tests and the log
 // key = the car's iRacing CarPath in lower case with every run of other characters turned into "_" ("mx5 mx52016" -> "mx5_mx52016").
 // Where the pictures come from: https://images-static.iracing.com/img/cars/<folder>/<name>-small.jpg (the small picture iRacing's own UI shows;
 // 480 x 270). paddock\cars\catalog.json says which CarPath has which file (made by tools\cars-build.ps1; the list of file names comes from the
@@ -98,7 +97,6 @@ namespace IRDash
                 for (int i = 0; i < h.Length; i++) { if (i > 0) sb.Append(','); sb.Append(Json_.S(h[i])); }
                 body = Encoding.UTF8.GetBytes(sb.Append("]}").ToString()); return true;
             }
-            if (path == "/cars/status") { body = Encoding.UTF8.GetBytes(StatusJson()); return true; }
             if (path == "/cars/need")
             {
                 string cp; q.TryGetValue("path", out cp);
