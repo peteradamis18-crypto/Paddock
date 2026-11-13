@@ -163,7 +163,7 @@ const Debrief4 = (function () {
     setState(btn, 'SAVING');
     return fetch('/api/rec/save?id=' + encodeURIComponent(id), { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
-      .then(o => { const st = o && o.state === 'SAVED' ? 'SAVED' : 'SAVE'; setState(btn, st); return st; })
+      .then(o => { const st = o && o.state === 'SAVED' ? 'SAVED' : 'SAVE'; setState(btn, o && o.state === 'SESSION' ? 'NOT WHILE A SESSION IS ON' : st); return st; })
       .catch(() => { setState(btn, 'SAVE'); return 'SAVE'; });
   }
 

@@ -835,7 +835,7 @@ namespace IRDash
 
         public static bool Do(string c, string a)
         {
-            if (!Handles(c) || Program.IsDriving) return false;
+            if (!Handles(c) || RigState.SessionOn) return false;      // W0-2: db-cosworth opens Pi Toolbox on his screens: never while a session is on
             a = (a ?? "").Trim();
             if (a.Length == 0 || a.Length > 160) return false;
             string id, rec, share, ddId; int ddLap, ddN;

@@ -650,7 +650,7 @@ namespace IRDash
         {
             why = ""; DateTime now = DateTime.UtcNow;
             bool drv = Program.IsDriving, sim = false;
-            try { sim = Process.GetProcessesByName("iRacingSim64DX11").Length > 0; } catch (Exception) { }
+            try { sim = RigState.SimRunning; } catch (Exception) { }
             string busy = null; try { busy = Sdk.RealBusy(); } catch (Exception) { }
             lock (gate)
             {

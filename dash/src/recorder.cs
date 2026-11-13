@@ -232,7 +232,8 @@ namespace IRDash
         static readonly List<RecSess> finishing = new List<RecSess>();
         static long savedReserved;
         static readonly List<RecInc> incCuts = new List<RecInc>();
-        static int keepSessions = 8; static long recentBudgetBytes = -1, savedBudgetBytes = -1;
+        const int DefaultKeepSessions = 8;
+        static int keepSessions = DefaultKeepSessions; static long recentBudgetBytes = -1, savedBudgetBytes = -1;
         static bool diskPaused; static double lastSessHk; static string recState = "";
 
         // the laps
@@ -1670,6 +1671,8 @@ namespace IRDash
                     if (s.Saved) { recState = "SAVED"; return "SAVED"; }
                     if (s.Saving) { recState = "SAVING"; return "SAVING"; }
                 }
+                // W0-2: keeping a FINISHED session moves a GB file: not while a session is on (the open session's SAVE above is only a note)
+                if (RigState.SessionOn) { RigState.Refuse("SAVE of finished session " + s.Id); recState = "SESSION"; return "SESSION"; }
                 long budget = savedBudgetBytes >= 0 ? savedBudgetBytes : (long)(SavedBudgetGb * 1024 * 1024 * 1024);
                 if (SavedBytesLocked() + savedReserved + s.Bytes > budget) { Log.W("recorder: SAVE refused - the saved video would pass " + (budget / 1073741824.0).ToString("0", Inv) + " GB"); recState = "SAVED FULL"; return "SAVED FULL"; }
                 s.Saving = true; savedReserved += s.Bytes;
@@ -1721,47 +1724,31 @@ namespace IRDash
         }
 
         // ---- Videos\Paddock is the place Peter uses (2026-11-12: "deleting from HD needs to be easy and clear") ----
-        // A race whose file there is gone FOR GOOD (deleted and the Recycle Bin emptied) is deleted from Paddock too, so deleting it in
-        // Windows really frees the space. "For good" = Windows says no other name points at the video any more: a file still in the
-        // Recycle Bin, renamed, or moved on the same drive is still a link, so nothing is deleted then. Only races that were seen
-        // in the folder before (vault\exported.txt) count: a race never put there is never touched.
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        struct ByHandleInfo { public uint Attr; public long Created, Accessed, Written; public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow; }
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool GetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle h, out ByHandleInfo info);
-
-        // how many names (hard links) the file has; 0 = could not tell (then nothing is ever deleted)
-        static uint LinkCount(string path)
-        {
-            try { using (FileStream f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) { ByHandleInfo i; return GetFileInformationByHandle(f.SafeFileHandle, out i) ? i.Links : 0; } }
-            catch { return 0; }
-        }
-
+        // W0-2: a race whose file there is missing is NEVER deleted any more. It used to be, when Windows said no other name pointed at
+        // the video, but renaming the export to title it for YouTube, moving it, or a briefly missing Videos folder (OneDrive) then lost
+        // the race. Now the race stays and the RACES list says in words that its YouTube copy is gone; DELETE FROM PC is the only delete.
+        // Only races that were seen in the folder before (vault\exported.txt) count: a race never put there is never "missing".
         static string ExportedList { get { return Path.Combine(VaultRoot, "exported.txt"); } }
         static double lastExportSync;
+        static HashSet<string> exportMissing = new HashSet<string>();
 
         static void SyncExports()
         {
             double now = WallMs(); if (now - lastExportSync < 15000) return; lastExportSync = now;
             HashSet<string> seen = new HashSet<string>();
             try { if (File.Exists(ExportedList)) foreach (string l in File.ReadAllLines(ExportedList)) if (l.Trim().Length > 0) seen.Add(l.Trim()); } catch { return; }
-            int before = seen.Count; List<RecSess> gone = new List<RecSess>();
+            int before = seen.Count; HashSet<string> missing = new HashSet<string>();
             lock (gate)
                 foreach (RecSess s in sessions)
                 {
                     if (s.File.Length == 0 || !File.Exists(s.File)) continue;
                     bool there = File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4"));
                     if (there) { seen.Add(s.Id); continue; }
-                    if (seen.Contains(s.Id)) gone.Add(s);
+                    if (seen.Contains(s.Id)) missing.Add(s.Id);      // marked, never deleted
                 }
-            foreach (RecSess s in gone)
-            {
-                uint links = LinkCount(s.File);
-                if (links != 1) continue;   // still in the Recycle Bin, renamed or moved: not gone for good (or Windows could not tell)
-                Log.W("recorder: " + s.Id + " was deleted from Videos\\Paddock - deleting Paddock's copy too, so the space is free");
-                if (Delete(s.Id) == "DELETED") seen.Remove(s.Id);
-            }
-            if (seen.Count != before || gone.Count > 0) { try { File.WriteAllLines(ExportedList, new List<string>(seen).ToArray()); } catch { } }
+            foreach (string id in missing) if (!exportMissing.Contains(id)) Log.W("recorder: " + id + " is no longer in Videos\\Paddock - the race stays on the PC, marked \"export missing\"");
+            exportMissing = missing;
+            if (seen.Count != before) { try { File.WriteAllLines(ExportedList, new List<string>(seen).ToArray()); } catch { } }
         }
 
         static RecSess FindDone(string id) { foreach (RecSess x in sessions) if (x.Id == id) return x; return null; }
@@ -1888,7 +1875,8 @@ namespace IRDash
                 sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"car\":" + Json_.S(s.Car) + ",\"type\":" + Json_.S(s.Type) +
                           ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(s.Duration / 60.0).ToString("0", Inv) + ",\"laps\":" + laps + ",\"counted\":" + counted +
                           ",\"best\":" + (best > 0 ? best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + bestN + ",\"mb\":" + (s.Bytes / 1048576) + ",\"saved\":" + (s.Saved ? "true" : "false") +
-                          ",\"exported\":" + (File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4")) ? "true" : "false") + "}");
+                          ",\"exported\":" + (File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4")) ? "true" : "false") +
+                          (exportMissing.Contains(s.Id) ? ",\"exportMissing\":true,\"note\":\"export missing\"" : "") + "}");
             }
             sb.Append("]}");
             return sb.ToString();
@@ -1947,6 +1935,7 @@ namespace IRDash
             {
                 lock (gate) { foreach (RecSess s in sessions) if (s.Open || s.Saving) return; }      // never drop a session that is being written
                 LoadSessions();
+                LoadClips();      // W0-2 review: the clip list follows the vault too (TestOff reloads it while the sandbox may still be on)
             }
             catch (Exception ex) { Log.W("recorder: could not re-read sessions after the vault changed (" + ex.Message + ")"); }
         }
@@ -2184,10 +2173,12 @@ namespace IRDash
             if (ff != null) { AskStop("test over", now); for (int i = 0; i < 60 && ff != null; i++) { try { if (ff.HasExited) break; } catch { break; } Thread.Sleep(150); } if (ff != null) { try { if (!ff.HasExited) ff.Kill(); } catch { } try { ReadList(run); ff.Dispose(); } catch { } ff = null; expectStop = false; } }
             RecAudio.Stop(); testAudio = "off";
             testOn = false; source = "screen"; keepOverrideSec = 0; segSecs = 10; graceSecs = 20; minLap = 15; testBar = 0; testBlack = false; freeOverride = -1; gaveUp = false; restarts = 0; encoder = "hevc_nvenc"; fellBack = false;
-            openSess = null; diskPaused = false; recState = ""; keepSessions = 3; recentBudgetBytes = -1; savedBudgetBytes = -1;
+            // W0-2: the REAL defaults (keepSessions was set to 3 here: after any recorder test retention kept 3 unsaved sessions until a restart)
+            openSess = null; diskPaused = false; recState = ""; keepSessions = DefaultKeepSessions; recentBudgetBytes = -1; savedBudgetBytes = -1;
             lock (gate) { segs.Clear(); cuts.Clear(); incCuts.Clear(); probing = 0; clips.Clear(); }
             ResetTracker(); haveConn = false; sessNum = -99; black = false; blackChecked = false; note = "";
             if (!enabled) { try { WipeRecDir(); } catch { } }
+            LoadClips();      // and the clip list back from disk (it was left empty until a restart)
         }
 
         public static string TestRoute(string path, Dictionary<string, string> q, out int code)

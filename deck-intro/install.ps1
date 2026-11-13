@@ -20,6 +20,20 @@ Add-Type -AssemblyName System.Drawing, System.IO.Compression, System.IO.Compress
 if (Test-Path $build) { Remove-Item -LiteralPath $build -Recurse -Force }
 New-Item -ItemType Directory -Force "$build\img" | Out-Null
 Copy-Item (Join-Path $here 'plugin.html') "$build\plugin.html"
+# W0-2: the add-on's own secret, so irdash can tell it from any web page with an opaque origin ("null"). The value in force
+# (dash\deck-secret.txt) is reused; the first time a new one goes to dash\deck-secret-new.txt and irdash takes it over when the
+# installed add-on first sends it (so today's add-on keeps working until Peter clicks Install). Never in git (*.txt is ignored).
+$dashDir = Join-Path (Split-Path -Parent $here) 'dash'
+$secret = $null
+foreach ($f in 'deck-secret.txt', 'deck-secret-new.txt') { $sp = Join-Path $dashDir $f; if (-not $secret -and (Test-Path $sp)) { $v = (Get-Content $sp -Raw).Trim(); if ($v -match '^[0-9a-f]{32}$') { $secret = $v } } }
+if (-not $secret) {
+  $rb = New-Object byte[] 16; $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider; $rng.GetBytes($rb); $rng.Dispose()
+  $secret = -join ($rb | ForEach-Object { $_.ToString('x2') })
+}
+if (-not (Test-Path (Join-Path $dashDir 'deck-secret.txt'))) { [IO.File]::WriteAllText((Join-Path $dashDir 'deck-secret-new.txt'), $secret) }
+$ph = [IO.File]::ReadAllText("$build\plugin.html")
+if ($ph -notmatch "const PADDOCK_SECRET = '[^']*';") { 'plugin.html has no PADDOCK_SECRET line - not installed'; exit 1 }
+[IO.File]::WriteAllText("$build\plugin.html", ($ph -replace "const PADDOCK_SECRET = '[^']*';", "const PADDOCK_SECRET = '$secret';"), (New-Object Text.UTF8Encoding($false)))
 
 # icons: a gold "4" on black (plugin list) and a plain black tile
 function Icon($file, $size, $text) {

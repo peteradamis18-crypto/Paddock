@@ -4,7 +4,7 @@
 //     30 s, so no restart is needed; tools\phone-undo.cmd removes it all and the listeners stop by themselves.
 //   - Pairing. Anything that does not come from this PC needs a token. The top screen asks /phone/qr (localhost only) for a one-time
 //     6-digit code and draws the QR (the app URL + the code). The phone opens /phone/?pair=<code>, calls /phone/pair, gets a token
-//     (kept as a SHA-256 in dash\phone-tokens.txt; the phone keeps the raw one) and sends it back as a cookie, a header or ?t=.
+//     (kept as a SHA-256 in dash\phone-tokens.txt; the phone keeps the raw one) and sends it back as a header or an HttpOnly cookie (W0-2: never ?t=).
 //     Tokens can be revoked (/phone/revoke). The test hook routes are never reachable from the LAN, token or not.
 //   - ?asphone=1 on any request makes irdash treat it as if it came from the LAN (stricter, never looser): tests\phone-test.ps1 uses it.
 //   - /api/do?c=key&a=<name> runs keys\<name>.exe: the very same exe the Stream Deck MAIN/MORE key runs (keys.map, the 0.7 s repeat
@@ -32,6 +32,7 @@ namespace IRDash
         static readonly Dictionary<string, TcpListener> listeners = new Dictionary<string, TcpListener>();   // ip -> listener
         static readonly List<Device> devices = new List<Device>();
         static string code; static DateTime codeUntil = DateTime.MinValue; static bool codeUsed; static int codeUses, codeFails; const int MaxCodeFails = 8;
+        static int badTries; static DateTime lockedUntil = DateTime.MinValue;      // W0-2: across codes, not per code
         static string lastPaired = ""; static DateTime lastPairedAt = DateTime.MinValue;
         static string healthCache = ""; static DateTime healthAt = DateTime.MinValue;
         static Dictionary<string, string> keyMap; static DateTime keyMapAt = DateTime.MinValue;
@@ -107,16 +108,35 @@ namespace IRDash
         }
 
         // ---------------- LAN listeners (called by the server every 30 s and once at start) ----------------
+        // W0-2: the home Wi-Fi / LAN only. It used to listen on every private address, including Hyper-V, WSL and VPN adapters. Now:
+        // the adapter that carries the default route plus any other with a gateway, never one that calls itself VPN or virtual
+        // (Gate.PhoneAdapter, unit-tested). GetBestInterface asks Windows' route table; nothing is sent anywhere.
+        [System.Runtime.InteropServices.DllImport("iphlpapi.dll")] static extern int GetBestInterface(uint destAddr, out uint bestIfIndex);
+        static int DefaultRouteIndex()
+        {
+            try { uint idx; if (GetBestInterface(BitConverter.ToUInt32(new byte[] { 8, 8, 8, 8 }, 0), out idx) == 0) return (int)idx; } catch { }
+            return -1;
+        }
+        static bool HasGateway(IPInterfaceProperties p)
+        {
+            foreach (GatewayIPAddressInformation g in p.GatewayAddresses) if (g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)) return true;
+            return false;
+        }
+
         public static List<string> LocalIps()
         {
             List<string> ips = new List<string>();
             try
             {
+                int best = DefaultRouteIndex();
                 foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
                 {
                     if (ni.OperationalStatus != OperationalStatus.Up) continue;
                     if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
-                    foreach (UnicastIPAddressInformation u in ni.GetIPProperties().UnicastAddresses)
+                    IPInterfaceProperties ip = ni.GetIPProperties();
+                    int index = -1; try { IPv4InterfaceProperties v4 = ip.GetIPv4Properties(); if (v4 != null) index = v4.Index; } catch { }
+                    if (!Gate.PhoneAdapter(ni.Name, ni.Description, index >= 0 && index == best, HasGateway(ip))) continue;
+                    foreach (UnicastIPAddressInformation u in ip.UnicastAddresses)
                     {
                         if (u.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                         byte[] b = u.Address.GetAddressBytes();
@@ -134,6 +154,7 @@ namespace IRDash
             // irdash starts this loop before Phone.Init has set the folders (irdash.cs): the first pass does nothing, the next one (30 s later) does the work
             if (dashDir == null) return;
             List<string> want = Allowed ? LocalIps() : new List<string>();
+            if (Allowed && want.Count == 0) RigState.LogEvery("phone-no-lan", 3600, "phone: allowed, but no home-network adapter to listen on (only VPN or virtual adapters, or none with a gateway): the phone cannot reach the PC");
             lock (gate)
             {
                 if (devices.Count > 0 && !File.Exists(TokenFile)) { devices.Clear(); Log.W("phone: every paired phone forgotten (tools\\phone-undo.cmd)"); }
@@ -202,16 +223,20 @@ namespace IRDash
                    path == "/share/open" || path == "/share/jump" || path.StartsWith("/share/test/", StringComparison.Ordinal);      // share studio: the folder and the sim's replay are this PC's business
         }
 
+        static string CookieToken(Dictionary<string, string> hdr)
+        {
+            string ck;
+            if (hdr != null && hdr.TryGetValue("Cookie", out ck))
+                foreach (string part in ck.Split(';')) { string p = part.Trim(); if (p.StartsWith("pt=") && Regex.IsMatch(p.Substring(3), "^[0-9a-f]{48}$")) return p.Substring(3); }
+            return null;
+        }
+
         public static bool TokenOk(Dictionary<string, string> q, Dictionary<string, string> hdr)
         {
+            // W0-2: the header or the cookie only. ?t= put the token into logs and the browser history.
             string tok = null;
             if (hdr != null) hdr.TryGetValue("X-Paddock-Token", out tok);
-            if (string.IsNullOrEmpty(tok) && q != null) q.TryGetValue("t", out tok);
-            if (string.IsNullOrEmpty(tok) && hdr != null)
-            {
-                string ck; if (hdr.TryGetValue("Cookie", out ck))
-                    foreach (string part in ck.Split(';')) { string p = part.Trim(); if (p.StartsWith("pt=")) { tok = p.Substring(3); break; } }
-            }
+            if (string.IsNullOrEmpty(tok)) tok = CookieToken(hdr);
             if (string.IsNullOrEmpty(tok) || !Regex.IsMatch(tok, "^[0-9a-f]{48}$")) return false;
             string h = Sha(tok);
             lock (gate)
@@ -232,7 +257,13 @@ namespace IRDash
             code = 200; extra = "Access-Control-Allow-Origin: *\r\n";
             switch (path)
             {
-                case "/phone/state": return StateJson(port);
+                case "/phone/state":
+                    {
+                        // W0-2: a phone paired by an older app has its token in a script-written cookie: write it again as HttpOnly (same value)
+                        string ck = CookieToken(hdr);
+                        if (ck != null && TokenOk(null, hdr)) extra += "Set-Cookie: pt=" + ck + "; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly\r\n";
+                        return StateJson(port);
+                    }
                 case "/phone/qr":
                     if (!local) { code = 404; return "{\"error\":\"not found\"}"; }
                     return QrJson(port, q);
@@ -241,13 +272,14 @@ namespace IRDash
                         string c, name, ua; q.TryGetValue("code", out c); q.TryGetValue("name", out name); hdr.TryGetValue("User-Agent", out ua);
                         string id; string tok = Pair(c ?? "", name, ua ?? "", out name, out id);
                         if (tok == null) { code = 403; return "{\"ok\":false,\"why\":\"That code is not right or has expired. Scan the code on the top screen again.\"}"; }
-                        extra += "Set-Cookie: pt=" + tok + "; Path=/; Max-Age=31536000; SameSite=Lax\r\n";
+                        extra += "Set-Cookie: pt=" + tok + "; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly\r\n";      // W0-2: no page script can read it
                         return "{\"ok\":true,\"token\":" + Json_.S(tok) + ",\"name\":" + Json_.S(name) + ",\"id\":" + Json_.S(id) + "}";
                     }
                 case "/phone/devices": return DevicesJson();
                 case "/phone/revoke":
                     {
                         string id; q.TryGetValue("id", out id);
+                        if (q.ContainsKey("all") && !local) { code = 403; return "{\"ok\":false,\"why\":\"Forgetting every phone is done on the PC.\"}"; }      // W0-2
                         int n = Revoke(q.ContainsKey("all") ? null : (id ?? ""));
                         return "{\"ok\":true,\"removed\":" + n + "}";
                     }
@@ -260,17 +292,21 @@ namespace IRDash
             finalName = ""; id = "";
             lock (gate)
             {
+                // W0-2: 8 wrong codes lock pairing for 60 s, whatever code comes next (a new code alone was no lockout: the next look made one)
+                if (DateTime.UtcNow < lockedUntil) { Log.W("phone: pairing refused (locked for " + (int)(lockedUntil - DateTime.UtcNow).TotalSeconds + " s after 8 wrong codes)"); return null; }
                 if (code == null || codeUsed || DateTime.UtcNow > codeUntil || c.Trim() != code)
                 {
                     // Anything on the home network could otherwise try all 900,000 six-digit codes inside the 10 minutes the code lives.
                     // Eight wrong tries cancel the code; the top screen makes a fresh one on its next look (QrJson), so a real phone loses a few seconds.
                     string why = c.Length > 0 ? "wrong" : "missing";
+                    if (++badTries >= MaxCodeFails) { badTries = 0; lockedUntil = DateTime.UtcNow.AddSeconds(60); why += ", 8 wrong tries: pairing is locked for 60 s"; }
                     if (code != null && !codeUsed && ++codeFails >= MaxCodeFails) { code = null; why += ", too many wrong tries: that code is cancelled"; }
                     Log.W("phone: pairing refused (code " + why + ")");
                     return null;
                 }
                 // Safari and the Home Screen app keep separate storage, so one code may pair up to 3 times in its 10 minutes
                 if (++codeUses >= 3) codeUsed = true;
+                badTries = 0;
                 string tok = RandomHex(24);
                 Device d = new Device();
                 d.Id = RandomHex(4); d.Hash = Sha(tok); d.Since = d.Seen = DateTime.UtcNow;

@@ -105,7 +105,8 @@ namespace IRDash
             if (mode == "off") { state = "off"; source = ""; lastRunState = "off"; return; }
             stopWanted = false; state = "starting"; source = ""; lastErr = ""; runDir = dir;
             string d = dir, m = mode ?? "auto";
-            Thread t = new Thread(delegate () { Run(d, m); });
+            // W0-2: Run's own finally (closing the capture) could still throw on this bare thread and end irdash: log it instead
+            Thread t = new Thread(delegate () { try { Run(d, m); } catch (Exception ex) { try { Say("recorder: sound thread: " + ex.Message); } catch { } } });
             t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Name = "RecorderSound";
             th = t; t.Start();
         }

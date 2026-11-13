@@ -22,6 +22,7 @@ namespace IRDash
     class Frame { public bool Connected; }
     static class Sdk { public static bool FakeConnected; public static string FakeBusy; public static Frame Latest { get { Frame f = new Frame(); f.Connected = FakeConnected; return f; } } public static string RealBusy() { return FakeBusy; } }
     static class Program { public static bool Driving; public static bool IsDriving { get { return Driving; } } }
+static class RigState { public static bool SessionOn { get { return Sdk.FakeConnected || Program.Driving; } } }      // W0-2: official.cs asks the one rig state
     static class Watch { public static string IrdeckPath; }
 }
 

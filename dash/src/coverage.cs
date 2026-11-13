@@ -101,7 +101,7 @@ namespace IRDash
                 string series, session; q.TryGetValue("series", out series); q.TryGetValue("session", out session);
                 Dictionary<string, object> d = Find(series ?? "", session ?? "");
                 if (d == null) { code = 404; return "{\"ok\":false,\"error\":\"no coverage known for this series\"}"; }
-                if (Program.IsDriving || Process.GetProcessesByName("iRacingSim64DX11").Length > 0) { code = 409; return "{\"ok\":false,\"error\":\"not while the sim runs\"}"; }
+                if (Program.IsDriving || RigState.SimRunning) { code = 409; return "{\"ok\":false,\"error\":\"not while the sim runs\"}"; }
                 string url = S(d, "url");
                 try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
                 catch (Exception ex) { Log.W("coverage: could not open " + url + " (" + ex.Message + ")"); code = 500; return "{\"ok\":false,\"error\":\"could not open the browser\"}"; }
