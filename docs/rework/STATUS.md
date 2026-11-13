@@ -18,7 +18,7 @@ deployed = on the rig; live = the live checks in the card were run by the lead; 
 | W0-10 photos / YouTube guide / Delta | merged faf561d, deployed 2026-11-13 | photo-order 4/0, youtube-guide 14/0; cause: gallery sorted by name then shuffled; live: watch the side screens (pending); Delta: real-race method added as primary |
 
 ## Live checks still owed by the lead
-- Side screens step through `r2-001`, `r2-002`… after the deploy (120 s each).
+- DONE 2026-11-13 16:07–16:11 (log): the side screens showed `r2-001`, `r2-002`, `r2-003` on both screens, 120 s apart.
 - MY RACES on the real top screen with `design.css` (served: yes, 2026-11-13).
 - Pages after the W0-4 deploy (2026-11-13, browser pane): HOME, Sessions, Coach, Vault, MY RACES, Analysis, in-car demo load with no
   console error except the browser's own `/favicon.ico` 404 (never existed; harmless).
