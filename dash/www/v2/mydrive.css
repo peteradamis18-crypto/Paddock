@@ -1,5 +1,5 @@
 /* My Drive on the top screen: same black-and-gold look as friends mode and the Rig Doctor. */
-#mydrive { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --green: #1fbf5f; --red: #e0483c;
+#mydrive { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12); --green: #1fbf5f; --red: #e0483c;
   position: fixed; inset: 0; z-index: 925; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .5s ease;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }
@@ -42,10 +42,10 @@
 
 /* a few seconds at the top when START has put you in the car */
 #mdToast { position: fixed; top: 176px; left: 50%; transform: translate(-50%, -8px); max-width: 1100px; z-index: 6; opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease;
-  background: #1c1704; border: 1px solid #f2c230; color: var(--text, #f4f1ea); border-radius: 6px; padding: 12px 22px; font-size: 24px; box-shadow: 0 8px 30px rgba(0, 0, 0, .6); }
+  background: #1c1704; border: 1px solid #C9A24B; color: var(--text, #f4f1ea); border-radius: 6px; padding: 12px 22px; font-size: 24px; box-shadow: 0 8px 30px rgba(0, 0, 0, .6); }
 #mdToast.on { opacity: 1; transform: translate(-50%, 0); }
-#mdToast b { color: #f2c230; margin-right: 14px; letter-spacing: .12em; text-transform: uppercase; font-size: 15px; }
-#mdToast em { font-style: normal; color: #f2c230; font-size: 32px; font-variant-numeric: tabular-nums; }
+#mdToast b { color: #C9A24B; margin-right: 14px; letter-spacing: .12em; text-transform: uppercase; font-size: 15px; }
+#mdToast em { font-style: normal; color: #C9A24B; font-size: 32px; font-variant-numeric: tabular-nums; }
 #mdToast small { display: block; margin-top: 4px; font-size: 15px; letter-spacing: .12em; color: #8d8a82; text-transform: uppercase; }
 
 /* the word in the hint is bold text, not the big typed text */

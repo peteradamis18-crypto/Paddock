@@ -11,7 +11,7 @@
 #sessHost iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #060606; }
 
 /* ---- pre-session brief ---- */
-#brief { --gold: #f2c230; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
+#brief { --gold: #C9A24B; --ink: #f4f1ea; --mute: #8d8a82; --line: rgba(244, 241, 234, .12);
   position: fixed; inset: 0; z-index: 920; color: var(--ink); overflow: hidden; opacity: 0; transition: opacity .9s ease; pointer-events: none;
   font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   background: radial-gradient(120% 100% at 25% 30%, #121212 0%, #060606 60%, #020202 100%); }

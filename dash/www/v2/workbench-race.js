@@ -211,7 +211,7 @@ Chart.prototype.drawStatic = function () {
 Chart.prototype.drawOverlay = function () {
   var g = this.co, G = this.geom(), s = RS.sm; this.clear(g); this.tbO = [];
   if (RS.hover == null) return;
-  var lap = RS.hover, x = Math.round(G.X(lap)) + 0.5; g.strokeStyle = 'rgba(242,194,48,.55)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
+  var lap = RS.hover, x = Math.round(G.X(lap)) + 0.5; g.strokeStyle = 'rgba(201, 162, 75,.55)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
   var me = s.trace.filter(function (r) { return r.i === RS.me; })[0], v = me ? this.value(me, lap) : null;
   var txt = 'LAP ' + lap + (v == null ? '' : this.k === 'trace' ? ' · ' + (v === 0 ? 'LEADING' : '+' + v.toFixed(3) + ' s') : ' · P' + v);
   g.font = '15px ' + FONT; var w = g.measureText(txt).width + 16, bx = G.l + 10, by = G.t + 4;

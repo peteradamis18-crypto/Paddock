@@ -5,7 +5,7 @@
 // core.js and map.js are loaded only for their helpers and the corner names (TrackInfo).
 
 const EMBED = /[?&]embed=1/.test(location.search);
-const GOLD = '#f2c230', CYAN = '#29d3f5', INK = '#f4f1ea', MUTE = '#8d8a82', GRID = 'rgba(244,241,234,.07)', SURFACE = '#060606';
+const GOLD = '#C9A24B', CYAN = '#29d3f5', INK = '#f4f1ea', MUTE = '#8d8a82', GRID = 'rgba(244,241,234,.07)', SURFACE = '#060606';
 const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
 const G = 1000;   // grid steps per lap
 

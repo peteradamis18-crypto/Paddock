@@ -5,7 +5,7 @@
    Colour: gold = the one button and his number; amber = stale or warning; red = failure; green = the ok dot. */
 #overlay {
   --h-ink: #f4f1ea; --h-mute: #8d8a82; --h-dim: #5d5a54; --h-hair: rgba(244, 241, 234, .12); --h-hair2: rgba(244, 241, 234, .22);
-  --h-gold: #f2c230; --h-amber: #ffb21e; --h-red: #ff5a4d; --h-green: #2fe07a;
+  --h-gold: #C9A24B; --h-amber: #ffb21e; --h-red: #ff5a4d; --h-green: #2fe07a;
   --glance: 56px; --read: 30px; --body: 26px; --label: 20px; --tiny: 16px;
   background: radial-gradient(80% 70% at 30% 20%, #0c0c0b 0%, #070707 55%, #040404 100%);
   font-variant-numeric: tabular-nums; color: var(--h-ink);
@@ -30,8 +30,8 @@
 #overlay .idle-top .idle-link { padding: 14px 0; font-size: 22px; letter-spacing: .26em; text-transform: uppercase; color: rgba(244, 241, 234, .6); cursor: pointer; }
 #overlay .idle-top .idle-link:hover, #overlay .idle-top .idle-link:focus-visible { color: var(--h-ink); outline: none; }
 /* MY RACES: the one link that must be found at a glance (Peter 2026-11-12), so a gold button, not grey text */
-#overlay .idle-top .idle-races { padding: 12px 28px; border: 2px solid var(--gold, #f2c230); border-radius: 6px; color: var(--gold, #f2c230); font-weight: 600; }
-#overlay .idle-top .idle-races:hover, #overlay .idle-top .idle-races:focus-visible { background: var(--gold, #f2c230); color: #0a0905; }
+#overlay .idle-top .idle-races { padding: 12px 28px; border: 2px solid var(--gold, #C9A24B); border-radius: 6px; color: var(--gold, #C9A24B); font-weight: 600; }
+#overlay .idle-top .idle-races:hover, #overlay .idle-top .idle-races:focus-visible { background: var(--gold, #C9A24B); color: #0a0905; }
 #overlay .idle-top #idleDate { margin-left: 24px; font-size: var(--body); color: var(--h-mute); letter-spacing: 0; text-transform: none; }
 #overlay .idle-top #idleClock { font-size: var(--body); color: var(--h-ink); letter-spacing: .04em; }
 
@@ -40,7 +40,7 @@
 /* band A: the one action. 706 x 214, the only gold fill on the screen */
 .home-next { position: absolute; left: 96px; top: 128px; width: 706px; height: 214px; box-sizing: border-box; padding: 0 40px; border: 0; border-radius: 8px; cursor: pointer; text-align: left;
   display: flex; align-items: center; justify-content: space-between; gap: 24px; font-family: inherit; color: #0d0b05;
-  background: linear-gradient(180deg, #f6cd4c 0%, #e2b42a 100%); box-shadow: 0 24px 70px rgba(242, 194, 48, .16), inset 0 1px 0 rgba(255, 255, 255, .3); transition: filter .2s ease, transform .15s ease; }
+  background: linear-gradient(180deg, #f6cd4c 0%, #e2b42a 100%); box-shadow: 0 24px 70px rgba(201, 162, 75, .16), inset 0 1px 0 rgba(255, 255, 255, .3); transition: filter .2s ease, transform .15s ease; }
 .home-next[hidden] { display: none; }
 .home-next:hover, .home-next:focus-visible { filter: brightness(1.06); outline: none; }
 .home-next:active { transform: scale(.99); }
@@ -144,8 +144,8 @@
 #homeHost[hidden] { display: none; }   /* display:flex above beats the hidden attribute; without this an invisible full-screen layer swallowed every click */
 #homeHost:not(.on) { pointer-events: none; }
 #homeHost .bar { height: 72px; flex: none; display: flex; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid rgba(244, 241, 234, .12); }
-#homeHost .bar button { height: 56px; min-width: 168px; padding: 0 26px; border: 1px solid var(--gold, #f2c230); border-radius: 6px; background: transparent; color: var(--gold, #f2c230);
+#homeHost .bar button { height: 56px; min-width: 168px; padding: 0 26px; border: 1px solid var(--gold, #C9A24B); border-radius: 6px; background: transparent; color: var(--gold, #C9A24B);
   font-family: inherit; font-size: 20px; letter-spacing: .24em; text-transform: uppercase; cursor: pointer; }
-#homeHost .bar button:hover { background: var(--gold, #f2c230); color: #0a0905; }
+#homeHost .bar button:hover { background: var(--gold, #C9A24B); color: #0a0905; }
 #homeHost .bar span { font-size: var(--label, 20px); letter-spacing: .24em; text-transform: uppercase; color: #8d8a82; }
 #homeHost iframe { flex: 1; border: none; width: 100%; background: #030405; }

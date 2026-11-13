@@ -95,7 +95,7 @@ function mouse(d) {
 }
 function bandCur(d, g, L, y0, h) {                              // the session the open lap belongs to
   if (CS.cur < 0) return;
-  g.fillStyle = 'rgba(242,194,48,.07)'; g.fillRect(L.X(CS.cur) - L.cw / 2, y0, L.cw, h);
+  g.fillStyle = 'rgba(201, 162, 75,.07)'; g.fillRect(L.X(CS.cur) - L.cw / 2, y0, L.cw, h);
 }
 function tip(d, g, txt, col) {
   g.font = '15px ' + FONT; var w = g.measureText(txt).width + 16, bx = PADL + 8, by = 2;
@@ -151,7 +151,7 @@ PbChart.prototype.drawOverlay = function () {
   var g = this.co, G = this.geom(), L = G.L; this.clear(g); this.tbO = [];
   if (CS.hover == null) return;
   var s = CS.J.sessions[CS.hover], x = Math.round(L.X(CS.hover)) + 0.5;
-  g.strokeStyle = 'rgba(242,194,48,.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
+  g.strokeStyle = 'rgba(201, 162, 75,.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
   g.strokeStyle = '#ece8df'; g.lineWidth = 2; g.beginPath(); g.arc(L.X(CS.hover), G.Y(s.best), 8, 0, 6.2832); g.stroke();
   tip(this, g, sessWord(s) + ' · BEST ' + fmt(s.best) + ' · LAP ' + s.bestLap + ' · ' + s.valid + ' CLEAN LAP' + (s.valid === 1 ? '' : 'S') + (s.newPb ? ' · NEW PB' : ''));
 };
@@ -185,9 +185,9 @@ ConsChart.prototype.drawStatic = function () {
   // the spread band and the average of the best 5, joined from session to session
   ss.forEach(function (s, i) {
     var sp = self.span(G, i), y0 = G.Y(s.avg5 - s.sd5), y1 = G.Y(s.avg5 + s.sd5);
-    g.fillStyle = 'rgba(242,194,48,.20)'; g.fillRect(sp[0], y0, sp[1] - sp[0], Math.max(3, y1 - y0));
+    g.fillStyle = 'rgba(201, 162, 75,.20)'; g.fillRect(sp[0], y0, sp[1] - sp[0], Math.max(3, y1 - y0));
   });
-  g.strokeStyle = 'rgba(242,194,48,.55)'; g.lineWidth = 1.2; g.setLineDash([5, 4]); g.beginPath();
+  g.strokeStyle = 'rgba(201, 162, 75,.55)'; g.lineWidth = 1.2; g.setLineDash([5, 4]); g.beginPath();
   ss.forEach(function (s, i) { var x = L.X(i), y = G.Y(s.avg5); if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }); g.stroke(); g.setLineDash([]);
   ss.forEach(function (s, i) { var sp = self.span(G, i), y = G.Y(s.avg5); g.strokeStyle = C.gold; g.lineWidth = 3; g.beginPath(); g.moveTo(sp[0], y); g.lineTo(sp[1], y); g.stroke(); });
   // every clean lap on top of the bar: a cool white dot; the session's best lap gold
@@ -205,7 +205,7 @@ ConsChart.prototype.drawOverlay = function () {
   var g = this.co, G = this.geom(), L = G.L; this.clear(g); this.tbO = [];
   if (CS.hover == null) return;
   var s = CS.J.sessions[CS.hover], x = Math.round(L.X(CS.hover)) + 0.5;
-  g.strokeStyle = 'rgba(242,194,48,.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
+  g.strokeStyle = 'rgba(201, 162, 75,.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
   tip(this, g, sessWord(s) + ' · BEST 5 AVERAGE ' + fmt(s.avg5) + ' · SPREAD ±' + s.sd5.toFixed(3) + ' · BEST ' + fmt(s.best) + ' · ' + s.valid + ' CLEAN LAP' + (s.valid === 1 ? '' : 'S'));
 };
 
@@ -256,7 +256,7 @@ Grid.prototype.drawOverlay = function () {
   var g = this.co, L = lay(), J = CS.J; this.clear(g); this.tbO = [];
   if (CS.hover == null) return;
   var x = L.X(CS.hover) - L.cw / 2;
-  g.strokeStyle = 'rgba(242,194,48,.5)'; g.lineWidth = 1; g.strokeRect(Math.round(x) + 0.5, this.top - 3, Math.max(1, L.cw - 1), this.rows.length * this.rh + 3);
+  g.strokeStyle = 'rgba(201, 162, 75,.5)'; g.lineWidth = 1; g.strokeRect(Math.round(x) + 0.5, this.top - 3, Math.max(1, L.cw - 1), this.rows.length * this.rh + 3);
   if (CS.hrow == null) return;
   var r = CS.hrow, k = this.rows[r], s = J.sessions[CS.hover], c = s.c[k];
   g.strokeStyle = '#ece8df'; g.lineWidth = 2; g.strokeRect(Math.round(x) + 1, this.top + r * this.rh + 1, Math.max(1, L.cw - 2), this.rh - 2);

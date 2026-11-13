@@ -66,11 +66,11 @@ const Debrief4 = (function () {
       s += '<line x1="' + pad + '" x2="' + (CW - pad) + '" y1="' + y(p).toFixed(1) + '" y2="' + y(p).toFixed(1) + '" stroke="#26262a" stroke-width="1"/>' +
         '<text x="2" y="' + (y(p) + 5).toFixed(1) + '" font-size="14" fill="#5d5a54">P' + p + '</text>';
     }
-    s += '<polyline points="' + pts.map((p, i) => x(i).toFixed(1) + ',' + y(p.position).toFixed(1)).join(' ') + '" fill="none" stroke="#f2c230" stroke-width="3"/>';
+    s += '<polyline points="' + pts.map((p, i) => x(i).toFixed(1) + ',' + y(p.position).toFixed(1)).join(' ') + '" fill="none" stroke="#C9A24B" stroke-width="3"/>';
     pts.forEach((p, i) => {
       if (p.pitStop) s += '<path d="M' + (x(i) - 6).toFixed(1) + ' ' + (y(p.position) + 12).toFixed(1) + ' L' + (x(i) + 6).toFixed(1) + ' ' + (y(p.position) + 12).toFixed(1) + ' L' + x(i).toFixed(1) + ' ' + (y(p.position) + 22).toFixed(1) + ' Z" fill="#8b877d"/>';
       if (isN(p.pass) && p.pass > 0) s += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.position).toFixed(1) + '" r="8" fill="none" stroke="#3ccf7e" stroke-width="2"/>';
-      s += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.position).toFixed(1) + '" r="4" fill="#f2c230"/>';
+      s += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.position).toFixed(1) + '" r="4" fill="#C9A24B"/>';
     });
     return '<section class="db4-col db4-pos" id="db4Pos"><h3 class="lab">POSITION BY LAP</h3>' +
       '<svg class="db4-chart" viewBox="0 0 ' + CW + ' ' + CH + '" preserveAspectRatio="none">' + s + '</svg></section>';
