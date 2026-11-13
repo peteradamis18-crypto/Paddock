@@ -6,11 +6,16 @@
 const Guest = {
   g: { active: false }, el: null, mode: '', lastLaps: 0, sessKey: '',
 
-  init() { this.poll(); setInterval(() => this.poll(), 1000); },
+  // W0-5: irdash pushes /guest's answer (state part "guest"); poll() asks once more, right after a lap was sent
+  init() { data.on('state', (st, ch) => { if (ch.guest && st.guest) this.take(st.guest); }); },
 
   async poll() {
-    if (document.hidden) return;
-    try { this.g = await (await fetch('/guest', { cache: 'no-store' })).json(); } catch (e) { return; }
+    let g; try { g = await data.json('/guest', 0); } catch (e) { return; }
+    this.take(g);
+  },
+
+  take(g) {
+    this.g = g;
     const ev = this.g.event;
     if (ev && ev.id !== this.lastEvent) { if (this.lastEvent !== undefined) this.celebrate(ev); this.lastEvent = ev.id; }
     if (!ev && this.lastEvent === undefined) this.lastEvent = null;

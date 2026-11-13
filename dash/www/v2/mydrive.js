@@ -7,15 +7,17 @@
 const MyDrive = {
   el: null, seen: undefined, busyAt: 0, toastTimer: 0, last: '',
 
-  init() { this.poll(); setInterval(() => this.poll(), 1200); },
+  // W0-5: irdash pushes /mydrive's answer (state part "mydrive"); a START in progress counts its seconds here, once a second, no request
+  init() {
+    data.on('state', (st, ch) => { if (ch.mydrive) this.take(st.mydrive); });
+    setInterval(() => { if (this.el && this.m && this.m.busy === 'start') this.take(this.m); }, 1000);
+  },
 
   driving() { return UI.live() && !!(L.v && L.v.IsOnTrack); },
 
-  async poll() {
-    if (document.hidden) return;
-    let m;
-    try { m = await (await fetch('/mydrive', { cache: 'no-store' })).json(); } catch (e) { return; }
+  take(m) {
     if (!m || !m.ready) return;
+    this.m = m;
     this.news(m);
     if (m.open && !this.driving()) this.show(m); else this.hide();
   },

@@ -28,6 +28,9 @@ window.fetch = url => {
   return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
 };
 </script>
+<!-- W0-5: irdash pushes its page requests (state parts nav, vaultNav, perfNav); the pretend data.js pushes the mock's flags -->
+<script src="tools/fake-data.js"></script>
+<script>__watch(() => ({ nav: NAV['/nav'], vaultNav: NAV['/vault/nav'], perfNav: NAV['/perf/nav'] }));</script>
 <script src="../dash/www/v2/pagehost.js"></script>
 <script src="../dash/www/v2/nav.js"></script>
 <script src="../dash/www/v2/vaultlive.js"></script>

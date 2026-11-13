@@ -536,18 +536,45 @@ namespace IRDash
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr h, int mask, int flags);
         internal static void NoInherit(Socket s) { try { if (s != null) SetHandleInformation(s.Handle, 1, 0); } catch { } }
 
+        // W0-5: connections are served by a small pool of threads that stay (keep-alive: one connection carries many requests).
+        // When every pool thread is busy a new connection gets its own thread, as before, so nothing ever waits for the pool.
+        // /stream always moves to its own thread. An idle kept connection is let go after 10 s, or at once when a new one waits.
+        const int PoolSize = 8, KeepIdleMs = 10000;
+        readonly System.Collections.Concurrent.BlockingCollection<TcpClient> waiting = new System.Collections.Concurrent.BlockingCollection<TcpClient>();
+        int idleWorkers;
+        [ThreadStatic] static bool canKeep, keptOpen, handedOff;
+
         public void Start()
         {
+            StartState();
             TcpListener l = new TcpListener(IPAddress.Loopback, port);
             l.Start();
             NoInherit(l.Server);
+            for (int k = 0; k < PoolSize; k++)
+            {
+                Thread w = new Thread(delegate ()
+                {
+                    while (true)
+                    {
+                        Interlocked.Increment(ref idleWorkers);
+                        TcpClient c;
+                        try { c = waiting.Take(); } catch { Thread.Sleep(100); continue; }
+                        Serve(c, true);
+                    }
+                });
+                w.IsBackground = true; w.Name = "http " + k; w.Start();
+            }
             Thread t = new Thread(delegate ()
             {
                 while (true)
                 {
                     TcpClient c;
                     try { c = l.AcceptTcpClient(); NoInherit(c.Client); } catch { Thread.Sleep(100); continue; }
-                    Thread h = new Thread(delegate () { Handle(c); });
+                    // take a free pool thread if there is one; else a thread of its own (the old way)
+                    if (Interlocked.Decrement(ref idleWorkers) >= 0) { waiting.Add(c); continue; }
+                    Interlocked.Increment(ref idleWorkers);
+                    TcpClient cc = c;
+                    Thread h = new Thread(delegate () { Serve(cc, false); });
                     h.IsBackground = true;
                     h.Start();
                 }
@@ -584,15 +611,48 @@ namespace IRDash
             catch (Exception ex) { Log.W("api/do: irdeck " + args + ": " + ex.Message); return false; }
         }
 
-        void Handle(TcpClient c)
+        // one connection (the LAN listeners in phone.cs call this too): request after request while the replies allow it
+        void Handle(TcpClient c) { Serve(c, false); }
+
+        void Serve(TcpClient c, bool pooled)
         {
-            using (c)
+            bool mine = true;
+            try
             {
-                try
+                c.NoDelay = true;
+                NetworkStream s = c.GetStream();
+                s.ReadTimeout = 5000;
+                for (int n = 0; n < 1000; n++)
                 {
-                    c.NoDelay = true;
-                    NetworkStream s = c.GetStream();
-                    s.ReadTimeout = 5000;
+                    if (n > 0 && !NextRequest(c, pooled)) break;
+                    canKeep = false; keptOpen = false; handedOff = false;
+                    HandleOne(c, s);
+                    if (handedOff) { mine = false; return; }      // /stream: its own thread has the connection now
+                    if (!keptOpen) break;
+                }
+            }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+            catch (Exception ex) { Log.W("http: " + ex.Message); }
+            finally { if (mine) { try { c.Close(); } catch { } } }
+        }
+
+        // a kept connection waits here for its next request: false = let it go (idle 10 s, closed by the browser, or a new connection is waiting)
+        bool NextRequest(TcpClient c, bool pooled)
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < KeepIdleMs)
+            {
+                if (c.Client.Poll(50000, SelectMode.SelectRead)) return c.Client.Available > 0;
+                if (pooled && waiting.Count > 0) return false;
+            }
+            return false;
+        }
+
+        void HandleOne(TcpClient c, NetworkStream s)
+        {
+                {
                     string head = ReadHead(s);
                     if (head == null) return;
                     string[] lines = head.Split(new[] { "\r\n" }, StringSplitOptions.None);
@@ -604,6 +664,12 @@ namespace IRDash
                     {
                         int k = lines[i].IndexOf(':');
                         if (k > 0) hdr[lines[i].Substring(0, k).Trim()] = lines[i].Substring(k + 1).Trim();
+                    }
+                    {
+                        // keep-alive only for a request with no body (a handler that reads a body may leave bytes behind), on HTTP/1.1
+                        string cl, te, cn; hdr.TryGetValue("Content-Length", out cl); hdr.TryGetValue("Transfer-Encoding", out te); hdr.TryGetValue("Connection", out cn);
+                        canKeep = (method == "GET" || method == "OPTIONS") && req.Length > 2 && req[2] == "HTTP/1.1" &&
+                                  (string.IsNullOrEmpty(cl) || cl.Trim() == "0") && string.IsNullOrEmpty(te) && !string.Equals((cn ?? "").Trim(), "close", StringComparison.OrdinalIgnoreCase);
                     }
                     // Only answer requests addressed to this machine by name or by its own LAN address (blocks DNS-rebinding tricks).
                     string host; hdr.TryGetValue("Host", out host);
@@ -637,7 +703,14 @@ namespace IRDash
                     {
                         string hr = Gate.HeaderRefusal(hdr, !asPhone, port);
                         if (hr != null) { RigState.LogOnce("header " + path, "http: refused " + path + " (" + hr + ")"); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("refused: " + hr), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // W0-5: something is about to change: the state push looks again now (typing a name and the dry SEE IN iRACING probe are not changes)
+                        if (path != "/share/jump" && path != "/api/guest/draft" && path != "/api/keymsg" && path != "/api/spot" && path != "/api/guest/lap")
+                            StateBuilder.Poke(method == "POST" || path == "/api/do" || path.StartsWith("/vault/", StringComparison.Ordinal) || path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/perf/scan");
                     }
+                    // W0-5: the one state answer (the pages get it pushed on /stream?state=1), the deck's one summary, the raw session YAML on demand
+                    if (method == "GET" && path == "/state") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(StateBuilder.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    if (method == "GET" && path == "/deck/summary") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(StateBuilder.DeckJson(Showcase.Json("deck"))), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    if (method == "GET" && path == "/session/yaml") { Frame sf = Sdk.Latest; Send(s, 200, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(sf.Connected ? sf.SessionYaml ?? "" : "")); return; }
                     if (method == "GET" && path == "/rig/state") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(RigState.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     {
                         // W0-2: routes that copy or delete files wait until the session is over
@@ -668,7 +741,14 @@ namespace IRDash
                         }
                     }
 
-                    if (method == "GET" && path == "/stream") { Stream(s, ParseQuery(query)); return; }
+                    if (method == "GET" && path == "/stream")
+                    {
+                        // the stream lives as long as the page: its own thread, so a pool thread is never held by it
+                        var sq = ParseQuery(query); handedOff = true;
+                        Thread st = new Thread(delegate () { try { Stream(s, sq); } catch { } finally { try { c.Close(); } catch { } } });
+                        st.IsBackground = true; st.Name = "stream"; st.Start();
+                        return;
+                    }
                     if (method == "GET" && path == "/api/open")
                     {
                         if (OpenRequested != null) OpenRequested();
@@ -683,6 +763,7 @@ namespace IRDash
                         string dn; bool typing = ParseQuery(query).TryGetValue("n", out dn);
                         Guest.Draft = typing ? Regex.Replace(dn ?? "", "[^A-Za-z0-9 -]", "").ToUpperInvariant() : null;
                         if (Guest.Draft != null && Guest.Draft.Length > 14) Guest.Draft = Guest.Draft.Substring(0, 14);
+                        StateBuilder.Changed("guest");   // W0-5: each letter typed on the deck shows at once on the top screen
                         Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
@@ -870,17 +951,7 @@ namespace IRDash
                     }
                     if (method == "GET" && path == "/api/tow-wait")
                     {
-                        // irdeck writes dash\tow-wait.txt (a UTC expiry) while RESET CAR waits for the car to stop
-                        bool on = false;
-                        try
-                        {
-                            string tw = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tow-wait.txt");
-                            long ticks;
-                            if (File.Exists(tw) && long.TryParse(File.ReadAllText(tw).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out ticks))
-                                on = ticks > DateTime.UtcNow.Ticks;
-                        }
-                        catch { }
-                        Send(s, 200, "application/json", Encoding.UTF8.GetBytes(on ? "{\"on\":true}" : "{\"on\":false}"), "Access-Control-Allow-Origin: *\r\n");
+                        Send(s, 200, "application/json", Encoding.UTF8.GetBytes(TowJson()), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
                     if (method == "GET" && path == "/keymsg") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(KeyMsg.Current()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the top screen's "what that deck key did" line (keymsg.cs)
@@ -903,19 +974,13 @@ namespace IRDash
                     }
                     if (method == "GET" && path == "/api/kids")
                     {
-                        // irdeck writes dash\kids.lock (this boot's id). The top screen says so while that lock is current.
-                        bool kidsOn = KidsLockOn();
-                        string kidsBody = kidsOn ? "{\"on\":true,\"text\":\"KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME\"}" : "{\"on\":false,\"text\":\"\"}";
-                        Send(s, 200, "application/json", Encoding.UTF8.GetBytes(kidsBody), "Access-Control-Allow-Origin: *\r\n");
+                        Send(s, 200, "application/json", Encoding.UTF8.GetBytes(KidsJson()), "Access-Control-Allow-Origin: *\r\n");
                         return;
                     }
                     if (method == "GET" && path == "/version")
                     {
-                        // newest change to the dashboard files or the exe; the page reloads itself when this changes
-                        long v = File.GetLastWriteTimeUtc(System.Reflection.Assembly.GetExecutingAssembly().Location).Ticks;
-                        foreach (string f in Directory.GetFiles(www, "*", SearchOption.AllDirectories))
-                            if (!f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) v = Math.Max(v, File.GetLastWriteTimeUtc(f).Ticks);
-                        Send(s, 200, "text/plain", Encoding.ASCII.GetBytes(v.ToString()));
+                        // newest change to the dashboard files or the exe (StateBuilder keeps it: counted at start and when a file changes)
+                        Send(s, 200, "text/plain", Encoding.ASCII.GetBytes(StateBuilder.Version));
                         return;
                     }
                     if (method == "GET" && path == "/trackmap")
@@ -941,34 +1006,123 @@ namespace IRDash
                     if (!full.StartsWith(www + "\\", StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
                     { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
                     string ct; if (!Types.TryGetValue(Path.GetExtension(full), out ct)) ct = "application/octet-stream";
-                    Send(s, 200, ct, File.ReadAllBytes(full));
+                    byte[] fb = File.ReadAllBytes(full);
+                    string ver = StateBuilder.Version;
+                    // W0-5: a page names its scripts and styles with ?v=<version> (added here), so those can be kept by the browser for good:
+                    // any change to a file changes the version, the page reloads and asks for the new names. Without ?v= nothing is kept.
+                    if (ct.StartsWith("text/html", StringComparison.Ordinal)) fb = Encoding.UTF8.GetBytes(Versioned(Encoding.UTF8.GetString(fb), ver));
+                    bool forever = Regex.IsMatch(query, "(^|&)v=[0-9]+(&|$)");
+                    Send(s, 200, ct, fb, forever ? "Cache-Control: public, max-age=31536000, immutable\r\n" : "");
                 }
-                catch (IOException) { }
-                catch (ObjectDisposedException) { }
-                catch (Exception ex) { Log.W("http: " + ex.Message); }
-            }
         }
 
+        // local script and style links in a page get ?v=<www version> (src="core.js" -> src="core.js?v=6393..."); links that already carry a query are left alone
+        static readonly Regex AssetRef = new Regex("(<(?:script|link)\\b[^>]*?\\b(?:src|href)=\")([^\"?#:]+\\.(?:js|css))(\")", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        internal static string Versioned(string html, string ver) { return AssetRef.Replace(html, "$1$2?v=" + ver + "$3"); }
+
+        // the two banner states (also their own routes): RESET CAR waiting for the car to stop, kids mode
+        internal static string TowJson()
+        {
+            // irdeck writes dash\tow-wait.txt (a UTC expiry) while RESET CAR waits for the car to stop
+            bool on = false;
+            try
+            {
+                string tw = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tow-wait.txt");
+                long ticks;
+                if (File.Exists(tw) && long.TryParse(File.ReadAllText(tw).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out ticks))
+                    on = ticks > DateTime.UtcNow.Ticks;
+            }
+            catch { }
+            return on ? "{\"on\":true}" : "{\"on\":false}";
+        }
+        internal static string KidsJson()
+        {
+            // irdeck writes dash\kids.lock (this boot's id). The top screen says so while that lock is current.
+            return KidsLockOn() ? "{\"on\":true,\"text\":\"KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME\"}" : "{\"on\":false,\"text\":\"\"}";
+        }
+
+        // W0-5: what /state holds and how often each part is looked at (ms idle / ms while he drives). No part walks the disk or the
+        // process list more often than the page used to ask for it; Changed() and Poke() make a part look at once.
+        void StartState()
+        {
+            StateBuilder.Add("rig", 250, 250, StateBuilder.RigJson);
+            StateBuilder.Add("version", 1000, 1000, delegate () { return Json.Str(StateBuilder.Version); });
+            StateBuilder.Add("kids", 1000, 2000, KidsJson);
+            StateBuilder.Add("tow", 500, 500, TowJson);
+            StateBuilder.Add("keymsg", 250, 250, delegate () { return Regex.Replace(KeyMsg.Current(), ",\"ageMs\":-?[0-9]+", ""); });   // the page works the age out from "at" and "now"
+            KeyMsg.Changed = delegate () { StateBuilder.Changed("keymsg"); };
+            StateBuilder.Add("nav", 500, 1000, Nav.Json);
+            StateBuilder.Add("vaultNav", 500, 1000, delegate () { return Vault.Serving ? Vault.NavJson() : "{\"enabled\":false}"; });
+            StateBuilder.Add("perfNav", 500, 1000, delegate () { int pc; return Perf.Route("/perf/nav", new Dictionary<string, string>(), out pc); });
+            StateBuilder.Add("debriefNav", 500, 1000, Debrief.NavJson);
+            StateBuilder.Add("workbench", 250, 1000, Workbench.Json);
+            StateBuilder.Add("showcase", 1000, 2000, Showcase.Peek);
+            StateBuilder.Add("guest", 1500, 2000, Guest.Json);
+            StateBuilder.Add("mydrive", 1500, 3000, MyDrive.Json);
+            StateBuilder.Add("doctor", 1500, 5000, Doctor.Json);
+            StateBuilder.Add("overlays", 2000, 6000, Overlays.Json);
+            StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
+            StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
+            StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
+            StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
+            StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
+            // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
+            StateBuilder.AddDeck("replay", 1000, Replay.Json);
+            StateBuilder.AddDeck("races", 10000, Recorder.RacesJson);
+            StateBuilder.AddDeck("deckWorkbench", 1000, DeckFeed.WorkbenchJson);
+            StateBuilder.AddDeck("sound", 2000, delegate () { return Sound.Json(false); });
+            StateBuilder.AddDeck("ac", 2000, delegate () { return AcAuto.Json(false); });
+            StateBuilder.WatchWww(www);
+            StateBuilder.Start();
+        }
+
+        // what HOME and the in-car REC pill read from the recorder (its full answer is /vault/recorder)
+        static string RecorderSlim()
+        {
+            string j = Recorder.StatusJson();
+            Func<string, string> val = delegate (string k) { Match m = Regex.Match(j, "\"" + k + "\":(true|false|-?[0-9.]+)"); return m.Success ? m.Groups[1].Value : "null"; };
+            string cap = "null"; int ci = j.IndexOf("\"capture\":{", StringComparison.Ordinal);
+            if (ci >= 0) { int st = ci + 10, depth = 0; for (int k = st; k < j.Length; k++) { if (j[k] == '{') depth++; else if (j[k] == '}' && --depth == 0) { cap = j.Substring(st, k - st + 1); break; } } }
+            double free; string fs = val("freeGb");
+            string freeR = double.TryParse(fs, NumberStyles.Float, CultureInfo.InvariantCulture, out free) ? Math.Round(free).ToString("0", CultureInfo.InvariantCulture) : "null";
+            return "{\"enabled\":" + val("enabled") + ",\"gaveUp\":" + val("gaveUp") + ",\"freeGb\":" + freeR + ",\"minFreeGb\":" + val("minFreeGb") + ",\"capture\":" + cap + "}";
+        }
+
+        // W0-5: /stream. ?vars= the telemetry variables (none = no frames' worth of values), ?hz= (default 15),
+        // ?state=1 also pushes the state object as "event: state" (the whole object first, then only what changed) and leaves out the
+        // raw session YAML (the parsed session is in the state); ?yaml=1 sends the YAML as before.
         void Stream(NetworkStream s, Dictionary<string, string> q)
         {
             string varList; q.TryGetValue("vars", out varList);
             string[] names = (varList ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
             string hzs; int hz;
-            if (!q.TryGetValue("hz", out hzs) || !int.TryParse(hzs, out hz)) hz = 30;
+            if (!q.TryGetValue("hz", out hzs) || !int.TryParse(hzs, out hz)) hz = 15;
             hz = Math.Max(1, Math.Min(60, hz));
             int interval = 1000 / hz;
+            bool withState = q.ContainsKey("state"), withYaml = !withState || q.ContainsKey("yaml");
 
             Write(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\nretry: 1000\n\n");
-            long lastSeq = -1; int sentSess = -1;
+            long lastSeq = -1, stateSeq = -1; int sentSess = -1;
             Stopwatch sw = Stopwatch.StartNew();
-            long lastSend = -100000;
+            long lastSend = -100000, lastWrite = 0;
+            if (withState) { stateSeq = StateBuilder.Seq; Write(s, "event: state\ndata: " + StateBuilder.Json() + "\n\n"); }
             while (true)
             {
-                Frame f = Sdk.WaitNext(lastSeq, 1000);
-                if (f.Seq == lastSeq) { Write(s, ": ping\n\n"); continue; }
+                Frame f = Sdk.WaitNext(lastSeq, withState ? 100 : 1000);
+                if (withState)
+                {
+                    long upTo; string part = StateBuilder.Since(stateSeq, out upTo);
+                    if (part != null) { Write(s, "event: state\ndata: " + part + "\n\n"); lastWrite = sw.ElapsedMilliseconds; }
+                    stateSeq = upTo;
+                }
+                if (f.Seq == lastSeq)
+                {
+                    if (sw.ElapsedMilliseconds - lastWrite >= 1000) { Write(s, ": ping\n\n"); lastWrite = sw.ElapsedMilliseconds; }
+                    continue;
+                }
                 long wait = interval - (sw.ElapsedMilliseconds - lastSend);
                 if (wait > 0) { Thread.Sleep((int)wait); f = Sdk.Latest; }
-                lastSend = sw.ElapsedMilliseconds;
+                lastSend = sw.ElapsedMilliseconds; lastWrite = lastSend;
                 lastSeq = f.Seq;
                 if (!f.Connected)
                 {
@@ -977,7 +1131,7 @@ namespace IRDash
                     continue;
                 }
                 StringBuilder sb = new StringBuilder();
-                if (f.SessionVersion != sentSess)
+                if (withYaml && f.SessionVersion != sentSess)
                 {
                     sb.Append("event: session\ndata: ").Append(Json.Str(f.SessionYaml)).Append("\n\n");
                     sentSess = f.SessionVersion;
@@ -1047,7 +1201,7 @@ namespace IRDash
         // a picture that may be cached for an hour (the hero: the page adds ?v=<file time>, so a new file still shows at once)
         static void SendCached(NetworkStream s, string type, byte[] body)
         {
-            string h = "HTTP/1.1 200 OK\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length + "\r\nCache-Control: max-age=3600\r\nConnection: close\r\n\r\n";
+            string h = "HTTP/1.1 200 OK\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length + "\r\nCache-Control: max-age=3600\r\n" + ConnectionHeader() + "\r\n";
             byte[] hb = Encoding.ASCII.GetBytes(h);
             s.Write(hb, 0, hb.Length);
             s.Write(body, 0, body.Length);
@@ -1057,12 +1211,21 @@ namespace IRDash
         static void Send(NetworkStream s, int code, string type, byte[] body, string extraHeaders)
         {
             string reason = code == 200 ? "OK" : code == 202 ? "Accepted" : code == 204 ? "No Content" : code == 404 ? "Not Found" : code == 503 ? "Service Unavailable" : "Error";
-            string h = "HTTP/1.1 " + code + " " + reason + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length +
-                       "\r\nCache-Control: no-store\r\nConnection: close\r\n" + extraHeaders + "\r\n";
+            // W0-5: no-store unless the caller names its own Cache-Control (a versioned script or style); keep-alive when the request allows it
+            string h = "HTTP/1.1 " + code + " " + reason + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length + "\r\n" +
+                       (extraHeaders.IndexOf("Cache-Control:", StringComparison.OrdinalIgnoreCase) >= 0 ? "" : "Cache-Control: no-store\r\n") + ConnectionHeader() + extraHeaders + "\r\n";
             byte[] hb = Encoding.ASCII.GetBytes(h);
             s.Write(hb, 0, hb.Length);
             if (body.Length > 0) s.Write(body, 0, body.Length);
             s.Flush();
+        }
+
+        // the reply says whether the connection stays (Serve then waits for the next request on it) or closes
+        static string ConnectionHeader()
+        {
+            if (canKeep && !keptOpen) { keptOpen = true; return "Connection: keep-alive\r\nKeep-Alive: timeout=" + (KeepIdleMs / 1000) + "\r\n"; }
+            keptOpen = false;
+            return "Connection: close\r\n";
         }
 
         static string ReadHead(NetworkStream s)
@@ -2532,7 +2695,10 @@ namespace IRDash
             }
         }
 
-        public static void Request() { lock (gate) if (!Program.IsDriving) { seq++; introUntil = DateTime.Now.AddSeconds(18); } }
+        public static void Request() { lock (gate) if (!Program.IsDriving) { seq++; introUntil = DateTime.Now.AddSeconds(18); } StateBuilder.Changed("showcase"); }
+
+        // W0-5: the state push's copy: seq and driving only. It never plays the boot intro (only a page's or the deck's own ask does, once).
+        public static string Peek() { lock (gate) return "{\"play\":false,\"seq\":" + seq + ",\"driving\":" + (Program.IsDriving ? "true" : "false") + "}"; }
 
         public static string Json(string who)
         {

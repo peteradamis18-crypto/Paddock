@@ -16,6 +16,7 @@ namespace IRDash
         static string key = "", text = "", kind = "ok";
         static long atMs;   // unix ms (UTC) of the last message
         static DateTime atUtc = DateTime.MinValue;
+        public static Action Changed;   // set by the server (W0-5 state push); this file still compiles on its own (tests\keymsg-test.ps1)
 
         // Returns the sanitized text kept (empty = nothing to show, the route answers 400).
         public static string Set(string k, string t, string kd)
@@ -39,6 +40,7 @@ namespace IRDash
                 atUtc = DateTime.UtcNow;
                 atMs = (long)(atUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
             }
+            Action changed = Changed; if (changed != null) changed();   // W0-5: irdash pushes it to the top screen now (StateBuilder), not at the next look
             return clean;
         }
 

@@ -7,7 +7,10 @@
 #      a hidden page stops polling; prefers-reduced-motion switches the fade off. Pictures: tests\shots\keymsg-<layout>.png
 #   4. live, ONLY when the rig is free (sim not running, no START key in the last 10 min) and the running irdash already has the route
 #      (answers 404 until the lead deploys): the real route. It shows a message on the top screen for 4 s, hence the guard.
-#   powershell -ExecutionPolicy Bypass -File tests\keymsg-test.ps1
+#   powershell -ExecutionPolicy Bypass -File tests\keymsg-test.ps1 [-Offline]     (-Offline: parts 1-3 only, never the running irdash)
+# W0-5: the page no longer polls /keymsg; irdash pushes the message (state part "keymsg", app\lib\data.js). Part 3 hands it over
+# through a pretend data.js and checks the page makes no request at all.
+param([switch]$Offline)
 . (Join-Path $PSScriptRoot 'guard.ps1')
 $root = Split-Path -Parent $PSScriptRoot
 $www = Join-Path $root 'dash\www\v2'
@@ -40,7 +43,9 @@ Check 'irdash.cs has GET /keymsg and GET /api/keymsg' ($irdash -match 'path == "
 Check '/api/keymsg answers this PC only (not the phone)' ($irdash -match '(?s)path == "/api/keymsg".{0,300}!local')
 Check 'dash\build.ps1 compiles keymsg.cs' ($build -match 'keymsg\.cs')
 Check 'index.html: the element, the stylesheet and the script' ($idx -match 'id="keyMsg"' -and $idx -match 'href="keymsg\.css"' -and $idx -match 'src="keymsg\.js"')
-Check 'the script polls /keymsg every 400 ms and stops while the page is hidden' ($js -match "fetch\('/keymsg'" -and $js -match 'POLL_MS = 400' -and $js -match 'document\.hidden' -and $js -match 'clearInterval')
+Check 'the script takes the message from irdash''s push (data.on state, part keymsg) and polls nothing (W0-5)' ($js -match "data\.on\('state'" -and $js -match 'ch\.keymsg' -and $js -notmatch 'fetch\(' -and $js -notmatch 'setInterval')
+Check 'index.html loads app/lib/data.js before keymsg.js' ($idx.IndexOf('app/lib/data.js') -ge 0 -and $idx.IndexOf('app/lib/data.js') -lt $idx.IndexOf('src="keymsg.js"'))
+Check 'irdash pushes the message the moment it is set (KeyMsg.Set calls its Changed hook; the server points it at StateBuilder.Changed("keymsg"))' ([IO.File]::ReadAllText((Join-Path $root 'dash\src\keymsg.cs')) -match 'changed\(\)' -and $irdash -match 'KeyMsg\.Changed = delegate \(\) \{ StateBuilder\.Changed\("keymsg"\)')
 Check 'the message is shown as text, never as markup' ($js -match 'textContent' -and $js -notmatch 'innerHTML')
 Check 'no sound anywhere' ($js -notmatch 'Audio|beep|\.play\(' -and $css -notmatch '.(wav|mp3|ogg)')
 Check 'css respects prefers-reduced-motion' ($css -match '@media \(prefers-reduced-motion: reduce\)')
@@ -127,10 +132,10 @@ else {
     var rows = ''; for (var i = 0; i < 7; i++) rows += '<div class="trow' + (i === 3 ? ' me' : '') + '"><i class="cls"></i><span class="p">' + (i + 1) + '</span><span class="n">#' + (10 + i) + '</span><span class="nm">Driver Name ' + i + '</span><span class="g">+' + (i * 1.3).toFixed(1) + '</span></div>';
     $('dRows').innerHTML = rows;
   }
-  // ---- irdash mocked: /keymsg answers whatever MSG says; every call is counted
-  var MSG = { seq: 0, key: '', text: '', kind: 'ok', at: 0, ageMs: 0 }, CALLS = 0;
-  window.fetch = function(u){ CALLS++; var m = JSON.parse(JSON.stringify(MSG)); return Promise.resolve({ ok: String(u).indexOf('/keymsg') === 0, json: function(){ return Promise.resolve(m); } }); };
-  function push(seq, text, kind, age){ MSG = { seq: seq, key: 'get-out', text: text, kind: kind, at: 1, ageMs: age || 0 }; }
+  // ---- irdash pushes the message (W0-5): the pretend data.js (before keymsg.js) hands it over; any request at all is counted
+  var CALLS = 0;
+  window.fetch = function(u){ CALLS++; return Promise.resolve({ ok: false, json: function(){ return Promise.resolve(null); } }); };
+  function push(seq, text, kind, age){ var now = 1800000000000; window.__push({ keymsg: { seq: seq, key: 'get-out', text: text, kind: kind, at: now - (age || 0) }, now: now }); }
   function lum(rgb){ var m = rgb.match(/[\d.]+/g).map(Number).slice(0, 3).map(function(v){ v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; }
   function snap(){
     var r = el.getBoundingClientRect(), cs = getComputedStyle(el);
@@ -159,7 +164,7 @@ else {
     ck(tag + ': inside 1920 x 1080 (' + box(s) + ')', s.l >= 0 && s.t >= 0 && s.r <= 1920 && s.b <= 1080, box(s));
     ck(tag + ': in the bottom edge, centred', s.t >= 984 && Math.abs((s.l + s.r) / 2 - 960) <= 1, box(s));
     ck(tag + ': high contrast (' + (((lum(s.color) + 0.05) / (lum(s.bg) + 0.05))).toFixed(1) + ':1)', (lum(s.color) + 0.05) / (lum(s.bg) + 0.05) >= 7, s.color + ' on ' + s.bg);
-    ck(tag + ': ' + kind + ' colours', kind === 'ok' ? /242, 194, 48/.test(s.border) : kind === 'wait' ? /255, 178, 30/.test(s.border) && /255, 178, 30/.test(s.color) : /255, 102, 89/.test(s.color), s.border + ' / ' + s.color);
+    ck(tag + ': ' + kind + ' colours', kind === 'ok' ? /201, 162, 75/.test(s.border) : kind === 'wait' ? /255, 178, 30/.test(s.border) && /255, 178, 30/.test(s.color) : /255, 102, 89/.test(s.color), s.border + ' / ' + s.color);
     ck(tag + ': above every layer, never takes a click', s.z >= 960 && s.pe === 'none', s.z + ' ' + s.pe);
     var h = overlaps(s); ck(tag + ': covers none of the blocks (' + MODE + ')', h.length === 0, h.join(' ; '));
   }
@@ -187,17 +192,18 @@ else {
     push(5, 'In the car', 'ok');
   }, 9000);
   setTimeout(function(){ shows('ok', snap(), 'In the car', 'ok'); }, 9900);
-  // a hidden page: polling stops; shown again: polling and messages carry on
+  // W0-5: nothing is polled; a hidden page and a shown one alike make no request, and a push still shows
   setTimeout(function(){ Object.defineProperty(document, 'hidden', { configurable: true, get: function(){ return true; } }); document.dispatchEvent(new Event('visibilitychange')); t.c0 = CALLS; }, 14000);
-  setTimeout(function(){ ck('a hidden page makes no requests', CALLS === t.c0, (CALLS - t.c0) + ' calls'); delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); push(6, E, 'ok'); }, 15500);
-  setTimeout(function(){ shows('after hidden', snap(), E, 'ok'); ck('polling is back after the page shows again', CALLS > t.c0, CALLS + ' vs ' + t.c0); }, 16500);
+  setTimeout(function(){ delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); push(6, E, 'ok'); }, 15500);
+  setTimeout(function(){ shows('pushed again', snap(), E, 'ok'); ck('the page asked irdash for nothing in 16 s (the message is pushed)', CALLS === 0, CALLS + ' calls'); }, 16500);
   setTimeout(function(){ var p = document.createElement('pre'); p.id = 'out'; p.style.display = 'none'; p.textContent = out.join('\n') + '\nDONE'; document.body.appendChild(p); }, 17000);
 })();
 '@
   $modes = @('home', 'drive', 'grid')
   function Run-Chrome($mode, $shot, $extra) {
     $js = $harness.Replace('__MODE__', $mode).Replace('__SHOT__', $(if ($shot) { 'true' } else { 'false' })).Replace('__NOANIM__', $(if ($extra) { 'false' } else { 'true' }))
-    $html = "<!doctype html><html><head><meta charset=`"utf-8`">`n$links`n<style>html,body{margin:0;overflow:hidden}</style></head><body>`n$markup`n<script src=`"../dash/www/v2/keymsg.js`"></script>`n<script>$js</script>`n</body></html>"
+    $fake = "<script>(function(){ var ls = []; window.data = { __paddock: true, state: {}, on: function(n, f){ if (n === 'state') ls.push(f); return function(){}; } }; window.__push = function(m){ var ch = {}; for (var k in m) { window.data.state[k] = m[k]; if (k !== 'now') ch[k] = true; } ls.forEach(function(f){ f(window.data.state, ch); }); }; })();</script>"
+    $html = "<!doctype html><html><head><meta charset=`"utf-8`">`n$links`n<style>html,body{margin:0;overflow:hidden}</style></head><body>`n$markup`n$fake`n<script src=`"../dash/www/v2/keymsg.js`"></script>`n<script>$js</script>`n</body></html>"
     $file = Join-Path $PSScriptRoot "keymsg-$mode$(if ($shot) { '-shot' } elseif ($extra) { '-rm' }).harness.html"
     [IO.File]::WriteAllText($file, $html, (New-Object Text.UTF8Encoding($false)))
     $url = 'file:///' + ($file -replace '\\', '/')
@@ -244,9 +250,10 @@ else {
 Section '4. live irdash'
 $api = 'http://localhost:8199'
 function Get-Code($url) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5; return @{ code = [int]$r.StatusCode; body = $r.Content } } catch { if ($_.Exception.Response) { return @{ code = [int]$_.Exception.Response.StatusCode; body = '' } } return @{ code = 0; body = '' } } }
-$probe = Get-Code "$api/keymsg"
+if ($Offline) { $probe = @{ code = -1 } } else { $probe = Get-Code "$api/keymsg" }
 $busy = Get-RigBusy
-if ($probe.code -eq 0) { "  skip  live: irdash does not answer on $api (not running)" }
+if ($Offline) { "  skip  live: -Offline" }
+elseif ($probe.code -eq 0) { "  skip  live: irdash does not answer on $api (not running)" }
 elseif ($probe.code -eq 404) { "  skip  live: the running irdash has no /keymsg yet (404): deploy first, then run this test again" }
 elseif ($busy) { "  skip  live: $busy (a test message would appear on his top screen)" }
 else {

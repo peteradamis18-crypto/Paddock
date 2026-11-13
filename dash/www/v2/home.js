@@ -14,6 +14,8 @@ const Home = {
   init() {
     this.clock(); this.clockTimer = setInterval(() => this.clock(), 10000);
     this.tick(); this.tickTimer = setInterval(() => this.tick(), 60000);
+    // W0-5: the rig's apps and the recorder are pushed by irdash (state parts "health", "recorder"); next() only draws
+    data.on('state', (st, ch) => { if (ch.health || ch.recorder) { this.health = st.health || this.health; this.rec = st.recorder || null; this.next(); } });
     this.next(); this.nextTimer = setInterval(() => this.next(), 5000);
     this.phone(); this.phoneTimer = setInterval(() => this.phone(), 30000);
     const b = $('homeNext'); if (b) b.addEventListener('click', () => this.go(b.homeAct));
@@ -239,12 +241,8 @@ const Home = {
 
   // the one obvious button. It does exactly what it says: LAST DRIVE names the car and track of his last session and
   // starts that car at that track (MY DRIVE: choose it, check it is chosen, then start); with no last session it is START.
-  async next() {
-    if (document.hidden || !this.shown()) return;
-    const seq = ++this.healthSeq;
-    try { this.health = await (await fetch('/health', { cache: 'no-store' })).json(); } catch (e) { if (!this.health) return; }
-    try { this.rec = await (await fetch('/vault/recorder', { cache: 'no-store' })).json(); } catch (e) { this.rec = null; }
-    if (seq !== this.healthSeq) return;
+  next() {
+    if (document.hidden || !this.shown() || !this.health) return;
     const apps = {}; ((this.health && this.health.apps) || []).forEach(a => apps[a.id] = a.state);
     const l = this.home && this.home.last, b = $('homeNext');
     let act;

@@ -11,13 +11,12 @@ const Intro = {
     const s = await this.ask();
     if (s) this.seq = s.seq;
     if (force || (s && s.play)) this.play();
-    setInterval(async () => {
-      if (document.hidden) return;
-      const t = await this.ask();
-      if (!t) return;
+    // W0-5: the SHOWCASE key's seq is pushed by irdash (state part "showcase"); the one ask above is for the once-per-boot play
+    data.on('state', (st, ch) => {
+      const t = st.showcase; if (!ch.showcase || !t) return;
       if (this.seq !== null && t.seq > this.seq && !t.driving) this.play();
       this.seq = t.seq;
-    }, 3000);
+    });
   },
 
   async ask() {

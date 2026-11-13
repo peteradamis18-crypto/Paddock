@@ -23,7 +23,8 @@ const Races = {
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && window.parent !== window) window.parent.postMessage({ irdash: 'races-close' }, location.origin);
     });
-    this.load(); setInterval(() => { if (!this.busy && !this.armed) this.load(); }, 10000);
+    // W0-5: the list loads again when irdash says it may have changed (it used to be every 10 s)
+    this.load(); if (typeof data !== 'undefined') data.onList('races', () => { if (!this.busy && !this.armed) this.load(); });
   },
 
   setAll(on) { this.all = on; $('tabRaces').classList.toggle('on', !on); $('tabAll').classList.toggle('on', on); this.draw(); },

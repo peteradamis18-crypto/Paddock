@@ -40,11 +40,16 @@ const Drive = {
     } catch (e) { console.error(e); }
   },
 
+  // W0-5: irdash pushes the recorder's verdict (state part "recorder"); null = irdash is not answering
   recorder() {
-    const now = Date.now(); if (this.recBusy || now - this.recAt < 2000) return;
-    this.recBusy = true; this.recAt = now;
-    fetch('/vault/recorder', { cache: 'no-store' }).then(r => r.json()).then(d => this.showRec(d))
-      .catch(() => this.showRec(null)).then(() => { this.recBusy = false; });
+    const now = Date.now(); if (now - this.recAt < 1000) return;
+    this.recAt = now;
+    let r = data.online && data.state.recorder ? data.state.recorder : null;
+    const at = data.at ? data.at('recorder') : 0;
+    if (r && at && r.capture && r.capture.state === 'recording') {      // the REC clock runs on between pushes
+      r = Object.assign({}, r, { capture: Object.assign({}, r.capture, { secs: (r.capture.secs || 0) + Math.max(0, Date.now() - at) / 1000 }) });
+    }
+    this.showRec(r);
   },
   // irdash's one verdict (recorder.cs CaptureJson): REC only while video is really landing on disk. null = irdash did not answer.
   showRec(d) {

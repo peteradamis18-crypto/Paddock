@@ -329,5 +329,5 @@ window.addEventListener('resize', () => pfDraw());
 setInterval(() => { if (PF.d && PF.d.last && typeof TrackInfo !== 'undefined' && TrackInfo.version !== PF.corners) pfRenderLast(); }, 800);
 
 pfLoad(); pfLoadCheck();
-setInterval(pfLoad, 8000);
-setInterval(pfLoadCheck, 20000);
+// W0-5: both load again when irdash says the performance data may have changed (they used to be every 8 s and 20 s)
+if (typeof data !== 'undefined') data.onList('perf', () => { pfLoad(); pfLoadCheck(); });
