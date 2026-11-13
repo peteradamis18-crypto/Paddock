@@ -34,6 +34,8 @@ window.__fetchLog = []; window.__rec = null;
     if (u.indexOf('/vault/recorder') === 0) return window.__rec ? ok(window.__rec) : Promise.reject(new Error('down'));
     return Promise.resolve(new Response('{}', { status: 404 }));
   };
+  // W0-5: irdash pushes the recorder's verdict (state part "recorder", app\lib\data.js); null = irdash not answering
+  setInterval(function(){ var d = window.data; if (d && d.state && d.partAt) { d.state.recorder = window.__rec; d.online = !!window.__rec; d.partAt.recorder = Date.now(); } }, 100);
 })();
 "@
 

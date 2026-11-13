@@ -45,8 +45,9 @@ const Drive = {
     const now = Date.now(); if (now - this.recAt < 1000) return;
     this.recAt = now;
     let r = data.online && data.state.recorder ? data.state.recorder : null;
-    if (r && r.capture && r.capture.state === 'recording') {            // the REC clock runs on between pushes
-      r = Object.assign({}, r, { capture: Object.assign({}, r.capture, { secs: (r.capture.secs || 0) + (Date.now() - data.at('recorder')) / 1000 }) });
+    const at = data.at ? data.at('recorder') : 0;
+    if (r && at && r.capture && r.capture.state === 'recording') {      // the REC clock runs on between pushes
+      r = Object.assign({}, r, { capture: Object.assign({}, r.capture, { secs: (r.capture.secs || 0) + Math.max(0, Date.now() - at) / 1000 }) });
     }
     this.showRec(r);
   },

@@ -1049,6 +1049,7 @@ namespace IRDash
             StateBuilder.Add("kids", 1000, 2000, KidsJson);
             StateBuilder.Add("tow", 500, 500, TowJson);
             StateBuilder.Add("keymsg", 250, 250, delegate () { return Regex.Replace(KeyMsg.Current(), ",\"ageMs\":-?[0-9]+", ""); });   // the page works the age out from "at" and "now"
+            KeyMsg.Changed = delegate () { StateBuilder.Changed("keymsg"); };
             StateBuilder.Add("nav", 500, 1000, Nav.Json);
             StateBuilder.Add("vaultNav", 500, 1000, delegate () { return Vault.Serving ? Vault.NavJson() : "{\"enabled\":false}"; });
             StateBuilder.Add("perfNav", 500, 1000, delegate () { int pc; return Perf.Route("/perf/nav", new Dictionary<string, string>(), out pc); });
