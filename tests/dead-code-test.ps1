@@ -33,7 +33,7 @@ foreach ($h in Get-ChildItem (Join-Path $root 'dash\www') -Recurse -Include *.ht
 }
 Check "$n script/style/picture tags in html all point at files that exist" ($bad.Count -eq 0) ($bad -join '; ')
 $idx = Get-Content (Join-Path $root 'dash\www\v2\index.html') -Raw
-Check 'index.html loads demo.js only through the ?demo=1 loader' ($idx -match 'demo=1' -and $idx -notmatch '<script src="demo\.js">')
+Check 'index.html loads demo.js only through the ?demo=1 loader' ($idx -match 'demo=1' -and $idx -notmatch '(?m)^<script src="demo\.js">')
 Check 'index.html no longer mounts the old debrief or session review' ($idx -notmatch 'sessionreview\.(js|css)' -and $idx -notmatch 'debrief\.(js|css)')
 $sess = Get-Content (Join-Path $root 'dash\www\v2\sessions.html') -Raw
 Check 'sessions.html no longer loads map.js' ($sess -notmatch 'src="map\.js"')
