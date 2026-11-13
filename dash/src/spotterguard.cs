@@ -57,14 +57,14 @@ namespace IRDash
         // when the sim program started (MinValue = could not tell); every Process is disposed
         static DateTime SimStart()
         {
-            Process[] ps; try { ps = Process.GetProcessesByName(SimName); } catch { return DateTime.MinValue; }
+            Process[] ps; try { ps = Proc.ByName(SimName); } catch { return DateTime.MinValue; }
             DateTime t = DateTime.MinValue;
             foreach (Process p in ps) { try { if (t == DateTime.MinValue) t = p.StartTime; } catch { } p.Dispose(); }
             return t;
         }
         static int Count(string name)
         {
-            Process[] ps; try { ps = Process.GetProcessesByName(name); } catch { return -1; }
+            Process[] ps; try { ps = Proc.ByName(name); } catch { return -1; }
             foreach (Process p in ps) p.Dispose();
             return ps.Length;
         }
@@ -73,7 +73,7 @@ namespace IRDash
         static void Fresh(DateTime simStart)
         {
             if ((DateTime.Now - simStart).TotalSeconds > FreshWindowSeconds) return;
-            Process[] cc = Process.GetProcessesByName(Name);
+            Process[] cc = Proc.ByName(Name);
             if (cc.Length == 0) { Log.W("spotter: the sim started, CrewChief was not running - starting it"); Launch(); return; }
             bool old = false;
             foreach (Process p in cc) { try { if (p.StartTime < simStart) old = true; } catch { } }
@@ -95,7 +95,7 @@ namespace IRDash
             {
                 if (!File.Exists(Exe)) { Log.W("spotter: CrewChief is not installed"); return false; }
                 if ((DateTime.Now - launchedAt).TotalSeconds < 30) return false;
-                Process[] cc = Process.GetProcessesByName(Name);
+                Process[] cc = Proc.ByName(Name);
                 bool up = cc.Length > 0; foreach (Process p in cc) p.Dispose();
                 if (up) return false;
                 ProcessStartInfo psi = new ProcessStartInfo(Exe);

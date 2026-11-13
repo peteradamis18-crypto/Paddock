@@ -884,7 +884,7 @@ namespace IRDash
         {
             if (Mode != "high" || !connected) return;
             // W0-3: the sim's held handle (proc.cs): one scan when the session starts, none every 2 s after it
-            Process p = Proc.Held(ProcName);
+            Process p = Proc.HeldInSession(ProcName);
             if (p == null || p.Id == donePid) return;
             donePid = p.Id;
             Last = ApplyTo(p.Id, "high", false);

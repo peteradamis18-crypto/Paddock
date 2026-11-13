@@ -120,6 +120,60 @@ namespace IRDash
             Check("out of the session the 0 s cache looks again (counted)", !Proc.RunningCached("no-such-program-w03", 0) && Proc.Scans == s1 + 2);
             Check("Json() lists the scans per program", Proc.Json().Contains("\"no-such-program-w03\":2"));
 
+            Console.WriteLine("7. Proc.Held from many threads at once keeps one handle (review #9)");
+            Process ping = null;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PING.EXE"), "-n 6 127.0.0.1"); psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true;
+                ping = Process.Start(psi); Thread.Sleep(300);
+                Process[] got = new Process[8]; Thread[] ts = new Thread[8]; ManualResetEvent go = new ManualResetEvent(false);
+                for (int i = 0; i < 8; i++) { int k = i; ts[k] = new Thread(delegate () { go.WaitOne(); got[k] = Proc.Held("PING"); }); ts[k].Start(); }
+                go.Set(); foreach (Thread t in ts) t.Join();
+                bool same = got[0] != null; foreach (Process g in got) if (g != got[0]) same = false;
+                bool usable = true; try { bool ex = got[0].HasExited; } catch { usable = false; }
+                Check("all 8 callers got the same held Process, and it is still usable (no second handle kept, none disposed under them)", same && usable);
+            }
+            catch (Exception ex) { Check("Held race: " + ex.Message, false); }
+            finally { try { if (ping != null) { ping.Kill(); ping.Dispose(); } } catch { } }
+
+            Console.WriteLine("8. the overlays are raised when the sim covers them (review #1, a pretend z-order)");
+            IntPtr top = new IntPtr(1), sim = new IntPtr(2), ovA = new IntPtr(3), ovB = new IntPtr(4);
+            // top to bottom: ovA, sim, ovB  (ovB is below the sim although it may still carry the TOPMOST flag)
+            Dictionary<IntPtr, IntPtr> up = new Dictionary<IntPtr, IntPtr>(); up[ovA] = top; up[sim] = ovA; up[ovB] = sim; up[top] = IntPtr.Zero;
+            Func<IntPtr, IntPtr> above = delegate (IntPtr h) { IntPtr a; return up.TryGetValue(h, out a) ? a : IntPtr.Zero; };
+            Check("an overlay above the sim is fine", !ZOrder.SimAbove(ovA, sim, above, 100));
+            Check("an overlay below the sim is seen", ZOrder.SimAbove(ovB, sim, above, 100));
+            Check("raise when driving starts", ZOrder.ShouldRaise(true, false, false, true, true));
+            Check("raise when one is below the sim", ZOrder.ShouldRaise(true, true, true, true, true));
+            Check("raise when the sim comes back to the front (a focus steal and return)", ZOrder.ShouldRaise(true, true, false, true, false));
+            Check("no raise every tick while all is well (no 5 s loop)", !ZOrder.ShouldRaise(true, true, false, true, true));
+            Check("never out of the car", !ZOrder.ShouldRaise(false, true, true, true, false));
+
+            Console.WriteLine("9. two personal bests in one session: the faster one is written, never over a quicker one on disk (review #2)");
+            PendingSlot<double[]> slot = new PendingSlot<double[]>(delegate (double[] a, double[] b) { return a[0] <= b[0]; });
+            double written = 0; double disk = 0;
+            on = true; Thread.Sleep(600);
+            Action save = delegate { double[] v = slot.Take("rd"); if (v != null && SaveRule.ShouldWrite(v[0], disk)) { disk = v[0]; written = v[0]; } };
+            slot.Put("rd", new double[] { 93.832 }); bool q1 = Jobs.Save("pb save rd", save);
+            slot.Put("rd", new double[] { 93.639 }); bool q2 = Jobs.Save("pb save rd", save);
+            Check("the second save is the same job (one per name)", q1 && !q2);
+            disk = 93.700;      // the reference build ran first after the session and wrote 1:33.700
+            on = false;
+            WaitFor(delegate { return slot.Count == 0; }, 5000); Thread.Sleep(200);
+            Check("the job wrote the second, faster lap (1:33.639), not the first", written == 93.639 && disk == 93.639);
+            Check("a slower lap never goes over a quicker one on disk", !SaveRule.ShouldWrite(93.832, 93.639) && SaveRule.ShouldWrite(93.639, 93.700) && SaveRule.ShouldWrite(93.0, 0));
+
+            Console.WriteLine("10. at exit the waiting saves are written at once; heavy jobs are not (review #7)");
+            on = true; Thread.Sleep(600);
+            bool savedAtExit = false, heavyRan = false;
+            Jobs.Save("vault save test", delegate { savedAtExit = true; });
+            Jobs.Run("recorder cut test", delegate { heavyRan = true; }, true);
+            int drained = Jobs.Drain(2000);
+            Check("Drain ran the save while the session was still on", savedAtExit && drained == 1);
+            Check("and left the cut for later", !heavyRan && Jobs.Status().Contains("\"name\":\"recorder cut test\""));
+            on = false;
+            WaitFor(delegate { return heavyRan; }, 5000);
+
             Log.Flush(2000);
             Console.WriteLine(pass + " passed, " + fail + " failed.");
             return fail > 0 ? 1 : 0;

@@ -332,7 +332,7 @@ namespace IRDash
         {
             RecAudio.Say = delegate (string m) { Log.W(m); };
             try { if (Program.IniFile != null && File.Exists(Program.IniFile)) { string t = File.ReadAllText(Program.IniFile); enabled = ParseSwitch(t); audioMode = ParseAudioSwitch(t) ? "auto" : "off"; } } catch (Exception ex) { Log.W("recorder: irdash.ini: " + ex.Message); }
-            if (Mock) { enabled = true; audioMode = "off"; }
+            if (Mock) { enabled = true; audioMode = "auto"; }      // the sound code runs too (RecAudio.NoSystemFallback: only iRacing and CrewChief, never the whole PC)
             LoadClips();       // clips already made are served even while the recorder is off
             LoadSessions();
         }
@@ -1369,6 +1369,21 @@ namespace IRDash
                     catch { }
                 }
                 if (wishFile != null && !s.SaveWhenDone) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " - a SAVE pressed earlier is honoured"); }
+                // W0-3 review #6: on the Jobs thread the session file never sleeps waiting for a cut, a probe or the screen recorder (every
+                // other job waited behind it, up to 3 minutes). It goes back to the recorder, whose housekeeping queues it again (QueueFinishing)
+                // once nothing of this session is still busy.
+                if (Jobs.OnWorker)
+                {
+                    bool busyNow = waitVideo && ff != null;
+                    lock (gate)
+                    {
+                        if (probing > 0) busyNow = true;
+                        foreach (RecCut c in cuts) if (c.Lap != null && s.Laps.Contains(c.Lap) && !c.Done) busyNow = true;
+                        foreach (RecInc x in incCuts) if (x.Sess == s.Id && !x.Done) busyNow = true;
+                        if (busyNow) { s.FinishQueued = false; s.RetryAfterMs = WallMs() + 3000; }
+                    }
+                    if (busyNow) { Log.W("recorder: session " + s.Id + " - a clip of it is still to cut; the session file follows it"); return; }
+                }
                 if (waitVideo)
                 {
                     double ffUntil = WallMs() + 120000;
@@ -2003,7 +2018,19 @@ namespace IRDash
                     }
                     foreach (RecSess s in del) sessions.Remove(s);
                 }
-                foreach (RecSess s in del) { try { File.Delete(s.File); File.Delete(Path.ChangeExtension(s.File, ".json")); } catch { } Log.W("recorder: removed the oldest unsaved session " + s.Id + " (keeps the last " + keepSessions + " and " + (recentBudget / 1073741824.0).ToString("0", Inv) + " GB)"); }
+                for (int di = 0; di < del.Count; di++)
+                {
+                    RecSess s = del[di];
+                    if (Jobs.ShouldYield)
+                    {
+                        // W0-3 review #5: a session started: the rest stay listed and are removed by the next housekeeping after it
+                        lock (gate) { for (int k = di; k < del.Count; k++) sessions.Add(del[k]); sessions.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); }); }
+                        Log.W("recorder: retention paused - a session started; " + (del.Count - di) + " more after it");
+                        return;
+                    }
+                    try { File.Delete(s.File); File.Delete(Path.ChangeExtension(s.File, ".json")); } catch { }
+                    Log.W("recorder: removed the oldest unsaved session " + s.Id + " (keeps the last " + keepSessions + " and " + (recentBudget / 1073741824.0).ToString("0", Inv) + " GB)");
+                }
 
                 long min = (long)(MinFreeGbSession * 1073741824.0), free = FreeBytes(VaultRoot);
                 if (free < min)
@@ -2017,7 +2044,7 @@ namespace IRDash
                         // space (a player holding the file open, or the shortage is outside the vault): never empty the vault
                         // chasing space it cannot win back. A session written in the last 10 minutes is not a candidate.
                         long shortfall = min - FreeBytes(VaultRoot), freed = 0;
-                        for (int guard = 0; guard < 1000 && freed < shortfall && FreeBytes(VaultRoot) < min; guard++)
+                        for (int guard = 0; guard < 1000 && freed < shortfall && FreeBytes(VaultRoot) < min && !Jobs.ShouldYield; guard++)
                         {
                             RecSess victim = null;
                             lock (gate)

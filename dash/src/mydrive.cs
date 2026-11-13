@@ -475,7 +475,7 @@ namespace IRDash
         }
 
         // W0-3: the top screen asks every 1.2 s, even while he drives. While a session is on the answer comes from the last one as long as
-        // nothing it is made from changed: the stamps of the files it reads and the few values held in memory (one look each, no parse).
+        // nothing it is made from changed: the stamps of the files it reads, the few values held in memory and a 10 s clock step.
         static string jsonCache, jsonKey;
         static string Stamp(string f) { try { FileInfo fi = new FileInfo(f); return fi.Exists ? fi.Length + ":" + fi.LastWriteTimeUtc.Ticks : "-"; } catch { return "?"; } }
         static string JsonKey()
@@ -485,7 +485,7 @@ namespace IRDash
              .Append(Stamp(Path.Combine(dir, "results.json"))).Append('|').Append(Stamp(Path.Combine(rootDir, @"dash\career-cache.tsv"))).Append('|')
              .Append(Stamp(Path.Combine(rootDir, @"mydrive\ai-status.txt"))).Append('|').Append(slow.Busy).Append(slow.Label).Append('|')
              .Append(DateTime.UtcNow < openUntil).Append('|').Append(draftKind).Append(draftText).Append('|').Append(speedSeq).Append(speedWhich).Append('|')
-             .Append(Sdk.Latest.Connected).Append(Program.IsDriving).Append('|').Append(Sdk.Latest.SessionVersion).Append('|').Append(DateTime.Now.ToString("yyyyMMddHHmm"));
+             .Append(Sdk.Latest.Connected).Append(Program.IsDriving).Append('|').Append(Sdk.Latest.SessionVersion).Append('|').Append(DateTime.UtcNow.Ticks / (10 * TimeSpan.TicksPerSecond));      // review #8: a 10 s step, so last.age and the 20 s "could not start" note stay right
             return k.ToString();
         }
 

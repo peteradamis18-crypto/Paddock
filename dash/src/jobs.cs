@@ -25,7 +25,7 @@ namespace IRDash
 {
     static class Jobs
     {
-        sealed class Job { public string Name; public Action Work; public bool WhenFree, Routine; public DateTime Queued; }
+        sealed class Job { public string Name; public Action Work; public bool WhenFree, Routine, Save; public DateTime Queued; }
         sealed class Ran { public string Name; public double Waited, Took; public bool WhenFree, Yielded; public string Error = ""; public DateTime At; }
 
         // is a session on? Program sets it to RigState.SessionOn; tests set a stub. null = never.
@@ -69,17 +69,37 @@ namespace IRDash
             worker.Start();
         }
 
-        public static bool Run(string name, Action work, bool whenFree) { return Add(name, work, whenFree, false); }
+        public static bool Run(string name, Action work, bool whenFree) { return Add(name, work, whenFree, false, false); }
         // upkeep that runs every few seconds: logged only when it waited for a session or took a second
-        public static bool Routine(string name, Action work) { return Add(name, work, true, true); }
+        public static bool Routine(string name, Action work) { return Add(name, work, true, true, false); }
+        // a small save that waits for the session to end, but is written at once when irdash closes (Drain): field laps, the PB
+        // reference, the Vault's index (review #7: they lived only in memory until the grace period and the queue had run)
+        public static bool Save(string name, Action work) { return Add(name, work, true, false, true); }
 
-        static bool Add(string name, Action work, bool whenFree, bool routine)
+        // irdash is closing (tray Exit, Windows shutting down, the SHUT DOWN key): the queued saves run now, on this thread, without the
+        // grace period. Clip cuts and the session file are not run here: their segments stay on disk and the recorder makes a recovered
+        // session of them at the next start (Recorder.FinishLeftovers); a lap clip still waiting is lost.
+        public static int Drain(int ms)
+        {
+            Stopwatch sw = Stopwatch.StartNew(); int n = 0;
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                Job j = null;
+                lock (gate) { foreach (Job q in queue) if (q.Save) { j = q; break; } if (j != null) queue.Remove(j); }
+                if (j == null) break;
+                try { j.Work(); n++; Log.W("jobs: " + j.Name + " ran at exit (waited " + S((Now - j.Queued).TotalSeconds) + " s)"); }
+                catch (Exception ex) { Log.W("jobs: " + j.Name + " failed at exit: " + ex.Message); }
+            }
+            return n;
+        }
+
+        static bool Add(string name, Action work, bool whenFree, bool routine, bool save)
         {
             if (work == null) return false;
             lock (gate)
             {
                 foreach (Job q in queue) if (q.Name == name) return false;      // already waiting: once is enough
-                Job j = new Job(); j.Name = name ?? "job"; j.Work = work; j.WhenFree = whenFree; j.Routine = routine; j.Queued = Now;
+                Job j = new Job(); j.Name = name ?? "job"; j.Work = work; j.WhenFree = whenFree; j.Routine = routine; j.Save = save; j.Queued = Now;
                 queue.Add(j);
                 EnsureWorker();
                 Monitor.PulseAll(gate);
@@ -96,7 +116,7 @@ namespace IRDash
         {
             lock (gate) { yielded = true; yieldCount++; }
             Log.W("jobs: " + name + " paused - a session started; the rest runs after it");
-            Add(name, rest, true, false);
+            Add(name, rest, true, false, false);
         }
 
         [DllImport("kernel32.dll")] static extern IntPtr GetCurrentThread();

@@ -1,10 +1,10 @@
 # server-load-test.ps1 (W0-3, plan layer 3) - what irdash costs while Peter drives, measured on the REAL server.
 # Starts a copy of irdash in test mode (irdash.exe --test <folder> --port 8499, from %TEMP%: no window, no tray, no watchdog, no delta
-# bar, no screen capture - irdash itself stands in for ffmpeg - no CrewChief / Stream Deck / overlay launching, every file in the folder),
-# replays the 3-minute 12 Nov race fixture at 5x through /api/test/ibt while a pretend top screen reads /stream at 30 Hz and polls the
+# bar, no screen capture - irdash itself stands in for ffmpeg - no CrewChief / Stream Deck / overlay launching, every file in the folder;
+# the 2 s guard runs with its window moves going nowhere and the watchdog only looking), replays the 3-minute 12 Nov race fixture at 2x (90 s) through /api/test/ibt while a pretend top screen reads /stream at 30 Hz and polls the
 # pages, and samples irdash once a second: CPU, disk writes, threads, every file it writes, every delete (a file watcher), and its own
 # count of process-list scans (proc.cs). Ceilings while the replay says a session is on:
-#   no file write over 1 MB, no delete, no process scan (the perf sampler's one 5 s read for the black box is the only one, and it does
+#   no file written over 1 MB (file watcher, with sizes), under 1 MB written by irdash in all (its I/O counters), no delete, no process scan (the perf sampler's one 5 s read for the black box is the only one, and it does
 #   not go through the counter), irdash under 3 % of one core on average, under 40 threads, no job that waits for free ran.
 # After the replay the deferred jobs run (after the 20 s grace) and the test prints what ran and how long each waited.
 # OFFLINE: port 8499 only, never the live irdash (8199), never the live dash folder. Stops at once if the sim starts.
@@ -48,17 +48,19 @@ public static class LoadProbe {
   [StructLayout(LayoutKind.Sequential)] public struct IO { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }
   [DllImport("kernel32.dll")] static extern bool GetProcessIoCounters(IntPtr h, out IO c);
   public static ulong WriteBytes(IntPtr h) { IO c; return GetProcessIoCounters(h, out c) ? c.WriteBytes : 0; }
-  // every delete, rename and write under the folder, with its time
+  // every write, create, rename and delete under the folder, with its time and the file's size at that moment (a temp file written
+  // and renamed between two samples, or an atomic rewrite, is still seen with its size)
   static FileSystemWatcher w; static readonly List<string> ev = new List<string>();
   public static void Watch(string dir) {
     w = new FileSystemWatcher(dir); w.IncludeSubdirectories = true; w.InternalBufferSize = 65536;
     w.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite;
-    w.Deleted += delegate (object s, FileSystemEventArgs e) { Add("delete", e.FullPath); };
-    w.Renamed += delegate (object s, RenamedEventArgs e) { Add("rename", e.OldFullPath + " -> " + e.FullPath); };
-    w.Created += delegate (object s, FileSystemEventArgs e) { Add("create", e.FullPath); };
+    w.Deleted += delegate (object s, FileSystemEventArgs e) { Add("delete", e.FullPath, e.FullPath); };
+    w.Renamed += delegate (object s, RenamedEventArgs e) { Add("rename", e.OldFullPath + " -> " + e.FullPath, e.FullPath); };
+    w.Created += delegate (object s, FileSystemEventArgs e) { Add("create", e.FullPath, e.FullPath); };
+    w.Changed += delegate (object s, FileSystemEventArgs e) { Add("write", e.FullPath, e.FullPath); };
     w.EnableRaisingEvents = true;
   }
-  static void Add(string k, string p) { lock (ev) ev.Add(DateTime.UtcNow.Ticks + "\t" + k + "\t" + p); }
+  static void Add(string k, string p, string sizeOf) { long n = -1; try { FileInfo f = new FileInfo(sizeOf); if (f.Exists) n = f.Length; } catch { } lock (ev) ev.Add(DateTime.UtcNow.Ticks + "\t" + k + "\t" + p + "\t" + n); }
   public static string[] Events() { lock (ev) return ev.ToArray(); }
   public static void Stop() { if (w != null) { w.EnableRaisingEvents = false; w.Dispose(); } }
 }
@@ -104,7 +106,7 @@ try {
   Check 'no window (no kiosk, no tray dialog)' ($p.MainWindowHandle -eq [IntPtr]::Zero)
   $log0 = Get-Content "$dir\dash\irdash.log" -Raw -ErrorAction SilentlyContinue
   Check 'the log says test mode, data under the test folder' ($log0 -match 'test mode: port 8499, data under')
-  Check 'no CrewChief watch, no watchdog, no delta bar (nothing of the kind in the log)' ($log0 -notmatch 'spotter guard|watchdog:|delta bar:')
+  Check 'no CrewChief watch and no delta bar (the guard and the watchdog run, and only look)' ($log0 -notmatch 'spotter:|delta bar:')
   # the start-up jobs (maps, the career scan, the owned cars) run first: the session is measured on a quiet server
   for ($i = 0; $i -lt 90; $i++) { $j = Json '/jobs'; if ($j -and $j.jobs.queued.Count -eq 0 -and -not $j.jobs.running -and $j.jobs.ran -ge 1) { break }; Start-Sleep 1 }
   "  start-up jobs: " + (($j.jobs.recent | ForEach-Object { "$($_.name) ($($_.tookS) s)" }) -join ', ')
@@ -169,8 +171,8 @@ try {
   Start-Sleep 2
   $c0 = $p.TotalProcessorTime.TotalSeconds; Start-Sleep 8; $p.Refresh()
   "  before the session (stream and polls, no session): $([math]::Round(100 * ($p.TotalProcessorTime.TotalSeconds - $c0) / 8, 2)) % of one core, $($p.Threads.Count) threads"
-  $start = Get "/api/test/ibt?file=$([Uri]::EscapeDataString($fixture))&speed=5"
-  Check 'the replay starts (GET /api/test/ibt, 5x)' ($start.code -eq 200) "$($start.code) $($start.body)"
+  $start = Get "/api/test/ibt?file=$([Uri]::EscapeDataString($fixture))&speed=2"
+  Check 'the replay starts (GET /api/test/ibt, 2x: 90 s of session)' ($start.code -eq 200) "$($start.code) $($start.body)"
   $on = $false; for ($i = 0; $i -lt 40 -and -not $on; $i++) { Start-Sleep -Milliseconds 250; $st = Json '/rig/state'; $on = $st -and $st.sessionOn }
   Check 'irdash says a session is on' $on
   $onAt = [DateTime]::UtcNow
@@ -184,7 +186,7 @@ try {
   $size0 = @{}; foreach ($f in Get-ChildItem $dir -Recurse -File) { $size0[$f.FullName] = $f.Length }
   $maxThreads = 0; $samples = @(); $maxGrow = 0; $maxGrowFile = ''; $done = $false; $busyStop = $null
   $whenFreeRan = @()
-  for ($sec = 0; $sec -lt 75 -and -not $done; $sec++) {
+  for ($sec = 0; $sec -lt 150 -and -not $done; $sec++) {
     Start-Sleep 1
     $why = LiveBusy; if ($why) { $busyStop = $why; break }
     $p.Refresh(); $th = $p.Threads.Count; if ($th -gt $maxThreads) { $maxThreads = $th }
@@ -204,14 +206,17 @@ try {
   $cpu1 = $p.TotalProcessorTime.TotalSeconds; $wb1 = [LoadProbe]::WriteBytes($p.Handle); $t1 = [DateTime]::UtcNow
   $offAt = [DateTime]::UtcNow
   foreach ($r in $j1.jobs.recent) { if ($r.whenFree -and ([DateTime]::Parse($r.at).ToUniversalTime() -gt $onAt)) { $whenFreeRan += $r.name } }
-  $ev = [LoadProbe]::Events() | ForEach-Object { $a = $_.Split("`t"); [pscustomobject]@{ T = [DateTime]::new([long]$a[0], 'Utc'); K = $a[1]; P = $a[2] } } | Where-Object { $_.T -ge $onAt -and $_.T -le $offAt }
+  $ev = [LoadProbe]::Events() | ForEach-Object { $a = $_.Split("`t"); [pscustomobject]@{ T = [DateTime]::new([long]$a[0], 'Utc'); K = $a[1]; P = $a[2]; N = [long]$a[3] } } | Where-Object { $_.T -ge $onAt -and $_.T -le $offAt }
+  $big = $ev | Where-Object { $_.K -ne 'delete' } | Sort-Object N -Descending | Select-Object -First 1
+  if ($big -and $big.N -gt $maxGrow) { $maxGrow = $big.N; $maxGrowFile = ($big.P -replace '^.* -> ', '').Substring($dir.Length + 1) }
   $dels = @($ev | Where-Object { $_.K -eq 'delete' -and $_.P -notmatch '\.tmp$' })
   if ($busyStop) { throw "the rig got busy: $busyStop" }
   $wall = ($t1 - $t0).TotalSeconds; $hookS = 0.0; foreach ($v in $hook.Values) { $hookS += $v[1] - $v[0] }
   $allPct = 100.0 * ($cpu1 - $cpu0) / $wall; $hookPct = 100.0 * $hookS / $wall; $cpuPct = $allPct - $hookPct
   Check "the replay ran to its end while a session was on ($([math]::Round($wall)) s)" ($done -and $stillOn)
   Check "the pretend top screen got the stream ($($shared.events) frames) and its polls answered ($($shared.req) requests, $($shared.err) errors)" ($shared.events -gt 100 -and $shared.req -gt 50 -and $shared.err -eq 0) $shared.errAt
-  Check "no file write over 1 MB (biggest: $([math]::Round($maxGrow / 1KB)) KB, $maxGrowFile)" ($maxGrow -le 1MB)
+  Check "no file written over 1 MB (biggest: $([math]::Round($maxGrow / 1KB)) KB, $maxGrowFile; $(@($ev | Where-Object { $_.K -ne 'delete' }).Count) writes seen)" ($maxGrow -le 1MB)
+  Check "irdash wrote under 1 MB in all during the session ($([math]::Round(($wb1 - $wb0) / 1KB)) KB, its own I/O counters)" (($wb1 - $wb0) -lt 1MB)
   Check "no delete while the session was on ($($dels.Count))" ($dels.Count -eq 0) (($dels | ForEach-Object { $_.P.Substring($dir.Length + 1) }) -join '; ')
   Check "no process scan while the session was on ($($scans1 - $scans0); the perf sampler's 5 s read for the black box is the only one, outside the counter)" (($scans1 - $scans0) -eq 0) ($j1.proc.byName | ConvertTo-Json -Compress)
   Check "irdash under 3 % of one core on average ($([math]::Round($cpuPct, 2)) %; the process $([math]::Round($allPct, 2)) %, of which the test hook's replay and pump $([math]::Round($hookPct, 2)) %, threads $($hookIds -join '/'))" ($cpuPct -lt 3 -and $hook.Count -eq 2)
@@ -249,6 +254,18 @@ try {
   Check 'nothing is left waiting' ($after.jobs.queued.Count -eq 0)
   $log = Get-Content "$dir\dash\irdash.log" -Raw
   Check 'one log line per job ("jobs: <name> ran (waited x s, took y s)")' ($log -match 'jobs: recorder session file \S+ ran \(waited \d+\.\d s, took \d+\.\d s\)')
+
+  # ---------------------------------------------------------------- 4. irdash closes right after a session
+  Assert-RigFree -Where '4. exit'
+  'Section 4. irdash closes during a session: the waiting saves are written at once (review #7)'
+  [void](Get "/api/test/ibt?file=$([Uri]::EscapeDataString($fixture))&speed=5&to=40")
+  $on = $false; for ($i = 0; $i -lt 40 -and -not $on; $i++) { Start-Sleep -Milliseconds 250; $st = Json '/rig/state'; $on = $st -and $st.sessionOn }
+  Start-Sleep 2; $k2 = Get '/api/do?c=vkkeep'; Start-Sleep 1
+  $q = Json '/jobs'; $waiting = @($q.jobs.queued | ForEach-Object { $_.name })
+  Check 'a KEEP in this session queued the Vault save, waiting for the session to end' ($on -and $k2.code -eq 200 -and ($waiting -contains 'vault save'))
+  [void](Get '/api/test/quit' 3000); for ($i = 0; $i -lt 20 -and -not $p.HasExited; $i++) { Start-Sleep -Milliseconds 500 }
+  $log = Get-Content "$dir\dash\irdash.log" -Raw
+  Check 'irdash closed and wrote the Vault save first, without waiting for the grace period' ($p.HasExited -and $log -match 'jobs: vault save ran at exit')
   ''
   $summary
 }

@@ -77,9 +77,34 @@ namespace IRDash
                 }
                 try { ps[i].Dispose(); } catch { }
             }
-            if (keep != null) lock (gate) held[name] = keep;
-            lock (gate) last[name] = new KeyValuePair<DateTime, bool>(DateTime.UtcNow, keep != null || ps.Length > 0);
+            lock (gate)
+            {
+                last[name] = new KeyValuePair<DateTime, bool>(DateTime.UtcNow, keep != null || ps.Length > 0);
+                if (keep != null)
+                {
+                    // two threads may have scanned at once: the first one stored wins, the second handle is let go (review W0-3 #9)
+                    Process other;
+                    if (held.TryGetValue(name, out other) && other != keep)
+                    {
+                        bool otherGone; try { otherGone = other.HasExited; } catch { otherGone = true; }
+                        if (!otherGone) { try { keep.Dispose(); } catch { } return other; }
+                        try { other.Dispose(); } catch { }
+                    }
+                    held[name] = keep;
+                }
+            }
             return keep;
+        }
+
+        // Held, but while a session is on a program that was missing is not looked for again (no scan every few seconds all race)
+        public static Process HeldInSession(string name)
+        {
+            Process p;
+            lock (gate) held.TryGetValue(name, out p);
+            if (p != null) { bool gone; try { gone = p.HasExited; } catch { gone = true; } if (!gone) return p; }
+            bool known; lock (gate) known = last.ContainsKey(name);
+            if (known && Session()) return null;
+            return Held(name);
         }
 
         public static bool Running(string name) { return Held(name) != null; }

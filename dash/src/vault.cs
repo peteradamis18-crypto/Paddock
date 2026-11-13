@@ -898,6 +898,12 @@ namespace IRDash
                 }
                 SaveAll();
             }
+            catch (OperationCanceledException)
+            {
+                // the half copy goes; the whole copy is made again after the session
+                try { if (File.Exists(dest + ".tmp")) File.Delete(dest + ".tmp"); } catch { }
+                Jobs.Again("vault copy " + rel, delegate { CopyNow(id, src, dest, rel); });
+            }
             catch (Exception ex) { Log.W("vault: copy for " + id + ": " + ex.Message); }
         }
 
@@ -908,7 +914,11 @@ namespace IRDash
             using (FileStream b = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 byte[] buf = new byte[1 << 20]; int n, since = 0;
-                while ((n = a.Read(buf, 0, buf.Length)) > 0) { b.Write(buf, 0, n); if (++since % 8 == 0 && !sandbox) Thread.Sleep(3); }
+                while ((n = a.Read(buf, 0, buf.Length)) > 0)
+                {
+                    if (Jobs.ShouldYield) throw new OperationCanceledException("a session started");      // W0-3 review #5: between the 1 MB pieces
+                    b.Write(buf, 0, n); if (++since % 8 == 0 && !sandbox) Thread.Sleep(3);
+                }
             }
         }
 
@@ -1290,7 +1300,7 @@ namespace IRDash
             if (m == null) { Log.W("vault: KEEP pressed but no session is running"); Beep(false); return false; }
             lock (gate) marks.Add(m);
             AppendMark(m);      // W0-3: one line now (it survives a crash); the 7 index files are written after the session
-            Jobs.Run("vault save", SaveAll, true);
+            Jobs.Save("vault save", SaveAll);
             try { Recorder.Keep(m.Lap); } catch (Exception ex) { Log.W("recorder: KEEP: " + ex.Message); }      // the lap's own video is kept too (if the recorder is on)
             Log.W("vault: KEEP - " + m.Car + " at " + m.Track + ", lap " + m.Lap + " (" + (m.Pct * 100).ToString("0") + " % round); it is kept when the session file is complete");
             TestEvents.Add("keep lap " + m.Lap);
@@ -1307,7 +1317,7 @@ namespace IRDash
                 lastClip = DateTime.Now;
             }
             VMark m = MarkNow("clip");
-            if (m != null) { lock (gate) marks.Add(m); AppendMark(m); Jobs.Run("vault save", SaveAll, true); }      // W0-3: one line now, the rest after
+            if (m != null) { lock (gate) marks.Add(m); AppendMark(m); Jobs.Save("vault save", SaveAll); }      // W0-3: one line now, the rest after
             VNv nv = Nv(); string how; bool pressed = false;
             if (sandbox || Sdk.Pretend) { how = "test: would press " + nv.HotkeyText; TestEvents.Add("clip hotkey " + nv.HotkeyText); pressed = true; }
             else if (!nv.IrEnabled) how = "NVIDIA Instant Replay is off: turn it on in the NVIDIA app";

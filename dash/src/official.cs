@@ -195,7 +195,7 @@ namespace IRDash
 
         static void QueueOwned()
         {
-            Jobs.Run("official owned", delegate { lock (gate) { if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) { BuildOwned(); dirty = true; } } }, true);
+            Jobs.Run("official owned", delegate { if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) BuildOwned(); }, true);      // review #5: the walk runs outside the lock
         }
 
         // ---- the season (parsed from the PDF once, kept as JSON) ----
@@ -589,7 +589,7 @@ namespace IRDash
             Dictionary<string, string> learned = LearnCarNames();
             OfficialCore.OwnedMap o = OfficialCore.BuildOwned(carPaths, trackDirs, learned, null);
             ApplyUiCheck(o);
-            owned = o; ownedBuilt = DateTime.UtcNow;
+            lock (gate) { owned = o; ownedBuilt = DateTime.UtcNow; dirty = true; }      // swapped in under the lock; /home never waited for the walk
             try { WriteFile("owned.json", OwnedJson()); } catch { }
         }
 

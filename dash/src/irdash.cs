@@ -753,6 +753,7 @@ namespace IRDash
                         if (IRDeck.DeckGuard.IsPowerCommand(dc))
                         {
                             string why = PowerGate.Check(dc, xpOk, here, KidsLockOn(), DateTime.UtcNow.Ticks);
+                            if (why == "ok" && dc == "shutdown") Jobs.Drain(5000);      // W0-3: the saves still waiting for the grace period are written first
                             bool pk = why == "ok" && StartIrdeck(dc == "shutdown" ? "power off --confirmed" : "power sleep --confirmed");
                             if (why != "ok") Log.W("api/do: " + dc + " refused (" + why + ")");
                             Send(s, pk ? 200 : 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "Not done: the PC is turned off or put to sleep only from the CONFIRM screen on the deck (" + why + ")."), "Access-Control-Allow-Origin: *\r\n"); return;
@@ -1650,7 +1651,7 @@ namespace IRDash
             {
                 if (deckMissingSince == DateTime.MinValue) deckMissingSince = now;
                 string exe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
-                if ((now - deckMissingSince).TotalSeconds > 10 && (now - lastDeckStart).TotalSeconds > 60 && File.Exists(exe))
+                if ((now - deckMissingSince).TotalSeconds > 10 && (now - lastDeckStart).TotalSeconds > 60 && File.Exists(exe) && !Program.TestMode)      // test mode looks, never acts
                 {
                     lastDeckStart = now; DeckToMain("start");   // W0-1: it opens on MAIN, never on the page it was last left on
                     if (RigState.SessionOn) Log.W("watchdog: Stream Deck restarted during a session (it was not running; the deck is his controls, so this one stays allowed)");
@@ -1707,17 +1708,38 @@ namespace IRDash
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool QueryUnbiasedInterruptTime(out ulong t);
         static int deckWork;   // 1 while a restart (or the wake restart) runs on its own thread: the 2 s timer never blocks on it
 
+        // W0-3 (review #3): the log used to be read whole (up to 4 MB) every 2 s; now only what was added since the last look is read,
+        // and the whole file again only when the app started a new one (shorter, or a new creation time)
+        static readonly object tailGate = new object();
+        static string tailText; static long tailLen = -1; static DateTime tailBorn;
         static string DeckLogTail()
         {
             string logFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Elgato\StreamDeck\logs\StreamDeck.log");
             if (!File.Exists(logFile)) return null;
-            using (FileStream fs = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            lock (tailGate)
             {
-                // the whole current log (the app starts a new one each run, ~40 KB a day): a tail could lose the "connected" line on a
-                // long day and make the "never found the deck" rule restart the app mid-race
-                long start = Math.Max(0, fs.Length - 4000000); fs.Position = start;
-                byte[] b = new byte[fs.Length - start]; int n = fs.Read(b, 0, b.Length);
-                return Encoding.UTF8.GetString(b, 0, n);
+                DateTime born = File.GetCreationTimeUtc(logFile);
+                using (FileStream fs = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    long len = fs.Length;
+                    if (tailText == null || born != tailBorn || len < tailLen)
+                    {
+                        // the whole current log (the app starts a new one each run, ~40 KB a day): a tail could lose the "connected" line on a
+                        // long day and make the "never found the deck" rule restart the app mid-race
+                        long start = Math.Max(0, len - 4000000); fs.Position = start;
+                        byte[] b = new byte[len - start]; int n = fs.Read(b, 0, b.Length);
+                        tailText = Encoding.UTF8.GetString(b, 0, n);
+                    }
+                    else if (len > tailLen)
+                    {
+                        fs.Position = tailLen;
+                        byte[] b = new byte[len - tailLen]; int n = fs.Read(b, 0, b.Length);
+                        tailText += Encoding.UTF8.GetString(b, 0, n);
+                        if (tailText.Length > 4000000) tailText = tailText.Substring(tailText.Length - 4000000);
+                    }
+                    tailLen = len; tailBorn = born;
+                    return tailText;
+                }
             }
         }
 
@@ -1755,6 +1777,7 @@ namespace IRDash
         // kill + start the app, then wait (up to 20 s) for it to log the deck as connected again. Runs on its own thread.
         static void RestartDeck(string why)
         {
+            if (Program.TestMode) { RigState.LogOnce("test watch deck", "test mode: the watchdog would restart the Stream Deck app (" + why + ") - it only looks here"); return; }
             if (System.Threading.Interlocked.CompareExchange(ref deckWork, 1, 0) != 0) return;
             if (RigState.SessionOn) Log.W("watchdog: Stream Deck restarted during a session (" + why + "; the deck is his controls, so this one stays allowed)");
             lastDeckRestart = DateTime.Now; deckLostSince = DateTime.MinValue;
@@ -1796,19 +1819,20 @@ namespace IRDash
             lastTickAt = now; lastAwake = awakeNow;
             if (deckWork != 0 || !File.Exists(@"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe")) return;
             if (DeckWatch.IsWake(gap, awake)) { Log.W("watchdog: the PC woke up (asleep about " + (gap - awake).ToString("0", CultureInfo.InvariantCulture) + " s)"); RestartDeck("wake"); return; }
-            Process[] sd = Process.GetProcessesByName("StreamDeck");
-            if (sd.Length == 0 || DeckBuilding()) return;
+            Process sd = Proc.Held("StreamDeck");      // W0-3: its held handle, no scan every 2 s while it runs
+            if (sd == null || DeckBuilding()) return;
             string tail = DeckLogTail();
             if (DeckWatch.Connected(tail)) { deckLostSince = DateTime.MinValue; return; }
             int disc = tail == null ? -1 : tail.LastIndexOf("Device disconnected, id:", StringComparison.Ordinal);
             if (disc >= 0 && deckLostSince == DateTime.MinValue) deckLostSince = now;
-            double age = 0; try { age = (now - sd[0].StartTime).TotalSeconds; } catch { }
+            double age = 0; try { age = (now - sd.StartTime).TotalSeconds; } catch { }
             string act = DeckWatch.Action(tail, true, age, DeckPresentCached(), deckLostSince == DateTime.MinValue ? 0 : (now - deckLostSince).TotalSeconds, (now - lastDeckRestart).TotalSeconds);
             if (act != "") RestartDeck(act);
         }
 
         static void Recover(string why)
         {
+            if (Program.TestMode) { RigState.LogOnce("test watch recover", "test mode: the watchdog would clear a stuck launch (" + why + ") - it only looks here"); return; }
             DateTime now = DateTime.Now;
             recoveries.RemoveAll(delegate (DateTime when) { return (now - when).TotalMinutes > 60; });
             if ((now - lastRecovery).TotalMinutes < 3 || recoveries.Count >= 3) return;   // never loop
@@ -2799,7 +2823,7 @@ namespace IRDash
                 // at once (Sdk.Run), and the test script checks the rig (tests\guard.ps1) every second and stops it.
                 RigState.SimProbe = delegate { return false; };
                 try { File.WriteAllText(Path.Combine(Dir, "test-hook.on"), "test mode"); } catch { }
-                Recorder.Mock = true;
+                Recorder.Mock = true; RecAudio.NoSystemFallback = true;      // the sound runs "auto" (iRacing and CrewChief only), never the whole PC
                 Log.W("test mode: port " + cfg.Port + ", data under " + RootDir + " - no window, no watchdog, no delta bar, no capture");
             }
             RigState.Start();      // the sim process and the START mark, every 2 s on its own thread (rigstate.cs)
@@ -2840,8 +2864,14 @@ namespace IRDash
 
             if (TestMode)
             {
-                // no tray, no window, no timers on a UI thread: the server and the workers run until /api/test/quit or the test ends the process
+                // no tray, no window, no timers on a UI thread: the server and the workers run until /api/test/quit or the test ends the process.
+                // The 2 s guard runs as in a real session (review #3: so the load test measures it), with no UI thread: every window move it
+                // would post goes nowhere, the watchdog only looks, the doctor stays off, and iRacing's own files are never written.
+                cfg.LogAllCars = false; cfg.SyncSimIni = false;
+                Thread tguard = new Thread(delegate () { GuardLoop(null, false); });
+                tguard.IsBackground = true; tguard.Priority = ThreadPriority.BelowNormal; tguard.Name = "Guard"; tguard.Start();
                 TestQuit.WaitOne();
+                Jobs.Drain(5000);      // the same as the tray's Exit
                 Log.W("test mode: quit");
                 Log.Flush(2000);
                 GC.KeepAlive(mutex);
@@ -2861,7 +2891,9 @@ namespace IRDash
             menu.Items.Add("Play intro", null, delegate { Showcase.Request(); });
             menu.Items.Add("Open folder", null, delegate { Process.Start("explorer.exe", "\"" + Dir + "\""); });
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit", null, delegate { CloseDashboard(); tray.Visible = false; Application.Exit(); });
+            menu.Items.Add("Exit", null, delegate { Jobs.Drain(5000); CloseDashboard(); tray.Visible = false; Application.Exit(); });
+            // Windows is shutting down or signing out (also after the SHUT DOWN key): the waiting saves are written first (W0-3 review #7)
+            Microsoft.Win32.SystemEvents.SessionEnding += delegate { Jobs.Drain(4000); Log.Flush(1000); };
             tray.ContextMenuStrip = menu;
             tray.DoubleClick += delegate { OpenDashboard(); };
 
@@ -2925,9 +2957,16 @@ namespace IRDash
         {
             bool was = Driving;
             try { Frame lf = Sdk.Latest; Driving = lf.Connected && lf.Num("IsOnTrack") != 0; } catch { Driving = false; }
-            // irdashies overlays: raised once when driving starts, then only when a check sees one that is not above the sim (no 5 s loop)
-            try { if (Driving && (!was || OverlayBelow())) Post(ui, RaiseOverlays); } catch (Exception ex) { Log.W("overlays raise: " + ex.Message); }
-            try { if (cfg.PlaceSim) { IntPtr h = SimWindow(); if (h != IntPtr.Zero) Post(ui, delegate { PlaceSim(h); }); else simHwnd = IntPtr.Zero; } } catch (Exception ex) { Log.W("place sim: " + ex.Message); }
+            IntPtr simH = IntPtr.Zero; try { simH = SimWindow(); } catch { }
+            // irdashies overlays: raised when driving starts, when one is seen below the sim in the z-order (or without TOPMOST), and when
+            // the sim comes back to the front (a focus steal and return). No 5 s loop. (review #1: the flag alone missed a sim on top)
+            try
+            {
+                bool front = simH != IntPtr.Zero && Native.GetForegroundWindow() == simH, frontBefore = simFront; simFront = front;
+                if (ZOrder.ShouldRaise(Driving, was, Driving && OverlayBelow(simH), front, frontBefore)) Post(ui, RaiseOverlays);
+            }
+            catch (Exception ex) { Log.W("overlays raise: " + ex.Message); }
+            try { if (cfg.PlaceSim) { IntPtr h = simH; if (h != IntPtr.Zero) Post(ui, delegate { PlaceSim(h); }); else simHwnd = IntPtr.Zero; } } catch (Exception ex) { Log.W("place sim: " + ex.Message); }
             try { if (cfg.KeepDash && !noBrowser) KeepDash(ui); } catch (Exception ex) { Log.W("keep dash: " + ex.Message); }
             try { if (cfg.LogAllCars) EnsureLogAllCars(); } catch (Exception ex) { Log.W("log all cars: " + ex.Message); }
             try { if (cfg.SyncSimIni) EnsureSimIni(); } catch (Exception ex) { Log.W("sim ini: " + ex.Message); }
@@ -2936,8 +2975,10 @@ namespace IRDash
             try { Timings.Tick(); } catch (Exception ex) { Log.W("timings: " + ex.Message); }
             try { SimPriority.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("sim priority: " + ex.Message); }
             try { Nav.Tick(Driving); } catch { }
-            try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); }
+            // test mode: the doctor closes and hides real windows on his screens, so it does not run in a test copy
+            if (!Program.TestMode) { try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); } }
         }
+        static bool simFront;
 
         static Icon MakeIcon()
         {
@@ -3170,14 +3211,17 @@ namespace IRDash
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
 
         // the guard thread: is an irdashies overlay showing that is not TOPMOST (so the sim can cover it)? Looks only, changes nothing.
-        static bool OverlayBelow()
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
+        static IntPtr Above(IntPtr h) { return GetWindow(h, 3); }      // GW_HWNDPREV: the window just above h
+        static bool OverlayBelow(IntPtr simH)
         {
             bool below = false;
             EnumWindows(delegate (IntPtr h, IntPtr l)
             {
                 StringBuilder t = new StringBuilder(128);
                 GetWindowText(h, t, 128);
-                if (t.ToString().StartsWith("irDashies -") && IsWindowVisible(h) && (Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOPMOST) == 0) { below = true; return false; }
+                if (t.ToString().StartsWith("irDashies -") && IsWindowVisible(h) &&
+                    ((Native.GetWindowLong(h, Native.GWL_EXSTYLE) & Native.WS_EX_TOPMOST) == 0 || ZOrder.SimAbove(h, simH, Above, 2000))) { below = true; return false; }
                 return true;
             }, IntPtr.Zero);
             return below;

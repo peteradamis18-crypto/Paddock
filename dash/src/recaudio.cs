@@ -211,6 +211,7 @@ namespace IRDash
             // auto: the game and the spotter, nothing else
             AddNewTargets(srcs);
             if (srcs.Count > 0) return "";
+            if (NoSystemFallback) return "test mode: no whole-PC sound";
             Src sys = new Src(); sys.Kind = "system"; sys.What = "whole PC";
             why = OpenSystem(sys);
             if (sys.Alive) { srcs.Add(sys); Say("recorder: iRacing's own sound could not be picked out (" + (lastErr.Length > 0 ? lastErr : "not running") + ") - recording the whole PC's sound instead"); }
@@ -218,9 +219,13 @@ namespace IRDash
         }
 
         static readonly Dictionary<int, double> refused = new Dictionary<int, double>();
+        // W0-3 (review #3): this listed every process on the PC every 5 s all session. Now the two programs it wants are looked up by
+        // name through Proc: a held handle once found, and no new look for a missing one while a session is on.
+        public static bool NoSystemFallback;      // test mode: never record the whole PC's sound
         static void AddNewTargets(List<Src> srcs)
         {
-            Process[] all; try { all = Process.GetProcesses(); } catch { return; }
+            List<Process> all = new List<Process>();
+            foreach (string name in new[] { RigState.SimProcess, "CrewChiefV4" }) { Process h = Proc.HeldInSession(name); if (h != null) all.Add(h); }
             foreach (Process p in all)
             {
                 string n; try { n = p.ProcessName; } catch { continue; }

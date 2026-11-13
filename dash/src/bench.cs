@@ -270,7 +270,7 @@ namespace IRDash
         {
             if (string.IsNullOrEmpty(yaml)) return;
             float[] tele = (float[])teleBest.Clone(); long ts = capTs;
-            Jobs.Run("field laps save " + Interlocked.Increment(ref saveSeq), delegate
+            Jobs.Save("field laps save " + Interlocked.Increment(ref saveSeq), delegate
             {
                 try
                 {
@@ -308,7 +308,7 @@ namespace IRDash
                     if (added > 0) Log.W("field laps: " + added + " driver laps saved from this session");
                 }
                 catch (Exception ex) { Log.W("field laps (live): " + ex.Message); }
-            }, true);
+            });
         }
 
         // ---- the numbers for one combo ----
