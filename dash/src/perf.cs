@@ -614,8 +614,9 @@ namespace IRDash
         public static string Verdict(PerfRow r)
         {
             if (r.Secs < 1) return "No driving in this file.";
-            string frz = Freeze(r);
-            return frz.Length > 0 ? frz + " " + Limit(r) : Limit(r);
+            string frz = Freeze(r), lim = Limit(r);
+            if (frz.Length == 0) return lim;
+            return frz + " " + (lim.StartsWith("Smooth", StringComparison.Ordinal) ? "Otherwise smooth" + lim.Substring(6) : lim);
         }
 
         static string Limit(PerfRow r)

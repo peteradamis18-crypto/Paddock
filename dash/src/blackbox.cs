@@ -126,7 +126,7 @@ namespace IRDash
                 try { run = Running != null && Running(); } catch { }
                 try
                 {
-                    if (run && w == null) Open();
+                    if (run && w == null) { Open(); next = clock.Elapsed.TotalMilliseconds; }     // the timetable starts with the file
                     else if (!run && w != null) Close();
                 }
                 catch (Exception ex) { Log.W("black box: " + ex.Message); }
