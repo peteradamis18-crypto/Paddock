@@ -6,20 +6,12 @@
 const Q = new URLSearchParams(location.search), DRY = Q.get('dry') === '1', FIXTURE = Q.get('fixture') || '';
 window.racesDone = [];
 const $ = id => document.getElementById(id);
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const isRace = x => /race/i.test(x.type || '') && !/qual|prac/i.test(x.type || '');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function when(ms) {
-  const d = new Date(ms), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
-  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  return (same(d, now) ? 'Today' : same(d, y) ? 'Yesterday' : DAY[d.getDay()] + ' ' + d.getDate() + ' ' + MON[d.getMonth()]) + ' · ' + hm;
-}
-function lap(t) { if (!(t > 0)) return ''; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); }
-function size(mb) { return mb >= 1000 ? (mb / 1024).toFixed(1) + ' GB' : Math.max(1, Math.round(mb)) + ' MB'; }
-function kind(t) { return isRace({ type: t }) ? '' : /qual/i.test(t || '') ? 'Qualifying' : /prac|warm/i.test(t || '') ? 'Practice' : (t || 'Session'); }
+// dates, laps and sizes come from ../app/lib/format.js (the one way to write them); the list gives megabytes
+const when = ms => Fmt.whenRel(ms), lap = Fmt.lap, size = mb => Fmt.size(mb * 1048576);
+function kind(t) { return isRace({ type: t }) ? '' : Fmt.sessionName(t); }
 
 const Races = {
   data: null, all: false, armed: '', armTimer: 0, busy: '',
@@ -50,8 +42,7 @@ const Races = {
     const all = d.races || [], races = all.filter(isRace), show = this.all ? all : races;
     $('sub').innerHTML = '<b>' + races.length + '</b> ' + (races.length === 1 ? 'race' : 'races') + ' on this PC · <b>' + (d.freeGb | 0) + ' GB</b> free · also in Videos\\Paddock';
     if (!show.length) {
-      list.innerHTML = '<div class="empty">' + (this.all ? 'Nothing recorded yet.' : 'No races yet. Every race longer than 5 minutes lands here by itself.') + '</div>';
-      return;
+      list.innerHTML = '<div class="empty">' + (this.all ? 'Nothing recorded yet.' : 'No races yet. Every race longer than 5 minutes lands here by itself.') + '</div>';      return;
     }
     list.innerHTML = show.map(r => {
       const k = kind(r.type), facts = [esc(r.car)];
@@ -65,16 +56,16 @@ const Races = {
         '<div class="track">' + esc(r.track) + (r.saved ? '<span class="tag">Kept</span>' : '') + '</div>' +
         '<div class="facts">' + facts.join(' · ') + '</div></div>' +
         '<div class="acts">' +
-        (r.saved ? '' : '<button type="button" class="act keep" data-act="keep" data-id="' + id + '">Keep</button>') +
-        '<button type="button" class="act watch" data-act="watch" data-id="' + id + '">Watch</button>' +
-        '<button type="button" class="act share" data-act="share" data-id="' + id + '">Share on YouTube</button>' +
-        '<button type="button" class="act del' + (armed ? ' armed' : '') + '" data-act="del" data-id="' + id + '">' + (armed ? 'Click again to delete' : 'Delete from PC') + '</button>' +
+        (r.saved ? '' : '<button type="button" class="btn keep" data-act="keep" data-id="' + id + '">Keep</button>') +
+        '<button type="button" class="btn watch" data-act="watch" data-id="' + id + '">Watch</button>' +
+        '<button type="button" class="btn gold share" data-act="share" data-id="' + id + '">Share on YouTube</button>' +
+        '<button type="button" class="btn danger del' +(armed ? ' armed' : '') + '" data-act="del" data-id="' + id + '">' + (armed ? 'Click again to delete' : 'Delete from PC') + '</button>' +
         '</div></div>';
     }).join('');
   },
 
   say(text, bad) {
-    const m = $('msg'); m.textContent = text; m.className = bad ? 'bad' : ''; m.hidden = false;
+    const m = $('msg'); m.textContent = text; m.className = bad ? 'banner bad' : 'banner'; m.hidden = false;
     clearTimeout(this.sayTimer); this.sayTimer = setTimeout(() => { m.hidden = true; }, bad ? 9000 : 15000);
   },
 
