@@ -32,7 +32,8 @@
 /docs/mockups/_chrome-profile/
 /tests/last/
 /tests/shots/
-/tests/fixtures/
+/tests/fixtures/*.ibt
+/tests/tools/bin/
 /tests/*.last.txt
 /tests/run-all.last.txt
 /docs/tasks/log/
