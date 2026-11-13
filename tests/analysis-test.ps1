@@ -149,15 +149,15 @@ try {
   Check 'a corner under 0.05 s has no sentence' ($smallTalk.Count -eq 0)
   # L-1: the pool the statistics are counted from is the laps iRacing counted (4 in these 3 files: 79.549, 79.575, 79.878, 79.931). Before, it was every timed lap (18 clean laps).
   Check 'the optimal lap is 78.704 s (the 24 mini-sectors joined over the counted laps), which is at or under the PB' ((Near $a.store.optimal 78.704 0.001) -and ([double]$a.store.optimal -le [double]$a.store.pb.time + 0.001) -and (Near $a.store.pb.time 79.549 0.001))
-  Check 'the best equal thirds are 79.269, the lead check against the 79.549 PB' ((Near $a.store.thirdBest 79.269 0.001) -and ([double]$a.store.thirdBest -le [double]$a.store.pb.time + 0.001))
-  Check 'the best iRacing sectors are 79.162, and the mini-sector optimal is not above them' ((Near $a.store.sectorBest 79.162 0.001) -and ([double]$a.store.optimal -le [double]$a.store.sectorBest + 0.001))
+  Check 'the best equal thirds are 79.268 (W0-6: pinned to iRacing''s millisecond figure), the lead check against the 79.549 PB' ((Near $a.store.thirdBest 79.268 0.001) -and ([double]$a.store.thirdBest -le [double]$a.store.pb.time + 0.001))
+  Check 'the best iRacing sectors are 79.161, and the mini-sector optimal is not above them' ((Near $a.store.sectorBest 79.161 0.001) -and ([double]$a.store.optimal -le [double]$a.store.sectorBest + 0.001))
   Check 'the quickest mini-sector is still a speed the car can reach' ([double]$a.store.miniMin -ge 2.1)
   $dump8 = Join-Path $outDir 'lap8a.txt'
   $n8 = @(Get-Content -LiteralPath $dump8).Count
   Check 'the first and last 80 m are not shortened by the start/finish wrap' ((TimeMatchesSpeed $dump8 0 80) -and (TimeMatchesSpeed $dump8 ($n8 - 81) ($n8 - 1)))
   Check 'the goal line is produced' ($a.store.goal -eq 'Next: 1:19.1 in best corners (T7 0.21, T10b 0.20, T6 0.05)')
-  Check 'consistency is the best against the average of the counted laps (4: 79.549, 79.575, 79.878, 79.931 = 79.733, spread 0.382)' ($a.store.consistency.n -eq 4 -and (Near $a.store.consistency.best 79.549 0.001) -and ([double]$a.store.consistency.avg5 -ge [double]$a.store.consistency.best) -and ([double]$a.store.consistency.spread -ge 0) -and (Near $a.store.consistency.avg5 ((79.549 + 79.575 + 79.878 + 79.931) / 4) 0.001) -and (Near $a.store.consistency.spread (79.931 - 79.549) 0.001))
-  Check 'the store read all three files and counted 4 laps iRacing counted' ($a.store.files -eq 3 -and $a.store.cleanLaps -eq 4)
+  Check 'consistency is the best against the average of the counted laps (W0-6, 5: 79.549, 79.575, 79.878, 79.931, 80.078 = 79.802, spread 0.529; lap 10 has one off-track record and counts)' ($a.store.consistency.n -eq 5 -and (Near $a.store.consistency.best 79.549 0.001) -and ([double]$a.store.consistency.avg5 -ge [double]$a.store.consistency.best) -and ([double]$a.store.consistency.spread -ge 0) -and (Near $a.store.consistency.avg5 ((79.549 + 79.575 + 79.878 + 79.931 + 80.078) / 5) 0.001) -and (Near $a.store.consistency.spread (80.078 - 79.549) 0.001))
+  Check 'the store read all three files and counted 5 laps iRacing counted' ($a.store.files -eq 3 -and $a.store.cleanLaps -eq 5)
   $skips = @($a.laps | Where-Object { -not $_.clean } | ForEach-Object { $_.skip })
   Check 'pit, in, off and partial laps are skipped' (($skips -contains 'pit') -and ($skips -contains 'in') -and ($skips -contains 'off') -and ($skips -contains 'partial'))
 

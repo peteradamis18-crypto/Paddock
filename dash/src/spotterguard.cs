@@ -12,7 +12,9 @@ namespace IRDash
     static class SpotterGuard
     {
         const string SimName = RigState.SimProcess, Name = "CrewChiefV4";
-        const string Exe = @"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe";
+        // The one owner of starting CrewChief (W0-9; 09: Rig Doctor had its own path and copy of this, and two could start within seconds).
+        // Rig Doctor asks StartCrewChief; nothing else starts it.
+        public const string Exe = @"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe";
         const int FreshWindowSeconds = 120;    // past this the sim is well under way: leave a running CrewChief alone
         const int SoundChecks = 4, SoundCheckGapSeconds = 10;   // CrewChief's mixer entry can take a few seconds to appear
 
@@ -81,12 +83,28 @@ namespace IRDash
             Launch();
         }
 
-        static void Launch()
+        static void Launch() { StartCrewChief("spotter guard"); }
+
+        // Starts CrewChief unless it is running or was started in the last 30 s (it takes a few seconds to show up as a process).
+        // true = it was started now. who: for the log.
+        static readonly object launchGate = new object();
+        static DateTime launchedAt = DateTime.MinValue;
+        public static bool StartCrewChief(string who)
         {
-            if (!File.Exists(Exe)) { Log.W("spotter: CrewChief is not installed"); return; }
-            ProcessStartInfo psi = new ProcessStartInfo(Exe);
-            psi.UseShellExecute = true; psi.WorkingDirectory = Path.GetDirectoryName(Exe);
-            Process.Start(psi);
+            lock (launchGate)
+            {
+                if (!File.Exists(Exe)) { Log.W("spotter: CrewChief is not installed"); return false; }
+                if ((DateTime.Now - launchedAt).TotalSeconds < 30) return false;
+                Process[] cc = Process.GetProcessesByName(Name);
+                bool up = cc.Length > 0; foreach (Process p in cc) p.Dispose();
+                if (up) return false;
+                ProcessStartInfo psi = new ProcessStartInfo(Exe);
+                psi.UseShellExecute = true; psi.WorkingDirectory = Path.GetDirectoryName(Exe);
+                Process.Start(psi);
+                launchedAt = DateTime.Now;
+                Log.W("spotter: CrewChief started (" + who + ")");
+                return true;
+            }
         }
 
         // irdeck owns the sound code: "spotter" unmutes CrewChief and brings it up to its minimum level. Exit 0 = its mixer entry was there.

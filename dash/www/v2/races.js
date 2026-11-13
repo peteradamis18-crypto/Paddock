@@ -48,7 +48,8 @@ const Races = {
       const k = kind(r.type), facts = [esc(r.car)];
       if (r.min) facts.push(r.min + ' min');
       if (r.laps) facts.push(r.laps + (r.laps === 1 ? ' lap' : ' laps'));
-      if (r.best > 0) facts.push('best <b>' + lap(r.best) + '</b>');
+      if (r.best > 0) facts.push('best <b>' + lap(r.best) + '</b>');      // the server's best (W0-6: the quickest lap iRacing counted)
+      else if (r.laps) facts.push('no clean lap');
       facts.push(size(r.mb || 0));
       if (r.exportMissing) facts.push('<b>no longer in Videos\\Paddock</b> (still kept here)');   // W0-2: a renamed or moved YouTube copy never deletes the race
       const armed = this.armed === r.id, id = esc(r.id);

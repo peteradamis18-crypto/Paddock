@@ -222,9 +222,8 @@ namespace IRDash
             long ts = 0;
             using (t.fs)
             {
-                byte[] h = new byte[144]; t.fs.Position = 0; t.fs.Read(h, 0, 144);
-                long sd = BitConverter.ToInt64(h, 112);
-                if (sd > 1000000000L && sd < 4000000000L) ts = sd;
+                DateTime st = t.File.StartUtc;      // W0-6: IbtFile reads the header (then the file name); the laps are other drivers' (iRacing's own times), nothing to judge here
+                if (st != DateTime.MinValue) ts = (long)(st - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
                 else ts = (long)(new FileInfo(path).LastWriteTimeUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
                 return ParseYaml(t.yaml, ts, "ibt-start", out otherHumans);
             }

@@ -526,11 +526,12 @@ function renderLeft() {
   h = '';
   // laps of the session
   if (V.laps) {
-    const laps = V.laps.laps.filter(l => l.time > 15), best = laps.filter(l => !l.pit).reduce((a, l) => Math.min(a, l.time), 1e9);
-    h += '<h2>Laps<em>' + laps.length + ' full</em></h2><div class="scroll" id="lapScroll">';
+    // the best is the server's (W0-6: the quickest lap iRacing counted); this page never works one out itself
+    const laps = V.laps.laps.filter(l => l.time > 15), best = V.laps.bestTime, bestN = V.laps.best;
+    h += '<h2>Laps<em>' + laps.length + ' full, ' + (V.laps.countedLaps != null ? V.laps.countedLaps : 0) + ' counted</em></h2><div class="scroll" id="lapScroll">';
     for (const l of laps) {
-      const flags = [l.pit ? 'PIT' : '', l.off ? 'OFF' : '', l.inc ? l.inc + 'x' : ''].filter(Boolean).join(' ');
-      h += '<div class="lap' + (l.n === V.lap ? ' cur' : '') + (l.pit ? ' dim' : '') + '" tabindex="0" data-lap="' + l.n + '"><span class="n">' + l.n + '</span><span>' + fmtLap(l.time) + '</span><span class="d">' + (l.time - best < 0.0005 && !l.pit ? 'best' : fmtDelta(l.time - best, 3)) + '</span><span class="fl">' + esc(flags) + '</span></div>';
+      const flags = [l.pit ? 'PIT' : '', l.inc ? l.inc + 'x' : '', l.counted ? '' : 'not counted'].filter(Boolean).join(' ');
+      h += '<div class="lap' + (l.n === V.lap ? ' cur' : '') + (l.pit || !l.counted ? ' dim' : '') + '" tabindex="0" data-lap="' + l.n + '"><span class="n">' + l.n + '</span><span>' + fmtLap(l.time) + '</span><span class="d">' + (l.n === bestN ? 'best' : best > 0 ? fmtDelta(l.time - best, 3) : '–') + '</span><span class="fl">' + esc(flags) + '</span></div>';
     }
     h += '</div>';
   }

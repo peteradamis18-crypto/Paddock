@@ -112,7 +112,7 @@ foreach ($n in $wanted) {
   $g = { param($i) [double]($m.Groups[$i].Value -replace ',', '') }
   $ok = $m.Success -and (Near $s.avg (& $g 1) 1) -and (Near $s.low1 (& $g 2) 1) -and (Near $s.worst (& $g 3) 1) -and (Near $s.cpu (& $g 4) 1) -and (Near $s.cpuPeak (& $g 5) 1) -and (Near $s.gpu (& $g 6) 1) -and (Near $s.gpuPeak (& $g 7) 1) -and (Near $s.secs (& $g 8) 1)
   Check ("{0}: avg {1:N1}/{2}, 1% low {3:N1}/{4}, worst {5:N1}/{6}, CPU {7}/{8}, GPU {9}/{10}, {11:N0}s/{12}s (irdash / fps-report)" -f $n.Substring(0, [math]::Min(34, $n.Length)), $s.avg, (& $g 1), $s.low1, (& $g 2), $s.worst, (& $g 3), $s.cpu, (& $g 4), $s.gpu, (& $g 6), $s.secs, (& $g 8)) $ok
-  Check "  same highest frame rate ($($below.Groups[1].Value)) and time below it ($($below.Groups[2].Value) %), same verdict ($code)" ((Near $s.cap ([double]$below.Groups[1].Value) 1) -and (Near $s.belowPct ([double]$below.Groups[2].Value) 1) -and $s.verdict -eq $code)
+  Check "  same highest frame rate ($($below.Groups[1].Value)) and time below it ($($below.Groups[2].Value) %), same verdict ($code)" ((Near $s.cap ([double]$below.Groups[1].Value) 1) -and (Near $s.belowPct ([double]$below.Groups[2].Value) 1) -and ($s.verdict -eq $code -or ($s.limit -and -not (Near $s.limit $s.cap 1))))   # W0-9: "held" is now measured against the sim's own frame limit
   $compared++
 }
 Check "at least 3 files compared ($compared)" ($compared -ge 3)
@@ -160,7 +160,7 @@ Check '/perf/status has state, files, reports, counted, duplicates, pending, cha
 $r404 = Get-Raw '/perf/session?file=nosuchfile.ibt'; $r404b = Get-Raw ('/perf/session?file=' + (Q '..\..\Windows\win.ini')); $r404c = Get-Raw '/perf/session'
 Check 'an unknown file, a path trick and no file name all answer 404, never a file read' ($r404.code -eq 404 -and $r404b.code -eq 404 -and $r404c.code -eq 404)
 $sm = J '/perf/summary'
-Check "the one-line summary for Rig Doctor reads like a sentence: $($sm.text)" ($sm.text -match 'Last session \d+ fps average' -or $sm.text -match 'No frame-rate report')
+Check "the one-line summary for Rig Doctor reads like a sentence: $($sm.text)" ($sm.text -match 'No freezes in your last race \(avg \d+ fps\)' -or $sm.text -match 'the picture froze for \d+ s' -or $sm.text -match 'is still being processed' -or $sm.text -match 'No frame-rate report')
 Check 'the test routes are closed without the test hook' ((Get-Raw '/perf/test/drives').code -in 404, 409)
 
 Section '4. change markers, and "did it help?"' | Out-Null

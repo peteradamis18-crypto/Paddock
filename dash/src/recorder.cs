@@ -136,6 +136,7 @@ namespace IRDash
     {
         public int N; public double Start, End, Time, Bar, SessionTime, OffMs, MaxPct;
         public bool Pit, Off, Dirty, Keep, Resolved, Ended, Queued, Joined;
+        public bool Counted, Incident; public int IncStart; public string NotCounted = "";      // W0-6: iRacing's verdict (LapStore's LiveJudge); NotCounted = the reason (LapRules)
         public string Car = "", Track = "", Config = "", Why = "";
     }
 
@@ -236,7 +237,8 @@ namespace IRDash
         static bool diskPaused; static double lastSessHk; static string recState = "";
 
         // the laps
-        static RecLap cur, pendLap; static readonly List<RecLap> recent = new List<RecLap>(); static double lastPct = -1, lastCt = -1, lastLastTime, pendBefore, sessionBest, longestLap, lastTrackMs; static int sessNum = -99;
+        static RecLap cur, pendLap; static readonly List<RecLap> recent = new List<RecLap>(); static double lastPct = -1, lastCt = -1, lastLastTime, lastBestFrame, sessionBest, longestLap, lastTrackMs; static int sessNum = -99;
+        static readonly LiveJudge judge = new LiveJudge();      // W0-6: the one counted rule, live (lapstore.cs)
         static bool haveConn; static int yamlVer = -1; static Combo.Info combo = new Combo.Info(); static double lastHk, lastHookCheck;
 
         // ---------------- where things are ----------------
@@ -523,7 +525,7 @@ namespace IRDash
 
         static void ResetTracker()
         {
-            cur = null; lastPct = -1; lastCt = -1; sessionBest = 0; pendLap = null; longestLap = 0; lastTrackMs = 0;
+            cur = null; lastPct = -1; lastCt = -1; sessionBest = 0; pendLap = null; longestLap = 0; lastTrackMs = 0; judge.Reset();
             lock (gate) recent.Clear();
         }
 
@@ -537,7 +539,7 @@ namespace IRDash
 
         static RecLap StartLap(int n, double startMs, bool dirty, Frame f)
         {
-            RecLap l = new RecLap(); l.N = n; l.Start = startMs; l.Dirty = dirty; l.SessionTime = f.Num("SessionTime");
+            RecLap l = new RecLap(); l.N = n; l.Start = startMs; l.Dirty = dirty; l.SessionTime = f.Num("SessionTime"); l.IncStart = (int)f.Num("PlayerCarMyIncidentCount");
             Combo.Info ci = ComboNow(f); l.Car = ci.Car; l.Track = ci.Track; l.Config = ci.Config;
             return l;
         }
@@ -550,14 +552,14 @@ namespace IRDash
                 return;
             }
             if (!haveConn) { haveConn = true; ResetTracker(); restarts = 0; gaveUp = false; }
-            double llt = f.Num("LapLastLapTime"), prevLlt = lastLastTime;
+            double llt = f.Num("LapLastLapTime"), prevLlt = lastLastTime, bestNow = f.Num("LapBestLapTime"), prevBest = lastBestFrame;
             if (pendLap != null)
             {
-                // the lap time is announced up to ~1.5 s after the line
-                if (Math.Abs(llt - pendBefore) > 0.0005 && llt > 1) ResolveLap(pendLap, llt, false);
-                else if (now - pendLap.End > 3000) ResolveLap(pendLap, 0, true);
+                // W0-6: iRacing announces the time 1-2 s after the line and its best follows; the judge waits up to 4 s (LapRules.WindowSec)
+                LapRec jr = judge.Poll(now / 1000.0, llt, bestNow);
+                if (jr != null) ResolveLap(pendLap, jr);
             }
-            lastLastTime = llt;
+            lastLastTime = llt; lastBestFrame = bestNow;
             int sess = (int)f.Num("SessionNum");
             if (sess != sessNum) { if (sessNum != -99) { if (pendLap != null) ResolveLap(pendLap, 0, true); ResetTracker(); } sessNum = sess; }
             bool onTrack = f.Num("IsOnTrack") != 0 && f.Num("IsReplayPlaying") == 0;
@@ -582,7 +584,7 @@ namespace IRDash
                     // show the last lap for one frame. A lap that never got past the middle was not driven over the line (a tow, a reset): not a fair lap.
                     double boundary = (ct >= 0 && ct < 1.0) ? now - ct * 1000.0 : now - 8;
                     if (cur.MaxPct < 0.5) cur.Dirty = true;
-                    FinishLap(cur, boundary, f, prevLlt);
+                    FinishLap(cur, boundary, f, prevLlt, prevBest);
                     cur = StartLap(lap, boundary, false, f); cur.Pit = pit; crossed = true;
                 }
                 else
@@ -607,17 +609,28 @@ namespace IRDash
             lastPct = pct; lastCt = ct;
         }
 
-        static void FinishLap(RecLap l, double endMs, Frame f, double lltBefore)
+        static void FinishLap(RecLap l, double endMs, Frame f, double lltBefore, double bestBefore)
         {
             if (pendLap != null) ResolveLap(pendLap, 0, true);
             l.End = endMs; l.Ended = true; l.Bar = KnownBar();           // the bar before this lap can change it
             if (l.Car.Length == 0) { Combo.Info ci = ComboNow(f); l.Car = ci.Car; l.Track = ci.Track; l.Config = ci.Config; }
-            pendLap = l; pendBefore = lltBefore;
+            l.Incident = (int)f.Num("PlayerCarMyIncidentCount") > l.IncStart;
+            pendLap = l;
+            judge.Line(l.N, endMs / 1000.0, (l.End - l.Start) / 1000.0, bestBefore, l.Pit, l.Incident, (int)(l.OffMs / 16.7), lltBefore);
         }
 
+        // decided by the live judge: iRacing's time and whether it counted the lap
+        static void ResolveLap(RecLap l, LapRec jr)
+        {
+            l.Counted = jr.Counted && !l.Dirty; l.NotCounted = l.Dirty && jr.Counted ? "reset" : jr.Why;
+            ResolveLap(l, jr.Why == "no-time" ? 0 : jr.Time, jr.Why == "no-time");
+        }
+
+        // computed = iRacing gave no time (disconnect, a new session, the window ended): such a lap never counts
         static void ResolveLap(RecLap l, double official, bool computed)
         {
-            if (pendLap == l) pendLap = null;
+            if (pendLap == l) { pendLap = null; judge.Cancel(); }
+            if (computed) { l.Counted = false; if (l.NotCounted.Length == 0) l.NotCounted = "no-time"; }
             l.Time = (!computed && official > 1) ? official : (l.End - l.Start) / 1000.0;
             l.Resolved = true;
             lock (gate) { recent.Add(l); if (recent.Count > 12) recent.RemoveAt(0); if (openSess != null && !openSess.Laps.Contains(l)) openSess.Laps.Add(l); }
@@ -628,12 +641,12 @@ namespace IRDash
         // the lap is over: is it worth a clip?
         static void Decide(RecLap l)
         {
-            bool valid = l.Time > minLap && !l.Pit && !l.Off && !l.Dirty;
+            bool valid = l.Counted && l.Time > minLap && !l.Dirty;      // W0-6: only a lap iRacing counted can be a best or a PB (an incident lap never is)
             bool pb = valid && l.Bar > 0 && l.Time < l.Bar - 0.0005;
             bool best = valid && (sessionBest <= 0 || l.Time < sessionBest - 0.0005);
             if (valid && (sessionBest <= 0 || l.Time < sessionBest)) sessionBest = l.Time;
             l.Why = l.Keep ? "keep" : pb ? "pb" : best ? "best" : "";
-            string what = "lap " + l.N + " " + Lap(l.Time) + " (from " + Epoch.AddMilliseconds(l.Start).ToLocalTime().ToString("HH:mm:ss.fff", Inv) + ")" + (valid ? " clean" : " not clean (" + (l.Pit ? "pits" : l.Off ? "off track" : l.Joined ? "joined part-way" : l.Dirty ? "reset or tow" : "too short") + ")");
+            string what = "lap " + l.N + " " + Lap(l.Time) + " (from " + Epoch.AddMilliseconds(l.Start).ToLocalTime().ToString("HH:mm:ss.fff", Inv) + ")" + (valid ? " counted" : " not counted (" + (l.Pit ? "pits" : l.Joined ? "joined part-way" : l.Dirty ? "reset or tow" : LapRules.Words(l.NotCounted)) + ")");
             if (l.Why.Length == 0) { Log.W("recorder: " + what + " - no clip (not a session best, not a personal best)"); return; }
             Log.W("recorder: " + what + " - " + (l.Why == "pb" ? "a personal best" : l.Why == "keep" ? "kept (KEEP key)" : "the session's best so far") + ", cutting its clip");
             QueueCut(l);
@@ -850,6 +863,7 @@ namespace IRDash
         static void RunCut(RecCut job)
         {
             RecLap L = job.Lap;
+            BlackBox.Event("clip cut start lap " + L.N);       // the black box: was Paddock busy when the picture froze?
             try
             {
                 string id = ClipId(L), mp4 = Path.Combine(ClipDir, id + ".mp4");
@@ -932,7 +946,7 @@ namespace IRDash
                 RecClip c2 = new RecClip();
                 c2.Id = id; c2.File = mp4; c2.Lap = L.N; c2.LapTime = L.Time; c2.LapStartMs = L.Start; c2.LapEndMs = L.End; c2.ClipStartMs = k0; c2.VideoStart = vstart; c2.Duration = vdur;
                 c2.LapStartOffset = (L.Start - k0) / 1000.0 + vstart; c2.LapEndOffset = (L.End - k0) / 1000.0 + vstart; c2.Rotation = rot; c2.Encoder = run != null ? run.Encoder : "";
-                c2.Car = L.Car; c2.Track = L.Track; c2.Config = L.Config; c2.SessionTime = L.SessionTime; c2.Why = L.Why; c2.Keep = L.Keep; c2.Pb = L.Why == "pb" || (L.Bar > 0 && L.Time > 0 && L.Time < L.Bar - 0.0005);
+                c2.Car = L.Car; c2.Track = L.Track; c2.Config = L.Config; c2.SessionTime = L.SessionTime; c2.Why = L.Why; c2.Keep = L.Keep; c2.Pb = L.Why == "pb" || (L.Counted && L.Bar > 0 && L.Time > 0 && L.Time < L.Bar - 0.0005);
                 c2.Truncated = truncated; c2.Created = (long)WallMs(); c2.Audio = aud;
                 if (File.Exists(mp4)) File.Delete(mp4);
                 File.Move(tmp, mp4);
@@ -944,7 +958,7 @@ namespace IRDash
                 PruneClips();
             }
             catch (Exception ex) { if (job.Result.Length == 0 || job.Result == "cut failed") job.Result = "error"; Log.W("recorder: clip of lap " + L.N + ": " + ex.Message); }
-            finally { lock (gate) if (job.Result != "retry") job.Done = true; }
+            finally { lock (gate) if (job.Result != "retry") job.Done = true; BlackBox.Event("clip cut end lap " + L.N); }
         }
 
         static RecClip FindClip(string id) { foreach (RecClip c in clips) if (c.Id == id) return c; return null; }
@@ -1297,6 +1311,7 @@ namespace IRDash
         static void FinishSession(RecSess s, bool waitVideo)
         {
             List<double[]> wallIncidents = null;     // the incidents in wall time, put back if this attempt fails (a retry must not read file offsets as wall time)
+            BlackBox.Event("session file save");
             try
             {
                 if (FreeBytes(SessDir) < (long)(MinFreeGb * 1073741824.0)) { lock (gate) s.FinishQueued = false; Log.W("recorder: session " + s.Id + " kept as segments - less than 50 GB is free"); return; }
@@ -1422,7 +1437,8 @@ namespace IRDash
                 }
                 s.Created = (long)WallMs();
                 s.LapRows = new List<double[]>();
-                foreach (RecLap l in lapSnapshot) s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, (!l.Pit && !l.Off && !l.Dirty && l.Time > minLap) ? 1 : 0, (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005)) ? 1 : 0, l.Start });   // [5] = wall start, so a time inside the lap maps through the same spans even over a gap
+                // W0-6: lap 0 (formation / out lap) is no lap; [3] = counted by iRacing (the live judge), [4] = a PB among counted laps
+                foreach (RecLap l in lapSnapshot) { if (l.N < 1) continue; bool ok = l.Counted && !l.Dirty && l.Time > minLap; s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, ok ? 1 : 0, (ok && (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005))) ? 1 : 0, l.Start, 1 }); }   // [6] = 1: judged live (W0-6); [5] = wall start, so a time inside the lap maps through the same spans even over a gap
                 List<double[]> inc = new List<double[]>();
                 foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
@@ -1497,7 +1513,7 @@ namespace IRDash
         static string SessJson(RecSess s)
         {
             StringBuilder lb = new StringBuilder("[");
-            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
+            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + (r.Length > 6 && r[6] == 1 ? ",\"counted\":" + (r[3] != 0 ? "true" : "false") : "") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
             lb.Append(']');
             StringBuilder ib = new StringBuilder("[");
             for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + Num(r[0]) + ",\"count\":" + ((int)r[1]) + "}"); }
@@ -1582,7 +1598,7 @@ namespace IRDash
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
-                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs") }); }
+                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs"), r.ContainsKey("counted") ? 1 : 0 }); }      // [6]: the live judge decided "counted" (a sidecar from before W0-6 has only "clean")
                 System.Collections.IList inc = d.ContainsKey("incidents") ? d["incidents"] as System.Collections.IList : null;
                 if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DN(r, "offset"), DD(r, "count") }); }
                 System.Collections.IList gaps = d.ContainsKey("gaps") ? d["gaps"] as System.Collections.IList : null;
@@ -1782,6 +1798,65 @@ namespace IRDash
 
         public static string FileOf(string id) { lock (gate) { RecSess s = FindDone(id); return s != null && s.File.Length > 0 && File.Exists(s.File) ? s.File : null; } }
 
+        // W0-6: the laps of a recorded session, from the lap truth. First the .ibt of the same session (LapStore: iRacing's own verdict, also for races
+        // recorded before the live judge existed); else the sidecar's rows (counted by the live judge; an older sidecar's lap with an incident inside it
+        // is not counted). laps = real laps (lap 0 never), best = LapStore.Best (0 = no counted lap, shown as "no clean lap").
+        internal static void RaceLaps(RecSess s, out int laps, out int counted, out double best, out int bestN)
+        {
+            FileLaps fl = TruthFor(s);
+            List<LapRec> rows = new List<LapRec>();
+            if (fl != null && fl.Laps.Count > 0) rows = LapStore.OfSession(fl, s.SessionNum);      // only this recording's iRacing session (a file can also hold qualifying)
+            else
+                foreach (double[] r in s.LapRows)
+                {
+                    if (r.Length < 4 || r[0] < 1 || r[2] <= 0) continue;
+                    LapRec l = new LapRec(); l.N = (int)r[0]; l.Time = r[2]; l.Counted = r[3] != 0;
+                    if (!(r.Length > 6 && r[6] == 1))
+                    {
+                        // a sidecar from before the live judge: its "clean" never asked iRacing. What iRacing does that the row can still show: an incident
+                        // lap is out, and lap 1 of a race is out (iRacing's best stays empty after the start lap: 12 Nov, Corvette 6 and 10 Oct)
+                        foreach (double[] x in s.Incidents) if (x.Length > 0 && x[0] >= r[1] && x[0] < r[1] + r[2]) { l.Incident = true; l.Counted = false; }
+                        if (l.N == 1 && Regex.IsMatch(s.Type ?? "", "race", RegexOptions.IgnoreCase)) l.Counted = false;
+                    }
+                    rows.Add(l);
+                }
+            laps = rows.Count; counted = 0; foreach (LapRec l in rows) if (l.Counted) counted++;
+            LapRec b = LapStore.Best(rows); best = b != null ? b.Time : 0; bestN = b != null ? b.N : 0;
+        }
+
+        // The telemetry file of a recorded session: named within 2 minutes of its start, same track and car. From the lap cache only
+        // (a request thread never reads a 74 MB file); a file not in the cache yet is read in the background when he is not driving.
+        static readonly Dictionary<string, string> truthFile = new Dictionary<string, string>();
+        static readonly HashSet<string> truthAsked = new HashSet<string>();
+        static FileLaps TruthFor(RecSess s)
+        {
+            try
+            {
+                string dir = TrackMaps.TelemetryDir;
+                if (dir == null || !Directory.Exists(dir) || s.StartMs <= 0) return null;
+                string known; lock (truthFile) truthFile.TryGetValue(s.Id, out known);
+                if (known != null) return known.Length > 0 ? LapStore.Peek(known) : null;
+                DateTime start = Epoch.AddMilliseconds(s.StartMs);
+                foreach (string f in Directory.GetFiles(dir, "*.ibt"))
+                {
+                    DateTime fs = IbtFile.StartFromName(Path.GetFileName(f));
+                    if (fs == DateTime.MinValue || Math.Abs((fs - start).TotalSeconds) > 120) continue;
+                    FileLaps fl = LapStore.Peek(f);
+                    if (fl == null)
+                    {
+                        bool ask; lock (truthAsked) ask = truthAsked.Add(f);
+                        if (ask && !Program.IsDriving) { string path = f; ThreadPool.QueueUserWorkItem(delegate { try { if (!Program.IsDriving) LapStore.ForFile(path); } catch { } }); }
+                        continue;
+                    }
+                    if (!string.Equals(fl.Track, s.Track, StringComparison.OrdinalIgnoreCase) || (s.Car.Length > 0 && !string.Equals(fl.Car, s.Car, StringComparison.OrdinalIgnoreCase))) continue;
+                    lock (truthFile) truthFile[s.Id] = f;
+                    return fl;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         // GET /api/rec/races: the finished videos, newest first, with what the deck shows on a key, and the disk space left
         public static string RacesJson()
         {
@@ -1794,12 +1869,12 @@ namespace IRDash
             foreach (RecSess s in all)
             {
                 if (s.File.Length == 0 || s.Duration < 30) continue;
-                double best = 0;
-                foreach (double[] r in s.LapRows) if (r.Length > 2 && r[0] >= 1 && r[2] > 0 && (best == 0 || r[2] < best)) best = r[2];
+                int laps, counted; double best; int bestN;
+                RaceLaps(s, out laps, out counted, out best, out bestN);
                 if (!first) sb.Append(','); first = false;
                 sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"car\":" + Json_.S(s.Car) + ",\"type\":" + Json_.S(s.Type) +
-                          ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(s.Duration / 60.0).ToString("0", Inv) + ",\"laps\":" + s.LapRows.Count +
-                          ",\"best\":" + best.ToString("0.000", Inv) + ",\"mb\":" + (s.Bytes / 1048576) + ",\"saved\":" + (s.Saved ? "true" : "false") +
+                          ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(s.Duration / 60.0).ToString("0", Inv) + ",\"laps\":" + laps + ",\"counted\":" + counted +
+                          ",\"best\":" + (best > 0 ? best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + bestN + ",\"mb\":" + (s.Bytes / 1048576) + ",\"saved\":" + (s.Saved ? "true" : "false") +
                           ",\"exported\":" + (File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4")) ? "true" : "false") +
                           (exportMissing.Contains(s.Id) ? ",\"exportMissing\":true,\"note\":\"export missing\"" : "") + "}");
             }
@@ -1987,6 +2062,7 @@ namespace IRDash
 
         static void RunIncident(RecInc job)
         {
+            BlackBox.Event("incident clip cut");
             try
             {
                 if (FreeBytes(ClipDir) < (long)(MinFreeGb * 1073741824.0)) { job.Result = "no disk space"; Log.W("recorder: incident clip skipped - less than 50 GB is free"); return; }
@@ -2160,7 +2236,7 @@ namespace IRDash
                         if (!testOn) { code = 409; return Err("switch the test recorder on first (cmd=on)"); }
                         RecLap l = new RecLap(); int n; double st, en, tm;
                         if (!int.TryParse(Q(q, "n"), out n) || !double.TryParse(Q(q, "start"), NumberStyles.Float, Inv, out st) || !double.TryParse(Q(q, "end"), NumberStyles.Float, Inv, out en) || !double.TryParse(Q(q, "time"), NumberStyles.Float, Inv, out tm)) { code = 400; return Err("n, start, end, time (ms since 1970, seconds) are needed"); }
-                        l.N = n; l.Start = st; l.End = en; l.Time = tm; l.Ended = true; l.Resolved = true; l.Bar = KnownBar(); l.Pit = Q(q, "pit") == "1"; l.Off = Q(q, "off") == "1"; l.Dirty = Q(q, "dirty") == "1"; l.Keep = Q(q, "keep") == "1";
+                        l.N = n; l.Start = st; l.End = en; l.Time = tm; l.Ended = true; l.Resolved = true; l.Bar = KnownBar(); l.Pit = Q(q, "pit") == "1"; l.Off = Q(q, "off") == "1"; l.Dirty = Q(q, "dirty") == "1"; l.Keep = Q(q, "keep") == "1"; l.Counted = !l.Pit && !l.Off && Q(q, "counted") != "0";
                         l.Car = Q(q, "car"); l.Track = Q(q, "track"); l.Config = Q(q, "config");
                         lock (gate) { recent.Add(l); if (openSess != null && !openSess.Laps.Contains(l)) openSess.Laps.Add(l); }
                         if (tm > longestLap) longestLap = tm;

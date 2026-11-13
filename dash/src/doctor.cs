@@ -82,6 +82,7 @@ namespace IRDash
                 try { TunerBox.HideNow(); } catch (Exception ex) { Log.W("doctor: tuner box: " + ex.Message); }
             }
             if (RigState.SessionOn) return;      // never while a session is on (W0-2: it used to wait only while on track)
+            try { RefreshPerf(); } catch (Exception ex) { Log.W("doctor: frame rate: " + ex.Message); }
             double age = (DateTime.Now - Program.StartedAt).TotalSeconds;
             if (!auto1 && age >= 100) { auto1 = true; Run(false); }
             else if (!auto2 && age >= 300) { auto2 = true; lock (gate) autoShow = true; Run(false); }
@@ -166,7 +167,7 @@ namespace IRDash
             };
             string irdRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "irdashies");
             if (gone("overlays_running", Directory.Exists(irdRoot) && !Running("irdashies") && !Overlays.Busy)) go = true;
-            if (gone("crewchief", File.Exists(CrewChiefExe) && !Running("CrewChiefV4"))) go = true;
+            if (gone("crewchief", File.Exists(SpotterGuard.Exe) && !Running("CrewChiefV4"))) go = true;
             if (gone("streamdeck", File.Exists(StreamDeckExe) && !Running("StreamDeck"))) go = true;
             return go;
         }
@@ -209,7 +210,6 @@ namespace IRDash
             return list;
         }
 
-        const string CrewChiefExe = @"C:\Program Files (x86)\Britton IT Ltd\CrewChiefV4\CrewChiefV4.exe";
         const string StreamDeckExe = @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe";
 
         static bool WaitRunning(string name, int seconds) { for (int i = 0; i < seconds * 4 && !Running(name); i++) Thread.Sleep(250); return Running(name); }
@@ -243,8 +243,8 @@ namespace IRDash
         {
             if (!Running("CrewChiefV4"))
             {
-                if (!File.Exists(CrewChiefExe)) return null;
-                StartProgram(CrewChiefExe, null);
+                // one owner starts CrewChief (09: the doctor and the spotter guard each had a path and could start two within seconds)
+                if (!SpotterGuard.StartCrewChief("Rig Doctor")) return null;
                 return WaitRunning("CrewChiefV4", 25) ? "started CrewChief" : null;
             }
             string how = CrewChiefNameFix();
@@ -402,18 +402,9 @@ namespace IRDash
         // iRacing's own graphics file, read-only (iRacing rewrites it when the sim closes)
         static Item CheckGraphics()
         {
-            string ini = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"iRacing\rendererDX11Monitor.ini");
+            string ini = SimSettings.GraphicsFile;
             if (!File.Exists(ini)) return Mk("graphics", "iRacing graphics", "warn", "Graphics file not found", "Start iRacing once");
-            Dictionary<string, string> v = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            bool inSec = false;
-            foreach (string raw in FileText(ini).Split('\n'))
-            {
-                string l = raw.Trim();
-                if (l.StartsWith("[")) { inSec = l == "[Graphics Options]"; continue; }
-                if (!inSec) continue;
-                Match m = Regex.Match(l, @"^(\w+)=([^;\s]*)");
-                if (m.Success) v[m.Groups[1].Value] = m.Groups[2].Value;
-            }
+            Dictionary<string, string> v = SimSettings.Graphics(ini);
             Func<string, string> g = delegate (string k) { string s; return v.TryGetValue(k, out s) ? s : "?"; };
             string cap = g("LimitFrameRate") == "0" ? "no frame limit" : "frame limit " + g("DesiredFPSLimit");
             string reflex = g("NvReflexMode") == "0" ? "Reflex off" : "Reflex on";
@@ -457,10 +448,37 @@ namespace IRDash
 
         // irdash.ini sim_priority: the sim is raised to High priority when a session starts (data.cs)
         // last session's frame rate in one sentence (perf.cs); amber only when the Performance page found something for Peter to look at
+        // A freeze in the last race shows in amber with the black box sentence (lap, place, likely cause).
         static Item CheckPerf()
         {
+            bool froze; string line = Perf.Summary(out froze);
             int look = PerfCheck.AttentionCount();
-            return Mk("performance", "Frame rate", look > 0 ? "warn" : "ok", Perf.Summary(), look > 0 ? "Open the Performance page" : "");
+            return Mk("performance", "Frame rate", look > 0 || froze ? "warn" : "ok", line, look > 0 || froze ? "Open the Performance page" : "");
+        }
+
+        // Once a minute with the sim closed (Tick's 20 s timer runs on the UI thread, so the work goes to a background thread): the
+        // frame-rate line follows the reports as they land ("still being processed" -> the race's own sentence) without a whole new check.
+        static DateTime lastPerf = DateTime.MinValue;
+        static int perfBusy;
+        static void RefreshPerf()
+        {
+            if ((DateTime.Now - lastPerf).TotalSeconds < 60 || PerfSampler.SimRunning) return;
+            bool has; lock (gate) has = !running && items.Exists(delegate (Item i) { return i.Id == "performance"; });
+            if (!has || Interlocked.CompareExchange(ref perfBusy, 1, 0) != 0) return;
+            lastPerf = DateTime.Now;
+            Thread t = new Thread(delegate ()
+            {
+                try
+                {
+                    Item fresh = CheckPerf();
+                    lock (gate)
+                        for (int k = 0; k < items.Count; k++)
+                            if (items[k].Id == "performance" && (items[k].Detail != fresh.Detail || items[k].State != fresh.State)) { items[k] = fresh; Log.W("doctor: frame rate now: " + fresh.Detail); }
+                }
+                catch (Exception ex) { Log.W("doctor: frame rate: " + ex.Message); }
+                finally { Interlocked.Exchange(ref perfBusy, 0); }
+            });
+            t.IsBackground = true; t.Priority = ThreadPriority.BelowNormal; t.Start();
         }
 
         static Item CheckSimPriority()
