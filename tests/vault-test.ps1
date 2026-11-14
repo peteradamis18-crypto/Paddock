@@ -383,162 +383,12 @@ $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 8; St
 $no = Get-Raw '/api/do?c=vkopen'; $nav = J '/vault/nav'; $null = Get-Raw '/api/do?c=vkclose'; $nav2 = J '/vault/nav'
 Check 'the VAULT key (vkopen) asks the dashboard to show the page; vkclose takes it away again' ($no.code -eq 200 -and $nav.to -eq 'vault' -and $nav2.to -eq '')
 
-Section '10. the page in headless Chrome (pictures v-*.png)'
+Section '10. what the Vault page used to need: the lap traces for a comparison (the page is gone, RACES is the door)'
 $null = J '/vault/test/sandbox?on=1&days=400'; $null = J '/vault/test/reconcile'; $null = J '/vault/test/thumbs'
 $null = J "/vault/edit?id=$cid&nudge=0.7"
 $lg = J '/vault/list'
-Cdp-Open "$api/v2/vault.html"
-$ok = Wait-Page "document.querySelectorAll('.card').length > 3 && document.querySelectorAll('.card img').length > 3 && Array.from(document.querySelectorAll('.card img')).every(function (i) { return i.complete && i.naturalWidth > 0; })"
-$cards = Cdp-Eval "document.querySelectorAll('.card').length"
-$expectCards = Count-Cards $lg.moments
-Check "the grid shows one card per lap ($cards cards, $(@($lg.moments).Count) moments) with its thumbnail loaded" ($ok -and $cards -eq $expectCards)
-$info = (Cdp-Eval "JSON.stringify({ stars: document.querySelectorAll('.card .star').length, tabs: document.querySelectorAll('.filters .tab').length, drops: document.querySelectorAll('.filters .drop').length, meter: document.getElementById('meter').textContent, totals: document.getElementById('totals').textContent, errs: (window.__errs || []).length })") | ConvertFrom-Json
-Check "gold stars on the keepers ($($info.stars)), view tabs ($($info.tabs)) and big lists ($($info.drops)), the size meter ('$($info.meter)'), no script errors" ($info.stars -ge 5 -and $info.tabs -ge 3 -and $info.drops -ge 1 -and $info.meter -match 'MB|GB' -and $info.errs -eq 0)
-Cdp-Shot (Join-Path $shots 'v-grid.png') 0 0 1920 1080
-Check 'v-grid.png saved' (Test-Path (Join-Path $shots 'v-grid.png'))
-# filters
-$null = Cdp-Eval "Array.from(document.querySelectorAll('#fKind .tab')).find(function (b) { return /Keepers/.test(b.textContent); }).click()"
-$nk = Cdp-Eval "document.querySelectorAll('.card').length"
-$null = Cdp-Eval "document.getElementById('q').value = 'podium'; document.getElementById('q').dispatchEvent(new Event('input'))"
-$np = Cdp-Eval "document.querySelectorAll('.card').length"
-$expectKeep = Count-Cards @($lg.moments | Where-Object { $_.keeper })
-Check "filters work: ★ Keepers shows $nk, searching 'podium' shows $np" ($nk -eq $expectKeep -and $np -eq 1)
-$null = Cdp-Eval "document.getElementById('q').value = ''; document.getElementById('q').dispatchEvent(new Event('input')); document.querySelector('#fKind .tab').click()"
-
-# 2026-10-18 redesign ("vault is a disaster ... hard to interpret"): grouped by day then session, readable at arm's length, S / M / L sizes that are remembered
-$grp = (Cdp-Eval "JSON.stringify({ days: document.querySelectorAll('#grid .day').length, sess: document.querySelectorAll('#grid .sgrp .sess').length, loose: Array.from(document.querySelectorAll('#grid .card')).filter(function (c) { return !c.closest('.sgrp'); }).length, first: (document.querySelector('#grid .day') || {}).textContent || '', sess1: (document.querySelector('#grid .sess') || {}).textContent || '' })") | ConvertFrom-Json
-Check "the cards are grouped by day ($($grp.days) day headers, the first '$($grp.first)') and by session ($($grp.sess) session headers, the first '$($grp.sess1)'); no card outside a session" ($grp.days -ge 2 -and $grp.sess -ge $grp.days -and $grp.loose -eq 0 -and $grp.sess1 -match '\d{1,2}:\d{2}\s?(AM|PM)')
-$null = Cdp-Eval "document.querySelector('#gridScroll').scrollTop = 900; 1"; Start-Sleep -Milliseconds 300
-$stk = Cdp-Eval "(function () { var s = document.getElementById('gridScroll').getBoundingClientRect(), hit = document.elementFromPoint(300, s.top + 12); return !!(hit && hit.closest('.day')); })()"
-Check 'scrolled down, a day header stays pinned at the top of the list (sticky)' ($stk -eq $true)
-$null = Cdp-Eval "document.querySelector('#gridScroll').scrollTop = 0; 1"
-# readable at arm's length: measured on the SMALLEST size. Lap time >= 36 px, title >= 24 px, nothing under 20 px; no text runs out of its card; no two cards overlap
-$null = Cdp-Eval "document.querySelector('.sz[data-size=S]').click(); 1"; Start-Sleep -Milliseconds 400
-$fs = (Cdp-Eval @"
-(function () {
-  var cards = Array.from(document.querySelectorAll('#grid .card')).filter(function (c) { var r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-  var px = function (e) { return parseFloat(getComputedStyle(e).fontSize); }, minAll = 99, minTm = 99, minT1 = 99, out = 0, small = [];
-  cards.forEach(function (c) {
-    var cr = c.getBoundingClientRect();
-    c.querySelectorAll('.tm b').forEach(function (e) { minTm = Math.min(minTm, px(e)); });
-    c.querySelectorAll('.t1').forEach(function (e) { minT1 = Math.min(minT1, px(e)); });
-    var w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), n;
-    while ((n = w.nextNode())) { if (!n.textContent.trim()) continue; var e = n.parentElement, f = px(e); if (f < minAll) minAll = f; if (f < 20) small.push(n.textContent.trim() + ' ' + f); var r = e.getBoundingClientRect(); if (r.width && (r.right > cr.right + 1 || r.left < cr.left - 1)) out++; }
-  });
-  var ov = 0; for (var i = 0; i < cards.length; i++) for (var j = i + 1; j < cards.length; j++) { var a = cards[i].getBoundingClientRect(), b = cards[j].getBoundingClientRect(); if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) ov++; }
-  return JSON.stringify({ n: cards.length, minAll: minAll, minTm: minTm, minT1: minT1, out: out, ov: ov, small: small.slice(0, 4), cls: document.getElementById('grid').className });
-})()
-"@) | ConvertFrom-Json
-Check "size S: $($fs.n) cards on screen, lap time $($fs.minTm) px (>= 36), title $($fs.minT1) px (>= 24), smallest text $($fs.minAll) px (>= 20) $($fs.small -join '; ')" ($fs.n -ge 3 -and $fs.minTm -ge 36 -and $fs.minT1 -ge 24 -and $fs.minAll -ge 20 -and $fs.cls -match 's-S')
-Check "size S: no text runs out of its card ($($fs.out)), no two cards overlap ($($fs.ov))" ($fs.out -eq 0 -and $fs.ov -eq 0)
-Cdp-Shot (Join-Path $shots 'vault-grid-S.png') 0 0 1920 1080
-# the size is remembered (this browser's own storage) and comes back after a reload
-$null = Cdp-Eval "location.reload(); 1"; Start-Sleep -Milliseconds 300
-$okS = Wait-Page "document.querySelectorAll('#grid .card').length > 3 && document.getElementById('grid').classList.contains('s-S') && document.querySelector('.sz.on').dataset.size === 'S'" 20
-Check 'the S size is remembered after the page is opened again' $okS
-$cols = Cdp-Eval "(function () { var g = document.querySelector('#grid .dgrid'); return g ? getComputedStyle(g).gridTemplateColumns.split(' ').length : 0; })()"
-$null = Cdp-Eval "document.querySelector('.sz[data-size=L]').click(); 1"; Start-Sleep -Milliseconds 400
-$colsL = Cdp-Eval "(function () { var g = document.querySelector('#grid .dgrid'); return g ? getComputedStyle(g).gridTemplateColumns.split(' ').length : 0; })()"
-$wL = Cdp-Eval "Math.round(document.querySelector('#grid .card').getBoundingClientRect().width)"
-Check "L makes the cards bigger: $cols columns at S, $colsL at L, a card $wL px wide" ($cols -eq 5 -and $colsL -eq 3 -and $wL -ge 540)
-$null = Cdp-Eval "document.querySelector('.sz[data-size=M]').click(); 1"
-# a list (car / track / tag) is a big drop-down (58 px rows, nothing to type) and choosing a row filters the cards
-$dd = (Cdp-Eval "(function () { var d = document.querySelector('.drop'); if (!d) return JSON.stringify({ none: true }); var kind = d.dataset.drop, before = document.querySelectorAll('#grid .card').length; d.click(); var p = document.getElementById('pop'), b = p.querySelectorAll('button'); var h = b.length > 1 ? b[1].getBoundingClientRect().height : 0; var name = b.length > 1 ? b[1].querySelector('span').textContent : ''; if (b.length > 1) b[1].click(); var d2 = document.querySelector('.drop[data-drop=' + kind + ']'); return JSON.stringify({ kind: kind, rows: b.length, h: h, name: name, before: before, n: document.querySelectorAll('#grid .card').length, shows: d2 ? d2.textContent : '', on: d2 ? d2.classList.contains('on') : false, hidden: p.hidden }); })()") | ConvertFrom-Json
-Check "the $($dd.kind) list opens with $($dd.rows) rows of $([math]::Round($dd.h)) px; choosing '$($dd.name)' shows $($dd.n) of $($dd.before) cards and the button now says '$($dd.shows)'" (-not $dd.none -and $dd.rows -ge 2 -and $dd.h -ge 56 -and $dd.n -ge 1 -and $dd.n -le $dd.before -and $dd.shows -eq $dd.name -and $dd.on -and $dd.hidden)
-$null = Cdp-Eval "(function () { var d = document.querySelector('.drop.on'); if (d) { d.click(); document.querySelector('#pop button').click(); } return 1; })()"# arrows walk the cards, Enter opens one
-$null = Cdp-Eval "document.querySelector('#grid .card').focus(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); 1"
-$kf = Cdp-Eval "document.activeElement === document.querySelectorAll('#grid .card')[1]"
-Check 'the right arrow moves to the next card' ($kf -eq $true)
-
-# the detail of the best lap: a lap with telemetry opens straight into the analysis workbench (vault.js openWorkbench),
-# which has the labelled map, the corner table and the traces on one cursor (their own checks are in workbench-test)
-$null = Cdp-Eval "location.hash = 'm=l20261010-041318-7'"
-$ok = Wait-Page "(function () { var f = document.querySelector('#wbHost iframe'); try { return !!(f && f.contentWindow.WB && f.contentWindow.WB.data() && f.contentWindow.WB.data().corners.length); } catch (e) { return false; } })()" 40
-Start-Sleep -Milliseconds 1500
-$d = (Cdp-Eval "(function () { var f = document.querySelector('#wbHost iframe'), w = f ? f.contentWindow : null, dd = w && w.WB ? w.WB.data() : null; return JSON.stringify({ src: f ? f.getAttribute('src') : '', corners: dd ? dd.corners.length : 0, back: !!document.getElementById('wbBack'), errs: (window.__errs || []).length }); })()") | ConvertFrom-Json
-Check "detail: lap 7 opens in the analysis workbench ($($d.src)) with all $($d.corners) corners of Road Atlanta" ($ok -and $d.src -match 'lap=7' -and $d.corners -eq 14)
-Check "detail: a 'Back to the Vault' button is on it, no script errors" ($d.back -and $d.errs -eq 0)
-Cdp-Shot (Join-Path $shots 'v-detail.png') 0 0 1920 1080
-$png = Join-Path $shots 'v-detail.png'
-Check "v-detail.png saved: the workbench carries gold ($(Gold-Pixels $png) gold pixels)" ((Gold-Pixels $png) -gt 1500)
-# compare two laps with a delta trace
-# (the lap-against-lap difference trace of a plain lap now lives in the workbench, tested in workbench-test; here: the Vault serves both laps' traces)
 $tA = J '/vault/lap?id=l20261010-041318-7&lap=7'; $tB = J '/vault/lap?id=l20261009-185837-2&lap=2'
 Check "compare: the Vault serves the traces of both laps; the end times differ by $([math]::Round($tA.t[1000] - $tB.t[1000], 3)) s (lap times differ by -0.051)" ($tA.t -and $tB.t -and (Near ($tA.t[1000] - $tB.t[1000]) (79.549 - 79.600) 0.01))
-$null = Cdp-Eval "document.getElementById('wbBack').click(); 1"; $null = Wait-Page "!document.getElementById('wbHost')" 4
-Check 'BACK on a lap opened from a card goes back to the cards (it used to uncover a half-built detail page)' ((Wait-Page "V.id === '' && !document.getElementById('viewGrid').hidden && document.querySelectorAll('#grid .card').length > 3" 6) -eq $true)
-
-# the clip: video and telemetry on one cursor
-$null = Cdp-Eval "location.hash = 'm=$cid'"
-$ok = Wait-Page "!!(V.trace && V.sync && V.vid && V.vid.readyState >= 2 && V.discs.length > 0)" 40
-Start-Sleep -Milliseconds 800
-$vc = (Cdp-Eval "JSON.stringify({ rs: V.vid.readyState, dur: V.vid.duration, lap: V.lap, nudge: V.sync.nudge, err: V.vid.error ? V.vid.error.code : 0, errs: (window.__errs || []).length })") | ConvertFrom-Json
-Check "the clip player loads the clip through the Range route: ready, $([math]::Round($vc.dur, 1)) s long, lap $($vc.lap), nudge $($vc.nudge)" ($ok -and $vc.rs -ge 2 -and (Near $vc.dur 12 0.2) -and $vc.lap -eq 7 -and $vc.err -eq 0)
-# click T6 in the table: the video jumps to that corner's time and the picture's red level (= time in video) says so
-$ti = Cdp-Eval "(function () { var d = V.corners.turns, best = -1, bd = 1e9; d.forEach(function (t, i) { var r = videoRawAt(Math.round(t.pctApex * 1000)); if (r > 1.5 && r < 10.5 && Math.abs(r - 6) < bd) { bd = Math.abs(r - 6); best = i; } }); return best; })()"
-Check "the clip covers a turn of lap 7 (turn index $ti), so there is something to click" ($ti -ge 0)
-$null = Cdp-Eval "document.querySelector('.ct[data-i=\""$ti\""]').click()"
-Start-Sleep -Milliseconds 1200
-$exp = Cdp-Eval "(function () { var t = V.corners.turns[$ti]; return videoTimeAt(Math.round(t.pctApex * 1000)); })()"
-$cur = Cdp-Eval "V.vid.currentTime"
-$red = Cdp-Eval "(function () { var c = document.createElement('canvas'); c.width = 8; c.height = 8; var g = c.getContext('2d'); g.drawImage(V.vid, 0, 0, 8, 8); return g.getImageData(4, 4, 1, 1).data[0]; })()"
-Check "clicking that turn seeks the video to second $([math]::Round($exp, 2)) (it is at $([math]::Round($cur, 2))), and the frame itself says $([math]::Round($red / 20, 2)) s" (Near $cur $exp 0.15 -and (Near ($red / 20) $cur 0.3))
-Check 'the cursor follows the video: after the seek it sits on that turn''s apex' (Near (Cdp-Eval "V.g") (Cdp-Eval "Math.round(V.corners.turns[$ti].pctApex * 1000)") 6)
-# play for a moment: the dot and the cursor move with it
-$g0 = Cdp-Eval "V.g"
-$null = Cdp-Eval "V.vid.muted = true; V.vid.currentTime = Math.max(0, videoTimeAt(300)); V.vid.play().then(function () { return 1; })"
-Start-Sleep -Milliseconds 2500
-$g1 = Cdp-Eval "V.g"; $t1 = Cdp-Eval "V.vid.currentTime"
-$expG = Cdp-Eval "(function () { var A = V.trace, t = V.vid.currentTime - V.sync.nudge - lapSync(V.lap).v0, i = 0; while (i < 1000 && A.t[i] < t) i++; return i; })()"
-Check "playing: the cursor ran from grid 300 to $g1 as the video went to second $([math]::Round($t1, 2)) (the telemetry says grid ~$expG there)" ($g1 -gt 300 -and (Near $g1 $expG 40))
-$null = Cdp-Eval "V.vid.pause(); 1"
-# the nudge moves where the video is for the same point
-$before = Cdp-Eval "videoTimeAt(500)"
-$null = Cdp-Eval "document.querySelector('#sync [data-n=\""0.5\""]').click()"
-Start-Sleep -Milliseconds 600
-$after = Cdp-Eval "videoTimeAt(500)"
-Check "SYNC +0.5 s moves the video time of the same corner by 0.5 s ($([math]::Round($before, 2)) to $([math]::Round($after, 2)))" (Near ($after - $before) 0.5 0.01)
-$kept = (J "/vault/item?id=$cid").m.nudge
-Check "the nudge is remembered by irdash ($kept s)" (Near $kept 1.2 0.001)
-Cdp-Shot (Join-Path $shots 'v-clip.png') 0 0 1920 1080
-Check 'v-clip.png saved' (Test-Path (Join-Path $shots 'v-clip.png'))
-# the two-step delete in the page
-$null = Cdp-Eval "document.getElementById('bDel').click()"; Start-Sleep -Milliseconds 300
-$a1 = Cdp-Eval "!!document.getElementById('askYes')"
-$null = Cdp-Eval "document.getElementById('askYes').click()"; Start-Sleep -Milliseconds 300
-$a2 = Cdp-Eval "!!document.getElementById('askYes2')"
-Check 'DELETE asks twice in the page (the second question says it cannot be undone), and nothing is deleted yet' ($a1 -and $a2 -and (@((J '/vault/list').moments | Where-Object { $_.id -eq $cid }).Count -eq 1))
-$null = Cdp-Eval "document.getElementById('askNo').click()"
-# RACE (W6b): a moment whose session has a race log gets a RACE button; no log, no button. The answer of /analysis/race is pretended
-# here (the scratch vault has no race log; the endpoint itself is tested in tests\race-field-test.ps1); everything else is the real page and the real irdash.
-$null = Cdp-Eval "window.__raceAnswer = 404; window.__raceAsked = []; if (!window.__realFetch) { window.__realFetch = window.fetch; window.fetch = function (u) { if (/\/analysis\/race/.test(String(u))) { window.__raceAsked.push(String(u)); return Promise.resolve(new Response(window.__raceAnswer === 200 ? '{`"ok`":1}' : '{`"error`":`"none`"}', { status: window.__raceAnswer })); } return window.__realFetch.apply(this, arguments); }; } 1"
-$null = Cdp-Eval "location.hash = 'm=l20261010-041318-7'"
-$ok = Wait-Page "V.id === 'l20261010-041318-7' && !!V.laps && window.__raceAsked.length >= 1" 40
-Start-Sleep -Milliseconds 700
-$noR = (Cdp-Eval "JSON.stringify({ btn: !!document.getElementById('bRace'), acts: document.getElementById('dActs').innerText, asked: window.__raceAsked })") | ConvertFrom-Json
-Check "a lap with no race log: irdash is asked (/analysis/race?id=l20261010-041318-7, answer 404) and there is no RACE button (buttons: $($noR.acts -replace '\s+', ' '))" ($ok -and -not $noR.btn -and @($noR.asked | Where-Object { $_ -match '^/analysis/race\?id=l20261010-041318-7$' }).Count -ge 1)
-$null = Cdp-Eval "window.__raceAnswer = 200; window.__raceAsked = []; location.hash = 'm=r20261010-041318'"
-$ok = Wait-Page "V.id === 'r20261010-041318' && !!document.getElementById('bRace')" 40
-$auto = (Cdp-Eval "(function () { var h = document.getElementById('wbHost'), f = h ? h.querySelector('iframe') : null; return JSON.stringify({ src: f ? f.getAttribute('src') : '', grid: h ? h.dataset.grid : '' }); })()") | ConvertFrom-Json
-Check "a race card with a race log opens its RACE page straight away ($($auto.src))" ($auto.src -match 'page=race' -and $auto.grid -eq '1')
-$rb = (Cdp-Eval "(function () { var b = document.getElementById('bRace'); if (!b) return JSON.stringify({}); var r = b.getBoundingClientRect(); return JSON.stringify({ text: b.innerText, h: r.height, w: r.width, shown: r.width > 0, first: b === document.querySelectorAll('#dActs .btn')[0], lap: V.lap, asked: window.__raceAsked }); })()") | ConvertFrom-Json
-Check "the race of that session has a log: a RACE button is on the detail page (text '$($rb.text)', first of the buttons, $([math]::Round($rb.w)) x $([math]::Round($rb.h)) px)" ($ok -and $rb.text -eq 'RACE' -and $rb.shown -and $rb.first -and $rb.lap -gt 0 -and @($rb.asked | Where-Object { $_ -match '^/analysis/race\?id=r20261010-041318$' }).Count -ge 1)
-$null = Cdp-Eval "document.getElementById('bRace').click(); 1"
-$okW = Wait-Page "!!document.querySelector('#wbHost iframe')" 5
-$srcR = Cdp-Eval "(document.querySelector('#wbHost iframe') || {getAttribute: function () { return ''; }}).getAttribute('src')"
-Check "RACE opens the workbench on the RACE page over the Vault: iframe $srcR" ($okW -and $srcR -eq ('workbench.html?id=r20261010-041318&lap=' + $rb.lap + '&page=race'))
-$okL = Wait-Page "(function () { var f = document.querySelector('#wbHost iframe'); try { return !!(f.contentWindow.WB && f.contentWindow.WB.ready); } catch (e) { return false; } })()" 60
-Check 'the workbench inside it loads that lap of the Vault race (the id form is accepted by /analysis/channels)' $okL
-$null = Cdp-Eval "document.getElementById('wbBack').click(); 1"
-$gone = Wait-Page "!document.getElementById('wbHost')" 4
-Check 'the back bar closes it and the Vault detail is still there' ($gone -and (Cdp-Eval "V.id") -eq 'r20261010-041318')
-$null = Cdp-Eval "document.getElementById('bRace').click(); 1"; $null = Wait-Page "!!document.querySelector('#wbHost iframe')" 5
-$null = Cdp-Eval "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); 1"
-$gone2 = Wait-Page "!document.getElementById('wbHost')" 4
-Check 'Escape puts the race page away first (the detail stays open)' ($gone2 -and (Cdp-Eval "V.id") -eq 'r20261010-041318')
-Check 'no script errors from the RACE button' ((Cdp-Eval "(window.__errs || []).length") -eq 0)
-# the debrief after a personal best is the Session Review (C-40); it offers ANALYSIS (the old In the Vault link went with the benchmark card; CHOOSE in the laps-saved bar opens the Vault)
-Cdp-Close
 
 # L-1: the Vault's personal best, best laps and fastest tenth are laps iRacing COUNTED (one rule everywhere: LapRules in analysis.cs). Before, a timed lap with a short
 # off-track could be a PB: 2026-10-06 21-26-58 has 10 timed laps; the quickest (79.897, lap 3) has an off-track record and iRacing did not count it (its own best of the
@@ -607,7 +457,7 @@ Check "a Vault lap finds its recorder clip and sidecar from its own id (not the 
 Check 'the recorder clip serves from /vault/video with byte ranges (206)' ((Get-Raw "/vault/video?id=rec-20261010-042000-l7").code -eq 200 -and (Get-Raw "/vault/video?id=rec-20261010-042000-l7" @{ Range = 'bytes=0-99' }).code -eq 206)
 
 # 2026-10-18: a lap that was RECORDED opens on the Vault's own player (the video big first, the traces under it on one cursor, SYNC);
-# a lap without video still opens the analysis workbench (section 10). The workbench's own VIDEO page is tested in video-page-test.
+# (The Vault page and the workbench's VIDEO page are gone, W4-5.)
 $lgv = J '/vault/list'
 if ($lgv.PSObject.Properties.Name -contains 'frames') {
   $mv = @($lgv.moments | Where-Object { $_.id -eq 'l20261010-041318-7' })[0]
@@ -618,52 +468,8 @@ if ($lgv.PSObject.Properties.Name -contains 'frames') {
   $fn = Get-Raw '/vault/frame?id=l20261009-185837-2'
   Check 'a lap with no recording has no picture route answer (404, the card shows its map)' ($fn.code -eq 404)
 } else { '  skip  irdash is the build from before the picture route (run dash\build.ps1 to deploy it), the frame checks wait for that' }
-Cdp-Open "$api/v2/vault.html#m=l20261010-041318-7"
-$okR = Wait-Page "!!(V.cur && V.rec && V.vid && V.vid.readyState >= 1 && V.trace)" 60
-Check 'the recorded lap opens on the Vault''s player (no workbench over it), its clip loaded and the traces drawn' ($okR -and -not (Cdp-Eval "!!document.getElementById('wbHost')") -and (Cdp-Eval "V.lap") -eq 7)
-# the player: EXPAND fills the page, Escape makes it smaller again (not back to the cards), Space plays, sound is remembered
-$null = Cdp-Eval "document.getElementById('pExpand').click(); 1"; Start-Sleep -Milliseconds 300
-$th = (Cdp-Eval "JSON.stringify({ on: document.getElementById('viewDetail').classList.contains('theater'), vw: Math.round(document.getElementById('vidBox').getBoundingClientRect().width), side: getComputedStyle(document.getElementById('cSide')).display, label: document.getElementById('pExpand').textContent })") | ConvertFrom-Json
-Check "EXPAND: the video fills the page ($($th.vw) px wide, the side column $($th.side)), the button now says '$($th.label)'" ($th.on -and $th.vw -ge 1700 -and $th.side -eq 'none' -and $th.label -eq 'Smaller')
-$null = Cdp-Eval "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1"; Start-Sleep -Milliseconds 300
-Check 'Escape takes EXPAND away and stays on the lap' ((Cdp-Eval "!document.getElementById('viewDetail').classList.contains('theater') && V.id === 'l20261010-041318-7'") -eq $true)
-$null = Cdp-Eval "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true })); 1"
-Check 'the E key does the same as EXPAND' ((Cdp-Eval "document.getElementById('viewDetail').classList.contains('theater')") -eq $true)
-$null = Cdp-Eval "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true })); 1"
-$fsb = Cdp-Eval "typeof toggleFull === 'function' && !!document.getElementById('pFull') && document.getElementById('pFull').getBoundingClientRect().height >= 48"
-Check 'a FULL SCREEN button is there, 48 px or taller (the browser allows full screen only from a real press, so it is pressed by hand)' ($fsb -eq $true)
-$p0 = Cdp-Eval "V.vid.paused"
-$null = Cdp-Eval "V.vid.muted = true; document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })); 1"; Start-Sleep -Milliseconds 800
-$p1 = Cdp-Eval "V.vid.paused"
-$null = Cdp-Eval "document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })); 1"; Start-Sleep -Milliseconds 300
-Check "Space plays and pauses the clip (paused $p0, then $p1, then $(Cdp-Eval 'V.vid.paused'))" ($p0 -eq $true -and $p1 -eq $false -and (Cdp-Eval "V.vid.paused") -eq $true)
-$null = Cdp-Eval "V.vid.muted = false; V.vid.volume = 0.3; 1"; Start-Sleep -Milliseconds 200
-$null = Cdp-Eval "location.reload(); 1"; Start-Sleep -Milliseconds 300
-$okV = Wait-Page "!!(V.vid && V.rec && Math.abs(V.vid.volume - 0.3) < 0.01 && !V.vid.muted && document.getElementById('pVol').value === '0.3')" 40
-Check 'the sound level (0.3, not muted) is remembered for the next clip' $okV
-$null = Cdp-Eval "document.getElementById('pMute').click(); 1"; Start-Sleep -Milliseconds 200
-Check 'SOUND ON / MUTED: one press mutes, and the button says so' ((Cdp-Eval "V.vid.muted && document.getElementById('pMute').textContent === 'Muted' && JSON.parse(localStorage.getItem('vault-vol')).m === true") -eq $true)
-$null = Cdp-Eval "document.getElementById('pMute').click(); 1"
-Cdp-Shot (Join-Path $shots 'vault-player.png') 0 0 1920 1080
-$cg = @(200, 500, 800)
-# the lock: both clips kept at the same LapDistPct; the one ahead waits (> 0.2 % gap) and they resume within 0.1 %
-$tA = (J '/vault/lap?id=l20261010-041318-7&lap=7').t
-$tB = (J '/vault/lap?id=l20261010-041318-8&lap=8').t
-Check 'the two laps'' telemetry grids were read for the lock (1001 points each)' ($tA.Count -eq 1001 -and $tB.Count -eq 1001)
-$jA = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tA } | ConvertTo-Json -Compress -Depth 4
-$jB = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tB } | ConvertTo-Json -Compress -Depth 4
-$lr = (Cdp-Eval "JSON.stringify(V.lockRun($jA, $jB, 0.0166667, 90, [$($cg -join ',')]))") | ConvertFrom-Json
-$worst = ($lr.corners | Measure-Object -Property secs -Maximum).Maximum
-Check "two clips locked by LapDistPct: at 3 corners the laps are within $([math]::Round($worst*1000,0)) ms (<= 160 ms: the 0.2 % deadband of an 80 s lap); the gap is paused as soon as it passes 0.2 % and never runs away ($([math]::Round($lr.maxDelta/10,2)) % at 60 Hz, one step over the deadband)" ($lr.corners.Count -eq 3 -and $worst -le 0.16 -and $lr.maxDelta -le 2.8)
-# no self-compare: the same session file + lap number is never offered, and choosing it falls back to another lap
 $ir7 = J '/vault/item?id=l20261010-041318-7'
 Check 'the comparison list excludes the lap itself (same session file + lap number)' (@($ir7.others | Where-Object { $_.session -eq $ir7.m.session -and $_.lap -eq $ir7.m.lap }).Count -eq 0 -and @($ir7.others).Count -ge 1)
-$null = Cdp-Eval "location.hash = 'm=l20261010-041318-7&c=l20261010-041318-7'"
-Start-Sleep -Milliseconds 1600
-$self = (Cdp-Eval "JSON.stringify({ isSame: V.sameLap({ id: 'l20261010-041318-7', lap: 7, session: V.cur.m.session }, V.cur.m, 7), other: V.sameLap({ id: 'l20261010-041318-8', lap: 8, session: V.cur.m.session }, V.cur.m, 7) })") | ConvertFrom-Json
-Check "choosing the lap itself as the comparison is refused (sameLap=$($self.isSame)), another lap is not ($($self.other))" ($self.isSame -eq $true -and $self.other -eq $false)
-Check 'no script errors on the recorder player' ((Cdp-Eval "(window.__errs || []).length") -eq 0)
-Cdp-Close
 Remove-Item (Join-Path $recDir 'rec-20261010-042000-l7.mp4'), (Join-Path $recDir 'rec-20261010-042000-l7.json'), (Join-Path $recDir 'rec-20261010-042000-l8.mp4'), (Join-Path $recDir 'rec-20261010-042000-l8.json') -Force -ErrorAction SilentlyContinue
 $null = J '/vault/test/rec?cmd=reindex'      # leave the recorder's in-memory list clean for the next test/session
 

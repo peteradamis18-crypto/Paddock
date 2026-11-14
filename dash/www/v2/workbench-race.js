@@ -91,14 +91,14 @@ function visibleRows() {
   var pics = TOWER_PICS && !!window.PCarPic && PCarPic.any(tw.map(function (t) { var c = RS.by[t.i]; return c && c.path; }));      // CP-1: room for the pictures only when some car has one
   cols.push({ k: 'no', h: 'NO', w: pics ? 132 : 66, l: 1 },{ k: 'name', h: 'DRIVER', f: 1.15, l: 1 }, { k: 'car', h: 'CAR', f: 1.0, l: 1 });
   if (team) cols.push({ k: 'team', h: 'TEAM', f: 0.85, l: 1 });
-  cols.push({ k: 'laps', h: 'LAPS', w: 54 }, { k: 'gap', h: s.race ? 'TOTAL / GAP' : 'BEST / GAP', w: 124 }, { k: 'ahead', h: 'AHEAD', w: 94 }, { k: 'best', h: 'BEST LAP', w: 102 }, { k: 'pits', h: 'PITS', w: 104 });
-  if (inc) cols.push({ k: 'inc', h: 'INC', w: 46 });
+  cols.push({ k: 'laps', h: 'LAPS', w: 70 }, { k: 'gap', h: s.race ? 'TOTAL / GAP' : 'BEST / GAP', w: 162 }, { k: 'ahead', h: 'AHEAD', w: 104 }, { k: 'best', h: 'BEST LAP', w: 118 }, { k: 'pits', h: 'PITS', w: 76 });
+  if (inc) cols.push({ k: 'inc', h: 'INC', w: 60 });
   var fixed = 0, flex = 0; cols.forEach(function (c) { if (c.w) fixed += c.w; else flex += c.f; });
   cols.forEach(function (c) { if (!c.w) c.w = Math.floor((box.w - fixed) * c.f / flex); });
   this.cols = cols;
   var vis = visibleRows(), gaps = 0; vis.forEach(function (k, q) { if (q > 0 && k > vis[q - 1] + 1) gaps++; }); if (vis[vis.length - 1] < tw.length - 1) gaps++;
   var rh = clamp(Math.floor(674 / (vis.length + gaps)), 26, 34);
-  var t = el('table', 'rt'); t.style.fontSize = rh < 30 ? '17px' : '18px';
+  var t = el('table', 'rt'); t.style.fontSize = '20px';
   var h = '<colgroup>' + cols.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + cols.map(function (c) { return '<th' + (c.l ? ' class="l"' : '') + '>' + c.h + '</th>'; }).join('') + '</tr></thead><tbody>';
   var prev = -1;
   vis.forEach(function (k) {
@@ -146,8 +146,8 @@ Tower.prototype.mark = function () {
 // ---------- the race trace and the position chart ----------
 function nice(v) { var st = [5, 10, 20, 30, 40, 60, 90, 120, 180, 240, 300, 600, 900, 1200, 1800]; for (var i = 0; i < st.length; i++) if (v <= st[i]) return st[i]; return Math.ceil(v / 600) * 600; }
 function Chart(box, k) {
-  A.Display.call(this, box, k === 'trace' ? 'Race trace · seconds behind the leader at the end of each lap' : 'Position at the end of each lap');
-  this.kind = 'race' + k; this.k = k; this.pad = { l: 54, r: 104, t: 10, b: 28 };
+  A.Display.call(this, box, k === 'trace' ? 'Race trace · seconds behind the leader' : 'Position at the end of each lap');
+  this.kind = 'race' + k; this.k = k; this.pad = { l: 54, r: 150, t: 12, b: 32 };
   var self = this;
   this.stage.addEventListener('mousemove', function (e) { var p = self.local(e), lap = self.lapAt(p[0]); if (lap !== RS.hover) { RS.hover = lap; A.need.o = true; } });
   this.stage.addEventListener('mouseleave', function () { RS.hover = null; A.need.o = true; });
@@ -204,7 +204,7 @@ Chart.prototype.drawStatic = function () {
     var c = RS.by[e.r.i], word = e.role === 'me' ? '' : e.role === 'ahead' ? ' AHEAD' : e.role === 'behind' ? ' BEHIND' : '', yy = clamp(e.y, G.t + 6, G.t + G.H);
     return { y: yy, text: '#' + (c ? c.num : e.r.i) + word, col: e.role === 'me' ? C.gold : C.ref, x: e.x };
   }).sort(function (a, b) { return a.y - b.y; });
-  for (var i = 1; i < lab.length; i++) if (lab[i].y - lab[i - 1].y < 17) lab[i].y = lab[i - 1].y + 17;
+  for (var i = 1; i < lab.length; i++) if (lab[i].y - lab[i - 1].y < 22) lab[i].y = lab[i - 1].y + 22;
   for (var i2 = lab.length - 2; i2 >= 0; i2--) if (lab[i2].y > G.t + G.H) lab[i2].y = G.t + G.H;
   lab.forEach(function (L) { self.text(g, self.tbS, L.text, Math.min(L.x, G.l + G.W) + 8, L.y + 5, 14, L.col, 'left'); });
 };
@@ -214,8 +214,8 @@ Chart.prototype.drawOverlay = function () {
   var lap = RS.hover, x = Math.round(G.X(lap)) + 0.5; g.strokeStyle = 'rgba(201, 162, 75,.55)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke();
   var me = s.trace.filter(function (r) { return r.i === RS.me; })[0], v = me ? this.value(me, lap) : null;
   var txt = 'LAP ' + lap + (v == null ? '' : this.k === 'trace' ? ' · ' + (v === 0 ? 'LEADING' : '+' + v.toFixed(3) + ' s') : ' · P' + v);
-  g.font = '15px ' + FONT; var w = g.measureText(txt).width + 16, bx = G.l + 10, by = G.t + 4;
-  g.fillStyle = 'rgba(11,11,12,.92)'; g.fillRect(bx, by, w, 22); this.text(g, this.tbO, txt, bx + 8, by + 17, 15, C.gold, 'left');
+  g.font = '20px ' + FONT; var w = g.measureText(txt).width + 16, bx = G.l + 10, by = G.t + 4;
+  g.fillStyle = 'rgba(11,11,12,.92)'; g.fillRect(bx, by, w, 28); this.text(g, this.tbO, txt, bx + 8, by + 21, 20, C.gold, 'left');
   if (me && v != null) { g.fillStyle = C.gold; g.beginPath(); g.arc(G.X(lap), G.Y(v), 4.5, 0, 6.2832); g.fill(); }
 };
 

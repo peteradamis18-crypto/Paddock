@@ -75,10 +75,9 @@ $all = @(
   @{ n = 'quickwins'; f = 'quickwins-test.ps1';  a = @();                  away = $false },
   @{ n = 'analysis';  f = 'analysis-test.ps1';  a = @();                  away = $false },   # C-30/C-34: analysis engines on real .ibt copies
   @{ n = 'workbench'; f = 'workbench-test.ps1';  a = @();                  away = $false },   # W1: channel endpoint on copies + the page headless
-  @{ n = 'video-page'; f = 'video-page-test.ps1'; a = @();                  away = $false },   # W5: the workbench's VIDEO page + small video, a pretend clip tied to a real lap in the scratch vault (needs the deployed irdash)
+  @{ n = 'review-more'; f = 'review-more-test.ps1'; a = @();              away = $false },   # W4-5: REVIEW > MORE DATA (the trimmed workbench in the shell's frame; pretend irdash + headless Chrome, offline)
   @{ n = 'race-field'; f = 'race-field-test.ps1'; a = @();                  away = $false },   # W6: the race field log (a pretend 20-car race through the test hook, every number against the simulation), /analysis/race, the RACE page headless (needs the deployed irdash)
   @{ n = 'career';    f = 'career-test.ps1';    a = @();                  away = $false },   # W6c: the CAREER page - every session of a car + track (copies of real Corvette files, checked against iRacing's own lap times and the Session Review engine), the cache, 503 while driving, the page headless (the live part needs the deployed irdash)
-  @{ n = 'pro-tools'; f = 'pro-tools-test.ps1'; a = @();                  away = $false },   # P3: the PRO page - X/Y scatter + fit, histogram, maths channels (the server's parser), CSV / .xlsx export, each against an independent calculation on copies of real Corvette files (the live part needs the deployed irdash)
   @{ n = 'keys';      f = 'keys-test.ps1';     a = @();                  away = $false },   # C-32: every deck key answers (its output is tests\last\keys.txt, the key table)
   @{ n = 'session-review'; f = 'session-review-test.ps1'; a = @();         away = $false },   # C-40: Session Review data on copies + the page headless + the dashboard against a pretend irdash
   @{ n = 'deckscreens'; f = 'deck-screens-test.ps1'; a = @();              away = $false },   # C-42: ANALYSIS, SOUND, RACE SETUP deck screens + irdeck sound + irdash side (all pretend, offline)

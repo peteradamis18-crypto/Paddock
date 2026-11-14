@@ -299,23 +299,7 @@ try {
   # --- the workbench, lap 6 (its share video is removed first: the button starts at MAKE SHARE VIDEO)
   Remove-Item (Join-Path $clipDir "share-$id6.mp4"), (Join-Path $clipDir "share-$id6.json") -Force
   Check 'a clip whose share video was not made (or was removed) is a 404 on /share/video: the plain clip is never served in its place' ((Code "/share/video?id=$(Q $id6)") -eq 404)
-  Cdp-Open "$api/v2/workbench.html?id=$(Q $pbName)&lap=6&page=video" 1920 1080
-  $up = Wait-Until "window.WB && WB.extras && !WB.error" 40
-  $wbErr = [string](Cdp-Eval 'WB.error || ""'); Check "the workbench opens lap 6 on the VIDEO page ($wbErr)" ($up -and $wbErr -eq '')
-  $null = Wait-Until "WB.share && WB.share().chip && WB.share().chip.shown && WB.share().st" 15
-  $ch = Cdp-Obj 'WB.share()'
-  Check 'the VIDEO page shows the chip MAKE SHARE VIDEO (nothing made yet for this lap)' ($ch.chip.shown -and $ch.chip.text -eq 'MAKE SHARE VIDEO')
-  $null = Cdp-Eval "document.getElementById('sharebtn').click(); true"
-  $seen = New-Object System.Collections.Generic.List[string]; $sw2 = [Diagnostics.Stopwatch]::StartNew()
-  while ($sw2.Elapsed.TotalSeconds -lt 90) { Start-Sleep -Milliseconds 400; $tx = [string](Cdp-Eval "document.getElementById('sharebtn').textContent"); if ($seen.Count -eq 0 -or $seen[$seen.Count - 1] -ne $tx) { $seen.Add($tx) }; if ($tx -eq 'SHOW SHARE VIDEO') { break } }
-  Check "pressing it shows the progress and ends at SHOW SHARE VIDEO ($($seen -join ' > '))" ($seen[$seen.Count - 1] -eq 'SHOW SHARE VIDEO' -and $seen.Count -ge 2)
-  Cdp-Shot (Join-Path $shots 'share-workbench.png')
-  $wbw = Cdp-Obj '(function(){ var b = document.getElementById("sharebtn").getBoundingClientRect(), m = document.getElementById("mode").getBoundingClientRect(); return { right: b.right, mode: m.width, vis: b.width > 0 }; })()'
-  Check "the chip fits the header and the words next to it keep room ($([math]::Round($wbw.mode)) px)" ($wbw.vis -and $wbw.right -lt 1900 -and $wbw.mode -gt 120)
-  $null = Cdp-Eval 'WB.cmd("page", "driver"); true'; Start-Sleep -Milliseconds 800
-  Check 'on the other pages the chip is not shown' ((Cdp-Eval "document.getElementById('sharebtn').style.display") -eq 'none')
-  Check 'no JS error in the workbench' ($script:cdp.errors.Count -eq 0)
-  Cdp-Close
+  # W4-5: the workbench's VIDEO page and its MAKE SHARE VIDEO chip are gone (RACES shares races); the /share routes above and the phone below still apply.
   # --- the phone's clip screen (393 x 852)
   $mC = @($lst.moments | Where-Object { $_.kind -eq 'lap' -and $_.lap -notin @(6, 7) -and $_.lapTime -gt 0 })[0]
   $idC = 'rec-20261010-001300-l' + $mC.lap

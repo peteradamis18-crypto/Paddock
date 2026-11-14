@@ -108,19 +108,12 @@ $screens = @(
   @{ n = 'live';          u = "$api/v2/index.html?demo=1";                     w = 1920; h = 1080 },
   @{ n = 'sessions';      u = "$api/v2/sessions.html";                         w = 1920; h = 1080 },
   @{ n = 'session-laps';  u = "$api/v2/sessions.html#a=$(Q $pb)";              w = 1920; h = 1080 },
-  @{ n = 'vault';         u = "$api/v2/vault.html";                            w = 1920; h = 1080 },
   @{ n = 'performance';   u = "$api/v2/perf.html";                             w = 1920; h = 1080 },
   @{ n = 'review';        u = "$api/v2/sessionreview.html?id=$(Q $pb)&lap=7";  w = 1920; h = 1080 },
   @{ n = 'wb-driver';     u = "$wb&page=driver";                               w = 1920; h = 1080 },
-  @{ n = 'wb-grip';       u = "$wb&page=grip";                                 w = 1920; h = 1080 },
   @{ n = 'wb-braking';    u = "$wb&page=braking";                              w = 1920; h = 1080 },
-  @{ n = 'wb-tyres';      u = "$wb&page=tyres";                                w = 1920; h = 1080 },
-  @{ n = 'wb-suspension'; u = "$wb&page=suspension";                           w = 1920; h = 1080 },
   @{ n = 'wb-splits';     u = "$wb&page=splits";                               w = 1920; h = 1080 },
-  @{ n = 'wb-pro';        u = "$wb&page=pro";                                  w = 1920; h = 1080 },
-  @{ n = 'wb-career';     u = "$wb&page=career";                               w = 1920; h = 1080 },
-  @{ n = 'wb-race';       u = "$wb&page=race";                                 w = 1920; h = 1080 },
-  @{ n = 'wb-video';      u = "$wb&page=video";                                w = 1920; h = 1080 }
+  @{ n = 'wb-race';       u = "$wb&page=race";                                 w = 1920; h = 1080 }
 )
 $phonePages = @('home', 'drive', 'sound', 'setup', 'laps', 'clips')
 $lines = New-Object System.Collections.Generic.List[string]
@@ -132,7 +125,7 @@ try {
   if (-not $SourceOnly) {
   Section '0. every served script still compiles (the audit edits many strings)'
   $jsFiles = @(Get-ChildItem (Join-Path $root 'dash\www\v2') -Filter *.js -File | ForEach-Object { '/v2/' + $_.Name }) + @(Get-ChildItem (Join-Path $root 'dash\www\phone') -Filter *.js -File | ForEach-Object { '/phone/' + $_.Name })
-  Cdp-Open "$api/v2/vault.html"
+  Cdp-Open "$api/v2/workbench.html"
   Start-Sleep -Seconds 2
   $listJs = ($jsFiles | ForEach-Object { "'$_'" }) -join ','
   $bad = Cdp-Eval "(async () => { const bad = []; for (const u of [$listJs]) { try { const s = await (await fetch(u)).text(); new Function(s); } catch (e) { bad.push(u + ': ' + e.message); } } return bad.join(' | '); })()"

@@ -199,21 +199,11 @@ Check 'Pi makes a writable project copy and never launches the template (behavio
   Check 'cold or Untitled Pi waits up to 30 seconds for the Paddock title before forwarding' (($launchRegion -match 'title\.StartsWith\("Untitled"') -and ($launchRegion -match 'StartsWith\(expected') -and ($launchRegion -match 'i < 120') -and ($launchRegion -match 'Thread\.Sleep\(250\)'))
   Check 'launch logs include exe, argument and resulting title' (($launchRegion -match 'exe=" \+ cw\.Exe') -and ($launchRegion -match 'argument=') -and ($launchRegion -match 'title=" \+'))
 
-  Section 'W-18 4. the control is on the four surfaces only when Pi is installed'
+  Section 'W-18 4. the control is on the three surfaces only when Pi is installed (the Vault page is gone)'
   $chromeOk = Test-Path $chrome
   Note "Pi is really installed here; the buttons are checked with the pretend flag (/vault/test/cosworth?on=1|0)"
   # --- installed: Vault lap page ---
   $null = J '/vault/test/cosworth?on=1'
-  Cdp-Open "$api/v2/vault.html"
-  $grid = Wait-Page "document.querySelectorAll('.card').length > 0" 30
-  $vaultCos = $false
-  if ($grid -and $curlId) {
-    $null = Cdp-Eval ("location.hash = 'm=" + $curlId + "'")
-    $null = Wait-Page "V.id === '$curlId' && !!document.getElementById('dActs')" 40
-    $vaultCos = Wait-Page "!!document.getElementById('bCos')" 20
-    if (-not $vaultCos) { Note ('vault lap page: ' + (Cdp-Eval "(function(){return JSON.stringify({id:(typeof V!=='undefined'?V.id:''),inst:(V.cur&&V.cur.cosworth)?V.cur.cosworth.installed:'',acts:((document.getElementById('dActs')||{}).innerText||'').slice(0,80)});})()")) }
-  }
-  Cdp-Close
   # --- installed: Workbench, Session Review, Debrief ---
   Cdp-Open "$api/v2/workbench.html?id=$curlId&lap=1"
   $wbCos = Wait-Page "!!document.getElementById('cwbtn')" 25
@@ -232,18 +222,9 @@ Check 'Pi makes a writable project copy and never launches the template (behavio
 '@
   $dbCos = Wait-Page "!!document.getElementById('dbCos')" 20
   Cdp-Close
-  Check "with Pi installed the button is on Vault, Workbench, Session Review and Debrief ($vaultCos/$wbCos/$srCos/$dbCos)" ($chromeOk -and $vaultCos -and $wbCos -and $srCos -and $dbCos)
+  Check "with Pi installed the button (OPEN IN PI TOOLBOX on workbench.html, W4-5) is on Workbench, Session Review and Debrief ($wbCos/$srCos/$dbCos)" ($chromeOk -and $wbCos -and $srCos -and $dbCos)
   # --- not installed: every surface must omit its control ---
   $null = J '/vault/test/cosworth?on=0'
-  Cdp-Open "$api/v2/vault.html"
-  $grid2 = Wait-Page "document.querySelectorAll('.card').length > 0" 30
-  $vaultNo = $false
-  if ($grid2 -and $curlId) {
-    $null = Cdp-Eval ("location.hash = 'm=" + $curlId + "'")
-    $null = Wait-Page "V.id === '$curlId' && !!document.getElementById('bStar')" 40
-    $vaultNo = -not (IsTrue (Cdp-Eval "!!document.getElementById('bCos')"))
-  }
-  Cdp-Close
   Cdp-Open "$api/v2/workbench.html?id=$curlId&lap=1"
   Start-Sleep -Seconds 3
   $wbNo = -not (IsTrue (Cdp-Eval "!!document.getElementById('cwbtn')"))
@@ -259,7 +240,7 @@ Check 'Pi makes a writable project copy and never launches the template (behavio
   Start-Sleep -Seconds 2
   $dbNo = -not (IsTrue (Cdp-Eval "!!document.getElementById('dbCos')"))
   Cdp-Close
-  Check "with Pi not installed the control is hidden on all four surfaces ($vaultNo/$wbNo/$srNo/$dbNo)" ($vaultNo -and $wbNo -and $srNo -and $dbNo)
+  Check "with Pi not installed the control is hidden on all three surfaces ($wbNo/$srNo/$dbNo)" ($wbNo -and $srNo -and $dbNo)
   $null = J '/vault/test/cosworth?on=auto'
 
   Section 'W-18 5. the copy rules pass on the new wording'

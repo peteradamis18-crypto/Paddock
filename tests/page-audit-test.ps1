@@ -62,12 +62,7 @@ try {
   $z4 = $ses | Where-Object { $_.car -eq 'BMW Z4 GT3' -and $_.laps -ge 5 -and -not $_.gone } | Select-Object -First 1
   $enc = if ($z4) { [uri]::EscapeDataString($z4.file) } else { '' }
 
-  Section '1. no request that cannot succeed (videoinfo with no clip)'
-  $lap = $list.moments | Where-Object { $_.kind -eq 'lap' } | Select-Object -First 1
-  if ($rec.clips -eq 0 -and $lap) {
-    $r = Page "$base/v2/vault.html?embed=1#m=$($lap.id)" 7000 'document.body.innerText.length'
-    Check 'opening a Vault lap with no recorder clip makes no /vault/videoinfo request' (-not ($r.bad -match 'videoinfo')) ($r.bad -join '; ')
-  } else { '  skip  the recorder has clips, or there is no lap in the Vault' }
+  Section '1. no request that cannot succeed (videoinfo with no clip) on the Workbench'
   if ($rec.clips -eq 0 -and $z4) {
     $r = Page "$base/v2/workbench.html?id=$enc&lap=4&page=driver" 9000 'document.body.innerText.length'
     Check 'opening the Workbench with no recorder clip makes no /vault/videoinfo request' (-not ($r.bad -match 'videoinfo')) ($r.bad -join '; ')
@@ -81,9 +76,7 @@ try {
   Check 'the track column never shows a cut "Full Cou..."' (-not (@($o.tr) -match 'Full Cou')) ''
   Check 'the personal-best date line fits on one line' (@($o.pbsub | Where-Object { $_[1] -gt 24 }).Count -eq 0) ''
 
-  Section '3. Vault and Performance: same time style, plain words, a chart with a line'
-  $r = Page "$base/v2/vault.html?embed=1#m=$($lap.id)" 7000 'document.getElementById("dSub").textContent'
-  Check 'the Vault card date ends in AM or PM (New York)' ($r.val -match '\d{1,2}:\d{2}\s?(AM|PM)') $r.val
+  Section '3. Performance: 12-hour times, plain words, a chart with a line (the Vault page is gone, W4-5)'
   $r = Page "$base/v2/perf.html?embed=1" 8000 'document.body.innerText'
   Check 'Performance shows no DriverHands / SteeringWheel / settled / Ask Claude' (-not ($r.val -match 'DriverHands|SteeringWheel|settled|Ask Claude')) ''
   Check 'Performance times are 12-hour' ($r.val -match 'Last session[\s\S]{0,60}\d{1,2}:\d{2}\s?(AM|PM)')
@@ -92,50 +85,6 @@ try {
     $same = @($pf.sessions | Where-Object { $_.counts -and $_.key -eq $pf.last.key -and $_.car -eq $pf.last.car }).Count
     if ($same -ge 5) { Check 'the Performance chart does not start on a single session' (-not ($r.val -match '(?m)^1 session\s*·')) '' } else { '  skip  fewer than 5 sessions of the last car and track' }
   }
-
-  Section '3b. Vault grid: grouped by day and session, readable at arm''s length, real pictures (2026-10-18 "vault is a disaster ... hard to interpret")'
-  $gridJs = @"
-(function () {
-  var px = function (e) { return parseFloat(getComputedStyle(e).fontSize); };
-  function measure() {
-    var cards = Array.from(document.querySelectorAll('#grid .card')).filter(function (c) { var r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-    var minAll = 99, minTm = 99, minT1 = 99, out = 0, ov = 0, imgs = 0, bad = 0, framed = 0;
-    cards.forEach(function (c) {
-      var cr = c.getBoundingClientRect();
-      c.querySelectorAll('.tm b').forEach(function (e) { minTm = Math.min(minTm, px(e)); });
-      c.querySelectorAll('.t1').forEach(function (e) { minT1 = Math.min(minT1, px(e)); });
-      var w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT), n;
-      while ((n = w.nextNode())) { if (!n.textContent.trim()) continue; var e = n.parentElement; minAll = Math.min(minAll, px(e)); var r = e.getBoundingClientRect(); if (r.width && (r.right > cr.right + 1 || r.left < cr.left - 1)) out++; }
-      c.querySelectorAll('img').forEach(function (i) { imgs++; if (!(i.complete && i.naturalWidth > 0)) bad++; if (/\/vault\/frame/.test(i.src) && i.naturalWidth > 0) framed++; });
-    });
-    for (var i = 0; i < cards.length; i++) for (var j = i + 1; j < cards.length; j++) { var a = cards[i].getBoundingClientRect(), b = cards[j].getBoundingClientRect(); if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) ov++; }
-    return { n: cards.length, minAll: minAll, minTm: minTm, minT1: minT1, out: out, ov: ov, imgs: imgs, bad: bad, framed: framed };
-  }
-  var M = measure();
-  var r = { days: document.querySelectorAll('#grid .day').length, sess: document.querySelectorAll('#grid .sgrp').length, loose: Array.from(document.querySelectorAll('#grid .card')).filter(function (c) { return !c.closest('.sgrp'); }).length,
-    sizes: document.querySelectorAll('#fSize .sz').length, tabs: document.querySelectorAll('#fKind .tab').length, chipRows: document.querySelectorAll('.filters .fgroup label').length, M: M };
-  document.querySelector('.sz[data-size=S]').click(); r.S = measure(); document.querySelector('.sz[data-size=M]').click();
-  return JSON.stringify(r);
-})()
-"@
-  $r = Page "$base/v2/vault.html?embed=1" 9000 $gridJs
-  $o = $r.val | ConvertFrom-Json
-  Check "the Vault grid has day headers ($($o.days)) and session groups ($($o.sess)); every card sits in a session" ($o.days -ge 1 -and $o.sess -ge $o.days -and $o.loose -eq 0)
-  Check "few big controls: $($o.tabs) view tabs, S / M / L ($($o.sizes)), no rows of small chips ($($o.chipRows) labelled chip rows)" ($o.tabs -ge 3 -and $o.sizes -eq 3 -and $o.chipRows -eq 0)
-  foreach ($k in 'M', 'S') { $s = $o.$k
-    Check "size ${k}: $($s.n) cards on screen; lap time $($s.minTm) px (>= 36), title $($s.minT1) px (>= 24), smallest text $($s.minAll) px (>= 20)" ($s.n -ge 3 -and $s.minTm -ge 36 -and $s.minT1 -ge 24 -and $s.minAll -ge 20)
-    Check "size ${k}: no text runs out of its card ($($s.out)), no two cards overlap ($($s.ov))" ($s.out -eq 0 -and $s.ov -eq 0) }
-  Check "every picture on screen loaded ($($o.M.imgs) pictures, $($o.M.bad) broken) and the page made no failing request" ($o.M.bad -eq 0 -and $r.bad.Count -eq 0) ($r.bad -join '; ')
-  if ($list.PSObject.Properties.Name -contains 'frames') {
-    $nf = @($list.moments | Where-Object { $_.frame }).Count
-    if ($nf -gt 0) { Check "recorded laps show a real picture of the recording ($($o.M.framed) on screen, $nf in the Vault)" ($o.M.framed -ge 1) } else { '  skip  no picture made yet (irdash makes them in the background, then this is checked)' }
-    $mv = $list.moments | Where-Object { $_.vid -and $_.kind -eq 'lap' } | Select-Object -First 1
-    if ($mv) {
-      $r2 = Page "$base/v2/vault.html?embed=1#m=$($mv.id)" 9000 'JSON.stringify({ wb: !!document.getElementById("wbHost"), vid: !document.getElementById("vidWrap").hidden, src: (document.getElementById("vid").getAttribute("src") || ""), exp: !!document.getElementById("pExpand"), vol: !!document.getElementById("pVol") })'
-      $p = $r2.val | ConvertFrom-Json
-      Check "a recorded lap ($($mv.id)) opens on the Vault's player with EXPAND and a sound control, not the workbench" (-not $p.wb -and $p.vid -and $p.src -match '/vault/video' -and $p.exp -and $p.vol)
-    }
-  } else { '  skip  irdash is the build from before the picture route (deploy dash\build.ps1), the picture checks wait for that' }
 
   if ($z4) {
     Section '4. Workbench: words not codes, ABS is not a lock-up'

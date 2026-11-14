@@ -228,24 +228,26 @@ On the overlays screen, VS steps through four comparisons: your best ever, your 
 
 When iRacing is not running, both side screens show the same photo. The photo changes every two minutes, with a slow fade. One small line of text in the corner. No logo. The moment the sim starts, the photos go away. They come back when the sim has closed. Photos from the replay screen join this set.
 
-## The analysis pages
+## REVIEW: more data
 
-Open a lap from **Sessions & laps**, the Vault or the session review (press **ANALYSIS**). The tabs along the top are the pages. (The deck has no analysis key any more: **REVIEW** on the main page opens your last drive on the top screen, and everything is there.) A page only appears when it has something to show.
+On the REVIEW screen, **MORE DATA** opens every number of one lap, in four tabs along the top. (The deck's REVIEW key and **SHOW ME** lead to it; press **Esc** or **CLOSE** to go back. Esc first undoes a zoom, then goes HOME.)
 
-- **DRIVER**: the track map coloured by where you gain or lose, and speed, throttle, brake and steering over the lap, against your best lap.
-- **GRIP**: how hard the car is working: the grip circle, slip, which end lets go.
-- **BRAKES**: where you brake, how hard, how long you hold it, and any lock-ups, corner by corner.
-- **TYRES**: temperatures, pressures and wear over the stint, and fuel per lap.
-- **SUSP.**: ride height and the dampers.
+- **DRIVER**: the track map coloured by where you gain or lose, and speed, throttle, brake and steering over the lap, against the reference lap. **+ CHANNEL** adds any other channel the car records (tyres, suspension, grip, ride height and the rest) as one more line on the same picture.
+- **BRAKING**: where you brake, how hard, how long you hold it, and any lock-ups, corner by corner.
 - **SPLITS**: your sector times, the best lap your sectors could add up to, and how steady you are.
-- **VIDEO**: the clip of that lap, moving in step with the traces (see the video recorder below).
-- **RACE**: appears for a race Paddock logged. The final order, how the gap to the leader changed lap by lap, positions, your passes, and you against the car ahead and the leader, corner by corner.
-- **CAREER**: appears once you have two or more sessions in the same car at the same track. Your best lap of every session, how each corner has got better or worse since you started, your best possible lap against your best lap, and your races there. It only counts laps iRacing counted.
-- **PRO**: the tools Cosworth's Pi charges for. Pick any two channels and plot one against the other, with a fitted curve and a colour (for example lateral g against speed). A histogram of any channel (how much of the lap it spends at each value). Your own maths channels: type a formula such as `if(Speed > 50, 100 / Speed, 0)`; Paddock explains in plain words if it cannot read it, and saves your formulas for that car. EXPORT: one gold **EXCEL** button (or **CSV**) saves the lap's channels to your Downloads folder.
+- **RACE**: only for a race Paddock logged. The final order, how the gap to the leader changed lap by lap, positions, your passes, and you against the car ahead and the leader, corner by corner.
+
+Three buttons at the bottom of the screen:
+
+- **EXPORT CSV** saves the lap and its reference, every metre, to your Downloads folder.
+- **OPEN IN PI TOOLBOX** opens the whole file in Cosworth's standard layout. It only appears when Pi Toolbox is installed.
+- **OPEN DELTA** starts Coach Dave Delta. It only appears when Delta is installed, and it never opens while you drive.
+
+The old GRIP, TYRES, SUSPENSION, VIDEO, CAREER and PRO pages are gone. Your progress over many sessions is in the progress part of REVIEW. Your race videos are in RACES.
 
 ## The video recorder
 
-Paddock films the middle race screen while you are in the car. It is on. It keeps the last three minutes. When a lap is your best, the clip of that lap is kept in the Vault. Other laps are not kept after the last three minutes have passed. It never films while you are out of the car. It costs about 1.5 frames per second. Clips play on the **VIDEO** page and on your iPhone under **LAPS › VIDEOS**. If you ever want it off, say so.
+Paddock films the middle race screen while you are in the car. It is on. It keeps the last three minutes. When a lap is your best, the clip of that lap is kept in the Vault. Other laps are not kept after the last three minutes have passed. It never films while you are out of the car. It costs about 1.5 frames per second. Clips play from RACES and on your iPhone under **LAPS › VIDEOS**. If you ever want it off, say so.
 
 ## Your iPhone
 
