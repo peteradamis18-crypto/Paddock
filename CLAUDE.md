@@ -37,7 +37,7 @@ Explain things to him in plain English, short, no jargon.
 ## Build (C# 5 with Windows' own csc — no SDK, no NuGet)
 - irdeck: `build-irdeck.ps1` (both exes; updates every `keys\*.exe` copy).
 - irdash: `dash\build.ps1` (`-NoDeploy` to only compile). Add new .cs files to its `$src` list.
-- Add-on: bump `$ver` in `deck-intro\install.ps1`, run it once; **Peter must click Install** in Stream Deck.
+- Add-on: bump `$ver` in `deck-intro\install.ps1`, run `tools\addon-update.ps1`: irdash stages, swaps the folder, restarts Stream Deck and waits for the add-on (W1-8, 2026-11-14; no Install click). `install.ps1` without `-Stage` (the package route) only for a brand-new PC.
 - MAIN page: close Stream Deck, run `build-deck.ps1`, restart Stream Deck (`docs/OPERATIONS.md`).
 C# 5 only: no `$"..."`, `?.`, `nameof`, expression-bodied members, `out var`.
 
