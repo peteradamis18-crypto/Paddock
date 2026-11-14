@@ -135,7 +135,7 @@ namespace IRDash
 
         public void Reset()
         {
-            lock (gate) { laps.Clear(); judge.Reset(); pending = null; lap = int.MinValue; sess = int.MinValue; lastTime = double.NaN; lastLevel = double.NaN; last = null; offRun = 0; }
+            lock (gate) { laps.Clear(); judge.Reset(); pending = null; lap = int.MinValue; sess = int.MinValue; lastTime = double.NaN; lastLevel = double.NaN; last = null; offRun = 0; Samples = 0; Stops = 0; }
         }
 
         // false = skipped (under 1/15 s of sim time since the last sample kept)

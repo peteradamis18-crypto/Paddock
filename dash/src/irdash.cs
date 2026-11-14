@@ -832,6 +832,7 @@ namespace IRDash
         // W0-5: /stream. ?vars= the telemetry variables (none = no frames' worth of values), ?hz= (default 15),
         // ?state=1 also pushes the state object as "event: state" (the whole object first, then only what changed) and leaves out the
         // raw session YAML (the parsed session is in the state); ?yaml=1 sends the YAML as before.
+        // W2-1: ?set=race instead of ?vars= = the race screen's 24 channels (Sdk.RaceSet), each on every frame (null when missing), no YAML.
         void Stream(NetworkStream s, Dictionary<string, string> q)
         {
             string varList; q.TryGetValue("vars", out varList);
