@@ -368,7 +368,8 @@ try {
   # the charts
   $lines = Cdp-Obj "WB.raceLines('trace')"; $linesP = Cdp-Obj "WB.raceLines('pos')"
   Check "the race trace draws a line for each of the 12 cars of Peter's class; the positions chart too ($($lines.n) / $($linesP.n))" ($lines.n -eq 12 -and $linesP.n -eq 12)
-  $pt = Cdp-Obj "WB.racePoint('trace', 7, 6)"; $ptA = Cdp-Obj "WB.racePoint('trace', 8, 6)"; $ptG = Cdp-Obj "WB.racePoint('trace', 3, 5)"; $pp = Cdp-Obj "WB.racePoint('pos', 7, 6)"
+  $pt = Cdp-Obj "WB.racePoint('trace', 7, 6)"; $ptA = Cdp-Obj "WB.racePoint('trace', 8, 6, 4)";   # the car ahead is a dotted line (2 on, 3 off): at 1 px the sample can fall in a gap, and where the gaps fall moved with the chart height (W4-5 triage)
+ $ptG = Cdp-Obj "WB.racePoint('trace', 3, 5)"; $pp = Cdp-Obj "WB.racePoint('pos', 7, 6)"
   $gold = { param($p) $p.rgba[0] -gt 200 -and $p.rgba[1] -gt 150 -and $p.rgba[1] -lt 235 -and $p.rgba[2] -lt 110 -and $p.rgba[3] -gt 200 }
   $white = { param($p) $p.rgba[0] -gt 170 -and $p.rgba[1] -gt 170 -and $p.rgba[2] -gt 170 -and $p.rgba[3] -gt 150 }
   $grey = { param($p) $p.rgba[0] -ge 35 -and $p.rgba[0] -lt 120 -and [math]::Abs($p.rgba[0] - $p.rgba[2]) -lt 30 -and $p.rgba[3] -gt 100 }

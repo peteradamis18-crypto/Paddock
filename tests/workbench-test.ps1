@@ -830,17 +830,23 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
     $page = Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/v2/workbench.html' -TimeoutSec 5
     Check 'irdash serves /v2/workbench.html' ($page.StatusCode -eq 200 -and $page.Content -like '*workbench.js*')
 
-    Section '5a. deck OFFSET AUTO dispatch reaches the running Workbench page'
+    Section '5a. deck OFFSET AUTO reaches the page through the state push (W4-5: the page no longer polls)'
+    # the deck press becomes the "workbench" state part { cmd, arg, seq }; review-more.js (REVIEW > MORE DATA) runs WB.cmd once per seq (review-more-test.ps1 proves that offline).
+    # The bare workbench page must run nothing by itself: nothing in it polls irdash.
+    $seq0 = ((Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/state' -TimeoutSec 5).Content | ConvertFrom-Json).workbench.seq
     Cdp-Open ('http://localhost:8199/v2/workbench.html?id=' + [uri]::EscapeDataString($pbName) + '&lap=7')
     $wbReady = $false; for ($i = 0; $i -lt 40 -and -not $wbReady; $i++) { Start-Sleep -Milliseconds 250; $wbReady = (Cdp-Eval 'window.WB && WB.data() ? 1 : 0') -eq 1 }
     if ($wbReady) {
       $null = Cdp-Eval 'window.__deckSeen="";var deckCmd=WB.cmd;WB.cmd=function(c,a){window.__deckSeen=c;return deckCmd(c,a)}'
-      Start-Sleep -Milliseconds 900   # the page's first poll (every 0.3 s) only learns the current seq, so a press before it is not replayed
       $deckPost = (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/api/do?c=wb-offset-auto' -TimeoutSec 5).Content
-      for ($i = 0; $i -lt 20 -and (Cdp-Eval 'window.__deckSeen') -ne 'offset-auto'; $i++) { Start-Sleep -Milliseconds 250 }
-      Check 'wb-offset-auto is queued by the deck API and polled into WB.cmd("offset-auto")' ($deckPost -eq 'ok' -and (Cdp-Eval 'window.__deckSeen') -eq 'offset-auto')
-    } else { Check 'wb-offset-auto is queued by the deck API and polled into WB.cmd("offset-auto")' $false }
+      $wbPart = $null; for ($i = 0; $i -lt 20 -and -not ($wbPart -and $wbPart.seq -eq $seq0 + 1); $i++) { Start-Sleep -Milliseconds 250; $wbPart = ((Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/state' -TimeoutSec 5).Content | ConvertFrom-Json).workbench }
+      Check 'wb-offset-auto arrives in the "workbench" state part as cmd offset-auto, seq +1' ($deckPost -eq 'ok' -and $wbPart.cmd -eq 'offset-auto' -and $wbPart.seq -eq $seq0 + 1)
+      Start-Sleep -Milliseconds 800
+      Check 'the bare workbench page runs nothing by itself (only review-more.js forwards the state part to WB.cmd)' ((Cdp-Eval 'window.__deckSeen') -eq '')
+    } else { Check 'wb-offset-auto arrives in the "workbench" state part as cmd offset-auto, seq +1' $false }
     Cdp-Close
+    $rmJs = [IO.File]::ReadAllText((Join-Path $root 'dash\www\app\pages\review-more.js'))
+    Check 'review-more.js follows the state part and calls WB.cmd (the deck path into the page)' ($rmJs -match "ctx\.data\.on\('state'" -and $rmJs -match 'WB\.cmd')
 
     Section '5b. real Sessions selections open the same Workbench with their lap'
     $liveSessions = (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/sessions' -TimeoutSec 10).Content | ConvertFrom-Json
