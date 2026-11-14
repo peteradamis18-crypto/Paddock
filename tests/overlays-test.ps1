@@ -209,6 +209,8 @@ Check 'thirteen checks, all of the ones in the spec (and the sim priority, OneDr
 Check 'every check is green, amber or red with a plain sentence' (@($d.items | Where-Object { $_.state -notin 'ok', 'warn', 'bad' -or $_.detail.Length -lt 8 }).Count -eq 0)
 Check 'every amber or red check says what to press or do' (@($d.items | Where-Object { $_.state -ne 'ok' -and $_.fix.Length -lt 8 }).Count -eq 0)
 $ov = $d.items | Where-Object id -eq 'overlays_running'
+# /overlays 'running' is cached for 5 s, so it can lag a fresh start by that long: wait for it
+for ($i = 0; $i -lt 30; $i++) { if ((J '/overlays').running -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 Check 'with the overlays app stopped, the doctor starts it by itself (out of a session) and says so' ($ov.state -eq 'ok' -and $ov.done -match 'overlays' -and (J '/overlays').running)
 $vis = $d.items | Where-Object id -eq 'overlays_visible'
 $probe = Join-Path $root 'dash\probe.txt'
@@ -221,6 +223,8 @@ for ($i = 0; $i -lt 120; $i++) { if (-not (J '/doctor').running) { break }; Star
 for ($i = 0; $i -lt 40; $i++) { if (@(Get-Process irdashies -ErrorAction SilentlyContinue).Count -gt 0) { break }; Start-Sleep -Milliseconds 500 }
 Start-Sleep -Milliseconds 2000
 Api 'ovapply'; $o = Settle
+# /overlays 'running' is cached for 5 s, so it can lag a fresh start by that long: wait for it
+for ($i = 0; $i -lt 30; $i++) { if ((J '/overlays').running -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 Check 'one press brings the overlays app back' ((J '/overlays').running -eq $true)
 
 Section '7. a pretend session (only irdash sees it; iRacing and the other programs see nothing): start and load times, the delta bar in the car, the restart gate'
@@ -298,6 +302,9 @@ try {
   Check 'and the deck screen says it is waiting for the car to stop' ($o.waiting -eq $true)
   Fake 'Speed=0'
   $o = Settle 20
+  # the restart is a queued job (W0-3): it runs ~20 s after the session ends and can wait behind others
+  for ($i = 0; $i -lt 75; $i++) { if ((IrdashiesStart) -gt $started1) { break }; Start-Sleep -Seconds 1 }
+  for ($i = 0; $i -lt 30; $i++) { $o = J '/overlays'; if (-not $o.pending) { break }; Start-Sleep -Seconds 1 }
   Check 'once the car is stopped the overlays restart by themselves' ((IrdashiesStart) -gt $started1 -and -not $o.pending)
 }
 finally {
@@ -369,6 +376,9 @@ if ($tsvBefore -ne $null) { [IO.File]::WriteAllText($tsvFile, $tsvBefore) } else
 # the original config goes back through the real tool so irdashies restarts on it
 [IO.File]::Copy("$tmp\config.json", $cfgFile, $true)
 Api 'ovapply'; $o = Settle
+# the restore apply is a queued job too (W0-3): wait until the file shows the saved widgets again
+$want = ($cfg0.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';'
+for ($i = 0; $i -lt 75; $i++) { $now = Get-Content $cfgFile -Raw | ConvertFrom-Json; if ((($now.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -eq $want) { break }; Start-Sleep -Seconds 1 }
 $now = Get-Content $cfgFile -Raw | ConvertFrom-Json
 Check 'your overlays are exactly as before the test' ((($cfg0.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -eq (($now.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -and $o.running)
 Set-Ref $refOrig
