@@ -210,9 +210,8 @@ const P = {
     const map = (arr, f) => { if (!arr) return null; const o = new Float32Array(arr.length); for (let i = 0; i < arr.length; i++) o[i] = f(arr[i]); return o; };
     const pct = v => v <= 1.001 ? v * 100 : v, deg = v => v * 57.29578;
     const steerDeg = cW && /deg/i.test(cW.unit || '') ? (v => v) : deg;
-    const lapS = (x, lbl, col) => ({ label: lbl, color: col });
     const lbl = { lap: 'lap ' + s.lap, ref: s.ref === 'ever' ? 'your best here' : 'lap ' + s.ref };
-    const two = (f, unitWord) => [Object.assign(lapS(0, lbl.lap, 'gold'), { data: f(A) })].concat(R ? [Object.assign(lapS(0, lbl.ref, 'ink'), { data: f(R) })] : []);
+    const two = f => [{ label: lbl.lap, color: 'gold', data: f(A) }].concat(R ? [{ label: lbl.ref, color: 'ink', data: f(R) }] : []);
     let delta = null;
     if (R) { delta = new Float32Array(n); for (let i = 0; i < n; i++) delta[i] = A.t[i] - R.t[i]; }
     const rows = [
