@@ -88,5 +88,26 @@ namespace IRDeck
         {
             return string.Equals((sessionType ?? "").Trim(), "Race", StringComparison.OrdinalIgnoreCase);
         }
+
+        // TO THE RACE (W3-4: NEXT SESSION and RACE NOW on one key). sessions = the loaded event's sessions as "num:type" (actions.cs Snap),
+        // curNum = the session running now. Is the race this session or one still to come?
+        public static bool RaceAhead(string[] sessions, int curNum)
+        {
+            if (sessions == null) return false;
+            foreach (string s in sessions)
+            {
+                if (string.IsNullOrEmpty(s)) continue;
+                int c = s.IndexOf(':'); if (c <= 0) continue;
+                int n; if (!int.TryParse(s.Substring(0, c), NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) continue;
+                if (n >= curNum && IsRaceType(s.Substring(c + 1))) return true;
+            }
+            return false;
+        }
+        // racenow = skip ahead to the race and get in the car (only an AI weekend can be skipped); skip = NEXT SESSION as before
+        // (a Test Drive has no race: it ends back at the menu; an official session refuses, in plain words).
+        public static string ToTheRacePlan(bool ai, bool raceAhead)
+        {
+            return ai && raceAhead ? "racenow" : "skip";
+        }
     }
 }

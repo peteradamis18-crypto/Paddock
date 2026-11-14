@@ -24,13 +24,13 @@ namespace IRDeck
             return Array.IndexOf(FastKeys, keyName.Trim().ToLowerInvariant()) >= 0;
         }
 
-        // on/off keys: MUTE SPOTTER, the pit toggles, AC on/off
+        // on/off keys: SPOTTER (spotter-tap) and the old MUTE SPOTTER, the pit toggles, AC on/off
         public static bool IsToggle(string[] a)
         {
             if (a == null || a.Length == 0 || a[0] == null) return false;
             string v = a[0].ToLowerInvariant();
             string w = a.Length > 1 && a[1] != null ? a[1].ToLowerInvariant() : "";
-            return (v == "appvol" && w == "mute") || v == "pittoggle" || (v == "ac" && w == "toggle");
+            return (v == "appvol" && w == "mute") || v == "spotter-tap" || v == "pittoggle" || (v == "ac" && w == "toggle");
         }
 
         public static int GapMs(string keyName, string[] a)

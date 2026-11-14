@@ -346,6 +346,8 @@ namespace IRDeck
                 case "restartrace": return CmdRestartRace();
                 case "skip": return CmdSkip();
                 case "racenow": return CmdRaceNow();   // from practice or qualify: keep skipping until the race, then get in the car
+                case "to-the-race": return CmdToTheRace(Slice(a, 1));   // W3-4: the TO THE RACE key = RACE NOW when the event has a race ahead, else NEXT SESSION
+                case "spotter-tap": return CmdSpotterTap(Slice(a, 1)); // W3-4: the SPOTTER key: one tap mutes / unmutes the spotter (its level is on SOUND)
                 case "pittoggle": return CmdPitToggle(Slice(a, 1));
                 case "replay": return CmdReplayIncident();
                 case "capture": return CmdCapture();
@@ -1292,6 +1294,37 @@ namespace IRDeck
             return WithNamedLock("Local\\irdeck-racenow", "racenow", delegate { return CmdRaceNowBody(); });
         }
 
+        // TO THE RACE (W3-4): one key for NEXT SESSION and RACE NOW (5 presses of NEXT SESSION used to be the way to the race).
+        // The loaded event has its race still ahead (an AI weekend): RACE NOW, which skips to it and gets in the car. Anything else:
+        // NEXT SESSION as before (a Test Drive ends back at the menu; an official session refuses in plain words).
+        //   to-the-race [--dry]                          --dry: say which it would do, do nothing
+        //   to-the-race --fake <num:type,...> <cur> <ai>  the decision from given facts, no sim needed (tests\deck-behaviour-test.ps1)
+        static int CmdToTheRace(string[] a)
+        {
+            int fi = Array.IndexOf(a, "--fake");
+            if (fi >= 0)
+            {
+                if (a.Length < fi + 4) { Log("to-the-race --fake needs <num:type,...> <current num> <ai 0|1>"); return 1; }
+                string fp = DeckRules.ToTheRacePlan(a[fi + 3] == "1", DeckRules.RaceAhead(a[fi + 1].Split(','), int.Parse(a[fi + 2], CultureInfo.InvariantCulture)));
+                Log("to-the-race (fake): " + (fp == "racenow" ? "RACE NOW" : "NEXT SESSION"));
+                return 0;
+            }
+            bool dry = Array.IndexOf(a, "--dry") >= 0;
+            if (!SessionActive()) { Log("to-the-race: no session is running"); return 3; }
+            SessSnap s = Snap();
+            string plan = DeckRules.ToTheRacePlan(s.Ai, DeckRules.RaceAhead(s.Sessions.ToArray(), s.Num));
+            Log("to-the-race" + (dry ? " --dry" : "") + ": " + (s.Type.Length > 0 ? s.Type : "this session") + " -> " + (plan == "racenow" ? "RACE NOW" : "NEXT SESSION"));
+            if (dry) return 0;
+            return plan == "racenow" ? CmdRaceNow() : CmdSkip();
+        }
+
+        // SPOTTER (W3-4): one tap mutes or unmutes the spotter (CrewChief's own mixer entry); the level is on the SOUND screen.
+        //   spotter-tap [--dry]   --dry: say what a tap would do, change nothing
+        static int CmdSpotterTap(string[] a)
+        {
+            return AppMuteToggle("spotter", Array.IndexOf(a, "--dry") >= 0);
+        }
+
         static int CmdRaceNowBody()
         {
             if (!SessionActive()) { Log("racenow: no session is running"); return 3; }
@@ -1519,7 +1552,8 @@ namespace IRDeck
             return changed;
         }
 
-        static int AppMuteToggle(string who)
+        static int AppMuteToggle(string who) { return AppMuteToggle(who, false); }
+        static int AppMuteToggle(string who, bool dry)
         {
             string proc = who.Equals("spotter", StringComparison.OrdinalIgnoreCase) ? "CrewChiefV4" : who;
             int touched = 0; bool nowMuted = false;
@@ -1543,12 +1577,14 @@ namespace IRDeck
                         if (!proc.Equals(pn, StringComparison.OrdinalIgnoreCase)) continue;
                         ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
                         if (!decided) { bool m; v.GetMute(out m); target = !m; decided = true; }   // every entry of the program follows the first one
-                        Guid g = Guid.Empty; v.SetMute(target, ref g); touched++; nowMuted = target;
+                        if (!dry) { Guid g = Guid.Empty; v.SetMute(target, ref g); }
+                        touched++; nowMuted = target;
                     }
                 }
             }
             catch (Exception ex) { Log("appvol mute error: " + ex.Message); return 1; }
-            if (touched == 0) { Log("appvol mute: " + proc + " is not making sound right now"); return 3; }
+            if (touched == 0) { Log("appvol mute" + (dry ? " (dry)" : "") + ": " + proc + " is not making sound right now"); return 3; }
+            if (dry) { Log("appvol mute (dry): a tap would " + (nowMuted ? "mute " : "turn the sound back on for ") + proc + " (" + touched + " session(s)); nothing changed"); return 0; }
             Log("appvol mute: " + proc + (nowMuted ? " muted" : " sound back on") + " (" + touched + " session(s))");
             return 0;
         }
