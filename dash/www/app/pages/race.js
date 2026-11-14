@@ -119,10 +119,9 @@
     },
 
     race: function () { return data.state ? data.state.race || null : null; },
-    // W2-1's contract names two things "lap" (the lap number and the lap times); JSON keeps the last one, the times. The number is
-    // then the stream's own Lap.
+    // the race part: lapNum = the lap number, lap = the lap times (W2-1); before it arrives, the stream's own Lap
     lapInfo: function (r) { return r && r.lap && typeof r.lap === 'object' ? r.lap : null; },
-    lapNo: function (r) { if (r && num(r.lap)) return r.lap; var v = R.v; return v && num(v.Lap) ? v.Lap : null; },
+    lapNo: function (r) { if (r && num(r.lapNum)) return r.lapNum; var v = R.v; return v && num(v.Lap) ? v.Lap : null; },
     isRace: function (r) { var n = F.sessionName(r && r.type); return !r || n === 'Race' || n === 'AI race'; },
 
     // once a lap: the gaps ahead and behind, so the arrow can say closing or losing over the last 3 laps
@@ -264,13 +263,14 @@
         put($('cLine'), 'needs ' + L(need, 0) + ', have ' + L(f.level, 0));
         put(note, num(f.toEnd) ? (f.toEnd > 0 ? 'Short by ' + L(f.toEnd) + ' to the end' : 'Enough to the end') : ' ');
       } else {
-        var margin = num(f.lapsOfFuel) && num(r.toGo) ? f.lapsOfFuel - r.toGo : null;
+        // irdash's spare: laps of fuel minus laps to go with 5 % kept back (W2-1 fuel.cs); toEnd is litres still to add
+        var margin = num(f.spare) ? f.spare : null;
         put(big, 'c-big', 'className');
         if (margin !== null) {
           // a race: laps of fuel against laps to go, the one number that matters
           cls += state === 'short' ? ' short' : state === 'save' ? ' save' : ' ok';
           put($('cNum'), (margin < 0 ? MINUS : '+') + Math.abs(margin).toFixed(1)); put($('cUnit'), 'laps');
-          put($('cLine'), (num(f.lapsOfFuel) ? f.lapsOfFuel.toFixed(1) + ' laps of fuel' : NONE) + ' · ' + Math.ceil(r.toGo) + ' to go');
+          put($('cLine'), (num(f.lapsOfFuel) ? f.lapsOfFuel.toFixed(1) + ' laps of fuel' : NONE) + ' · ' + (num(r.toGo) ? Math.ceil(r.toGo) + ' to go' : NONE));
         } else {
           // practice, qualifying: nothing to finish, only what is in the tank
           put($('cNum'), num(f.lapsOfFuel) ? f.lapsOfFuel.toFixed(1) : NONE); put($('cUnit'), 'laps of fuel');
@@ -406,7 +406,8 @@
     return h ? h + ':' + p(m) + ':' + p(x) : m + ':' + p(x);
   }
   // iRacing's surname is enough at a glance ("Peter Adamis" -> Adamis)
-  function shortName(n) { var w = String(n || '').trim().split(/\s+/); var s = w[w.length - 1] || ''; return s.length > 14 ? s.slice(0, 13) + '.' : s; }
+  // (iRacing adds digits to a duplicate name: "Santos11" -> Santos, the same rule as irdash's Session.ShortName)
+  function shortName(n) { var w = String(n || '').trim().split(/\s+/); var s = (w[w.length - 1] || '').replace(/\d+$/, '') || w[w.length - 1] || ''; return s.length > 14 ? s.slice(0, 13) + '.' : s; }
   // iRacing writes 0xffda59; dark class colours get light numbers
   function classColor(c) {
     var h = String(c || '').replace(/^0x/i, '').replace(/^#/, '');

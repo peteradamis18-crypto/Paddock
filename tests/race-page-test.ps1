@@ -42,8 +42,8 @@ $stub = @'
     json: function (u) { return window.fetch(u); }, fetch: function (u) { return window.fetch(u); }, reloadOnVersion: function () { }, onList: function () { } };
   window.__push = function (m) { var ch = {}; for (var k in m) { window.data.state[k] = m[k]; ch[k] = true; } window.data.seq++; ls.state.forEach(function (f) { f(window.data.state, ch); }); };
   window.__frame = function (v) { ls.frame.forEach(function (f) { f(v); }); };
-  // 22 cars: car 8 is Peter. order = CarIdx in running order (overall); multi: even CarIdx GT3, odd GT4 (session-multi.json)
-  window.__order = function (mePos) { var o = []; for (var i = 0; i < 22; i++) if (i !== 8) o.push(i); o.splice(mePos - 1, 0, 8); return o; };
+  // 19 cars (the 12 Nov field): car 2 is Peter (#3). order = CarIdx in running order (overall); multi: even CarIdx GT3, odd GT4 (session-multi.json)
+  window.__order = function (mePos) { var o = []; for (var i = 0; i < 19; i++) if (i !== 2) o.push(i); o.splice(mePos - 1, 0, 2); return o; };
   window.__field = function (o) {
     var t = o.t || 0, order = o.order || __order(o.mePos || 4), v = {};
     ['CarIdxClassPosition', 'CarIdxPosition', 'CarIdxF2Time', 'CarIdxLap', 'CarIdxLapDistPct', 'CarIdxOnPitRoad', 'CarIdxEstTime', 'CarIdxClass'].forEach(function (k) {
@@ -59,7 +59,7 @@ $stub = @'
       v.CarIdxOnPitRoad[idx] = (o.pit || []).indexOf(idx) >= 0 ? 1 : 0;
     });
     var lap = o.lap || 31;
-    v.PlayerCarIdx = 8; v.IsOnTrack = 1; v.OnPitRoad = (o.pit || []).indexOf(8) >= 0 ? 1 : 0; v.Lap = lap; v.LapCompleted = lap - 1;
+    v.PlayerCarIdx = 2; v.IsOnTrack = 1; v.OnPitRoad = (o.pit || []).indexOf(2) >= 0 ? 1 : 0; v.Lap = lap; v.LapCompleted = lap - 1;
     v.SessionFlags = 0; v.SessionTime = 3753 + t; v.FuelLevel = 22.4; v.LapLastLapTime = 93.832; v.LapBestLapTime = 93.412;
     v.LapDeltaToBestLap = -0.21; v.LapDeltaToBestLap_OK = 1; v.PlayerCarMyIncidentCount = 4; v.SessionLapsRemainEx = 21; v.SessionTimeRemain = -1;
     return v;
@@ -137,11 +137,11 @@ try {
   Common 'green' $l
   ok 'green: the zones sit where PLAN 4.2 puts them (A 24,24,1872,96 / B 24,136,912,288 / C 24,440,912,360 / D 24,816,912,240 / E 952,136,944,920)' `
     ($l.boxes.A -eq '24,24,1872,96' -and $l.boxes.B -eq '24,136,912,288' -and $l.boxes.C -eq '24,440,912,360' -and $l.boxes.D -eq '24,816,912,240' -and $l.boxes.E -eq '952,136,944,920') ($l.boxes | ConvertTo-Json -Compress)
-  ok "green: the strip says P4 of 22, lap 31/52, 21 to go, 4x / 17 ($($l.A.pos) $($l.A.of) | $($l.A.mid) | $($l.A.inc))" ($l.A.pos -eq 'P4' -and $l.A.of -eq 'of 22' -and $l.A.mid -eq 'Lap 31/52 · 21 to go' -and $l.A.inc -eq '4x / 17' -and -not $l.A.incNear -and $l.A.cls -eq '')
+  ok "green: the strip says P4 of 19, lap 31/52, 21 to go, 4x / 17 ($($l.A.pos) $($l.A.of) | $($l.A.mid) | $($l.A.inc))" ($l.A.pos -eq 'P4' -and $l.A.of -eq 'of 19' -and $l.A.mid -eq 'Lap 31/52 · 21 to go' -and $l.A.inc -eq '4x / 17' -and -not $l.A.incNear -and $l.A.cls -eq '')
   ok "green: the session clock ($($l.A.clock))" ($l.A.clock -eq '1:02:33')
-  ok "green: AHEAD and BEHIND with the gap, number and name ($($l.B.ahead) | $($l.B.behind))" ($l.B.ahead -match '^Ahead\s*−1\.4.*#16\s*Jensen' -and $l.B.behind -match '^Behind\s*\+1\.4.*#19\s*Okafor')
-  ok "4. fuel ok: '+1.7 LAPS' in green, laps of fuel and to go, '+1 lap kept back', no window ($($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" `
-    ($l.C.num -eq '+1.7' -and $l.C.unit -eq 'laps' -and $l.C.line -eq '22.7 laps of fuel · 21 to go' -and $l.C.note -eq '+1 lap kept back' -and $l.C.numColor -eq $l.tok.gain -and -not $l.C.win)
+  ok "green: AHEAD and BEHIND with the gap, number and name ($($l.B.ahead) | $($l.B.behind))" ($l.B.ahead -match '^Ahead\s*−1\.4.*#19\s*Okafor' -and $l.B.behind -match '^Behind\s*\+1\.4.*#22\s*Lindqvist')
+  ok "4. fuel ok: '+1.7 LAPS' (irdash's spare) in green, laps of fuel and to go, '+1 lap kept back', no window ($($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" `
+    ($l.C.num -eq '+1.7' -and $l.C.unit -eq 'laps' -and $l.C.line -eq '23.8 laps of fuel · 21 to go' -and $l.C.note -eq '+1 lap kept back' -and $l.C.numColor -eq $l.tok.gain -and -not $l.C.win)
   ok "green: last lap, best, the delta bar and 'to best' -0.21 in green ($($l.D.last) / $($l.D.best) / $($l.D.num))" ($l.D.last -eq '1:33.832' -and $l.D.best -eq '1:33.412' -and $l.D.bar -and $l.D.num -eq '−0.21' -and $l.D.numColor -eq $l.tok.gain -and $l.D.lastColor -eq $l.tok.ink)
   ok "green: the key message's place (x 540-1380, y 1012-1070, keymsg.css) covers no text for its 4 s ($($l.km -join ', '))" ($l.km.Count -eq 0)
   ok 'green: ten rows, no class header in a one-class race' ($l.rows.Count -eq 10 -and @($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 0) ($l.rows.Count)
@@ -155,7 +155,7 @@ try {
     $l = Look; Common "fuel $fs" $l
     switch ($fs) {
       'short' {
-        ok "4. fuel short: '−11.3 LAPS' in red ($($l.C.num) $($l.C.unit))" ($l.C.num -eq '−11.3' -and $l.C.numColor -eq $l.tok.loss -and $l.C.cls -match 'short')
+        ok "4. fuel short: '−12.3 LAPS' in red ($($l.C.num) $($l.C.unit))" ($l.C.num -eq '−12.3' -and $l.C.numColor -eq $l.tok.loss -and $l.C.cls -match 'short')
         $want = (($fx['race-short'] | ConvertFrom-Json).fuel.window)
         $got = @($l.C.cells | ForEach-Object { ($_ -split '=')[0] })
         ok "4. the pit window: $($want.Count) cells in the fixture's order" ($l.C.win -and ($got -join ',') -eq ($want -join ',')) ($got -join ',')
@@ -166,7 +166,7 @@ try {
         Shot 'fuel-short'
       }
       'save' {
-        ok "4. fuel save: amber, 'SAVE 0.12 L/LAP to gain a lap' ($($l.C.num) | $($l.C.note))" ($l.C.cls -match 'save' -and $l.C.note -eq 'SAVE 0.12 L/LAP to gain a lap' -and $l.C.numColor -eq $l.tok.amber -and $l.C.num -eq '−1.0')
+        ok "4. fuel save: amber, 'SAVE 0.12 L/LAP to gain a lap' ($($l.C.num) | $($l.C.note))" ($l.C.cls -match 'save' -and $l.C.note -eq 'SAVE 0.12 L/LAP to gain a lap' -and $l.C.numColor -eq $l.tok.amber -and $l.C.num -eq '−0.4')
         Shot 'fuel-save'
       }
       'measuring' {
@@ -193,7 +193,7 @@ try {
 
   # on pit road, without and with the rejoin
   foreach ($ps in 'pit', 'pit-rejoin') {
-    $null = Cdp-Eval "__push({ race: __fx['race-$ps'] }); __run({ mePos: 4, pit: [8] }); 1"; Start-Sleep -Milliseconds 900
+    $null = Cdp-Eval "__push({ race: __fx['race-$ps'] }); __run({ mePos: 4, pit: [2] }); 1"; Start-Sleep -Milliseconds 900
     $l = Look; Common $ps $l
     ok "$ps : B and D fold away" (-not $l.B.bVis -and -not $l.D.vis)
     ok "$ps : C says pit road and the fuel in the tank ($($l.C.lbl) | $($l.C.num) $($l.C.unit) | $($l.C.line))" ($l.C.lbl -eq 'Pit road' -and $l.C.num -eq '22.4' -and $l.C.unit -eq 'L in the tank' -and $l.C.line -eq 'On pit road')
@@ -229,36 +229,37 @@ try {
   Open-Fixture
   $null = Cdp-Eval "__push({ session: __fx['session-multi'], race: __fx['race-multiclass'] }); __run({ mePos: 18, multi: true }); 1"; Start-Sleep -Milliseconds 1200
   $l = Look; Common 'multiclass' $l
-  ok "multiclass: one class header row ($(@($l.rows | Where-Object { $_.cls -match 'head' })[0].p))" (@($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 1 -and $l.rows[0].p -eq 'GT3 · 11 cars')
+  ok "multiclass: one class header row ($(@($l.rows | Where-Object { $_.cls -match 'head' })[0].p))" (@($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 1 -and $l.rows[0].p -eq 'GT3 · 10 cars')
   $cars = @($l.rows | Where-Object { $_.cls -match '^row( me)?( pit)?$' })
-  ok "multiclass: only his class, the class leader pinned on top then a cut, a cut, P3..P11 with YOU at P9 ($(($cars | ForEach-Object { $_.p }) -join ' '))" ($cars[0].p -eq '1' -and $l.rows[2].cls -match 'cut' -and (($cars | ForEach-Object { $_.p }) -join ' ') -eq '1 3 4 5 6 7 8 9 10 11')
-  ok "multiclass: the strip shows the class position ($($l.A.cls))" ($l.A.cls -eq 'Class P9 of 11' -and $l.A.pos -eq 'P18')
+  ok "multiclass: only his class, 10 cars fit, so no cut: P1..P10 with YOU at P9 ($(($cars | ForEach-Object { $_.p }) -join ' '))" ($cars[0].p -eq '1' -and @($l.rows | Where-Object { $_.cls -match 'cut' }).Count -eq 0 -and (($cars | ForEach-Object { $_.p }) -join ' ') -eq '1 2 3 4 5 6 7 8 9 10')
+  ok "multiclass: the strip shows the class position ($($l.A.cls))" ($l.A.cls -eq 'Class P9 of 10' -and $l.A.pos -eq 'P18')
   Shot 'multiclass'
 
   # 3. standings order at three moments, YOU gold, pinned leader, PIT chips
   Section '3. standings'
   Open-Fixture
   $null = Cdp-Eval "__push({ session: __fx['session-single'], race: __fx['race-green'] }); 1"
-  $moments = @(@{ order = '__order(4)'; pit = '[]' }, @{ order = '[3,1,8,0,2,4,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21]'; pit = '[0, 5]' }, @{ order = '__order(15)'; pit = '[14]' })
+  $moments = @(@{ order = '__order(4)'; pit = '[]' }, @{ order = '[3,1,2,0,8,4,5,6,7,9,10,11,12,13,14,15,16,17,18]'; pit = '[0, 5]' }, @{ order = '__order(15)'; pit = '[14]' })
   $mi = 0
   foreach ($m in $moments) {
     $mi++
     $null = Cdp-Eval "__run({ order: $($m.order), pit: $($m.pit) }); 1"; Start-Sleep -Milliseconds 800
     $l = Look
-    $want = Cdp-Json "(() => { const v = __field({ order: $($m.order) }), o = []; for (let i = 0; i < 22; i++) o.push(i); o.sort((a, b) => v.CarIdxClassPosition[a] - v.CarIdxClassPosition[b]); return o.map(i => __fx['session-single'].DriverInfo.Drivers[i].CarNumber); })()"
+    $want = Cdp-Json "(() => { const v = __field({ order: $($m.order) }), o = []; for (let i = 0; i < 19; i++) o.push(i); o.sort((a, b) => v.CarIdxClassPosition[a] - v.CarIdxClassPosition[b]); return o.map(i => __fx['session-single'].DriverInfo.Drivers[i].CarNumber); })()"
     $cars = @($l.rows | Where-Object { $_.cls -match '^row( me)?( pit)?$' })
     $shown = @($cars | ForEach-Object { $_.n.TrimStart('#') })
     $pos = @($cars | ForEach-Object { [int]$_.p })
     $exp = @($pos | ForEach-Object { $want[$_ - 1] })
     ok "3. moment $mi : the rows are the stream's CarIdxClassPosition order ($($pos -join ' ') = $($shown -join ' '))" (($shown -join ',') -eq ($exp -join ',') -and $shown.Count -eq 10)
     $me = @($cars | Where-Object { $_.cls -match '\bme\b' })
-    ok "3. moment $mi : YOU is the one gold row, 1.3x tall ($($me.Count), $($me[0].h) px, $($me[0].color))" ($me.Count -eq 1 -and $me[0].n -eq '#9' -and $me[0].color -eq $l.tok.gold -and $me[0].h -eq 104)
+    ok "3. moment $mi : YOU is the one gold row, 1.3x tall ($($me.Count), $($me[0].h) px, $($me[0].color))" ($me.Count -eq 1 -and $me[0].n -eq '#3' -and $me[0].color -eq $l.tok.gold -and $me[0].h -eq 104)
     $pitWant = Cdp-Json "(() => $($m.pit).map(i => '#' + __fx['session-single'].DriverInfo.Drivers[i].CarNumber))()"
     $pitGot = @($cars | Where-Object { $_.pit } | ForEach-Object { $_.n })
     $pitShown = @($pitWant | Where-Object { $shown -contains $_.TrimStart('#') })
     ok "3. moment $mi : PIT chips follow CarIdxOnPitRoad ($($pitGot -join ' '))" (($pitGot -join ',') -eq ($pitShown -join ','))
     if ($mi -eq 3) {
       ok "3. YOU in P15: the leader pinned on top, a cut, then P11..P19 ($($pos -join ' '))" ($pos[0] -eq 1 -and $l.rows[1].cls -match 'cut' -and (($pos | Select-Object -Skip 1) -join ' ') -eq '11 12 13 14 15 16 17 18 19')
+      ok "3. iRacing's duplicate-name digits are dropped ('Sam Whitaker11' shows as '$(($cars | Select-Object -Last 1).nm)')" (($cars | Select-Object -Last 1).nm -eq 'Whitaker')
       Shot 'far'
     }
   }
@@ -300,7 +301,7 @@ try {
   watch('ahead', document.querySelector('#bAhead .g-n')); watch('behind', document.querySelector('#bBehind .g-n'));
   document.querySelectorAll('#eRows .row .iv').forEach((el, i) => watch('iv' + i, el));
   window.__tenths = 0; const t0 = performance.now(); let prev = null;
-  window.__probe = setInterval(() => { const v = __field(Object.assign({ t: (performance.now() - t0) / 1000 }, window.__o)); const g = (v.CarIdxF2Time[8] - v.CarIdxF2Time[window.__order(4)[2]]).toFixed(1); if (g !== prev) window.__tenths++; prev = g; }, 66);
+  window.__probe = setInterval(() => { const v = __field(Object.assign({ t: (performance.now() - t0) / 1000 }, window.__o)); const g = (v.CarIdxF2Time[2] - v.CarIdxF2Time[window.__order(4)[2]]).toFixed(1); if (g !== prev) window.__tenths++; prev = g; }, 66);
   return 1; })()
 '@
   Start-Sleep -Seconds 10
