@@ -97,7 +97,7 @@ Cards `W3-1.md` (shell + router, Opus), `W3-2.md` (clock + start-up + tones, Opu
 | Card | State | Notes |
 |---|---|---|
 | W3-1 Shell + router | building (Opus, worktree) | app/index.html, one page at a time, the four doors, one banner, Esc everywhere, the race host moves into the router |
-| W3-2 Clock + start-up | building (Opus, worktree) | 720 px dial, five gold lights with tones (Web Audio, quiet 23-07), 7 s, any key skips |
+| W3-2 Clock + start-up | merged (lead looked at the dial and the five lamps: a real watch face, premium) | clock 37/0 (a frame draws in 0.03 ms), startup 46/0 (done at 7.0 s, a key skips in 8 ms), design-lint 23/0; the dashboard browser gets the autoplay flag at its next restart; follow-up at W3-5: Showcase.IntroActive 18 s -> ~8 s so the side photos return with the dial; gallery-test lines 170 and 450-456 reference the old intro | 720 px dial, five gold lights with tones (Web Audio, quiet 23-07), 7 s, any key skips |
 | W3-3 HOME | building (Opus, worktree) | 7 states; his series from the session index; finish/start in the sidecar; realworld dropped |
 | W3-4 Deck | building (Opus, worktree) | deck/layout.json, deck/keyart.js shared by build-deck (headless render) and the add-on, two irdeck verbs (to-the-race, spotter-tap) |
 | W3-5 Pictures, deck preview, ship | lead | after W3-1..4 |
