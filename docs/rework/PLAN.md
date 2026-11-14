@@ -543,14 +543,14 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
 ## 10. Decisions for Peter
 
 1. **Gold:** DECIDED 2026-11-13: the softer broadcast `#C9A24B` (Peter picked B from the W0-7 contact sheet). The bright `#f2c230` stays only as `data-gold="bright"` for comparison.
-2. **The deck MAIN map** in 4.6 (what goes: the seven sim boxes, SORRY/GOOD RACE, SEAT keys, MUTE, SHOWCASE, VAULT,
+2. **The deck MAIN map** in 4.6: DECIDED by the lead 2026-11-14 under Peter's "build everything" (PLAN's map as written, card W3-4). Was: (what goes: the seven sim boxes, SORRY/GOOD RACE, SEAT keys, MUTE, SHOWCASE, VAULT,
    ANALYSIS; what merges: NEXT SESSION + RACE NOW, AI LEVEL + CAR TRACK into AI RACE, SPOTTER −/+ into SOUND).
 3. **YouTube:** the 10-minute Google setup, when? And default privacy after the first checked upload: private or
    public?
 4. **Coach Dave Delta:** OK to run the three-race test one evening when he is away (Delta off / on / on with capture)?
 5. **`PerfPrio`** (Paddock lowering irdashies' and the browser's priority every 5 s during races): keep or stop?
    Recommendation: stop until the black box says it helps.
-6. **Real-world race fetch** (`realworld.cs` fetching F1/IMSA calendars every 6 h, forced on): keep or drop?
+6. **Real-world race fetch** DECIDED 2026-11-14 (lead, "build everything"): dropped with HOME's real-world block (W3-3). Was: (`realworld.cs` fetching F1/IMSA calendars every 6 h, forced on): keep or drop?
    Recommendation: drop with the HOME real-world block.
 7. **Commentary mic:** DECIDED 2026-11-13 20:50: yes, Peter will plug in a mic (Arctis or another), so W1-6 TALK OVER IT is on. Was: will he plug in the Arctis headset (or another mic) for commentary? Otherwise v1 ships without
    TALK OVER IT.
