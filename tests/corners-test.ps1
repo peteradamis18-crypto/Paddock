@@ -23,6 +23,8 @@ function Fake($q) { $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/fr
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree
 function Section($title) { Assert-RigFree -Where $title; $title }
+# a stop before the checks' try (the test lock or the deploy lock not given within its wait, the log unreadable) still prints a count
+trap { "  FAIL  the test stopped: $($_.Exception.Message)"; "`n$pass ok, $($fail + 1) FAIL"; exit 1 }
 
 Add-Type -AssemblyName System.Drawing
 
@@ -237,6 +239,9 @@ Section '8. the log'
 $log = @(Get-Content (Join-Path $root 'dash\irdash.log') | Select-Object -Skip $logN)
 Check 'irdash logged what it did with "corners:" lines (and nothing failed)' (@($log | Where-Object { $_ -match 'corners: ' }).Count -ge 1 -and @($log | Where-Object { $_ -match 'corners: .*(failed|Exception)' }).Count -eq 0)
 
+} catch {
+  # a stop (the guard's NOT SAFE TO GO ON, a dead request) still ends with the count line below (the 2026-11-14 suite got no line at all)
+  $fail++; "  FAIL  the test stopped: $($_.Exception.Message)"
 } finally {
   Cdp-Close
   # the made-up track ids of this test (990001 ...) leave nothing behind

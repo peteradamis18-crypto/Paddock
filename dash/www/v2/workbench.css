@@ -150,11 +150,11 @@ table.rc td.l .nm { margin-left: 6px; color: var(--ink); }
 table.rc tr.me td.l .nm { color: var(--gold); }
 table.rc td.l .wd { margin-left: 8px; font-size: 20px; letter-spacing: .12em; color: var(--mute); }
 table.rc td.gain { color: var(--gain); } table.rc td.loss { color: var(--loss); } table.rc td.mute { color: var(--dim); }
-.pz { display: grid; grid-template-columns: 78px 150px 118px 1fr 56px; align-items: center; height: 29px; font-size: 20px; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; cursor: pointer; }
+.pz { display: grid; grid-template-columns: 78px 140px 146px 1fr 56px; align-items: center; height: 29px; font-size: 20px; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; cursor: pointer; }
 .pz.sel { background: rgba(207,216,227,.12); }
 .pz .lp { color: var(--mute); font-size: 20px; letter-spacing: .12em; }
 .pz .wh { overflow: hidden; text-overflow: ellipsis; }
-.pz .tag { font-size: 20px; letter-spacing: .14em; padding: 2px 6px; border: 1px solid; justify-self: start; }
+.pz .tag { font-size: 20px; letter-spacing: .06em; padding: 2px 6px;   /* 2026-11-14: PASSED BY at 20 px ran past 118 px into the name */ border: 1px solid; justify-self: start; }
 .pz .tag.gain { color: var(--gain); border-color: var(--gain); } .pz .tag.loss { color: var(--loss); border-color: var(--loss); }
 .pz .who { overflow: hidden; text-overflow: ellipsis; }
 .pz .at { text-align: right; color: var(--mute); }
@@ -165,7 +165,7 @@ table.rc td.gain { color: var(--gain); } table.rc td.loss { color: var(--loss); 
 body.canjump .sj { display: inline-block; }
 body.canjump .ev { grid-template-columns: 96px 70px 1fr 90px auto; }
 body.canjump .compact .ev { grid-template-columns: 58px 56px 1fr 74px auto; }
-body.canjump .pz { grid-template-columns: 78px 150px 118px 1fr 56px auto; }
+body.canjump .pz { grid-template-columns: 78px 140px 146px 1fr 56px auto; }
 
 
 /* W4-5: the links at the foot of the page (workbench.js addTools): Pi Toolbox, Delta, CSV. Words beside each say what it does. */

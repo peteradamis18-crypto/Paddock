@@ -75,6 +75,23 @@ async function deck(cmd, arg, seq) { const st = { workbench: { seq, cmd, arg } }
   const tabs = [...d.querySelectorAll('#tabs span')].map(s => s.textContent.trim());
   const mode = Q.get('mode') || 'full';
   if (mode === 'links') { document.getElementById('out').textContent = 'tabs=' + tabs.join('|') + '\nchips=' + [...d.querySelectorAll('#tools .addch')].map(b => b.textContent.trim()).join('|') + '\nDONE'; return; }
+  if (mode === 'race') {                                     // 4. a full field (FullRace fixture) in the shell's frame: the RACE page fits above the foot links
+    WB.cmd('page', 'race'); await sleep(1500);
+    const H = W().innerHeight - 60;                          // #tools: 48 px high, 12 px from the bottom
+    const check = (tag) => {
+      const ps = [...d.querySelectorAll('.panel')], rs = ps.map(e => e.getBoundingClientRect());
+      const low = rs.filter(r => r.bottom > H + 0.5).map(r => Math.round(r.bottom)), over = [];
+      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) { const a = rs[i], b = rs[j]; if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) over.push(i + '/' + j); }
+      ok('4. RACE, a 24-car field' + tag + ': all ' + ps.length + ' panels end above the foot links (' + H + ' px)', WB.state.page === 'race' && ps.length === 5 && low.length === 0, low.join(','));
+      ok('4. RACE' + tag + ': no panel overlaps another', over.length === 0, over.join(' '));
+      const ov = WB.overlaps(); ok('4. RACE' + tag + ': no text overlaps another, the foot links included (' + ov.boxes + ' boxes)', ov.boxes > 100 && ov.bad.length === 0, ov.bad.slice(0, 3).join(' ; '));
+    };
+    check('');
+    const tr = d.querySelector('table.rt tbody tr[data-i="15"]'); if (tr) tr.click(); await sleep(600);
+    ok('4. a car chosen in the tower adds its row to the comparison', d.querySelectorAll('table.rc tbody tr').length === 4);
+    check(', a car chosen');
+    document.getElementById('out').textContent = out.join('\n') + '\nDONE'; return;
+  }
   if (mode === 'shot') {                                     // a picture: the tab asked for, nothing else done
     if (Q.get('tab')) { WB.cmd('page', Q.get('tab')); await sleep(1200); }
     if (Q.get('zoom')) { WB.cmd('zoom-corner'); await sleep(600); }
@@ -185,6 +202,13 @@ try {
   New-MoreFixtures -Dir $fx -Pi $true -Delta $false -NoLaps $true
   $t = Run-Page 'nolap=1'
   Check 'a file with no lap says so in words (no dead frame)' ($t -match 'say=This session has no full lap to show\.' -and $t -notmatch 'src=\.\./v2')  $t.Trim()
+
+  Section '4. RACE with a full field fits above the foot links (2026-11-14: the comparison ran into EXPORT CSV, PASSED BY into the name)'
+  New-MoreFixtures -Dir $fx -Pi $true -Delta $true -FullRace $true
+  Show (Run-Page 'mode=race')
+  $png = Join-Path $shots 'review-more-race-full.png'; Remove-Item $png -ErrorAction SilentlyContinue
+  $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=20000', "--screenshot=$png", "$base/app/rm-harness.html?mode=shot&tab=race")) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\e-rf.txt" -RedirectStandardOutput "$tmp\o-rf.txt"
+  Check "picture $png" (Test-Path $png)
 
   Section 'pictures'
   New-MoreFixtures -Dir $fx -Pi $true -Delta $true

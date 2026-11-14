@@ -439,8 +439,8 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
     $s2 = Cdp-Json 'WB.state'; if ($s2.cur -ne $keep.cur -or $s2.z0 -ne $keep.z0 -or $s2.z1 -ne $keep.z1) { $same = $false; Note "the shared state moved on $p : cursor $($s2.cur) window $($s2.z0)..$($s2.z1)" }
   }
   Check 'cursor and zoom window are identical after going through all three pages and back' ($same -and $keep.cur -eq 3400)
-  Cdp-Key '3' 'Digit3' '3'; Start-Sleep -Milliseconds 250
-  Check 'the key 3 opens the third tab (BRAKING)' ((Cdp-Json 'WB.state').page -eq 'braking')
+  Cdp-Key '2' 'Digit2' '2'; Start-Sleep -Milliseconds 250
+  Check 'the key 2 opens the second tab (BRAKING; W4-5 left DRIVER, BRAKING, SPLITS, RACE)' ((Cdp-Json 'WB.state').page -eq 'braking')
 
   Section '4c. BRAKING'
   $null = Cdp-Eval 'WB.cmd("page","driver"); WB.cmd("zoom-reset"); WB.cmd("cursor", WB.data().worst.c.ia); WB.cmd("page","braking")'; Start-Sleep -Milliseconds 700

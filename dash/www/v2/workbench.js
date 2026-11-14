@@ -1188,7 +1188,7 @@ function load() {
   }).catch(function (e) { empty(String(e.message || e)); WB.error = String(e.message || e); });
 }
 // what workbench-race.js (and any later page file) may use; loaded right after this file, before the first reply arrives
-X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
+X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, BOT: BOT, SQ: SQ, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
   data: function () { return D; }, hook: function (f) { hooks.push(f); }, rIdx: rIdx, setCursor: setCursor, setZoom: setZoom, zoomed: zoomed, scaleRows: scaleRows, modeLine: modeLine,
   header: header, fetchJson: fetchJson, Display: Display, Traces: Traces, MapView: MapView,
   // for page files: the channel list and picker, loading any channel, the binary reply reader, a page rebuild

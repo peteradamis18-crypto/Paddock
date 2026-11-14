@@ -15,6 +15,8 @@ var A = X.api, S = A.S, el = A.el, clamp = A.clamp, fmt = A.fmt, C = A.C, FONT =
 var RS = { R: null, sm: null, by: {}, tw: {}, cm: {}, me: null, sel: null, hover: null, multi: false, p: {} };
 var TOWER_PICS = true;                          // CP-1: iRacing's car picture beside each number plate. false = plates only (the header chips keep theirs)
 var CAP = 24;                                   // rows the tower shows (more cars: the top ten and the cars around Peter)
+// the rows that fit the room build() gives the tower (RS.lay.towerH) at the smallest row height (26 px), never more than CAP
+function cap() { return RS.lay ? Math.max(12, Math.min(CAP, Math.floor(RS.lay.towerH / 26))) : CAP; }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function tfmt(t) { if (t == null || !isFinite(t)) return '–'; if (t >= 3600) { var h = Math.floor(t / 3600), r = t - h * 3600, m = Math.floor(r / 60), s = r - m * 60; return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); } return fmt(t); }
@@ -69,14 +71,14 @@ function refresh() {
 
 // ---------- the final timing tower ----------
 function visibleRows() {
-  var tw = RS.sm.tower, n = tw.length, k;
-  if (n <= CAP) { var all = []; for (k = 0; k < n; k++) all.push(k); return all; }
+  var tw = RS.sm.tower, n = tw.length, k, cp = cap();
+  if (n <= cp) { var all = []; for (k = 0; k < n; k++) all.push(k); return all; }
   var keep = {}, mi = -1; for (k = 0; k < n; k++) if (tw[k].i === RS.me) mi = k;
   for (k = 0; k < 8; k++) keep[k] = 1;
   if (mi >= 0) for (k = Math.max(0, mi - 5); k <= Math.min(n - 1, mi + 5); k++) keep[k] = 1;
   var idx = function () { var o = []; for (var q in keep) o.push(+q); return o.sort(function (a, b) { return a - b; }); };
   var size = function () { var o = idx(), s = o.length; for (var q = 1; q < o.length; q++) if (o[q] > o[q - 1] + 1) s++; if (o[o.length - 1] < n - 1) s++; return s; };    // rows and the "more cars" rows between them
-  var next = 8; while (size() < CAP - 1 && next < n) { keep[next++] = 1; }
+  var next = 8; while (size() < cp - 1 && next < n) { keep[next++] = 1; }
   return idx();
 }function Tower(box) {
   A.Display.call(this, box, '');
@@ -97,7 +99,7 @@ function visibleRows() {
   cols.forEach(function (c) { if (!c.w) c.w = Math.floor((box.w - fixed) * c.f / flex); });
   this.cols = cols;
   var vis = visibleRows(), gaps = 0; vis.forEach(function (k, q) { if (q > 0 && k > vis[q - 1] + 1) gaps++; }); if (vis[vis.length - 1] < tw.length - 1) gaps++;
-  var rh = clamp(Math.floor(674 / (vis.length + gaps)), 26, 34);
+  var rh = clamp(Math.floor((RS.lay ? RS.lay.towerH : 674) / (vis.length + gaps)), 26, 34);
   var t = el('table', 'rt'); t.style.fontSize = '20px';
   var h = '<colgroup>' + cols.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + cols.map(function (c) { return '<th' + (c.l ? ' class="l"' : '') + '>' + c.h + '</th>'; }).join('') + '</tr></thead><tbody>';
   var prev = -1;
@@ -269,13 +271,13 @@ function Passes(box) {
   (s.passes || []).forEach(function (p) { if (p.by === me || p.over === me) mine.push(p); else other++; });
   var t0 = R.greenT != null ? R.greenT : R.t0;
   this.ph.innerHTML = 'Passes on track · <b>Peter ' + mine.filter(function (p) { return p.by === me; }).length + ' made, ' + mine.filter(function (p) { return p.over === me; }).length + ' lost</b>' + (other ? ' · ' + other + ' between other cars' : '');
-  var h = '';
-  mine.slice(0, 5).forEach(function (p) {
+  var h = '', most = box.rows || 5;       // build() says how many rows fit above the comparison
+  mine.slice(0, most).forEach(function (p) {
     var made = p.by === me, oth = made ? p.over : p.by, t = Math.max(0, p.t - t0), mm = Math.floor(t / 60), ss = Math.floor(t - mm * 60);
     h += '<div class="pz" data-i="' + oth + '"><span class="lp">LAP ' + p.lap + '</span><span class="wh">' + esc(p.where) + '</span><span class="tag ' + (made ? 'gain' : 'loss') + '">' + (made ? 'PASSED' : 'PASSED BY') + '</span><span class="who">' + who(oth) + '</span><span class="at">' + mm + ':' + (ss < 10 ? '0' : '') + ss + '</span></div>';
   });
   if (!mine.length) h = '<div class="tnote">' + (s.race ? 'No passes' : 'No passes') + '</div>';
-  else if (mine.length > 5) h += '<div class="tnote">+ ' + (mine.length - 5) + ' more</div>';
+  else if (mine.length > most) h += '<div class="tnote">+ ' + (mine.length - most) + ' more</div>';
   this.stage.innerHTML = h; var self = this;
   Array.prototype.forEach.call(this.stage.querySelectorAll('.pz'), function (d, i) {
     d.addEventListener('click', function () { select(+d.getAttribute('data-i')); });
@@ -295,15 +297,25 @@ function Note(box) {
 }
 Note.prototype = Object.create(A.Display.prototype);
 
+// The comparison sits on the page's lowest line (A.BOT: above the #tools links at the foot, W4-5) and everything else fits above it.
+// 2026-11-14: with the 20 px text and the foot links the comparison was drawn at a fixed 864 px and ran into EXPORT CSV, and the
+// passes list into the comparison. It is built first to measure it, then moved to the end of the page so the panel order stays.
 function build() {
-  var s = RS.sm; RS.p = {};
-  RS.p.tower = new Tower({ x: 32, y: 126, w: 1136, h: 0 });
+  var s = RS.sm, bot = A.BOT || 1008, top = 126, ROW = 31; RS.p = {}; RS.lay = null;
+  var cmp = new Compare({ x: 32, y: 0, w: 1856, h: 0 });
+  var room = cmp.el.getBoundingClientRect().height + (RS.cm[RS.me] && RS.sel == null ? ROW : 0);     // a car he clicks adds one row
+  var cy = Math.round(bot - room); cmp.el.style.top = cy + 'px'; cmp.box.y = cy;
+  var free = cy - 16 - top;                                      // the height the tower and the right column share
+  RS.lay = { towerH: free - 20 - 30, cmpY: cy };                 // the tower's title line and its head row
+  RS.p.tower = new Tower({ x: 32, y: top, w: 1136, h: 0 });
   if (s.race) {
-    RS.p.trace = new Chart({ x: 1200, y: 126, w: 688, h: 250 }, 'trace');
-    RS.p.pos = new Chart({ x: 1200, y: 420, w: 688, h: 200 }, 'pos');
-    RS.p.pass = new Passes({ x: 1200, y: 664, w: 688, h: 0 });
-  } else RS.p.note = new Note({ x: 1200, y: 126, w: 688, h: 0 });
-  RS.p.cmp = new Compare({ x: 32, y: 864, w: 1856, h: 0 });
+    var charts = clamp(free - 2 * 20 - 2 * 24 - (20 + 5 * 30 + 39), 300, 450), th = Math.round(charts * 0.555), ph = charts - th;
+    var py = top + 20 + th + 24 + 20 + ph + 24;
+    RS.p.trace = new Chart({ x: 1200, y: top, w: 688, h: th }, 'trace');
+    RS.p.pos = new Chart({ x: 1200, y: top + 20 + th + 24, w: 688, h: ph }, 'pos');
+    RS.p.pass = new Passes({ x: 1200, y: py, w: 688, h: 0, rows: clamp(Math.floor((cy - 16 - py - 20 - 39) / 30), 1, 5) });
+  } else RS.p.note = new Note({ x: 1200, y: top, w: 688, h: 0 });
+  RS.p.cmp = cmp; cmp.el.parentNode.appendChild(cmp.el);
 }
 
 // ---------- hooks for the engine and the test ----------
