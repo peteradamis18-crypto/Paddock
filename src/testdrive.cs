@@ -1153,7 +1153,8 @@ namespace IRDeck
         // starting just under the cell. (The dialog's own Test Drive / Close links are also right-aligned, further down.)
         static List<UEl> TdMenuItems(List<UEl> els, UEl tsel)
         {
-            var all = els.FindAll(u => u.Type == ControlType.Hyperlink && u.Name.Length > 0 && u.R.Height > 20 && u.R.Height < 45 && u.R.Y > tsel.R.Y && Math.Abs(u.R.Right - tsel.R.Right) < 80
+            // 2026-11-14 13:12 (seen live, tests/shots/rework/testdrive-uilist-2.txt): iRacing now offers the layouts as MenuItems (Full Course / Club / Short), not Hyperlinks: START found "nothing (only one layout)" since 1 Nov
+            var all = els.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.MenuItem) && u.Name.Length > 0 && u.R.Height > 20 && u.R.Height < 45 && u.R.Y > tsel.R.Y && Math.Abs(u.R.Right - tsel.R.Right) < 80
                                        && u.Name != "Test Drive" && u.Name != "Close" && u.Name != "Back" && u.Name != "Last settings");
             all.Sort((x, y) => x.R.Y.CompareTo(y.R.Y));
             var items = new List<UEl>();
