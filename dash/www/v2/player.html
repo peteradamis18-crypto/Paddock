@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head><link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock player</title>
+<link rel="stylesheet" href="../app/design.css">
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+<!-- TALK OVER IT (W1-6, docs/rework/cards/W1-6.md): Paddock's own player on the middle race screen. irdash opens it (commentary.cs)
+     with the race's cut; the microphone is recorded from the same instant as the video starts, STOP sends what was said back to irdash,
+     which mixes it under the game sound. Seeking and pausing are off while he talks. The title must not start with "iRacing Dash" and
+     must not be empty (irdash would take an untitled app window for its dashboard). -->
+<video id="v" playsinline preload="auto"></video>
+
+<div id="bar" class="bar" hidden>
+  <i class="rec" aria-hidden="true"></i>
+  <div class="clock" id="clock">Talking 0:00</div>
+  <div class="mic">
+    <span id="micName">Microphone</span>
+    <div class="meter" id="meter"><i id="level"></i></div>
+  </div>
+  <button type="button" class="btn stop" id="stop">Stop</button>
+</div>
+<div id="warn" class="warn" role="status" hidden>The microphone is silent. Is it muted?</div>
+<div id="msg" class="msg" role="status"><span id="msgMain">Getting the race ready…</span><small id="msgSub"></small></div>
+
+<script src="../app/lib/data.js"></script><!-- data.fetch: the X-Paddock header for the POSTs -->
+<script src="player.js"></script>
+</body>
+</html>

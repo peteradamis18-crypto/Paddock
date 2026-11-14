@@ -1,0 +1,30 @@
+/* Paddock's player (W1-6 TALK OVER IT) on the middle race screen (2560 x 1440). Colours and sizes from ../app/design.css only. */
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+/* the whole race picture stays above the bar (it would hide the bottom of the frame: mirrors, the car's own dash) */
+video { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh - 168px); object-fit: contain; background: var(--bg); }
+
+/* the bar at the bottom while he talks: the red dot, "Talking 3:12", the microphone and its level, one big STOP */
+.bar { position: fixed; left: 0; right: 0; bottom: 0; height: 168px; z-index: 10; display: flex; align-items: center; gap: 48px; padding: 0 72px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent); border-top: 2px solid var(--line); }
+.rec { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--danger); }
+.clock { flex: none; font-size: var(--t-title); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: var(--track); text-transform: uppercase; }
+.mic { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; font-size: var(--t-read); color: var(--muted); }   /* read from the seat, like the counter */
+.mic span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter { width: 100%; max-width: 560px; height: 14px; border-radius: 7px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--gain); transition: width 80ms linear; }
+.meter.silent { background: color-mix(in srgb, var(--amber) 55%, transparent); }   /* silent: the whole meter turns amber, not just empty */
+.meter.silent i { background: var(--amber); }
+.btn.stop { flex: none; min-height: 112px; min-width: 360px; padding: 0 72px; background: var(--danger); border-color: var(--danger); color: var(--bg);
+  font-size: var(--t-read); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; }
+.btn.stop:hover, .btn.stop:focus-visible { background: color-mix(in srgb, var(--danger) 82%, white); border-color: color-mix(in srgb, var(--danger) 82%, white); }
+
+/* the silent microphone: amber, above the bar; the recording goes on */
+.warn { position: fixed; left: 50%; bottom: 210px; transform: translateX(-50%); z-index: 11; padding: 20px 40px; border-radius: 8px; white-space: nowrap;
+  border: 2px solid var(--amber); color: var(--amber); background: color-mix(in srgb, var(--bg) 88%, transparent); font-size: var(--t-read); }
+
+/* one sentence over the whole screen: getting ready, mixing, or what is wrong */
+.msg { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 0 160px;
+  background: var(--bg); text-align: center; font-size: var(--t-title); line-height: 1.2; }
+.msg small { font-size: var(--t-read); color: var(--muted); }
+.msg.bad #msgMain { color: var(--danger); }
+.msg.done #msgMain { color: var(--gold); }

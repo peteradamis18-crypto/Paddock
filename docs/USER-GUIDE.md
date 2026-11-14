@@ -97,11 +97,21 @@ Paddock films every session you drive, start to finish, with the game and spotte
 - **Tick a card** (the box top left) and a bar appears at the bottom: **SHARE TO YOUTUBE**, **DELETE**, **CANCEL**. Hold SHIFT and tick another card to tick everything in between. Switching tabs clears the ticks. **SELECT ALL SHARED** ticks every race that is already on YouTube (handy for freeing space).
 - **DELETE** works at once, with no question. The races go to the trash and a note says "Deleted 3 races · UNDO" for 8 seconds: press **UNDO** to bring them back. The trash empties itself after 14 days.
 - **SHARE TO YOUTUBE**: Paddock cuts off the out lap and the time after the finish, names the video (see YouTube titles below), adds chapters (start, incidents, pit stops, best lap, finish) and uploads it. All of this waits until you are out of the car, so it never slows a session. A race goes to YouTube only once.
-- **OPEN** shows one race big: **WATCH** (plays it on the middle screen, from the start), **SHARE TO YOUTUBE**, **TALK OVER IT** (comes with the commentary update), **REVIEW** (the Sessions page for now) and **DELETE**. Under them the moments of the race in time order. When it is on YouTube, its link is there with **COPY LINK**. **BACK TO ALL RACES** or Esc goes back.
+- **OPEN** shows one race big: **WATCH** (plays it on the middle screen, from the start), **SHARE TO YOUTUBE**, **TALK OVER IT** (see below), **REVIEW** (the Sessions page for now) and **DELETE**. Under them the moments of the race in time order. When it is on YouTube, its link is there with **COPY LINK**. **BACK TO ALL RACES** or Esc goes back.
 - **The line at the top** says how much the races use, how much is free and about how many more races fit. When the trash holds 1 GB or more it says so, with **EMPTY NOW**. When the disk is nearly full, one gold key appears: **Free up space: delete the 6 oldest shared races (7 GB)**. It only ever deletes races that are already on YouTube, never a race you kept.
 - **YouTube, once:** if Paddock is not signed in to YouTube yet, a line with **SIGN IN TO YOUTUBE** appears as soon as you tick or open a race. Press it once and sign in to Google, then press SHARE. Until then SHARE says "Sign in to YouTube first" and nothing is cut.
 - **Top right:** "Uploads are private · **MAKE PUBLIC**" (one press switches new uploads between private and public) and **YOUTUBE TITLES**: the ways a video can be named, shown with your latest race. Press the one you like.
 - While you drive the page only says "Back after your drive". If the dashboard stops answering, one line says so and the rest stays as it was.
+
+**Talk over a race.** Put the headset on, open the race (on the deck or the top screen) and press **TALK OVER IT**. The race plays on
+the middle screen with the game sound, and Paddock records what you say from the same moment. The deck shows **TALKING 03:12**, your
+microphone's name and one big red **STOP**; the top screen shows the same. Talk as long as you like and press **STOP** (or let the race
+play to the end). Paddock then mixes it by itself in a few seconds: the game goes quieter while you talk. The race then says
+**With commentary: ready** with **SHARE WITH COMMENTARY** (on the deck: **SHARE COMMENTARY**). One press puts it on YouTube as a second video
+named "... (with commentary)"; the first video stays as it is.
+- "No microphone found. Plug in the headset and press again." means Windows sees no microphone: plug it in and press TALK OVER IT again.
+- "The microphone is silent. Is it muted?" (amber) means it hears nothing for 5 seconds: check the mute button. The recording goes on.
+- If a session starts while you talk, Paddock stops at once and keeps what you said. **EXIT** on the deck does not stop a talk; STOP does.
 
 **Without the deck:** every race is also a normal file in **Videos\Paddock**, named by date, track and car. On YouTube press **Select files**, open **Videos** then **Paddock**, and pick it.
 

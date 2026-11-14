@@ -709,7 +709,7 @@ namespace IRDash
                 Library.CutTool = null;
 
                 j = D("raceshare", "r-race:c", out code);
-                Ok("9.14 raceshare a=<id>:c (W1-6): 409 \"Comes with the commentary update\"", code == 409 && j.Contains("\"say\":\"Comes with the commentary update\""), j);
+                Ok("9.14 raceshare a=<id>:c with no commentary yet (W1-6): 409 \"Talk over the race first\"", code == 409 && j.Contains("\"say\":\"Talk over the race first: there is no commentary yet\""), j);
 
                 j = D("ytprivacy", "public", out code);
                 Ok("9.15 ytprivacy a=public: saved as youtube_privacy=public, \"New uploads are public\"", code == 200 && j.Contains("New uploads are public") && File.ReadAllText(ini).Contains("youtube_privacy=public") && YouTube.Json().Contains("\"privacy\":\"public\""), j);
