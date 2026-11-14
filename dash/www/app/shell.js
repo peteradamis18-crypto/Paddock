@@ -36,8 +36,10 @@ const $ = id => document.getElementById(id);
 const bootAt = performance.now();
 
 /* ---------------- the router ---------------- */
+// a page's own options, without the shell's bookkeeping (from, why, part): {} and none are the same
+const pageKey = o => { const c = {}; for (const k in o || {}) if (k !== 'from' && k !== 'why' && k !== 'part' && o[k] !== undefined) c[k] = o[k]; return JSON.stringify(c); };
 const Shell = {
-  cur: '', page: null, scope: null, mods: {}, pageBanner: null, openedBy: '', seen: {}, navTo: {},
+  cur: '', curKey: '{}', page: null, scope: null, mods: {}, pageBanner: null, openedBy: '', seen: {}, navTo: {},
   block: false, pending: null, echo: [], echoSeq: [],
   told: [], msgs: [], log: [], seenOnline: false,
 
@@ -50,10 +52,12 @@ const Shell = {
     if (!DOORS.includes(name)) name = 'home';
     if (this.block) { this.note('refused ' + name + ':' + (opts.from || '') + (opts.why ? ':' + opts.why : '')); return false; }
     this.note(name + ':' + (opts.from || '') + (opts.why ? ':' + opts.why : ''));
-    if (name === this.cur && !opts.at) return true;
+    // the page already up with the same options stays; other options (SHOW ME's screen 2, the REVIEW door back to the card) mount it again
+    const key = pageKey(opts);
+    if (name === this.cur && key === this.curKey) return true;
     const from = this.cur;
     this.unmount();
-    this.cur = name;
+    this.cur = name; this.curKey = key;
     this.openedBy = opts.from === 'nav' ? opts.part || 'nav' : opts.from || '';
     document.body.classList.toggle('at-home', name === 'home');
     this.doors(name);

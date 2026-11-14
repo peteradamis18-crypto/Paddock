@@ -101,7 +101,7 @@ Paddock films every session you drive, start to finish, with the game and spotte
 - **Tick a card** (the box top left) and a bar appears at the bottom: **SHARE TO YOUTUBE**, **DELETE**, **CANCEL**. Hold SHIFT and tick another card to tick everything in between. Switching tabs clears the ticks. **SELECT ALL SHARED** ticks every race that is already on YouTube (handy for freeing space).
 - **DELETE** works at once, with no question. The races go to the trash and a note says "Deleted 3 races · UNDO" for 8 seconds: press **UNDO** to bring them back. The trash empties itself after 14 days.
 - **SHARE TO YOUTUBE**: Paddock cuts off the out lap and the time after the finish, names the video (see YouTube titles below), adds chapters (start, incidents, pit stops, best lap, finish) and uploads it. All of this waits until you are out of the car, so it never slows a session. A race goes to YouTube only once.
-- **OPEN** shows one race big: **WATCH** (plays it on the middle screen, from the start), **SHARE TO YOUTUBE**, **TALK OVER IT** (see below), **REVIEW** (the Sessions page for now) and **DELETE**. Under them the moments of the race in time order. When it is on YouTube, its link is there with **COPY LINK**. **BACK TO ALL RACES** or Esc goes back.
+- **OPEN** shows one race big: **WATCH** (plays it on the middle screen, from the start), **SHARE TO YOUTUBE**, **TALK OVER IT** (see below), **REVIEW** (what to change next time, for that race) and **DELETE**. Under them the moments of the race in time order. When it is on YouTube, its link is there with **COPY LINK**. **BACK TO ALL RACES** or Esc goes back.
 - **The line at the top** says how much the races use, how much is free and about how many more races fit. When the trash holds 1 GB or more it says so, with **EMPTY NOW**. When the disk is nearly full, one gold key appears: **Free up space: delete the 6 oldest shared races (7 GB)**. It only ever deletes races that are already on YouTube, never a race you kept.
 - **YouTube, once:** if Paddock is not signed in to YouTube yet, a line with **SIGN IN TO YOUTUBE** appears as soon as you tick or open a race. Press it once and sign in to Google, then press SHARE. Until then SHARE says "Sign in to YouTube first" and nothing is cut.
 - **Top right:** "Uploads are private · **MAKE PUBLIC**" (one press switches new uploads between private and public) and **YOUTUBE TITLES**: the ways a video can be named, shown with your latest race. Press the one you like.
@@ -152,7 +152,7 @@ Four doors along the top: **HOME · RACES · REVIEW · RIG**, the same four word
 
 - **HOME** is the start. (It is being rebuilt: for now it says so.)
 - **RACES** is every race you recorded (above).
-- **REVIEW** shows your sessions and laps (below), newest first. Pressing REVIEW on a race in RACES opens it here.
+- **REVIEW** shows what to change next time, for your last drive (below: REVIEW: the card). Pressing REVIEW on a race in RACES opens that race here.
 - **RIG** shows how the PC ran (Performance, below).
 
 To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. (Inside a page, Esc first closes what that page has open, like a lap or a video.) A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
@@ -171,6 +171,19 @@ When the rig is idle: **HOME**. It is quiet on purpose, like a good watch.
 - **One gold button** that fits the moment: **RIG ON** when the rig is off; **DRIVE** when a session is loaded (it gets you in the car), or when nothing is running (it starts your last car at your last track, named under it); **START** if there is no last drive yet. While it works it says what it is doing; if it cannot, it says why on the button. In kids mode or when Paddock is not running it turns grey and says why.
 
 Home never shows while you drive. It no longer shows the real-world TV schedule, the phone code (it moves to RIG) or statistics.
+
+### REVIEW: the card
+
+After every drive, **REVIEW** (the door, the deck key, or REVIEW on HOME's card) shows one screen: what to change next time.
+
+- **At the top:** the track, your car, the kind of session and the day. After a race, how it went: **P4 from P7 · +41 iRating (estimate)** (or **P4 of 19** when the iRating change is not known).
+- **On the left: the track map.** Red where you lost time, green where you gained, against the lap named at the bottom. The numbers 1, 2, 3 on it are the cards on the right.
+- **On the right: up to three cards**, the corner where you lost the most time first. Each card: the corner (**Turn 5**), what happened in plain words (**You braked 14 m earlier than your best lap**), the time it cost, big and gold (**0.31 s**), how often (**in 6 of 8 clean laps**), and one thing to try (**Try this: Brake at the 100 m board**). Press a card to see that corner on the laps screen.
+- With fewer than 3 clean laps there is one card with the numbers and no advice: too few laps to be sure. It says so.
+- **After a race** the right side tells the race instead: your place lap by lap, your average lap against the field's (**Your average 1:34.1 · the field 1:34.8 · 19 cars**), the three corners that cost you most, each with **WATCH**, and at most one card from a lap in clean air.
+- **At the bottom:** the plan for next time in one line (**Next time: Turn 5, brake at the 100 m board, check the entry speed**), which lap everything is compared with (**Compared with: lap 9 of this session (1:33.832)**, or your best here with the day, track temperature and fuel when this drive had too few clean laps), and two buttons: **SHOW ME** (the laps screen, at the first card's corner) and **WATCH** (your own video of that corner, 10 seconds; **no clip** when this drive was not recorded). Esc or the video's own **CLOSE** puts it away (if the video cannot be found it says **No video of this corner**).
+- **No full lap yet:** it says so, with **MORE DATA** for what the drive did record.
+- While Paddock reads your laps (a minute or so after a long session) it says **Reading your laps…** and fills in by itself. When Paddock is not running, the last review shows greyed out.
 
 **Sessions & laps.** Every session you have driven: date, car, track, how long, best lap. Filter by car or track. Tap a session to see the laps, then one lap against another: speed, throttle, brake, and where time went. Your best at each car and track is listed, with the same comparison against the field and real IMSA times.
 

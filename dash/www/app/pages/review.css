@@ -1,0 +1,98 @@
+/* REVIEW, screen 1: the card (W4-3, docs/rework/PLAN.md 4.4). Colours and sizes from design.css only; nothing under 24 px.
+   The page area is 1920 x 992 under the shell's header. Rows: the top line, the map (left half) and the cards (right half), the plan
+   with SHOW ME and WATCH, then the progress band (W4-6) when it has something. SHOW ME is the one gold fill; the seconds on the cards
+   are the only gold words. */
+.rv { position: absolute; inset: 0; padding: 24px 64px 24px; display: flex; flex-direction: column; gap: 24px; }
+.rv.stale { opacity: .45; }
+
+/* the top line: where, what, when; the result of a race on the right */
+.rv-top { flex: none; display: flex; align-items: baseline; gap: 32px; min-height: 48px; }
+.rv-top .what { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 24px; white-space: nowrap; overflow: hidden; }
+.rv-top .trk { font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.rv-top .cfg { margin-left: 16px; color: var(--muted); }
+.rv-top .sub { font-size: var(--t-body); color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.rv-top .res { flex: none; font-size: var(--t-read); line-height: 1.2; white-space: nowrap; }
+
+/* the map left, the cards right */
+.rv-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+.rv-map { min-height: 0; display: flex; align-items: center; justify-content: center; }
+.rv-map .map-host { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.rv-map .map-host canvas, .rv-map .map-host svg { max-width: 100%; max-height: 100%; }
+.rv-map .no-map { margin: 0; font-size: var(--t-body); color: var(--dim); }
+.rv-right { min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+
+/* a card: four lines (corner, what happened, the seconds, try this) and the sample under the seconds */
+.cards { display: flex; flex-direction: column; gap: 16px; }
+.card { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 20px 24px; border: 2px solid var(--line);
+  border-radius: 6px; background: var(--panel); cursor: pointer; transition: border-color var(--fast) var(--ease); }
+.card:hover { border-color: var(--ink); }
+.c-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.c-head { display: flex; align-items: center; gap: 16px; }
+.mk { flex: none; width: 44px; height: 44px; border: 2px solid var(--ink); border-radius: 50%; display: inline-flex; align-items: center;
+  justify-content: center; font-size: var(--t-body); font-weight: 600; line-height: 1; }
+.mk:empty { display: none; }
+.c-name { font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-tag { font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; white-space: nowrap; }
+.c-what, .c-try { margin: 0; font-size: var(--t-body); line-height: 1.3; }
+.c-try { color: var(--muted); }
+.c-try .try { color: var(--ink); font-weight: 600; }
+.c-num { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
+.lost { font-size: var(--t-title); line-height: 1; color: var(--gold); white-space: nowrap; }
+.c-sample { font-size: var(--t-body); color: var(--muted); white-space: nowrap; }
+.note { margin: 0; font-size: var(--t-body); line-height: 1.3; color: var(--muted); }
+
+/* the race story */
+.story { display: flex; flex-direction: column; gap: 16px; }
+.story .lbl { display: block; margin-bottom: 8px; font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); }
+.pos-wrap { position: relative; width: 872px; height: 150px; }
+.pos { display: block; overflow: visible; }
+.pos .ln { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
+.pos .pt { fill: var(--bg); stroke: var(--ink); stroke-width: 3; }
+.pos-wrap .p0, .pos-wrap .p1 { position: absolute; font-size: var(--t-body); line-height: 32px; }
+.pos-wrap .p0 { left: 0; } .pos-wrap .p1 { right: 0; }
+.pos-x { position: relative; width: 872px; height: 32px; font-size: var(--t-body); line-height: 32px; color: var(--muted); }
+.pos-x span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.pace { margin: 0; font-size: var(--t-read); line-height: 1.2; }
+.costly { display: flex; flex-direction: column; gap: 8px; }
+.cr { display: flex; align-items: center; gap: 16px; min-height: 64px; cursor: pointer; }
+.cr .c-name { flex: 1; }
+.cr-lost { font-size: var(--t-read); white-space: nowrap; }
+.btn .no { margin-left: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+
+/* no full lap: one sentence and the one way on */
+.nolap { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+.nolap .big { margin: 0; font-size: var(--t-title); line-height: 1.1; }
+.nolap .say { margin: 0; font-size: var(--t-read); line-height: 1.25; color: var(--muted); }
+
+/* working, offline: one line */
+.rv-line { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.rv-line p { margin: 0; font-size: var(--t-read); color: var(--muted); }
+
+/* the plan and the two buttons */
+.rv-bottom { flex: none; display: flex; align-items: center; gap: 32px; padding-top: 20px; border-top: 2px solid var(--line); }
+.plan-box { flex: 1; min-width: 0; }
+.plan { margin: 0 0 8px; font-size: var(--t-read); line-height: 1.2; }
+.ref { margin: 0; font-size: var(--t-body); color: var(--muted); }
+.acts { flex: none; display: flex; gap: 16px; }
+.acts .btn { min-width: 200px; }
+.rv-progress { flex: none; }
+/* with the progress band (W4-6, about 280 px) the right half has about 410 px: the cards close up (same lines, same sizes, less air) */
+.rv.has-prog { gap: 16px; padding-top: 16px; padding-bottom: 16px; }
+.rv.has-prog .cards { gap: 8px; }
+.rv.has-prog .card { padding: 8px 20px; }
+.rv.has-prog .c-text { gap: 0; }
+.rv.has-prog .c-head { gap: 12px; }
+.rv.has-prog .mk { width: 36px; height: 36px; }
+.rv.has-prog .c-name { line-height: 1.1; }
+.rv.has-prog .c-what, .rv.has-prog .c-try { line-height: 1.25; }
+.rv.has-prog .rv-bottom { padding-top: 12px; }
+
+/* WATCH: the clip over the page; Esc or CLOSE puts it away */
+.rv-watch { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; background: var(--bg); }
+.rv-watch video { width: 1440px; height: 810px; max-height: calc(100% - 200px); background: var(--panel); }
+.rv-watch .w-cap { font-size: var(--t-read); }
+.rv-watch .w-none { margin: 0; font-size: var(--t-read); color: var(--muted); }
+.rv-watch .w-acts { display: flex; gap: 16px; }
+
+/* screens 2 and 3 (W4-4, W4-5) mount in here */
+.rv-sub { position: absolute; inset: 0; }

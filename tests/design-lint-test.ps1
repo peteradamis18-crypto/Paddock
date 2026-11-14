@@ -16,6 +16,7 @@ $seat = @('dash/www/v2/race.html', 'dash/www/v2/race.css', 'dash/www/app/pages/r
   'dash/www/app/index.html', 'dash/www/app/shell.css', 'dash/www/app/shell.js', 'dash/www/app/pages/races.js', 'dash/www/app/pages/races.css',
   'dash/www/app/pages/home.js', 'dash/www/app/pages/review.js', 'dash/www/app/pages/rig.js')
 $seat += @('dash/www/app/pages/home.css')   # W3-3: HOME's files
+$seat += @('dash/www/app/pages/review.css')   # W4-3: REVIEW's card
 $seat += @('dash/www/app/pages/review-laps.js', 'dash/www/app/pages/review-laps.css')   # W4-4: REVIEW screen 2
 $leanIn = @()
 # ------------------------------------------------------------------------------
