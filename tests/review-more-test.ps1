@@ -165,13 +165,13 @@ try {
   Section '1. both installed: Pi and Delta; neither: only EXPORT CSV'
   New-MoreFixtures -Dir $fx -Pi $true -Delta $true
   $t = Run-Page 'mode=links'
-  $line = ($t -split "`n" | Where-Object { $_ -match '^chips=' } | Select-Object -First 1)
+  $line = ($t -split "`n" | Where-Object { $_ -match '^chips=' } | Select-Object -First 1).Trim()
   Check 'with both installed the links are CSV, Pi, Delta' ($line -eq 'chips=EXPORT CSV|OPEN IN PI TOOLBOX|OPEN DELTA') $line
   New-MoreFixtures -Dir $fx -Pi $false -Delta $false -Race $false
   $t = Run-Page 'mode=links'
-  $line = ($t -split "`n" | Where-Object { $_ -match '^chips=' } | Select-Object -First 1)
+  $line = ($t -split "`n" | Where-Object { $_ -match '^chips=' } | Select-Object -First 1).Trim()
   Check 'with neither installed the only link is EXPORT CSV' ($line -eq 'chips=EXPORT CSV') $line
-  Check 'with no field log for the session there is no RACE tab' (($t -split "`n" | Where-Object { $_ -match '^tabs=' } | Select-Object -First 1) -eq 'tabs=DRIVER|BRAKING|SPLITS')
+  Check 'with no field log for the session there is no RACE tab' (($t -split "`n" | Where-Object { $_ -match '^tabs=' } | Select-Object -First 1).Trim() -eq 'tabs=DRIVER|BRAKING|SPLITS')
 
   Section 'pictures'
   New-MoreFixtures -Dir $fx -Pi $true -Delta $true

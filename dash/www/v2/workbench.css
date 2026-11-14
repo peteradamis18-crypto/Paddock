@@ -44,9 +44,9 @@ table.ro td.n { color: var(--mute); font-size: 20px; letter-spacing: .12em; text
 table.ro td.a { color: var(--gold); text-align: right; } table.ro td.r { color: var(--ref); text-align: right; } table.ro td.v { text-align: right; }
 
 table.ct { border-collapse: collapse; width: 100%; font-size: 20px; }
-table.ct th { font-size: 20px; letter-spacing: .12em; color: var(--mute); font-weight: 400; text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.ct th { font-size: 20px; letter-spacing: .02em; color: var(--mute); font-weight: 400; text-align: right; padding: 5px 3px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.ct th:first-child, table.ct td:first-child { text-align: left; }
-table.ct td { padding: 5px 4px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; cursor: pointer; }
+table.ct td { padding: 5px 3px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; cursor: pointer; }
 table.ct tr.on td { background: rgba(201, 162, 75,.07); }
 table.ct td small { color: var(--ref); font-size: 20px; margin-left: 5px; }
 

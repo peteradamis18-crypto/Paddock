@@ -146,7 +146,7 @@ Tower.prototype.mark = function () {
 // ---------- the race trace and the position chart ----------
 function nice(v) { var st = [5, 10, 20, 30, 40, 60, 90, 120, 180, 240, 300, 600, 900, 1200, 1800]; for (var i = 0; i < st.length; i++) if (v <= st[i]) return st[i]; return Math.ceil(v / 600) * 600; }
 function Chart(box, k) {
-  A.Display.call(this, box, k === 'trace' ? 'Race trace · seconds behind the leader at the end of each lap' : 'Position at the end of each lap');
+  A.Display.call(this, box, k === 'trace' ? 'Race trace · seconds behind the leader' : 'Position at the end of each lap');
   this.kind = 'race' + k; this.k = k; this.pad = { l: 54, r: 150, t: 12, b: 32 };
   var self = this;
   this.stage.addEventListener('mousemove', function (e) { var p = self.local(e), lap = self.lapAt(p[0]); if (lap !== RS.hover) { RS.hover = lap; A.need.o = true; } });

@@ -5,7 +5,7 @@
 // cursor moves or playback runs - that is what keeps 60 fps with 20 traces x 2 laps. No libraries.
 // Data: one binary reply from /analysis/channels (dash\src\workbench.cs). Tests load the same bytes from a file (?data=).
 // Control: mouse, keyboard (Pi Toolbox keys) and window.WB.cmd(name, arg) - the deck reaches it through
-// /api/do?c=wb-<name>, which the page polls at /workbench/cmd.
+// /api/do?c=wb-<name>; irdash pushes the last one in its state (part "workbench") and the REVIEW page module (app\pages\review-more.js) calls WB.cmd.
 (function () {
 'use strict';
 var C = { gold: '#C9A24B', ref: '#cfd8e3', gain: '#3ccf7e', loss: '#e5534b', mute: '#8b877d', dim: '#5d5a54', line: '#26262a', abs: '#ff9f43',
@@ -560,7 +560,7 @@ function BrakeTable(box) {
   Display.call(this, box, 'Braking by corner · this lap <span class="r">reference</span> ');
   this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'braketable';
   var t = el('table', 'ct'), self = this, hasRef = !!D.R; this.rows = [];
-  t.innerHTML = '<tr><th>TURN</th><th>BRAKE PT m</th><th>VS REF</th><th>PEAK %</th><th>TO PEAK s</th><th>RELEASE s</th><th>TRAIL s</th><th>ABS %</th><th>ABS CUT %</th><th>LOCK-UPS</th><th>COAST s</th></tr>';
+  t.innerHTML = '<tr><th>TURN</th><th>BRAKE m</th><th>VS REF</th><th>PEAK %</th><th>RISE s</th><th>LET GO s</th><th>TRAIL s</th><th>ABS %</th><th>CUT %</th><th>LOCKS</th><th>COAST s</th></tr>';
   brakeCorners().forEach(function (c) {
     var k = dcOf(c), a = k.me.brake, r = k.ref ? k.ref.brake : null, ab = k.me.abs, ar = k.ref ? k.ref.abs : null, wr = hasRef && !!k.ref, tr = el('tr');
     var vs = a && r ? a.startM - r.startM : null;
@@ -874,7 +874,7 @@ function buildPage() {
       { k: 'STEERING °', key: 'steerDeg', h: 84, lo: -90, hi: 90 },
       { k: 'WHEEL FORCE %', key: 'wfPct', h: 54, lo: 0, hi: 100, ref: false, col: C.wf },
       { k: 'GEAR', key: 'Gear', h: 62, lo: 0.5, hi: 6.5 }].concat(xr), 726 - SQ));
-    new EventList({ x: 600, y: 866 - SQ, w: 1288, h: 0 }, 4);
+    new EventList({ x: 600, y: 866 - SQ, w: 1288, h: 0 }, SQ > 60 ? 3 : 4);
   }
   if (!R && !X.pages[S.page]) document.getElementById('page').appendChild(el('div', 'keys', 'No reference lap')).style.cssText = 'position:absolute;left:600px;top:106px';
   need.s = true; need.o = true;
@@ -1105,7 +1105,7 @@ document.addEventListener('keydown', function (e) {
   if (handled) e.preventDefault();
 });
 
-// what the page tells the deck about itself (rides on the poll below; irdash keeps it for /workbench/state: dash\src\deckfeed.cs).
+// what the page tells the deck about itself (nothing sends it any more since W4-5: WB.deck() only lets a test read it).
 // A failure here must never stop the deck's commands from arriving, so it falls back to a report irdash ignores.
 function deckState() {
   try { return deckReport(); } catch (e) { return 'x=1'; }
