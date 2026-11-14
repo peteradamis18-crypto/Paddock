@@ -600,7 +600,7 @@ namespace IRDash
                         return;
                     }
                     // Vault (vault.cs) and the recorder's session video (S1, /api/rec/*). Off until vault=1. The test hook may use /vault/test while it is off.
-                    if ((method == "GET" || method == "POST") && (path == "/vault" || path.StartsWith("/vault/") || path.StartsWith("/api/rec/", StringComparison.Ordinal)))
+                    if ((method == "GET" || method == "POST") && (path == "/vault" || path.StartsWith("/vault/") || path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/api/review/tools"))
                     {
                         bool vaultTest = path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook;
                         // W0-2: RACES and the recorder answer with the Vault on or off

@@ -1209,7 +1209,7 @@ namespace IRDash
         [ThreadStatic] public static string Refused;
         // W0-2: the recorder's routes and the deck's RACES keys belong to the recorder, so they answer whether the Vault is on or off
         static bool RecorderCommand(string c) { return c == "recsave" || c == "racedelete" || c == "raceexport" || c == "racewatch"; }
-        public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
+        public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/api/review/tools" || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
         public static readonly List<string> TestEvents = new List<string>();
         static DateTime lastKeep = DateTime.MinValue, lastClip = DateTime.MinValue;
         public static string LastClipKey = "";
@@ -1607,7 +1607,7 @@ namespace IRDash
         // Returns true when the request was ours (and has been answered).
         public static bool Handle(NetworkStream s, string path, Dictionary<string, string> q, Dictionary<string, string> hdr)
         {
-            if (path != "/vault" && !path.StartsWith("/vault/", StringComparison.Ordinal) && !path.StartsWith("/api/rec/", StringComparison.Ordinal)) return false;
+            if (path != "/vault" && !path.StartsWith("/vault/", StringComparison.Ordinal) && !path.StartsWith("/api/rec/", StringComparison.Ordinal) && path != "/api/review/tools") return false;
             if (!Serving && !RecorderRoute(path) && !(path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook)) { try { Reply(s, 200, "{\"enabled\":false}"); } catch { } return true; }
             try
             {
@@ -1625,6 +1625,7 @@ namespace IRDash
                     case "/vault/edit": j = EditRoute(q, out code); break;
                     case "/vault/delete": j = DeleteRoute(q, out code); break;
                     case "/vault/open": j = OpenRoute(q, out code); break;
+                    case "/api/review/tools": j = ReviewToolsRoute(q, out code); break;      // W4-5: which other analysis programs are installed (REVIEW > MORE DATA links)
                     case "/vault/clip": return ServeClip(s, Q(q, "id"), hdr);
                     case "/vault/video": return Recorder.ServeVideo(s, Q(q, "id"), hdr);                     // Paddock's own recording of a lap (recorder.cs); Range works, 404 when there is none
                     case "/vault/videoinfo": j = Recorder.InfoJson(Q(q, "id"), out code); break;             // its sidecar: where the lap starts inside the clip
@@ -2038,6 +2039,58 @@ namespace IRDash
             return null;
         }
 
+        // ---- W4-5: the other analysis programs, for the REVIEW > MORE DATA links. GET /api/review/tools -> {pi:{installed}, delta:{installed}}.
+        // ?open=delta starts Delta (Pi opens through /vault/open?how=cosworth). Never while he drives: Delta costs frames (evidence 05).
+        static string deltaExe = null; static DateTime deltaAt = DateTime.MinValue;
+        static string DeltaPath()
+        {
+            if (deltaExe != null && (DateTime.Now - deltaAt).TotalSeconds < 60) return deltaExe;
+            string found = "";
+            try
+            {
+                List<string> roots = new List<string>();
+                roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+                roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+                roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"));
+                foreach (string root in roots)
+                {
+                    if (found.Length > 0 || string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                    foreach (string d in Directory.GetDirectories(root))
+                    {
+                        if (!Regex.IsMatch(Path.GetFileName(d), "^(coach dave )?delta", RegexOptions.IgnoreCase)) continue;
+                        foreach (string exe in Directory.GetFiles(d, "*.exe", SearchOption.TopDirectoryOnly))
+                            if (Regex.IsMatch(Path.GetFileName(exe), "delta", RegexOptions.IgnoreCase) && !Regex.IsMatch(Path.GetFileName(exe), "unins|update|crash|helper", RegexOptions.IgnoreCase)) { found = exe; break; }
+                        if (found.Length > 0) break;
+                    }
+                }
+                if (found.Length == 0)       // the Start menu's own shortcut
+                    foreach (Environment.SpecialFolder sf in new[] { Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs })
+                    {
+                        string sm = Environment.GetFolderPath(sf);
+                        if (found.Length > 0 || string.IsNullOrEmpty(sm) || !Directory.Exists(sm)) continue;
+                        foreach (string lnk in Directory.GetFiles(sm, "*.lnk", SearchOption.AllDirectories))
+                            if (Regex.IsMatch(Path.GetFileNameWithoutExtension(lnk), "^(coach dave )?delta", RegexOptions.IgnoreCase)) { found = lnk; break; }
+                    }
+            }
+            catch (Exception ex) { Log.W("vault: looking for Delta: " + ex.Message); }
+            deltaExe = found; deltaAt = DateTime.Now;
+            return found;
+        }
+
+        static string ReviewToolsRoute(Dictionary<string, string> q, out int code)
+        {
+            code = 200;
+            CosworthInfo cw = Cosworth();
+            string delta = DeltaPath();
+            if (Q(q, "open") == "delta")
+            {
+                if (Program.IsDriving) { code = 409; return Err("not while driving"); }
+                if (delta.Length == 0) { code = 404; return Err("Delta is not installed"); }
+                try { Process.Start(new ProcessStartInfo(delta) { UseShellExecute = true }); return "{\"ok\":true,\"action\":\"delta\"}"; }
+                catch (Exception ex) { Log.W("vault: starting Delta: " + ex.Message); code = 500; return Err("could not start Delta"); }
+            }
+            return "{\"pi\":{\"installed\":" + (cw.Installed ? "true" : "false") + "},\"delta\":{\"installed\":" + (delta.Length > 0 ? "true" : "false") + "}}";
+        }
         static string OpenRoute(Dictionary<string, string> q, out int code)
         {
             code = 200;

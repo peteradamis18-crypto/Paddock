@@ -16,9 +16,8 @@ var CHANS = ['Speed', 'Throttle', 'Brake', 'BrakeABSactive', 'SteeringWheelAngle
   'VelocityX', 'VelocityY', 'YawRate', 'Lat', 'Lon', 'LFspeed', 'RFspeed', 'LRspeed', 'RRspeed', 'dcBrakeBias',
   'LFrideHeight', 'RFrideHeight', 'LRrideHeight', 'RRrideHeight', 'LFshockDefl', 'RFshockDefl', 'LRshockDefl', 'RRshockDefl', 'LFshockVel', 'RFshockVel', 'LRshockVel', 'RRshockVel'];
 // every page; a tab shows only when its data is there (avail), so there is never a dead tab (DESIGN-analysis 2.7)
-var PAGES = [{ id: 'driver', name: 'DRIVER' }, { id: 'grip', name: 'GRIP & BALANCE' }, { id: 'braking', name: 'BRAKING' }, { id: 'tyres', name: 'TYRES & STINT' },
-  { id: 'suspension', name: 'SUSPENSION' }, { id: 'splits', name: 'SPLITS' }];
-var WHEELS = ['LF', 'RF', 'LR', 'RR'], WHEEL_NAME = { LF: 'FRONT LEFT', RF: 'FRONT RIGHT', LR: 'REAR LEFT', RR: 'REAR RIGHT' };
+var PAGES = [{ id: 'driver', name: 'DRIVER' }, { id: 'braking', name: 'BRAKING' }, { id: 'splits', name: 'SPLITS' }];
+var WHEELS = ['LF', 'RF', 'LR', 'RR'];
 
 // speed in the units iRacing last reported to the dashboard (same rule as the Vault and Sessions pages). The channel key stays
 // 'kmh' (saved layouts and maths channels name it); only its numbers and labels follow the unit.
@@ -524,65 +523,6 @@ Pedals.prototype.drawStatic = function () {
   this.keys.innerHTML = 'coast ' + shA[2].toFixed(1) + ' %' + (shR ? ' vs ' + shR[2].toFixed(1) + ' %' : '') + ' · hard brake ' + shA[4].toFixed(1) + ' %' + (shR ? ' vs ' + shR[4].toFixed(1) + ' %' : '');
 };
 
-// ---------- G-G skidpad (GRIP page): both laps, 1/2/3 g rings, the cursor as a bigger dot ----------
-function GG(box) { Display.call(this, box, 'Grip used · g-g skidpad · both laps'); this.keys = el('div', 'keys'); this.el.appendChild(this.keys); this.kind = 'gg'; }
-GG.prototype = Object.create(Display.prototype);
-GG.prototype.xy = function (Lp, i) { var c = this.box.w / 2, sc = c / 3.2; return [c + Lp.c.latG[i] * sc, c - Lp.c.longG[i] * sc]; };
-GG.prototype.drawStatic = function () {
-  var g = this.cs, self = this, Sz = this.box.w, c = Sz / 2, sc = c / 3.2, i; this.clear(g); this.tbS = [];
-  g.strokeStyle = C.line; g.lineWidth = 1;
-  [1, 2, 3].forEach(function (k) { g.beginPath(); g.arc(c, c, k * sc, 0, 7); g.stroke(); self.text(g, self.tbS, k + ' g', c + k * sc * 0.707 + 4, c - k * sc * 0.707 - 4, 14, C.dim, 'left'); });
-  g.beginPath(); g.moveTo(0, c); g.lineTo(Sz, c); g.moveTo(c, 0); g.lineTo(c, Sz); g.stroke();
-  var zoomedNow = zoomed();
-  function dots(Lp, colour, r, alpha) { g.fillStyle = colour; for (i = 0; i < D.n; i += 2) { var p = self.xy(Lp, i); g.globalAlpha = zoomedNow && (i < S.z0 || i > S.z1) ? alpha * 0.25 : alpha; g.beginPath(); g.arc(p[0], p[1], r, 0, 7); g.fill(); } g.globalAlpha = 1; }
-  var refLap = shiftedRefLap(); if (refLap) dots(refLap, C.ref, 1.3, 0.35);
-  dots(D.A, C.gold, 1.5, 0.6);
-  this.text(g, this.tbS, 'ACCELERATING', c, 14, 14, C.mute, 'center'); this.text(g, this.tbS, 'BRAKING', c, Sz - 6, 14, C.mute, 'center');
-  var pct = function (Lp) { var v = Array.prototype.slice.call(Lp.c.gTot).sort(function (a, b) { return a - b; }); return v[Math.floor(v.length * 0.95)]; };
-  var peak = 0; for (i = 0; i < D.n; i++) peak = Math.max(peak, Math.abs(D.A.c.latG[i]));
-  this.keys.innerHTML = '95 % of the lap within <b>' + pct(D.A).toFixed(2) + ' g</b>' + (refLap ? ' (ref ' + pct(refLap).toFixed(2) + ')' : '') + ' · peak sideways <b>' + peak.toFixed(2) + ' g</b>';
-};
-GG.prototype.drawOverlay = function () {
-  var g = this.co; this.clear(g); var ci = Math.round(S.cur);
-  if (D.R && isFinite(rIdx(S.cur))) { var ri = Math.round(rIdx(S.cur)), q = this.xy(shiftedRefLap(), Math.round(S.cur)); g.beginPath(); g.fillStyle = C.ref; g.strokeStyle = '#000'; g.lineWidth = 1.5; g.arc(q[0], q[1], 5, 0, 7); g.fill(); g.stroke(); }
-  var p = this.xy(D.A, ci); g.beginPath(); g.fillStyle = C.gold; g.strokeStyle = '#000'; g.lineWidth = 2; g.arc(p[0], p[1], 7, 0, 7); g.fill(); g.stroke();
-};
-
-// ---------- CORNER TABLE (GRIP page): sorted by time lost; a row click zooms every display to that corner ----------
-function CornerTable(box) {
-  Display.call(this, box, 'Corners · this lap <span class="r">reference</span> · sorted by time lost'); this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'corners';
-  var t = el('table', 'ct'), self = this; this.rows = [];
-  t.innerHTML = '<tr><th>TURN</th><th>GAP s</th><th>MIN ' + SPD_U.toUpperCase() + '</th><th>PEAK LAT g</th><th>PEAK SLIP °</th><th>ABS</th></tr>';
-  D.cstat.slice().sort(function (x, y) { return y.dt - x.dt; }).forEach(function (k) {
-    var tr = el('tr'), r = k.r, sm = function (v) { return r ? '<small>' + v + '</small>' : ''; };
-    tr.innerHTML = '<td class="gold">' + k.c.label + '</td><td class="' + (!r ? 'mute' : k.dt > 0.005 ? 'loss' : k.dt < -0.005 ? 'gain' : 'mute') + '">' + (r ? sgn(k.dt, 2) : '–') + '</td>' +
-      '<td>' + k.a.vmin.toFixed(0) + sm(r ? r.vmin.toFixed(0) : '') + '</td><td>' + k.a.lat.toFixed(2) + sm(r ? r.lat.toFixed(2) : '') + '</td><td>' + Math.abs(k.a.beta).toFixed(1) + sm(r ? Math.abs(r.beta).toFixed(1) : '') + '</td>' +
-      '<td>' + (k.a.abs ? k.a.abs.toFixed(0) + ' m' : '–') + sm(r ? (r.abs ? r.abs.toFixed(0) : '–') : '') + '</td>';
-    tr.addEventListener('click', function () { zoomCorner(k.c); });
-    t.appendChild(tr); self.rows.push([tr, k.c]);
-  });
-  this.stage.appendChild(t);
-  hooks.push(function () { var c = cornerAt(Math.round(S.cur)); self.rows.forEach(function (r) { r[0].className = r[1] === c ? 'on' : ''; }); });
-}
-CornerTable.prototype = Object.create(Display.prototype);
-
-// ---------- TIME IN GEAR (GRIP page) ----------
-function Gears(box) { Display.call(this, box, 'Time in each gear · % of the lap · <b>this lap</b> <span class="r">reference</span>'); this.keys = el('div', 'keys'); this.el.appendChild(this.keys); this.kind = 'gears'; }
-Gears.prototype = Object.create(Display.prototype);
-Gears.prototype.drawStatic = function () {
-  var g = this.cs, self = this, vals = [1, 2, 3, 4, 5, 6], shA = share(D.A, 'Gear', vals), shR = D.R ? share(shiftedRefLap(), 'Gear', vals) : null, h = this.box.h - 24; this.clear(g); this.tbS = [];
-  shA.forEach(function (v, k) {
-    var x = k * 70, ya = h - v * h / 50;
-    g.fillStyle = C.gold; g.fillRect(x + 8, ya, 24, v * h / 50);
-    if (shR) { g.fillStyle = C.ref; g.globalAlpha = 0.55; g.fillRect(x + 36, h - shR[k] * h / 50, 24, shR[k] * h / 50); g.globalAlpha = 1; }
-    self.text(g, self.tbS, String(k + 1), x + 34, h + 18, 14, C.mute, 'center');
-    if (v >= 1) self.text(g, self.tbS, v.toFixed(0), x + 20, ya - 4, 12, C.gold, 'center');
-  });
-  var absM = 0; if (D.A.c.BrakeABSactive) for (var i = 0; i < D.n; i++) if (D.A.c.BrakeABSactive[i] > 0.5) absM += D.step;
-  var bb = D.A.c.dcBrakeBias ? D.A.c.dcBrakeBias[0] : null;
-  this.keys.innerHTML = (bb != null ? 'brake bias ' + bb.toFixed(1) + ' % · ' : '') + 'ABS working ' + absM.toFixed(0) + ' m of the lap' + (D.A.c.wfPct ? ' · wheel force peak ' + maxFin(D.A.c.wfPct).toFixed(0) + ' %' : '');
-};
-
 // ====================================================================================================================
 // C-41: BRAKING, TYRES & STINT, SUSPENSION, SPLITS and the channel picker, on the same engine (one state S, linked zoom, one cursor).
 // Data: D.deep = /analysis/deep (the C-34 engines: per-corner braking, ABS, lock-ups, coast, stints, per-lap fuel and tyres, setting
@@ -595,11 +535,9 @@ function brakeCorners() { return D.corners.filter(function (c) { var k = dcOf(c)
 function avail(id) {
   var dp = D && D.deep, ss = D && D.sess, A = D && D.A;
   if (!D) return false;
-  if (id === 'driver' || id === 'grip') return true;
+  if (id === 'driver') return true;
   if (X.pages[id]) return !!X.pages[id].avail();
   if (id === 'braking') return !!(dp && A.c.brkPct && brakeCorners().length);
-  if (id === 'tyres') return !!(dp && dp.stints && dp.stints.length);
-  if (id === 'suspension') return WHEELS.every(function (w) { return A.c['ride' + w] && A.c['defl' + w] && A.c['vel' + w]; });
   if (id === 'splits') return !!(ss && ss.laps && ss.sectorAt && ss.sectorAt.length > 1 && ss.laps.some(function (l) { return l.valid && l.sectors; }));
   return false;
 }
@@ -690,198 +628,6 @@ BrakeCells.prototype.drawOverlay = function () {
   });
 };
 
-// ---------- TYRES & STINT ----------
-function currentStint() {
-  var st = D.deep.stints, ln = D.head.lap.lap;
-  if (S.stint != null && st[S.stint - 1]) return st[S.stint - 1];
-  for (var k = 0; k < st.length; k++) if (ln >= st[k].lapFirst && ln <= st[k].lapLast) return st[k];
-  return st[st.length - 1];
-}
-// the timed laps of a stint: lap time + clean flag from the session list, fuel and tyres from the deep reply
-// L-1: a lap iRacing timed but did not count (an off-track in it) is still a real lap - its fuel, tyres and time are drawn - it just is never "the best" (counted: false)
-function stintLaps(st) {
-  var dl = {}, sv = {}, tm = {}; (D.deep.laps || []).forEach(function (l) { dl[l.lap] = l; });      // an older irdash has no per-lap rows: the lap times still show
-  if (D.sess) D.sess.laps.forEach(function (l) { sv[l.n] = l.valid; tm[l.n] = l.timed != null ? l.timed : l.valid; });          // the Session Review's list: timed = iRacing gave the lap a time (out, in laps never), valid = it counted it
-  return D.head.laps.filter(function (l) { return l.time != null && l.n >= st.lapFirst && l.n <= st.lapLast; }).map(function (l) {
-    var d = dl[l.n] || {}, ok = tm[l.n] != null ? tm[l.n] : l.clean && !l.skip, cn = sv[l.n] != null ? sv[l.n] : ok;
-    return { n: l.n, time: l.time, clean: ok, counted: cn, fuel: ok ? d.fuelUsed : null, fuelStart: d.fuelStart, tyre: ok ? d.tyre : null };
-  });
-}
-function TyrePanel(box) {
-  Display.call(this, box, ''); this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'tyres';
-  var st = currentStint(), dp = D.deep, self = this;
-  this.ph.innerHTML = 'Tyres · stint <b>' + st.n + '</b> of ' + dp.stints.length + ' · laps ' + st.lapFirst + ' to ' + st.lapLast + (st.minutes != null ? ' · ' + st.minutes.toFixed(1) + ' min' : '') +
-    (dp.stints.length > 1 ? dp.stints.map(function (s) { return '<span class="chip' + (s === st ? ' on' : '') + '" data-s="' + s.n + '">STINT ' + s.n + '</span>'; }).join('') : '');
-  Array.prototype.forEach.call(this.ph.querySelectorAll('.chip'), function (c) { c.addEventListener('click', function () { S.stint = parseInt(c.getAttribute('data-s'), 10); buildPage(); }); });
-  var grid = el('div', 'tgrid'), live = false;
-  WHEELS.forEach(function (w) {
-    var T = st.tyres ? st.tyres[w] : null; if (!T) return;
-    var sf = T.surface || {}, cc = T.carcass || {}, ws = T.wear || {}, pr = T.pressure || {};
-    if (cc.live || ws.live) live = true;
-    var row = function (name, cls, cells) { return '<tr><td class="n">' + name + '</td>' + cells.map(function (v) { return '<td class="' + cls + '">' + v + '</td>'; }).join('') + '</tr>'; };
-    var three = function (o, f) { return ['L', 'M', 'R'].map(function (s) { return f(o[s]); }); };
-    var card = el('div', 'tc');
-    card.innerHTML = '<div class="tch"><b class="gold">' + w + '</b> ' + WHEEL_NAME[w] + '<span class="tcp"><b>' + fx(pr.endKpa, 0) + '</b> kPa<small>start ' + fx(pr.startKpa, 0) + ' · cold ' + fx(pr.coldKpa, 0) + ' · peak ' + fx(pr.peakKpa, 0) + '</small></span></div>' +
-      '<table class="tt"><tr><td class="n"></td><th>LEFT</th><th>MIDDLE</th><th>RIGHT</th></tr>' +
-      row('SURFACE °C', 'a', three(sf, function (v) { return fx(v ? v.mean : null, 0); })) + row('SURFACE PEAK', 'r', three(sf, function (v) { return fx(v ? v.peak : null, 0); })) +
-      // carcass and tread are as at the last pit stop, not live: the secondary grey, so they do not read like the numbers above
-      row('CARCASS °C', 'v asat', three(cc, function (v) { return fx(v, 0); })) + row('TREAD LEFT %', 'v asat', three(ws, function (v) { return fx(v, 0); })) + '</table>';
-    grid.appendChild(card);
-  });
-  this.stage.appendChild(grid);
-  var sl = stintLaps(st), lastLap = st.statLap != null ? st.statLap : (sl.length ? sl[sl.length - 1].n : '–');
-  this.stage.appendChild(el('div', 'tnote', 'Carcass and tread: as at the last pit stop'));
-}
-TyrePanel.prototype = Object.create(Display.prototype);
-
-// lap times, fuel per lap and surface temperature by lap over the stint (a chart only with 5+ laps, DESIGN-analysis 2.6)
-function StintChart(box, which) {
-  var titles = { laps: 'Lap times over the stint · <b>this lap</b> ring · <span style="color:#b46cff">best</span> · <span class="r">reference</span> dotted', fuel: 'Fuel used per lap · litres', temps: 'Surface temperature by lap · °C · <b>front</b> <span class="r">rear</span> · left solid, right dashed' };
-  Display.call(this, box, titles[which]); this.kind = 'stintchart'; this.which = which;
-}
-StintChart.prototype = Object.create(Display.prototype);
-StintChart.prototype.drawStatic = function () {
-  var g = this.cs, self = this, w = this.box.w, h = this.box.h, st = currentStint(), sl = stintLaps(st), which = this.which; this.clear(g); this.tbS = [];
-  var pts = which === 'laps' ? sl.filter(function (l) { return l.clean; }) : which === 'fuel' ? sl.filter(function (l) { return l.fuel != null; }) : sl.filter(function (l) { return l.tyre; });
-  var line = 0, note = function (s, col) { self.text(g, self.tbS, s, 0, 18 + line * 28, 18, col || C.ink, 'left'); line++; };
-  if (pts.length < 5) {
-    if (!pts.length) note('No data in this stint', C.mute);
-    else { note(which === 'laps' ? 'Under 5 clean laps:' : which === 'fuel' ? 'Fuel, litres per lap:' : 'Surface °C, tyre mean:', C.mute);
-      pts.slice(0, 5).forEach(function (l) { note('L' + l.n + '   ' + (which === 'laps' ? fmt(l.time) : which === 'fuel' ? l.fuel.toFixed(2) + ' l' : WHEELS.map(function (x) { return x + ' ' + fx((l.tyre[x].L + l.tyre[x].M + l.tyre[x].R) / 3, 0); }).join('   ')), l.n === D.head.lap.lap ? C.gold : C.ink); }); }
-    return;
-  }
-  var X0 = 62, X1 = w - 74, Y0 = 8, Y1 = h - 28, n0 = pts[0].n, n1 = pts[pts.length - 1].n;
-  var X = function (n) { return X0 + (n - n0) / Math.max(1, n1 - n0) * (X1 - X0); };
-  // x labels: lap numbers (every other one when there are many)
-  var every = pts.length > 18 ? 2 : 1;
-  pts.forEach(function (l, k) { if (k % every === 0) self.text(g, self.tbS, 'L' + l.n, X(l.n), h - 6, 14, l.n === D.head.lap.lap ? C.gold : C.dim, 'center'); });
-  g.strokeStyle = C.line; g.lineWidth = 1; g.beginPath(); g.moveTo(X0, Y1 + 0.5); g.lineTo(X1, Y1 + 0.5); g.stroke();
-  if (which === 'laps') {
-    var lo = Math.min.apply(null, pts.map(function (l) { return l.time; })), hi = Math.max.apply(null, pts.map(function (l) { return l.time; })), rt = D.head.ref ? D.head.ref.time : null;
-    if (rt != null) { lo = Math.min(lo, rt); hi = Math.max(hi, rt); }
-    lo = Math.floor((lo - 0.2) * 2) / 2; hi = Math.ceil((hi + 0.2) * 2) / 2;
-    var Y = function (t) { return Y1 - (t - lo) / (hi - lo) * (Y1 - Y0 - 14); };
-    var tickT = function (t) { var m = Math.floor(t / 60); return m + ':' + (t - m * 60 < 10 ? '0' : '') + (t - m * 60).toFixed(1); };
-    [lo, (lo + hi) / 2, hi].forEach(function (t) { g.strokeStyle = '#17171a'; g.beginPath(); g.moveTo(X0, Math.round(Y(t)) + 0.5); g.lineTo(X1, Math.round(Y(t)) + 0.5); g.stroke(); self.text(g, self.tbS, tickT(t), 0, Y(t) + 5, 14, C.dim, 'left'); });
-    if (rt != null) { g.setLineDash([2, 3]); g.strokeStyle = C.ref; g.lineWidth = 1.2; g.beginPath(); g.moveTo(X0, Y(rt)); g.lineTo(X1, Y(rt)); g.stroke(); g.setLineDash([]); self.text(g, self.tbS, 'REF', w - 2, Y(rt) + 5, 14, C.ref, 'right'); }
-    g.strokeStyle = 'rgba(201, 162, 75,.45)'; g.lineWidth = 1; g.beginPath(); pts.forEach(function (l, k) { if (k) g.lineTo(X(l.n), Y(l.time)); else g.moveTo(X(l.n), Y(l.time)); }); g.stroke();
-    var bt = Math.min.apply(null, pts.filter(function (l) { return l.counted; }).map(function (l) { return l.time; }));      // the best is a lap iRacing counted; a faster one it did not count is drawn grey
-    pts.forEach(function (l) {
-      var isBest = l.counted && l.time === bt, cur = l.n === D.head.lap.lap;
-      g.beginPath(); g.fillStyle = isBest ? C.purple : l.counted ? C.gold : C.dim; g.arc(X(l.n), Y(l.time), isBest ? 6 : 4.5, 0, 7); g.fill();
-      if (cur) { g.beginPath(); g.strokeStyle = C.gold; g.lineWidth = 2; g.arc(X(l.n), Y(l.time), 10, 0, 7); g.stroke(); }
-      if (isBest) self.text(g, self.tbS, fmt(l.time), X(l.n), Y(l.time) - 14, 15, C.purple, 'center');
-    });
-  } else if (which === 'fuel') {
-    var mx = Math.max.apply(null, pts.map(function (l) { return l.fuel; })) * 1.5, bwid = Math.min(40, (X1 - X0) / pts.length * 0.6), Yf = function (v) { return Y1 - v / mx * (Y1 - Y0 - 14); };
-    var avg = pts.reduce(function (a, l) { return a + l.fuel; }, 0) / pts.length;
-    pts.forEach(function (l) { g.fillStyle = l.n === D.head.lap.lap ? C.gold : 'rgba(201, 162, 75,.62)'; g.fillRect(X(l.n) - bwid / 2, Yf(l.fuel), bwid, Y1 - Yf(l.fuel)); if (bwid >= 26) self.text(g, self.tbS, l.fuel.toFixed(2), X(l.n), Yf(l.fuel) - 5, 14, C.mute, 'center'); });
-    g.setLineDash([3, 4]); g.strokeStyle = C.ref; g.lineWidth = 1.2; g.beginPath(); g.moveTo(X0, Yf(avg)); g.lineTo(X1, Yf(avg)); g.stroke(); g.setLineDash([]);
-    var last = pts[pts.length - 1], left = last.fuelStart != null ? last.fuelStart - last.fuel : null;
-    self.text(g, self.tbS, 'average ' + avg.toFixed(2) + ' l per lap' + (left != null ? ' · ' + left.toFixed(1) + ' l left after lap ' + last.n + ' · ' + (left / avg).toFixed(1) + ' laps left' : ''), 0, 20, 16, C.ink, 'left');
-  } else {
-    var mean = function (t) { return (t.L + t.M + t.R) / 3; }, all = [];
-    pts.forEach(function (l) { WHEELS.forEach(function (x) { all.push(mean(l.tyre[x])); }); });
-    var tl = Math.floor(Math.min.apply(null, all) / 5) * 5, th = Math.ceil(Math.max.apply(null, all) / 5) * 5, Yt = function (v) { return Y1 - (v - tl) / (th - tl) * (Y1 - Y0 - 14); };
-    [tl, (tl + th) / 2, th].forEach(function (v) { g.strokeStyle = '#17171a'; g.beginPath(); g.moveTo(X0, Math.round(Yt(v)) + 0.5); g.lineTo(X1, Math.round(Yt(v)) + 0.5); g.stroke(); self.text(g, self.tbS, v.toFixed(0), 0, Yt(v) + 5, 14, C.dim, 'left'); });
-    var ends = [];
-    WHEELS.forEach(function (x) {
-      var front = x === 'LF' || x === 'RF', right = x === 'RF' || x === 'RR', col = front ? C.gold : C.ref;
-      g.strokeStyle = col; g.lineWidth = 1.7; g.setLineDash(right ? [7, 4] : []); g.beginPath();
-      pts.forEach(function (l, k) { var px = X(l.n), py = Yt(mean(l.tyre[x])); if (k) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); g.setLineDash([]);
-      ends.push({ x: x, y: Yt(mean(pts[pts.length - 1].tyre[x])), v: mean(pts[pts.length - 1].tyre[x]), col: col });
-    });
-    ends.sort(function (a, b) { return a.y - b.y; });
-    for (var k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 17) ends[k].y = ends[k - 1].y + 17;       // direct labels keep apart
-    ends.forEach(function (e) { self.text(g, self.tbS, e.x + ' ' + e.v.toFixed(0), X1 + 8, e.y + 5, 14, e.col, 'left'); });
-  }
-};
-
-// brake bias / traction control / ABS changes with the best lap times before and after (C-34 engine 8)
-var SET_NAME = { dcBrakeBias: 'BRAKE BIAS', dcTractionControl: 'TRACTION CONTROL', dcABS: 'ABS' };
-function setVal(ch, v) { return ch === 'dcBrakeBias' ? v.toFixed(2) + ' %' : 'setting ' + (Math.round(v) === v ? v.toFixed(0) : v.toFixed(1)); }
-function SettingsList(box) {
-  Display.call(this, box, 'Setting changes'); this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'settings';
-  var ch = D.deep.changes || [], list = el('div'), set = D.deep.settings || {};
-  if (!ch.length) list.appendChild(el('div', 'sc', '<span class="mute">No changes</span>'));
-  var maxRows = box.rows || 5;
-  ch.slice(0, maxRows).forEach(function (c) {
-    var res = c.delta == null ? '<span class="mute">too few clean laps</span>' : 'best of ' + c.before.length + ' laps before <b>' + fmt(c.bestBefore) + '</b> · after <b>' + fmt(c.bestAfter) + '</b> · <b class="' + (c.delta < 0 ? 'gain' : 'loss') + '">' + sgn(c.delta) + ' s</b>' + (c.pitBetween ? ' <span class="mute">· pit stop between</span>' : '');
-    list.appendChild(el('div', 'sc', '<span class="tag">' + (SET_NAME[c.channel] || c.channel) + '</span><span class="gold">lap ' + (c.lap == null ? '–' : c.lap) + (c.atM != null ? ' · ' + (c.atM / 1000).toFixed(2) + ' km' : '') + '</span><span>' + setVal(c.channel, c.from) + ' → <b>' + setVal(c.channel, c.to) + '</b></span><span>' + res + '</span>'));
-  });
-  if (ch.length > maxRows) list.appendChild(el('div', 'keys', '+ ' + (ch.length - maxRows) + ' more'));
-  this.stage.appendChild(list);
-  this.stage.appendChild(el('div', 'keys', 'Start: brake bias <b>' + (set.dcBrakeBias != null ? set.dcBrakeBias.toFixed(2) + ' %' : '–') + '</b> · traction control <b>' + (set.dcTractionControl != null ? set.dcTractionControl : '–') + '</b> · ABS <b>' + (set.dcABS != null ? set.dcABS : '–') + '</b>'));
-}
-SettingsList.prototype = Object.create(Display.prototype);
-
-// ---------- SUSPENSION: damper histograms per corner of the car, ride height / rake summary ----------
-function histBins(key, kind) {
-  var A = D.A.c[key], R = D.R ? shiftedRefLap().c[key] : null, lo = 1e9, hi = -1e9, i, arr, bw, nb;
-  [A, R].forEach(function (a) { if (a) for (i = 0; i < D.n; i++) { if (a[i] < lo) lo = a[i]; if (a[i] > hi) hi = a[i]; } });
-  if (kind === 'vel') { var m = Math.max(200, Math.ceil(Math.max(Math.abs(lo), Math.abs(hi)) / 100) * 100); lo = -m; hi = m; nb = 40; }
-  else { bw = 2; lo = Math.floor(lo / bw) * bw; hi = Math.ceil(hi / bw) * bw; if (hi - lo < 20) hi = lo + 20; nb = Math.round((hi - lo) / bw); if (nb > 40) { nb = 40; } }
-  bw = (hi - lo) / nb;
-  var count = function (a) { var c = new Float32Array(nb); for (var k = 0; k < D.n; k++) { var b = Math.floor((a[k] - lo) / bw); c[clamp(b, 0, nb - 1)] += 100 / D.n; } return c; };
-  return { lo: lo, hi: hi, nb: nb, bw: bw, a: count(A), r: R ? count(R) : null };
-}
-function Histo(box, w, kind) {
-  Display.call(this, box, w + ' · ' + (kind === 'defl' ? 'damper position mm' : 'damper speed mm/s') + ' · % of the lap');
-  this.kind = 'histo'; this.hk = kind; this.wheel = w; this.keys = el('div', 'keys'); this.el.appendChild(this.keys);
-}
-Histo.prototype = Object.create(Display.prototype);
-Histo.prototype.drawStatic = function () {
-  var g = this.cs, self = this, w = this.box.w, h = this.box.h, key = (this.hk === 'defl' ? 'defl' : 'vel') + this.wheel, H = this.H = histBins(key, this.hk), A = D.A.c[key], R = D.R ? shiftedRefLap().c[key] : null; this.clear(g); this.tbS = [];
-  var X0 = 46, X1 = w - 6, Y0 = 6, Y1 = h - 26, ymax = 0, k;
-  for (k = 0; k < H.nb; k++) ymax = Math.max(ymax, H.a[k], H.r ? H.r[k] : 0);
-  ymax = Math.max(1, Math.ceil(ymax / 5) * 5);
-  var bx = function (b) { return X0 + b / H.nb * (X1 - X0); }, by = function (v) { return Y1 - v / ymax * (Y1 - Y0); };
-  g.strokeStyle = '#17171a'; g.lineWidth = 1; g.beginPath(); g.moveTo(X0, Math.round(by(ymax)) + 0.5); g.lineTo(X1, Math.round(by(ymax)) + 0.5); g.stroke();
-  g.strokeStyle = C.line; g.beginPath(); g.moveTo(X0, Y1 + 0.5); g.lineTo(X1, Y1 + 0.5); g.stroke();
-  g.fillStyle = 'rgba(201, 162, 75,.78)'; for (k = 0; k < H.nb; k++) if (H.a[k] > 0) g.fillRect(bx(k) + 0.5, by(H.a[k]), Math.max(1, bx(k + 1) - bx(k) - 1), Y1 - by(H.a[k]));
-  if (H.r) { g.strokeStyle = C.ref; g.lineWidth = 1.4; g.setLineDash([]); g.beginPath(); for (k = 0; k < H.nb; k++) { var yy = by(H.r[k]); if (k) { g.lineTo(bx(k), by(H.r[k - 1])); g.lineTo(bx(k), yy); } else g.moveTo(bx(k), yy); g.lineTo(bx(k + 1), yy); } g.stroke(); }
-  this.text(g, this.tbS, ymax.toFixed(0) + ' %', 0, Y0 + 13, 14, C.dim, 'left');
-  var lab = function (v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(0); };
-  this.text(g, this.tbS, lab(H.lo), X0, h - 6, 14, C.dim, 'left'); this.text(g, this.tbS, lab(H.hi), X1, h - 6, 14, C.dim, 'right');
-  if (this.hk === 'vel') { var z = bx(H.nb / 2); g.strokeStyle = '#3a3a40'; g.beginPath(); g.moveTo(z + 0.5, Y0); g.lineTo(z + 0.5, Y1); g.stroke(); this.text(g, this.tbS, '0', z, h - 6, 14, C.dim, 'center'); }
-  var mm = function (a) { var lo = 1e9, hi = -1e9; for (var i = 0; i < D.n; i++) { if (a[i] < lo) lo = a[i]; if (a[i] > hi) hi = a[i]; } return [lo, hi]; }, ma = mm(A), mr = R ? mm(R) : null;
-  this.keys.innerHTML = this.hk === 'defl' ? 'travel <b>' + ma[0].toFixed(0) + ' to ' + ma[1].toFixed(0) + ' mm</b>' + (mr ? ' · ref ' + mr[0].toFixed(0) + ' to ' + mr[1].toFixed(0) : '')
-    : 'bump peak <b>' + ma[1].toFixed(0) + '</b> · rebound peak <b>' + lab(ma[0]) + '</b> mm/s' + (mr ? ' · ref ' + mr[1].toFixed(0) + ' / ' + lab(mr[0]) : '');
-};
-// The lowest ride height of one lap per wheel and where it happened, from the file's own 60 Hz records (C-41c): the engine sends them in
-// /analysis/deep (laps[].lowRide for the lap, refLowRide for the reference). The 1 m grid misses a dip one record wide (lap 7, RF: raw -1.09 mm,
-// grid 1.01 mm). null when the reply has no such field (an older irdash) or not all four wheels: the grid is used then, as before.
-function rawLow(isRef) {
-  var dp = D.deep, s = null, lap = D.head.lap.lap;
-  if (!dp) return null;
-  if (isRef) s = dp.refLowRide || null;
-  else (dp.laps || []).forEach(function (l) { if (l.lap === lap && l.lowRide && (!s || l.clean)) s = l.lowRide; });
-  return s && WHEELS.every(function (w) { return s[w] && isFinite(s[w].mm) && isFinite(s[w].atM); }) ? s : null;
-}
-// average and lowest ride height, rake, and the corner where each wheel's lowest ride height happened (a fact of the file; the
-// channel's zero is not proven to be the floor, so nothing here claims floor contact and no threshold is applied)
-function RideStrip(box) {
-  Display.call(this, box, 'Ride height · average and lowest mm');
-  this.cs.canvas.remove(); this.co.canvas.remove(); this.stage.style.height = 'auto'; this.kind = 'ridestrip';
-  var A = D.A, R = D.R, aligned = R ? shiftedRefLap() : null, hasR = !!R, cell = function (key, f, dec) { var a = f(A.c[key]), r = aligned ? f(aligned.c[key]) : null; return pairCell(a, r, dec, hasR); };
-  var avg = function (a) { var s = 0; for (var i = 0; i < D.n; i++) s += a[i]; return s / D.n; }, low = function (a) { var m = 1e9; for (var i = 0; i < D.n; i++) if (a[i] < m) m = a[i]; return m; };
-  var raw = [rawLow(false), S.offsetM === 0 ? rawLow(true) : null];        // raw minima are lap-wide and only match at zero offset
-  var lowMm = function (w) { var a = raw[0] ? raw[0][w].mm : low(A.c['ride' + w]), r = aligned ? (raw[1] ? raw[1][w].mm : low(aligned.c['ride' + w])) : null; return pairCell(a, r, 1, hasR); };
-  // where the lowest value of the lap is: the corner it is in (its turn name), else the distance
-  var lowAt = function (isRef, w) {
-    var m, set = raw[isRef ? 1 : 0];
-    if (set) m = set[w].atM;
-    else { var a = (isRef ? aligned : A).c['ride' + w], at = 0; for (var i = 1; i < D.n; i++) if (a[i] < a[at]) at = i; m = at * D.step; }
-    var c = cornerAt(Math.round(m / D.step)); return c ? c.label : (m / 1000).toFixed(2) + ' km';
-  };
-  var cols = WHEELS.concat(['rake']), t = el('table', 'ct rs');
-  t.innerHTML = '<tr><th></th>' + WHEELS.map(function (w) { return '<th>' + w + '</th>'; }).join('') + '<th>RAKE</th></tr>' +
-    '<tr><td class="n">AVERAGE mm</td>' + cols.map(function (w) { return '<td>' + cell(w === 'rake' ? 'rake' : 'ride' + w, avg, 1) + '</td>'; }).join('') + '</tr>' +
-    '<tr><td class="n">LOWEST mm</td>' + WHEELS.map(function (w) { return '<td>' + lowMm(w) + '</td>'; }).join('') + '<td></td></tr>' +
-    '<tr><td class="n">LOWEST AT</td>' + WHEELS.map(function (w) { return '<td>' + lowAt(false, w) + (R ? '<small>' + lowAt(true, w) + '</small>' : '') + '</td>'; }).join('') + '<td></td></tr>';
-  this.stage.appendChild(t);
-}
-RideStrip.prototype = Object.create(Display.prototype);
 
 // ---------- SPLITS: laps x iRacing sectors (purple / green / yellow), theoretical and rolling best, lap x corner heat map ----------
 var EPS = 0.0005;
@@ -956,7 +702,7 @@ SplitNumbers.prototype = Object.create(Display.prototype);
 
 // ---------- trace rows he adds with the picker ----------
 // The main trace stack of a page holds its own rows plus these; every row is squeezed (never below 44 px) so they all fit.
-var STACKS = { driver: { h: 726, base: 7 }, braking: { h: 440, base: 3 }, suspension: { h: 346, base: 5 } };
+var STACKS = { driver: { h: 726, base: 7 }, braking: { h: 440, base: 3 } };
 function stackCap(page) { var s = STACKS[page]; return s ? Math.max(0, Math.floor((s.h - 30) / 60) - s.base) : 0; }   // how many extra rows fit at 44 px + 16 px spacing
 function scaleRows(rows, boxH) {
   var n = rows.length, sum = 0; rows.forEach(function (r) { sum += r.h; });
@@ -1107,40 +853,9 @@ function buildPage() {
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 120, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 96, lo: -90, hi: 90 }, { k: 'SPEED ' + SPD_U.toUpperCase(), key: 'kmh', h: 96, lo: SPD_LO, hi: SPD_HI }].concat(xr), 440));
     var cy = Math.max(bt.el.getBoundingClientRect().bottom, 126 + 20 + 440) + 16;
     new BrakeCells({ x: 32, y: cy, w: 1856, h: 1056 - (cy + 20) });
-  } else if (S.page === 'tyres') {
-    var tp = new TyrePanel({ x: 32, y: 126, w: 928, h: 0 });
-    new StintChart({ x: 992, y: 126, w: 896, h: 214 }, 'laps');
-    new StintChart({ x: 992, y: 384, w: 896, h: 150 }, 'fuel');
-    new StintChart({ x: 992, y: 578, w: 896, h: 214 }, 'temps');
-    var sy = Math.max(tp.el.getBoundingClientRect().bottom, 578 + 20 + 214) + 26;
-    new SettingsList({ x: 32, y: sy, w: 1856, h: 0, rows: Math.max(1, Math.min(5, Math.floor((1056 - sy - 20 - 44) / 40))) });
-  } else if (S.page === 'suspension') {
-    var A = D.A.c, R2 = D.R ? D.R.c : null, loK = 1e9, hiK = -1e9, i, all = [];
-    var fin = function (v, d) { return isFinite(v) ? v : d; };      // a part-lap is NaN where it was not driven
-    for (i = 0; i < D.n; i += 2) WHEELS.forEach(function (w) { if (isFinite(A['ride' + w][i])) all.push(A['ride' + w][i]); if (R2 && isFinite(R2['ride' + w][i])) all.push(R2['ride' + w][i]); });
-    for (i = 0; i < D.n; i++) { loK = Math.min(loK, fin(A.rake[i], 1e9), R2 ? fin(R2.rake[i], 1e9) : 1e9); hiK = Math.max(hiK, fin(A.rake[i], -1e9), R2 ? fin(R2.rake[i], -1e9) : -1e9); }
-    if (!all.length) all.push(40);
-    all.sort(function (a, b) { return a - b; });
-    var hiR = Math.max(40, Math.ceil(all[Math.floor(all.length * 0.995)] / 10) * 10);          // a kerb throws the ride height to 150 mm: the scale follows the lap, not the spike
-    new Traces({ x: 32, y: 126, w: 1856, h: 346 }, 'Ride height and rake · mm · both laps', scaleRows(WHEELS.map(function (w) { return { k: 'RIDE ' + w + ' mm', key: 'ride' + w, h: 44, lo: 0, hi: hiR, d: 1 }; }).concat([{ k: 'RAKE mm', key: 'rake', h: 56, lo: Math.floor(loK / 5) * 5 - 5, hi: Math.ceil(hiK / 5) * 5 + 5, d: 1 }]), 346));
-    WHEELS.forEach(function (w, k) {
-      new Histo({ x: 32 + k * 468, y: 512, w: 452, h: 120 }, w, 'defl');
-      new Histo({ x: 32 + k * 468, y: 700, w: 452, h: 120 }, w, 'vel');
-    });
-    new RideStrip({ x: 32, y: 888, w: 1856, h: 0 });
   } else if (S.page === 'splits') {
     var stb = new SplitsTable({ x: 32, y: 126, w: 1340, h: 0 });
     new SplitNumbers({ x: 1404, y: 126, w: 484, h: 0 }, stb.d);
-  } else if (S.page === 'grip') {
-    new GG({ x: 32, y: 126, w: 520, h: 520 });
-    new Readouts({ x: 32, y: 724, w: 520, h: 0 }, ['kmh', 'Gear', 'thrPct', 'brkPct', 'steerDeg', 'latG', 'longG', 'beta']);
-    new CornerTable({ x: 584, y: 126, w: 636, h: 0 });
-    new EventList({ x: 584, y: 760, w: 636, h: 0 }, 5);
-    new Traces({ x: 1252, y: 126, w: 636, h: 250 }, 'Slip angle °', [{ k: 'SLIP °', key: 'beta', h: 150, lo: -6, hi: 6, d: 1 }]);
-    new Traces({ x: 1252, y: 404, w: 636, h: 330 }, 'Wheel slip % · below −8 locking · above +8 spinning', [
-      { k: 'LF', key: 'slipLF', h: 52, lo: -20, hi: 20, ref: false }, { k: 'RF', key: 'slipRF', h: 52, lo: -20, hi: 20, ref: false },
-      { k: 'LR', key: 'slipLR', h: 52, lo: -20, hi: 20, ref: false, col: C.rear }, { k: 'RR', key: 'slipRR', h: 52, lo: -20, hi: 20, ref: false, col: C.rear }]);
-    new Gears({ x: 1252, y: 756, w: 636, h: 142 });
   } else if (X.pages[S.page]) {
     X.pages[S.page].build();
   } else {
@@ -1172,10 +887,8 @@ function lapWord(l) { var r = sessLap(l); return r ? (r.flag || '') : (l.skip ? 
 function header() {
   var h = D.head, A = h.lap, R = h.ref;
   var tabsEl = document.getElementById('tabs'), pgl = pages();
-  // seven tabs plus the + CHANNEL and SMALL VIDEO chips would leave no room for the mode words (PLAY, ZOOM, OFFSET ...): the long names get the deck's short ones
-  var many = pgl.length > 6, SHORT = { grip: 'GRIP', tyres: 'TYRES', suspension: 'SUSP.' };
-  tabsEl.className = many ? 'tabs many' : 'tabs';
-  tabsEl.innerHTML = pgl.map(function (p) { return '<span data-p="' + p.id + '" class="' + (S.page === p.id ? 'on' : '') + '">' + (many && SHORT[p.id] ? SHORT[p.id] : p.name) + '</span>'; }).join('');
+  tabsEl.className = 'tabs';
+  tabsEl.innerHTML = pgl.map(function (p) { return '<span data-p="' + p.id + '" class="' + (S.page === p.id ? 'on' : '') + '">' + p.name + '</span>'; }).join('');
   Array.prototype.forEach.call(document.querySelectorAll('#tabs span'), function (s) { s.addEventListener('click', function () { WB.cmd('page', s.getAttribute('data-p')); }); });
   var ac = document.getElementById('addch');                     // + CHANNEL only where the page has a trace stack with room (no dead button)
   if (ac) { ac.style.display = canExtra() ? '' : 'none'; if (!ac._on) { ac._on = true; ac.addEventListener('click', function () { openPicker(); }); } }
@@ -1400,28 +1113,8 @@ function deckReport() {
     ['rt', R ? R.time : ''], ['rl', R ? R.lap : ''], ['car', h.car || ''], ['trk', h.track || '']];
   return q.map(function (x) { return x[0] + '=' + encodeURIComponent(x[1]); }).join('&');
 }
-// the deck: irdash keeps the last wb-* command and pushes it (W0-5: state part "workbench", app/lib/data.js); run it once per new seq
-// (the first push only learns the seq). The page's own report (what the deck's ANALYSIS keys show) goes to irdash when it changes and
-// every 2 s besides (irdash counts the page as open for 4 s), never while the page is hidden or he drives. It used to be 3 requests a second.
-function pollDeck() {
-  var last = null, sent = '', sentAt = 0;
-  function take(j) {
-    if (!j) return;
-    if (j.driving && S.playing) { S.playing = false; modeLine(); }      // never busy while he drives
-    if (last !== null && j.seq !== last && j.cmd) WB.cmd(j.cmd, j.arg);
-    last = j.seq;
-  }
-  if (typeof data !== 'undefined') data.on('state', function (st, ch) { if (ch.workbench) take(st.workbench); });
-  setInterval(function () {
-    if (document.hidden || (typeof data !== 'undefined' && data.rig.driving)) return;
-    var q = deckState(), now = Date.now();
-    if (q === sent && now - sentAt < 2000) return;
-    sent = q; sentAt = now;
-    fetch('/workbench/cmd?' + q, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
-      if (typeof data === 'undefined') take(j);           // no state push (an old host page): the reply carries the command as before
-    }).catch(function () {});
-  }, 300);
-}
+// the deck's wb-* commands do not come here any more: the REVIEW page (app\pages\review-more.js) reads irdash's state push and calls WB.cmd(cmd, arg)
+// on this page (W4-5). Nothing in this file polls irdash: no timer, no report.
 
 // a lap that cannot be drawn here still has its data: one press to ALL THE DATA (rawdata.html), never a dead end
 function empty(msg) {
@@ -1461,7 +1154,6 @@ function loadExtras() {
   ].concat(X.loads.map(function (f) { return f(); }))).then(function () {
     var want = P.get('page');
     if (want && S.page !== want && avail(want)) { S.page = want; enterPage(); buildPage(); }
-    else if (S.page === 'suspension') buildPage();       // opened before the deep reply: LOWEST mm / LOWEST AT use its raw minimums (builds the header too)
     else header();
     return restoreExtra();
   }).then(function () { WB.extras = true; });
@@ -1488,7 +1180,6 @@ function load() {
     if (!avail(S.page)) S.page = 'driver';                    // a page whose data is not in yet (BRAKING ...) opens when it arrives
     buildPage();
     WB.ready = true;
-    if (LIVE) pollDeck();
     loadExtras();
   }).catch(function (e) { empty(String(e.message || e)); WB.error = String(e.message || e); });
 }
