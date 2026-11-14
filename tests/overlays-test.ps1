@@ -17,7 +17,8 @@ function Widgets { (Get-Content $cfgFile -Raw | ConvertFrom-Json).dashboards.def
 function IsOn($id) { [bool](@(Widgets | Where-Object { $_.id -eq $id })[0].enabled) }
 function Ini($key) { $m = Select-String -Path (Join-Path $root 'dash\irdash.ini') -Pattern "^$key=(.*)$" | Select-Object -First 1; if ($m) { $m.Matches[0].Groups[1].Value } else { $null } }
 # the VS key goes pb > best > optimal > session (pb is skipped while there is no personal best for the car and track): press until the bar is on the wanted one
-function Set-Ref($want) { for ($i = 0; $i -lt 6; $i++) { if ((J '/overlays').delta.ref -eq $want) { return }; Api 'deltaref'; Start-Sleep -Milliseconds 500 } }
+# every deltaref press waits 850 ms: irdash drops the same command + argument within 0.7 s (DeckDo.Allow), so a faster second press is lost
+function Set-Ref($want) { for ($i = 0; $i -lt 6; $i++) { if ((J '/overlays').delta.ref -eq $want) { return }; Api 'deltaref'; Start-Sleep -Milliseconds 850 } }
 # wait until irdash has nothing queued and nothing waiting to be applied
 function Settle($max = 30) { Start-Sleep -Milliseconds 400; for ($i = 0; $i -lt $max * 5; $i++) { $j = J '/overlays'; if (-not $j.busy -and -not $j.pending) { Start-Sleep -Milliseconds 300; return $j }; Start-Sleep -Milliseconds 200 }; return J '/overlays' }
 function IrdashiesStart { $p = Get-Process irdashies -ErrorAction SilentlyContinue; if ($p) { ($p | Sort-Object StartTime | Select-Object -First 1).StartTime } else { $null } }
@@ -201,7 +202,8 @@ Section '6. Rig Doctor sees it and says what to press'
 try { $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 5 } catch { }
 Start-Sleep -Milliseconds 500
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/doctor/run" -TimeoutSec 8
-for ($i = 0; $i -lt 80; $i++) { Start-Sleep -Milliseconds 500; $d = J '/doctor'; if (-not $d.running -and $d.ranAt -and $d.age -le 20) { break } }
+# 120 x 0.5 s: the doctor's run waits behind the jobs that follow a pretend session (about 41 s seen), so 40 s was too short
+for ($i = 0; $i -lt 120; $i++) { Start-Sleep -Milliseconds 500; $d = J '/doctor'; if (-not $d.running -and $d.ranAt -and $d.age -le 20) { break } }
 $ids6 = @('overlays_visible', 'overlays_running', 'crewchief', 'streamdeck', 'irdash', 'screens', 'graphics', 'disk', 'telemetry', 'sim_priority', 'onedrive', 'timings', 'performance')
 Check 'thirteen checks, all of the ones in the spec (and the sim priority, OneDrive and frame rate ones from the data and performance tools)' ((@($d.items | ForEach-Object id | Sort-Object) -join ',') -eq (($ids6 | Sort-Object) -join ','))
 Check 'every check is green, amber or red with a plain sentence' (@($d.items | Where-Object { $_.state -notin 'ok', 'warn', 'bad' -or $_.detail.Length -lt 8 }).Count -eq 0)
@@ -214,6 +216,10 @@ Check 'the overlays app is checked by a helper started through Explorer' ($vis.s
 Check 'the list is set to show on the top screen' ($d.show -eq $true)
 Start-Sleep -Milliseconds 2500
 $null = Shot 'o-doctor-top' $top.Bounds.X $top.Bounds.Y $top.Bounds.Width $top.Bounds.Height 960
+# the doctor must be idle and the overlays app settled, or the press races the doctor's own start of the app
+for ($i = 0; $i -lt 120; $i++) { if (-not (J '/doctor').running) { break }; Start-Sleep -Milliseconds 500 }
+for ($i = 0; $i -lt 40; $i++) { if (@(Get-Process irdashies -ErrorAction SilentlyContinue).Count -gt 0) { break }; Start-Sleep -Milliseconds 500 }
+Start-Sleep -Milliseconds 2000
 Api 'ovapply'; $o = Settle
 Check 'one press brings the overlays app back' ((J '/overlays').running -eq $true)
 
@@ -247,10 +253,9 @@ try {
   Check 'START to in the car is timed (about 45 s)' (@($tl | Where-Object { $_ -match "`tstart_to_car`t4[4-7]\.\d`t" }).Count -ge 1)
   Check 'loading to in the car is timed (about 3.5 s)' (@($tl | Where-Object { $_ -match "`tsession_to_car`t[345]\.\d`t" }).Count -ge 1)
   $seq0 = (J '/doctor').showSeq
-  $null = Invoke-WebRequest -UseBasicParsing "$api/api/doctor/run?quiet=1" -TimeoutSec 8
-  for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 500; $d = J '/doctor'; if (-not $d.running -and $d.age -le 10) { break } }
-  Check 'the last values reach Rig Doctor and the idle screen line' ($d.timings -match 'session loaded in 4\d s' -and $d.timings -match 'in the car in 4\d s' -and ($d.items | Where-Object id -eq 'timings').detail -match 'in the car in 4\d s')
-  Check 'a quiet check does not ask to put the list on the screen' ($d.showSeq -eq $seq0)
+  # the doctor refuses to run during a session: only the live timings are checked here, the doctor item after the session ends
+  $d = J '/doctor'
+  Check 'the last values reach the idle screen line' ($d.timings -match 'session loaded in 4\d s' -and $d.timings -match 'in the car in 4\d s')
   $page = (Invoke-WebRequest -UseBasicParsing "$api/v2/index.html").Content
   Check 'the idle screen has the rig line' ($page -match 'id="idleRig"')
 
@@ -271,9 +276,9 @@ try {
   Check 'the bar is not the front window while driving' ([OvT]::GetForegroundWindow() -ne $hb -and [OvT]::GetForegroundWindow() -eq $fgDrive)
   # a pretend session has no personal best, so a bar set to PB shows BEST (the label says which one is really in use)
   Set-Ref 'best'
-  Api 'deltaref'; Start-Sleep -Milliseconds 600
+  Api 'deltaref'; Start-Sleep -Milliseconds 850
   Check 'VS OPTIMAL shows that lap''s delta' ((J '/overlays').delta.ref -eq 'optimal' -and (Bar) -match '^\+0\.100')
-  Api 'deltaref'; Start-Sleep -Milliseconds 600
+  Api 'deltaref'; Start-Sleep -Milliseconds 850
   Check 'VS SESSION shows that lap''s delta' ((J '/overlays').delta.ref -eq 'session' -and (Bar) -match '^\+0\.050')
   Set-Ref 'best'; Start-Sleep -Milliseconds 400
   Fake 'OnPitRoad=1'; Start-Sleep -Milliseconds 1500
@@ -305,6 +310,12 @@ finally {
 $lg = @(Get-Content (Join-Path $root 'dash\irdash.log') | Select-Object -Skip $logN)
 Check 'the focus log says the bar was never the front window' (@($lg | Where-Object { $_ -match 'delta bar focus check: \d+ checks while driving, the bar was the front window 0 times' }).Count -eq 1)
 Check 'the test hook is switched off again' (-not (Test-Path $hook))
+# the doctor's jobs wait about 20 s after a session ends; then a quiet run must carry the timings into its item
+Start-Sleep -Seconds 22
+$null = Invoke-WebRequest -UseBasicParsing "$api/api/doctor/run?quiet=1" -TimeoutSec 8
+for ($i = 0; $i -lt 120; $i++) { Start-Sleep -Milliseconds 500; $d = J '/doctor'; if (-not $d.running -and $d.age -le 10) { break } }
+Check 'the last values reach Rig Doctor' ($d.timings -match 'in the car in 4\d s' -and ($d.items | Where-Object id -eq 'timings').detail -match 'in the car in 4\d s')
+Check 'a quiet check does not ask to put the list on the screen' ($d.showSeq -eq $seq0)
 
 Section '8. delta bar settings (out of the car the bar shows sample values for a few seconds, so you can see where it sits)'
 $fg0 = [OvT]::GetForegroundWindow()
@@ -324,7 +335,7 @@ Check 'the picture shows the signed delta in green or red' ($hot -gt 150)
 Set-Ref 'best'
 $ref0 = Ini 'delta_ref'; $pos0 = Ini 'delta_pos'; $on0 = Ini 'delta_bar'
 $seen = @()
-for ($i = 0; $i -lt 4; $i++) { Api 'deltaref'; Start-Sleep -Milliseconds 500; $seen += (J '/overlays').delta.ref; if ($seen[-1] -eq $ref0) { break } }
+for ($i = 0; $i -lt 4; $i++) { Api 'deltaref'; Start-Sleep -Milliseconds 850; $seen += (J '/overlays').delta.ref; if ($seen[-1] -eq $ref0) { break } }
 Check 'VS cycles best, optimal, session (and pb when there is a personal best) and round again' ($seen[-1] -eq $ref0 -and $seen -contains 'optimal' -and $seen -contains 'session' -and (Ini 'delta_ref') -eq $ref0)
 $y0 = [int](J '/overlays').delta.y
 Api 'deltaup'; Api 'deltaup'; Start-Sleep -Milliseconds 400; $y1 = [int](J '/overlays').delta.y

@@ -109,7 +109,11 @@ class Stand {
 }
 '@
 $own = $null; $other = $null; $err = $null
+$hook = Join-Path $root 'dash\test-hook.on'
+Enter-TestLock 'doctor'   # one live test at a time; released in finally
 try {
+  # ExtraOwner() only reads stray-owner.txt while the test hook is on (and no real session is)
+  Set-Content $hook 'on for the test'
   Section '1. one doctor check closes the stray launcher box and leaves the focus where it was'
   [IO.File]::WriteAllText((Join-Path $tmp 'stand.cs'), $src)
   & $csc /nologo /target:winexe /optimize+ ('/out:' + $ownExe) (Join-Path $tmp 'stand.cs')
@@ -176,6 +180,8 @@ try {
   $err = $_.Exception.Message
   Check "stopped: $err" $false
 } finally {
+  Remove-Item -LiteralPath $hook -Force -ErrorAction SilentlyContinue
+  Exit-TestLock
   Remove-Item -LiteralPath $ownerFile -Force -ErrorAction SilentlyContinue
   foreach ($p in @($own, $other)) { try { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch { } }
   Start-Sleep -Milliseconds 200
