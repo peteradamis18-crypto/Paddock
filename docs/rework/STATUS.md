@@ -81,3 +81,12 @@ Found while writing the cards: kept races live in `vault/saved/` (today's three)
 | W1-8 The add-on installs itself | merged 53ea9d0, deployed 2026-11-14 08:08; live 08:11: 1.9.3.0 installed by irdash in 3 s ("addon: Stream Deck back, add-on connected after 3 s"), /api/addon installed 1.9.3.0 connected true, no click; addon-install 37/0 | install.ps1 -Stage + irdash copies the folder, restarts Stream Deck, waits for the add-on; tools/addon-update.ps1 for the lead |
 | W1-9 Old live tests: doctor + overlays timings | merged 9d8bda2 | doctor-test 10/0 after the fix (it turns the test hook on); overlays-test 58/17 on the re-run (the delta bar section never appeared in the pretend session: under investigation) |
 | W1-10 Old live tests: vault, recorder, phone + the phone app's four dead buttons | spec written 2026-11-14 | triage: vault checks aged out of the 30-day window (days=400), gold matcher for #C9A24B, rules version 4, lock threshold; recorder: MinLap settable by the test hook, LapBestLapTime in the pretend laps, "not counted" wording; phone: test-drive / keep-lap / tv / sleep tiles still offered by the phone app although their keys are gone (real), token check stale |
+
+## Wave 2: the race screen (started 2026-11-14 10:20)
+Cards `docs/rework/cards/W2-1.md` (SdkReader + the race stream set + fuel/pit-window maths, Opus), `W2-2.md` (the race page, Opus), `W2-3.md` (time lost in the pits, Sonnet); W2-4 is the lead's picture review and one real race. Stubs `sdkreader.cs`, `fuel.cs`, `pitloss.cs` are in `dash/build.ps1` already. The lead wires `Fuel.PitLossFor = PitLoss.For` and the frame feed at merge.
+| Card | State | Notes |
+|---|---|---|
+| W2-1 SdkReader, race stream set, fuel maths | building (Opus, worktree) | contract: the `race` state part and `/stream?set=race` (24 channels) |
+| W2-2 Race page zones A-E | building (Opus, worktree) | drive.js / ui.js in-car grid retire; pictures of every state from the 12 Nov replay |
+| W2-3 Pit loss per track | building (Sonnet, worktree) | data/pitloss.tsv; the ghost row shows only once measured |
+| W2-4 Pictures, contact sheet, one real race | lead | after W2-1..3 |
