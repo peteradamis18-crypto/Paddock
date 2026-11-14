@@ -1,0 +1,58 @@
+{
+  "about": "W3-4: the ONE deck layout. Read by build-deck.ps1 (the profile pages and keys\\keys.map), tools\\deck-render.ps1 (the key pictures), the add-on (exitAt, the opener keys' words) and tests\\deck-layout-test.ps1. Pages are in Stream Deck order LEAVE, MAIN, MORE (a page key moves one step). label: at most 2 lines of 8 characters. role: gold = the one thing he most likely wants now, green = starts something, red = ends something, grey = settings, white = a plain key. action: exe (a key exe; args = its irdeck command in keys.map), screen (an add-on screen's opener key), plugin + what (the CONFIRM key), page (next / previous).",
+  "exitAt": [7, 3],
+  "pageOrder": ["LEAVE", "MAIN", "MORE"],
+  "current": "MAIN",
+  "screens": ["friends", "overlays", "mydrive", "replay", "sound", "ac", "races", "confirm"],
+  "pages": {
+    "MAIN": [
+      { "c": 0, "r": 0, "label": ["HOME"], "glyph": "home", "role": "white", "action": { "exe": "rig-on", "args": "rigon" } },
+      { "c": 1, "r": 0, "label": ["DRIVE"], "glyph": "play", "role": "gold", "action": { "exe": "smart", "args": "smart" } },
+      { "c": 2, "r": 0, "label": ["AI RACE"], "glyph": "chip", "role": "green", "action": { "screen": "mydrive" } },
+      { "c": 3, "r": 0, "label": ["OFFICIAL"], "glyph": "globe", "role": "green", "action": { "exe": "official", "args": "official" } },
+      { "c": 4, "r": 0, "label": ["FRIENDS"], "glyph": "people", "role": "green", "action": { "screen": "friends" } },
+      { "c": 5, "r": 0, "label": ["KIDS"], "glyph": "lock", "role": "grey", "action": { "exe": "kids", "args": "kids" } },
+      { "c": 6, "r": 0, "label": ["AC"], "glyph": "snow", "role": "grey", "action": { "screen": "ac" } },
+      { "c": 7, "r": 0, "label": ["MORE"], "glyph": "more", "role": "grey", "action": { "page": "next" } },
+
+      { "c": 0, "r": 1, "label": ["GET OUT"], "glyph": "exit", "role": "red", "action": { "exe": "get-out", "args": "getout" } },
+      { "c": 1, "r": 1, "label": ["RESET", "CAR"], "glyph": "garage", "role": "white", "action": { "exe": "tow", "args": "tow" } },
+      { "c": 2, "r": 1, "label": ["RESTART"], "glyph": "restart", "role": "white", "action": { "exe": "restart-race", "args": "restartrace" } },
+      { "c": 3, "r": 1, "label": ["TO THE", "RACE"], "glyph": "flag", "role": "green", "action": { "exe": "to-the-race", "args": "to-the-race" } },
+      { "c": 4, "r": 1, "label": ["PAUSE"], "glyph": "pause", "role": "white", "action": { "exe": "pause", "args": "pause" } },
+      { "c": 5, "r": 1, "label": ["SAVE", "SPOT"], "glyph": "pin", "role": "white", "action": { "exe": "spot-save", "args": "spot save" } },
+      { "c": 6, "r": 1, "label": ["BACK TO", "SPOT"], "glyph": "back", "role": "white", "action": { "exe": "spot-back", "args": "spot back" } },
+      { "c": 7, "r": 1, "label": ["LEAVE"], "glyph": "exit", "role": "red", "action": { "page": "previous" } },
+
+      { "c": 0, "r": 2, "label": ["FUEL TO", "FINISH"], "glyph": "pump", "role": "white", "action": { "exe": "fuel-finish", "args": "chat say #autofuel" } },
+      { "c": 1, "r": 2, "label": ["TIRES"], "glyph": "tire", "role": "white", "action": { "exe": "pit-tires", "args": "pittoggle tires" } },
+      { "c": 2, "r": 2, "label": ["FAST", "REPAIR"], "glyph": "wrench", "role": "white", "action": { "exe": "pit-fr", "args": "pittoggle fr" } },
+      { "c": 3, "r": 2, "label": ["CLEAR", "PIT"], "glyph": "clear", "role": "white", "action": { "exe": "pit-clear", "args": "pit clear" } },
+      { "c": 4, "r": 2, "label": ["BEST LAP", "CAR"], "glyph": "watch", "role": "white", "action": { "exe": "best-lap-car", "args": "key --sim ctrl+c" } },
+      { "c": 5, "r": 2, "label": ["REPLAY"], "glyph": "replay", "role": "white", "action": { "screen": "replay" } },
+
+      { "c": 0, "r": 3, "label": ["VOL âˆ’"], "glyph": "voldown", "role": "grey", "action": { "exe": "vol-down", "args": "appvol game -5" } },
+      { "c": 1, "r": 3, "label": ["VOL +"], "glyph": "volup", "role": "grey", "action": { "exe": "vol-up", "args": "appvol game +5" } },
+      { "c": 2, "r": 3, "label": ["SPOTTER"], "glyph": "headset", "role": "grey", "action": { "exe": "spotter-tap", "args": "spotter-tap" } },
+      { "c": 3, "r": 3, "label": ["SOUND"], "glyph": "sliders", "role": "grey", "action": { "screen": "sound" } },
+      { "c": 4, "r": 3, "label": ["OVERLAYS"], "glyph": "eye", "role": "grey", "action": { "screen": "overlays" } },
+      { "c": 5, "r": 3, "label": ["RACES"], "glyph": "film", "role": "white", "action": { "screen": "races" } },
+      { "c": 6, "r": 3, "label": ["REVIEW"], "glyph": "chart", "role": "white", "action": { "exe": "debrief", "args": "dash debrief" } },
+      { "c": 7, "r": 3, "label": ["RIG"], "glyph": "gauge", "role": "white", "action": { "screen": "rig" } }
+    ],
+    "MORE": [
+      { "c": 0, "r": 0, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "previous" } },
+      { "c": 1, "r": 0, "label": ["THANKS"], "glyph": "chat", "role": "white", "action": { "exe": "say-thanks", "args": "chat say Thanks!" } },
+      { "c": 3, "r": 0, "label": ["AC", "COOLER"], "glyph": "down", "role": "grey", "action": { "exe": "ac-cooler", "args": "ac cooler" } },
+      { "c": 4, "r": 0, "label": ["AC", "WARMER"], "glyph": "up", "role": "grey", "action": { "exe": "ac-warmer", "args": "ac warmer" } },
+      { "c": 7, "r": 0, "label": ["LOCK"], "glyph": "lock", "role": "red", "action": { "exe": "lock", "args": "power lock" } }
+    ],
+    "LEAVE": [
+      { "c": 0, "r": 0, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "next" } },
+      { "c": 3, "r": 1, "label": ["QUIT TO", "MENU"], "glyph": "menu", "role": "red", "action": { "exe": "quit-main", "args": "quitmain" } },
+      { "c": 4, "r": 1, "label": ["QUIT TO", "MENU"], "glyph": "menu", "role": "red", "action": { "exe": "quit-main", "args": "quitmain" } },
+      { "c": 6, "r": 3, "label": ["SHUT", "DOWN PC"], "glyph": "power", "role": "red", "action": { "plugin": "confirm", "what": "shutdown" } },
+      { "c": 7, "r": 3, "label": ["SLEEP", "PC"], "glyph": "moon", "role": "red", "action": { "plugin": "confirm", "what": "sleep" } }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Paddock deck keys</title></head>
+<body>
+<!-- W3-4: draws every key of deck\layout.json with the same function the add-on uses (keyart.js). tools\deck-render.ps1 opens this in
+     headless Chrome next to a layout.js it writes (window.DECK_LAYOUT = the contents of layout.json) and reads the pictures back
+     out of #out: one 144 px PNG per key, one contact sheet per page, what each label measured, and the add-on's EXIT key at 96 px. -->
+<pre id="out"></pre>
+<script src="keyart.js"></script>
+<script src="layout.js"></script>
+<script>
+'use strict';
+(async function () {
+  const L = window.DECK_LAYOUT, out = { keys: {}, sheets: {}, measure: {}, exit96: '', glyphs: KEYART.glyphNames(), error: '' };
+  try {
+    try { await document.fonts.load('600 30px Bahnschrift'); } catch (e) { }
+    for (const page of L.pageOrder) {
+      out.keys[page] = {}; out.measure[page] = {};
+      // the contact sheet: all 32 cells, an empty cell is a dark outline (what the deck shows there is a black key)
+      const sh = document.createElement('canvas'); sh.width = 8 * 150 + 10; sh.height = 4 * 150 + 10;
+      const sg = sh.getContext('2d'); sg.fillStyle = KEYART.C.black; sg.fillRect(0, 0, sh.width, sh.height);
+      sg.strokeStyle = KEYART.C.sheet; sg.lineWidth = 2;
+      for (let c = 0; c < 8; c++) for (let r = 0; r < 4; r++) sg.strokeRect(10 + c * 150, 10 + r * 150, 139, 139);
+      for (const k of L.pages[page]) {
+        const cv = document.createElement('canvas'); cv.width = cv.height = 144;
+        const m = KEYART.drawKey(cv.getContext('2d'), 0, 0, 144, { label: k.label, glyph: k.glyph, role: k.role });
+        const pos = k.c + ',' + k.r;
+        out.keys[page][pos] = cv.toDataURL('image/png');
+        out.measure[page][pos] = m;
+        sg.drawImage(cv, 10 + k.c * 150, 10 + k.r * 150, 140, 140);
+      }
+      out.sheets[page] = sh.toDataURL('image/png');
+    }
+    out.exit96 = KEYART.keyPng(KEYART.EXIT, 96);   // tests\deck-render-test.ps1: byte-equal to the add-on's EXIT key
+  } catch (e) { out.error = String(e && e.stack || e); }
+  document.getElementById('out').textContent = JSON.stringify(out);
+  document.title = 'done';
+})();
+</script>
+</body>
+</html>
