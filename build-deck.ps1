@@ -124,5 +124,6 @@ New-Item -ItemType Directory "$profDir\Profiles\$($ids.dflt.ToUpper())\Images" -
 $tm = [ordered]@{ Device = $dev; Name = 'iRacing GT3'; Pages = [ordered]@{ Current = $ids.MAIN; Default = $ids.dflt; Pages = @($L.pageOrder | ForEach-Object { $ids[$_] }) }; Version = '3.0' }
 [IO.File]::WriteAllText("$profDir\manifest.json", ($tm | ConvertTo-Json -Depth 10), $u8)
 if ($ownLock) { Remove-Item -LiteralPath $buildLock -Force -ErrorAction SilentlyContinue }   # deck-refresh owns it otherwise, until Stream Deck is back
+"pages: " + (($L.pageOrder | ForEach-Object { $ids[$_] }) -join ' ')   # tools\deck-refresh.ps1 checks the profile lists exactly these
 "built: " + (($L.pageOrder | ForEach-Object { "$_ $(@($L.pages.$_).Count) keys" }) -join ', ') + "; $($keyMap.Count) key exes"
 if ($missing.Count -gt 0) { "NOT DONE: these keys are LEFT OFF the deck because the installed add-on does not have their action yet: $($missing -join '; '). Run tools\addon-update.ps1, then build-deck.ps1 again." }

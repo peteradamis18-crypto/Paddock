@@ -79,6 +79,8 @@ var KEYART = (function () {
     up: function (g) { P(g, [0, -38, -30, 0, 30, 0], true); F(g); P(g, [0, 0, 0, 38]); S(g); },
     menu: function (g) { P(g, [-34, -26, 34, -26]); S(g); P(g, [-34, 0, 34, 0]); S(g); P(g, [-34, 26, 34, 26]); S(g); },
     power: function (g) { g.beginPath(); g.arc(0, 4, 32, -Math.PI * 0.3, Math.PI * 1.3); S(g); P(g, [0, -40, 0, -6]); S(g); },
+    door: function (g, fg, bg) { P(g, [-30, 40, -30, -40, 22, -40, 22, 40]); S(g); P(g, [-30, -40, 2, -30, 2, 46, -30, 40], true); F(g); g.fillStyle = bg; circle(g, -6, 6, 5); F(g); g.fillStyle = fg; P(g, [-44, 40, 36, 40]); S(g); },
+    child: function (g) { circle(g, 0, -28, 12); F(g); P(g, [0, -14, 0, 14]); S(g); P(g, [-22, -6, 0, -2, 22, -6]); S(g); P(g, [0, 14, -14, 40]); S(g); P(g, [0, 14, 14, 40]); S(g); },
     moon: function (g, fg, bg) { circle(g, 0, 0, 34); F(g); g.fillStyle = bg; circle(g, 18, -14, 30); F(g); g.fillStyle = fg; }
   };
   function glyphNames() { return Object.keys(GLYPHS); }
@@ -101,20 +103,25 @@ var KEYART = (function () {
     g.save();
     g.fillStyle = C.black; g.fillRect(x, y, s, s);
     g.fillStyle = bg; g.fillRect(x + inset, y + inset, s - 2 * inset, s - 2 * inset);
-    var lines = (spec.label || []).filter(function (l) { return l; }).slice(0, 2), note = spec.note ? String(spec.note) : '';
-    var n = lines.length + (note ? 1 : 0), pad = 10 * k, gap = 5 * k;
-    var px = 30 * k, lh = px * 1.06, notePx = 20 * k;        // 30 px on the 144 px picture = 20 px on the 96 px key
+    // show: 'glyph' / 'label' = one half of a key two cells wide (QUIT TO MENU): the picture on one key, the words on the other
+    var lines = spec.show === 'glyph' ? [] : (spec.label || []).filter(function (l) { return l; }).slice(0, 2), note = spec.note ? String(spec.note) : '';
+    var glyph = spec.show === 'label' ? '' : spec.glyph;
+    var n = lines.length + (note ? 1 : 0), two = n >= 2;
+    // one line: 30 px words and the glyph at 60 % of the key; two lines: 2 x 26 px with tighter margins, the glyph still at 50 % or more
+    var pad = (two ? 5 : 10) * k, gap = (two ? 2 : 5) * k;
+    var px = (two ? 26 : 30) * k, lh = px * 1.06, notePx = 20 * k;
+    if (!glyph && n > 0) { px = (two ? 34 : 38) * k; lh = px * 1.08; }   // words only: bigger
     var textH = lines.length * lh + (note ? notePx * 1.1 : 0);
-    var gh = n === 0 ? 0.6 * s : s - 2 * pad - gap - textH;        // one line: the glyph is 60 % of the key
-    var drew = { labelPx: [], fits: true, glyph: false };
-    if (spec.glyph) drew.glyph = drawGlyph(g, spec.glyph, x + s / 2, y + (n === 0 ? s / 2 : pad + gh / 2), gh * 0.92, fg, bg);
+    var gh = n === 0 ? 0.6 * s : s - 2 * pad - gap - textH;
+    var drew = { labelPx: [], fits: true, glyph: false, glyphPct: 0 };
+    if (glyph) { var gs = n === 0 ? gh : gh; drew.glyph = drawGlyph(g, glyph, x + s / 2, y + (n === 0 ? s / 2 : pad + gh / 2), gs, fg, bg); drew.glyphPct = Math.round(gs / s * 100); }
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = fg;
-    var ty = n === 0 ? 0 : (spec.glyph ? y + pad + gh + gap : y + (s - textH) / 2);
+    var ty = n === 0 ? 0 : (glyph ? y + pad + gh + gap : y + (s - textH) / 2);
     var maxW = s - 2 * inset - 12 * k;
     for (var i = 0; i < lines.length; i++) {
       var t = String(lines[i]).toUpperCase();
       font(g, '600', px); if (g.measureText(t).width > maxW) drew.fits = false;   // never smaller than 20 px on the key: layout.json keeps labels to 8 characters
-      g.fillText(t, x + s / 2, ty + lh / 2, maxW); ty += lh; drew.labelPx.push(Math.round(px * 96 / s * 10) / 10);
+      g.fillText(t, x + s / 2, ty + lh / 2, maxW); ty += lh; drew.labelPx.push(Math.round(px * 144 / s * 10) / 10);   // px on the 144 px picture (the size keys are made at)
     }
     if (note) {
       font(g, '400', notePx); g.fillStyle = spec.noteColor ? (C[spec.noteColor] || spec.noteColor) : (fg === C.ink ? C.gold : fg);
