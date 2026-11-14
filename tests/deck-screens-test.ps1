@@ -2,7 +2,7 @@
 # OFFLINE: nothing here talks to the running irdash, to iRacing or to the Stream Deck app, and nothing is deployed.
 #   1. ANALYSIS - the real add-on page (deck-intro\plugin.html) in headless Chrome with a pretend Stream Deck app and pretend irdash answers
 #   2. SOUND    - the same for the SOUND screen
-#   3. RACE SETUP - the same for MY DRIVE: LAST DRIVE, USUAL, SAME CAR / TRACK, FAVOURITES, SURPRISE, START, no "coming later" key
+#   3. AI RACE - the lists of the folded AI RACE screen (W3-4): RECENT, CARS, TRACKS, LAYOUTS, FAVOURITES, one EXIT, nothing to type
 #   4. irdeck sound - the new command against a PRETEND list of audio devices and apps (PADDOCK_SOUND_PRETEND); Windows' audio is never touched
 #   5. irdash side - dash\src\sound.cs and dash\src\deckfeed.cs compiled with stand-ins and run: the report of the workbench page, the
 #      checks on what comes in, the SOUND key presses reaching irdeck (pretend list), KEEP / COSWORTH asking the Vault's own routes (a pretend local server)
@@ -71,47 +71,6 @@ try {
   function NoReq($c, $r, $what) { ClearApis; Press $c $r 300; Check "$what sends nothing" (@(Apis).Count -eq 0) }
   function Cur { Invoke-DeckJs $page '__sd.cur' }
   function PickerQuality { Invoke-DeckJs $page "(() => { const a=MyDrive.regions, rows=a.filter(x=>['mdpick','pickcar','picktrack','picklayout'].includes(x.act)); return {single:a.every(x=>x.w===1&&x.h===1),twoLines:rows.every(x=>x.single),upper:a.every(x=>String(x.text||'')===String(x.text||'').toUpperCase()&&String(x.sub||'')===String(x.sub||'').toUpperCase()),lengths:a.every(x=>String(x.text||'').length<=12&&String(x.sub||'').length<=14),back:a.some(x=>x.c===0&&x.r===0&&x.text==='BACK'),exit:a.some(x=>x.c===7&&x.r===3&&x.text==='EXIT')}; })()" }
-
-  # ================= DK-8 PICK =================
-  try { Assert-RigFree -Where 'DK-8 PICK' } catch { "$_"; throw }
-  'DK-8c RACE SETUP home and list picker'
-  $pickOpen = Invoke-DeckJs $page "__sd.measureOpen('mydrive')"
-  Start-Sleep -Milliseconds 1200
-  Check 'MY DRIVE opens the RACE SETUP home with the five one-key choices' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -match 'CORVETTE' -and (Reg 'MyDrive' 2 0).t -eq 'RECENT' -and (Reg 'MyDrive' 3 0).t -eq 'CARS' -and (Reg 'MyDrive' 4 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 5 0).t -eq 'FAVOURITES')
-  $null = Sheet 'deck-pick-home'
-  Press 2 0 300
-  Check 'RECENT opens from the home row' ((Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 0 1).t -match 'CORVETTE')
-  $null = Sheet 'deck-pick-recent'
-  $q=PickerQuality; Check 'RECENT tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'RECENT pages forward and back' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT')
-  Press 6 3 300
-  Check 'RECENT page two can return to page one' ((Reg 'MyDrive' 5 3).t -eq 'PREV')
-  Press 5 3 300
-  Press 2 0 300
-  Check 'CARS pages forward and back' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT')
-  $q=PickerQuality; Check 'CARS tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Req 0 1 'c=mdpick&a=c00000001' 'choosing a car'
-  Check 'a car pick advances to TRACKS without starting' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and @(Apis | Where-Object { $_ -match 'c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-tracks'
-  $q=PickerQuality; Check 'TRACKS tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Press 0 1 300
-  Check 'the chosen track is saved before layout choices' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1)
-  Check 'a track with multiple layouts presents its layout names' ((Reg 'MyDrive' 0 1).t -eq 'FULL COURSE' -and (Reg 'MyDrive' 1 1).t -eq 'SHORT COURSE')
-  $null = Sheet 'deck-pick-layouts'
-  $q=PickerQuality; Check 'LAYOUT tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Press 0 0 300
-  Check 'BACK at 0,0 returns to MAIN' ((Cur) -eq 'main')
-  Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
-  Js "MyDrive.keyTick()" 800
-  Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  Js "__sd.pressOpener('mydrive')" 1500
-  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-empty-choice'
-  Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true; m.choice.carShort='CORVETTE'; m.choice.trackShort='ROAD ATLANTA'; m.choice.layout='Full Course'" 100
-  Js "MyDrive.view='home'; MyDrive.relayout()" 250
-  Check 'RACE SETUP keeps car, track and layout on separate keys; START is one green key' ((Reg 'MyDrive' 0 1).t -eq 'CORVETTE' -and (Reg 'MyDrive' 1 1).t -eq 'ROAD ATLANTA' -and (Reg 'MyDrive' 2 1).t -eq 'LAYOUT' -and (Reg 'MyDrive' 6 3).t -eq 'START' -and (Reg 'MyDrive' 6 3).st -eq 'go')
-  $null = Sheet 'deck-pick-choice'
-  Js "MyDrive.exit({test:true})" 250
 
   # ================= 1. ANALYSIS =================
   try { Assert-RigFree -Where '1. ANALYSIS' } catch { "$_"; throw }
@@ -378,50 +337,54 @@ try {
   Press 7 3 700
   Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
 
-  # ================= 3. RACE SETUP =================
-  try { Assert-RigFree -Where '3. RACE SETUP' } catch { "$_"; throw }
-  ''; '3. RACE SETUP and the list picker'
+  # ================= 3. AI RACE: its lists (W3-4 folded MY DRIVE and AI LEVEL into one screen; car / track / level / START: tests\deck-airace-test.ps1) =================
+  try { Assert-RigFree -Where '3. AI RACE lists' } catch { "$_"; throw }
+  ''; '3. the AI RACE screen and its lists (one key per item, nothing to type)'
   $m3 = Invoke-DeckJs $page "__sd.measureOpen('mydrive')"
   Start-Sleep -Milliseconds 1000
   Js "MyDrive.view='home'; MyDrive.m.choice.has=true; MyDrive.m.choice.carShort='CORVETTE'; MyDrive.m.choice.trackShort='ROAD ATLANTA'; MyDrive.m.choice.layout='Full Course'; MyDrive.relayout()" 250
-  Check 'RACE SETUP home renders all 32 keys' ((Sheet 'deck-pick-home') -eq 32)
-  Check 'home row has LAST DRIVE, RECENT, CARS, TRACKS and FAVOURITES on single keys' ((Reg 'MyDrive' 1 0).t -match 'CORVETTE' -and (Reg 'MyDrive' 2 0).t -eq 'RECENT' -and (Reg 'MyDrive' 3 0).t -eq 'CARS' -and (Reg 'MyDrive' 4 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 5 0).t -eq 'FAVOURITES')
-  Check 'the chosen car, track and layout each have one key; START is one green key' ((Reg 'MyDrive' 0 1).t -eq 'CORVETTE' -and (Reg 'MyDrive' 1 1).t -eq 'ROAD ATLANTA' -and (Reg 'MyDrive' 2 1).t -eq 'LAYOUT' -and (Reg 'MyDrive' 6 3).t -eq 'START' -and (Reg 'MyDrive' 6 3).st -eq 'go')
-  Check 'home keeps BACK at 0,0 and EXIT at 7,3' ((Reg 'MyDrive' 0 0).t -eq 'BACK' -and (Reg 'MyDrive' 7 3).t -eq 'EXIT')
-  Press 5 0 300
-  Check 'FAVOURITES opens its own one-key combo list' ((Reg 'MyDrive' 4 0).t -eq 'FAVOURITES' -and (Reg 'MyDrive' 0 1).a -eq 'mdpick')
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-favourites'
-  $q=PickerQuality; Check 'FAVOURITES uses one-key uppercase tiles, two text lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'AI RACE renders all 32 keys' ((Sheet 'deck-airace-lists-home') -eq 32)
+  Check 'the top row has LAST DRIVE, RECENT, CARS, TRACKS and FAVOURITES on single keys' ((Reg 'MyDrive' 0 0).t -match 'CORVETTE' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 2 0).t -eq 'CARS' -and (Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 4 0).t -eq 'FAVOURITES')
+  Check 'one EXIT, at 7,3 (no BACK that also leaves)' ((Reg 'MyDrive' 7 3).t -eq 'EXIT' -and (Reg 'MyDrive' 7 3).a -eq 'exit' -and (Invoke-DeckJs $page "MyDrive.regions.filter(r => r.act === 'exit' || r.act === 'leave').length") -eq 1)
+  Press 4 0 300
+  Check 'FAVOURITES opens its own one-key list' ((Reg 'MyDrive' 4 0).t -eq 'FAVOURITES' -and (Reg 'MyDrive' 0 1).a -eq 'mdpick')
+  $q=PickerQuality; Check 'FAVOURITES: one-key uppercase tiles, two text lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Press 0 0 300
+  Check 'BACK in a list returns to the AI RACE keys (it does not leave the screen)' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 4 1).t -eq 'START')
   Press 1 0 300
+  Check 'RECENT opens its list' ((Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 1 0).st -eq 'sel' -and (Reg 'MyDrive' 0 1).t -match 'CORVETTE')
+  $null = Sheet 'deck-airace-recent'
+  $q=PickerQuality; Check 'RECENT: one-key uppercase tiles within 12/14 characters, BACK and EXIT' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'RECENT pages forward and back (PREV / NEXT, EXIT stays at 7,3)' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT' -and (Reg 'MyDrive' 7 3).t -eq 'EXIT')
+  Press 6 3 300
+  Check 'RECENT page two can return to page one' ((Reg 'MyDrive' 5 3).t -eq 'PREV')
+  Press 5 3 300
   'CARS -> TRACKS -> LAYOUTS'
+  ClearApis
   Press 2 0 300
   Check 'CARS starts with class tabs and has a one-key car list' ((Reg 'MyDrive' 4 0).t -eq 'GT3' -and (Reg 'MyDrive' 0 1).w -eq 1)
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-cars'
-  $q=PickerQuality; Check 'CARS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'SEARCH is the last key on CARS' ((Reg 'MyDrive' 4 3).t -eq 'SEARCH')
+  $null = Sheet 'deck-airace-cars'
+  $q=PickerQuality; Check 'CARS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'no SEARCH key and no keyboard: nothing to type (PLAN rule 6)' ((Invoke-DeckJs $page "MyDrive.regions.filter(r => /SEARCH/.test(r.text) || r.act === 'search' || r.act === 'letter').length") -eq 0)
   Press 0 1 300
-  Check 'choosing a car advances to TRACKS and sends mdpick' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and @(Apis | Where-Object { $_ -match 'c=mdpick&a=c00000001' }).Count -eq 1 -and @(Apis | Where-Object { $_ -match 'c=mdstart' }).Count -eq 0)
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-tracks'
-  $q=PickerQuality; Check 'TRACKS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'SEARCH is the last key on TRACKS' ((Reg 'MyDrive' 4 3).t -eq 'SEARCH')
+  Check 'choosing a car sends mdpick and goes on to TRACKS, nothing started' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 3 0).st -eq 'sel' -and @(Apis | Where-Object { $_ -match 'c=mdpick&a=c00000001' }).Count -eq 1 -and @(Apis | Where-Object { $_ -match 'c=mdstart|c=airace|a=start' }).Count -eq 0)
+  $q=PickerQuality; Check 'TRACKS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
   Press 0 1 300
-  Check 'choosing a track saves it and opens its layout list' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1 -and (Reg 'MyDrive' 0 1).t -eq 'FULL COURSE')
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-layouts'
-  $q=PickerQuality; Check 'LAYOUTS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'choosing a track saves it and opens its layout list' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1 -and (Reg 'MyDrive' 0 1).t -eq 'FULL COURSE' -and (Reg 'MyDrive' 1 1).t -eq 'SHORT COURSE')
+  $null = Sheet 'deck-airace-layouts'
+  $q=PickerQuality; Check 'LAYOUTS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
   Press 0 1 300
-  Check 'choosing a layout saves it and returns to MAIN' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=l' }).Count -ge 1 -and (Cur) -eq 'main')
+  Check 'choosing a layout saves it and comes back to the AI RACE keys, where START is (the deck does not leave)' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=l' }).Count -ge 1 -and (Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 4 1).t -eq 'START' -and @(Apis | Where-Object { $_ -match 'c=mdstart|c=airace|a=start' }).Count -eq 0)
+  Press 7 3 700
+  Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
   Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
   Js "MyDrive.keyTick()" 800
   Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
   Js "__sd.pressOpener('mydrive')" 1500
-  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-empty-choice'
-  $q=PickerQuality; Check 'RECENT uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'NO CHOICE: a press on AI RACE opens the RECENT list without starting anything' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 1 0).st -eq 'sel' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart|a=start' }).Count -eq 0)
+  $null = Sheet 'deck-airace-empty-choice'
   Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true" 100
+  Js "MyDrive.exit({test:true})" 250
 }
 finally { Stop-DeckBrowser $b }
 
@@ -600,7 +563,7 @@ if (Test-Path "$tdir\t.exe") {
 # ================= 6. the two fixes from keys-test =================
 ''; '6. the two keys-test warnings are gone'
 $plug = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\plugin.html'))
-Check 'MY DRIVE no longer has the dim AI RACE / coming later tile' (-not ($plug -match "'AI RACE'") -and -not ($plug -match 'coming later'))
+Check 'MY DRIVE no longer has the dim AI RACE / coming later tile (W3-4: AI RACE is the folded screen itself now; its START key says AI RACE)' (-not ($plug -match "add([^)]*'AI RACE'[^)]*'dim')") -and -not ($plug -match 'coming later'))
 Check 'the PHOTO key''s long line is short now' (-not $plug.Contains('SWITCH ON IN IRACING SETTINGS') -and $plug.Contains("'PHOTO', 'TURN ON IN IRACING'"))
 $inst = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\install.ps1'))
 Check 'install.ps1 has a higher version than 1.6.1.0 and bundles the RigAnalysis and RigSound profiles with their actions' ($inst -match "\`$ver = '1\.([7-9]|\d\d)\.\d+\.\d+'" -and $inst.Contains("Build-Profile 'RigAnalysis' 'analysis'") -and $inst.Contains("Build-Profile 'RigSound' 'sound'") -and $inst.Contains('$uuid.analysis') -and $inst.Contains('$uuid.sound'))
