@@ -126,6 +126,7 @@ namespace IRDash
         FuelLap pending; bool pendingClean;                     // the lap just ended, waiting for iRacing's verdict (at most 4 s)
         int lap = int.MinValue, sess = int.MinValue, offRun;
         double lapStartTime, lapStartLevel; bool dirty, pit, off; int incStart;
+        double low; bool filling;                               // the lowest level since the last stop; a stop is being poured now
         double lastTime = double.NaN, lastLevel = double.NaN, lastLlt, lastBest;
         FuelSample last;
         public double TankL;                                    // tank size in litres (DriverCarFuelMaxLtr x DriverCarMaxFuelPct), 0 = unknown
@@ -148,16 +149,20 @@ namespace IRDash
                 if (s.SessionNum != sess || double.IsNaN(lastTime) || s.Time < lastTime - 1)
                 {
                     // a new session (or the clock went back: a new connection): nothing measured carries over
-                    laps.Clear(); judge.Reset(); pending = null; sess = s.SessionNum;
-                    Start(s); dirty = true;            // joined mid-lap: that lap's fuel is only part of a lap
+                    laps.Clear(); judge.Reset(); pending = null; sess = s.SessionNum; low = s.Level; filling = false;
+                    Start(s); dirty = true;           // joined mid-lap: that lap's fuel is only part of a lap
                 }
                 else
                 {
-                    if (s.Level > lastLevel + 0.3)
+                    // a stop (or a reset to the pits): the level rose. iRacing pours about 2-3 L a second, 0.2 L a sample, so it is the rise
+                    // over the lowest level seen that counts, not one step. The window starts again, the lap with the stop is not clean.
+                    if (s.Level < low) low = s.Level;
+                    if (s.Level > low + 0.5)
                     {
-                        // a stop (or a reset to the pits): the window starts again, the lap with the stop is not clean
-                        laps.Clear(); pending = null; judge.Cancel(); Stops++; dirty = true;
+                        if (!filling) { laps.Clear(); pending = null; judge.Cancel(); Stops++; filling = true; }
+                        dirty = true; low = s.Level;
                     }
+                    else if (s.Level < lastLevel - 0.0001) filling = false;      // burning again: the stop is over
                     if (Fuel.NotGreen(s.Flags)) dirty = true;
                     if (s.OnPitRoad) pit = true;
                     if (!s.OnTrack) dirty = true;
