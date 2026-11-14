@@ -57,7 +57,7 @@ The last two keys of this row are empty on purpose.
 ## The LEAVE page (one step left of the main page)
 | Key | What it does |
 |---|---|
-| **BACK** | Back to the main page. |
+| **BACK** (bottom left) | Back to the main page. |
 | **QUIT TO MENU** | Leaves the whole session and takes you back to the iRacing app's home page. It is two keys wide so it is easy to hit. One press does it. |
 | **SHUT DOWN PC** | Asks once: a big gold **YES, SHUT DOWN** key counts 5-4-3-2-1. Press YES within 5 seconds and the PC turns off (it leaves iRacing first, and it refuses if the car is moving). Press nothing and the question goes away by itself; EXIT (bottom right) leaves at once. Kids mode blocks it. After it, the deck starts on the main page. |
 | **SLEEP PC** | Asks once, the same way: press **YES, SLEEP** within 5 seconds. It leaves iRacing first, and it refuses if the car is moving. When the PC wakes up, the deck is on the main page. |
@@ -65,7 +65,7 @@ The last two keys of this row are empty on purpose.
 ## Second page (MORE)
 | Key | What it does |
 |---|---|
-| **BACK** | Back to the main page. |
+| **BACK** (bottom left) | Back to the main page. |
 | **THANKS** | Sends "Thanks!" in the race chat. |
 | **AC COOLER** / **AC WARMER** | Sets the AC about 1 °F cooler or warmer at once, without opening the screen. If the AC is off it comes on, cooling. |
 | **LOCK** | Locks the PC (Windows sign-in screen). It does not stop iRacing. |

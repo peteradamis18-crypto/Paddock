@@ -59,14 +59,14 @@
       { "c": 7, "r": 3, "label": ["RIG"], "glyph": "gauge", "role": "white", "action": { "screen": "rig" } }
     ],
     "MORE": [
-      { "c": 0, "r": 0, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "previous" } },
+      { "c": 0, "r": 3, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "previous" } },
       { "c": 1, "r": 0, "label": ["THANKS"], "glyph": "chat", "role": "white", "action": { "exe": "say-thanks", "args": "chat say Thanks!" } },
       { "c": 3, "r": 0, "label": ["AC", "COOLER"], "glyph": "down", "role": "grey", "action": { "exe": "ac-cooler", "args": "ac cooler" } },
       { "c": 4, "r": 0, "label": ["AC", "WARMER"], "glyph": "up", "role": "grey", "action": { "exe": "ac-warmer", "args": "ac warmer" } },
       { "c": 7, "r": 3, "label": ["LOCK"], "glyph": "lock", "role": "red", "action": { "exe": "lock", "args": "power lock" } }
     ],
     "LEAVE": [
-      { "c": 0, "r": 0, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "next" } },
+      { "c": 0, "r": 3, "label": ["BACK"], "glyph": "left", "role": "grey", "action": { "page": "next" } },
       { "c": 3, "r": 1, "label": ["QUIT TO", "MENU"], "show": "glyph", "glyph": "menu", "role": "red", "action": { "exe": "quit-main", "args": "quitmain" } },
       { "c": 4, "r": 1, "label": ["QUIT TO", "MENU"], "show": "label", "glyph": "menu", "role": "red", "action": { "exe": "quit-main", "args": "quitmain" } },
       { "c": 6, "r": 3, "label": ["SHUT", "DOWN PC"], "glyph": "power", "role": "red", "action": { "plugin": "confirm", "what": "shutdown" } },

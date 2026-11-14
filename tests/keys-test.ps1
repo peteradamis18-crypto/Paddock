@@ -123,7 +123,7 @@ foreach ($pos in $approved.Keys) {
 }
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
 Check 'MAIN is PLAN 4.6''s map, cell by cell (6,2 and 7,2 are the two spares)' ($bad.Count -eq 0) ($bad -join '; ')
-$moreWant = [ordered]@{ '0,0' = 'BACK'; '1,0' = 'THANKS'; '3,0' = 'AC COOLER'; '4,0' = 'AC WARMER'; '7,3' = 'LOCK' }   # LOCK off 7,0: a doubled MORE press lands there (W3-4 review)   # W3-4: the rest went (PLAN 4.6)
+$moreWant = [ordered]@{ '0,3' = 'BACK'; '1,0' = 'THANKS'; '3,0' = 'AC COOLER'; '4,0' = 'AC WARMER'; '7,3' = 'LOCK' }   # LOCK off 7,0: a doubled MORE press lands there (W3-4 review)   # W3-4: the rest went (PLAN 4.6)
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -135,7 +135,7 @@ foreach ($k in $more) { if (-not $moreWant.Contains("$($k.col),$($k.row)")) { $b
 Check 'MORE is the planned page, cell by cell (BACK, THANKS, AC COOLER, AC WARMER, LOCK)' ($bad.Count -eq 0) ($bad -join '; ')
 
 # LEAVE: the page before MAIN. Opening it is the check, so the keys that end things are one press here.
-$leaveWant = [ordered]@{ '0,0' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
+$leaveWant = [ordered]@{ '0,3' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
 $bad = @()
 foreach ($pos in $leaveWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -146,7 +146,7 @@ foreach ($pos in $leaveWant.Keys) {
 foreach ($k in $leave) { if (-not $leaveWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the LEAVE plan" } }
 Check 'LEAVE is the planned page, cell by cell (BACK, QUIT TO MENU twice as wide, SHUT DOWN PC, SLEEP PC)' ($bad.Count -eq 0) ($bad -join '; ')
 function Leave-At($c, $r) { $leave | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1 }
-Check 'LEAVE: BACK at 0,0 is "next page" (back to MAIN); QUIT TO MENU at 3,1 and 4,1 is ONE exe (quit-main); SLEEP PC at 7,3 opens the Confirm screen (W0-1)' ((Leave-At 0 0).kind -eq 'page' -and (Leave-At 0 0).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main=quitmain' -and (Leave-At 7 3).kind -eq 'plugin' -and (Leave-At 7 3).what -eq 'com.peter.rigintro.confirm')
+Check 'LEAVE: BACK at 0,3 is "next page" (back to MAIN; a doubled press lands on VOL -, not HOME); QUIT TO MENU at 3,1 and 4,1 is ONE exe (quit-main); SLEEP PC at 7,3 opens the Confirm screen (W0-1)' ((Leave-At 0 3).kind -eq 'page' -and (Leave-At 0 3).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main=quitmain' -and (Leave-At 7 3).kind -eq 'plugin' -and (Leave-At 7 3).what -eq 'com.peter.rigintro.confirm')
 Check 'MAIN has a MORE key (next page) and a LEAVE key (previous page); MORE has a BACK key (previous page)' (@($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'next' -and $_.label -eq 'MORE' }).Count -eq 1 -and @($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' -and $_.label -eq 'LEAVE' }).Count -eq 1 -and @($more | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' }).Count -eq 1)
 Check 'every key on the device is drawn on MAIN.png / MORE.png / LEAVE.png' ((Test-Path "$prev\MAIN.png") -and (Test-Path "$prev\MORE.png") -and (Test-Path "$prev\LEAVE.png") -and (Get-Item "$prev\MAIN.png").LastWriteTime -ge $t0.AddSeconds(-2))
 # page order in the profile: LEAVE, MAIN, MORE (a page key moves one step; the profile opens on MAIN)
