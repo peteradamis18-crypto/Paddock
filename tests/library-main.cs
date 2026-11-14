@@ -408,6 +408,24 @@ namespace IRDash
             return y.ToString();
         }
 
+        // 40 cars in two classes (odd CarIdx GT3 = class 1, even GT4 = class 2) and the pace car; he is CarIdx 4 (GT4), 31st overall at the
+        // finish (15th of the 20 GT4s) and 3rd overall on the grid (2nd GT4)
+        static string MultiYaml()
+        {
+            StringBuilder y = new StringBuilder("---\nDriverInfo:\n DriverCarIdx: 4\n Drivers:\n - CarIdx: 0\n   UserName: Pace Car\n   CarClassID: 11\n   CarIsPaceCar: 1\n");
+            for (int i = 1; i <= 40; i++) y.Append(" - CarIdx: " + i + "\n   UserName: Driver " + i + "\n   CarClassID: " + (i % 2 == 0 ? 2 : 1) + "\n   CarIsPaceCar: 0\n   IsSpectator: 0\n");
+            Func<int, List<int>> order = delegate (int at) { List<int> o = new List<int>(); for (int i = 1; i <= 40; i++) if (i != 4) o.Add(i); o.Insert(at, 4); return o; };
+            Func<List<int>, int, string> rows = delegate (List<int> o, int baseP)
+            {
+                StringBuilder b = new StringBuilder(); int c1 = 0, c2 = 0;
+                for (int k = 0; k < o.Count; k++) { int cp = o[k] % 2 == 0 ? c2++ : c1++; b.Append("   - Position: " + (k + baseP) + "\n     ClassPosition: " + cp + "\n     CarIdx: " + o[k] + "\n     LapsComplete: 12\n"); }
+                return b.ToString();
+            };
+            y.Append("SessionInfo:\n Sessions:\n - SessionNum: 2\n   SessionType: Race\n   ResultsPositions:\n").Append(rows(order(30), 1)).Append("   ResultsFastestLap:\n   - CarIdx: 1\n");
+            y.Append("QualifyResultsInfo:\n Results:\n").Append(rows(order(2), 0).Replace("\n   ", "\n ").Replace("   - Position", " - Position"));
+            return y.Append("...\n").ToString();
+        }
+
         static void Positions()
         {
             Console.WriteLine("-- 10. start and finish (W3-3)");
@@ -419,11 +437,17 @@ namespace IRDash
             Ok("10. RacePlace: the practice session is its own (P1 of 1)", pos == 1 && field == 1);
             RecSess live = new RecSess(); live.Type = "Race"; live.SessionNum = 2;
             RacePlace.Update(live, PosYaml(false, 7));
-            Ok("10. a race without a qualifying result: the start is the first place seen (P7)", live.StartPos == 7 && live.FinishPos == 7 && live.FieldSize == 19, live.StartPos + "/" + live.FinishPos);
+            Ok("10. a race without a qualifying result: no start (0, never the place after lap 1), the finish so far P7 of 19", live.StartPos == 0 && live.FinishPos == 7 && live.FieldSize == 19, live.StartPos + "/" + live.FinishPos);
             RacePlace.Update(live, PosYaml(false, 3));
-            Ok("10. later results move the finish (P3), the start stays (P7)", live.StartPos == 7 && live.FinishPos == 3, live.StartPos + "/" + live.FinishPos);
+            Ok("10. later results move the finish (P3); still no start", live.StartPos == 0 && live.FinishPos == 3, live.StartPos + "/" + live.FinishPos);
             RacePlace.Update(live, PosYaml(true, 3));
-            Ok("10. once the grid is known it is the start (P9)", live.StartPos == 9 && live.FinishPos == 3);
+            Ok("10. once the grid is published it is the start (P9)", live.StartPos == 9 && live.FinishPos == 3);
+            // more than one class: his class's place and field ("P15 of 20" in GT4, not "P31 of 40" overall), the grid in his class
+            string mc = MultiYaml();
+            RacePlace.Results(mc, 2, 4, out pos, out field);
+            Ok("10. multiclass: his class place and his class's field (P15 of 20, not P31 of 40)", pos == 15 && field == 20, pos + " of " + field);
+            Ok("10. multiclass: the grid in his class (2nd of the GT4s, 3rd overall)", RacePlace.Grid(mc, 4) == 2, RacePlace.Grid(mc, 4) + "");
+            Ok("10. one class: the overall place (the pace car is not a class)", RacePlace.Classes(y).Count >= 1 && RacePlace.Grid(y, 4) == 9);
             RecSess prac = new RecSess(); prac.Type = "Practice"; prac.SessionNum = 0;
             RacePlace.Update(prac, y);
             Ok("10. a practice gets no positions (0 = not a race)", prac.StartPos == 0 && prac.FinishPos == 0);

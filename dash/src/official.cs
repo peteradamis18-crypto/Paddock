@@ -187,7 +187,7 @@ namespace IRDash
         {
             lock (gate)
             {
-                LoadSeason(); LoadProfile(); LoadFavs(); LoadCareer(); LoadSpecials();
+                LoadSeason(); LoadProfile(); LoadFavs(); LoadCareer(); LoadSpecials(); LoadMine();
             }
             if (owned == null || (DateTime.UtcNow - ownedBuilt).TotalHours >= 6) QueueOwned();
         }
@@ -229,6 +229,7 @@ namespace IRDash
                 DateTime.TryParse(Str(root, "importedAt"), Inv, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out seasonImported);
                 dirty = true;
                 Log.W("official: season schedule loaded - " + list.Count + " series (" + seasonName + ")");
+                mineLogged = null;      // the next build names his series again (at start-up and with every new schedule)
             }
             catch (Exception ex) { Log.W("official: season.json unreadable: " + ex.Message); }
         }
@@ -522,6 +523,8 @@ namespace IRDash
 
         // one log line at start-up and whenever it changes, so the lead can check it names his real series (PLAN 9 C1)
         static string mineLogged;
+        // his series for this build (RaceJson's "his": the one flag HOME may trust; "mine" also means "a car he has driven")
+        static HashSet<string> curHis = new HashSet<string>();
         static void LogMine(HashSet<string> mine)
         {
             List<string> names = new List<string>(); HashSet<string> left = new HashSet<string>(mine);
@@ -533,6 +536,29 @@ namespace IRDash
             if (line == mineLogged) return;
             mineLogged = line;
             Log.W("official: Peter's series: " + line);
+        }
+
+        // data\official\mine.txt: the series keys found in his races, kept, so they survive the season change (the new schedule's
+        // weeks hold none of last season's races, so nothing would match until he races again). One key per line.
+        static HashSet<string> savedMine = new HashSet<string>(); static DateTime mineStamp = DateTime.MinValue;
+        static void LoadMine()
+        {
+            string f = P("mine.txt");
+            DateTime st = File.Exists(f) ? File.GetLastWriteTimeUtc(f) : DateTime.MinValue;
+            if (st == mineStamp) return;
+            mineStamp = st; HashSet<string> k = new HashSet<string>();
+            try { if (st != DateTime.MinValue) foreach (string raw in File.ReadAllLines(f, Encoding.UTF8)) { string l = raw.Trim(); if (l.Length > 0 && !l.StartsWith(";")) k.Add(l); } }
+            catch { }
+            savedMine = k; dirty = true;
+        }
+        static void SaveMine(HashSet<string> found)
+        {
+            if (found.Count == 0) return;                       // nothing new: keep what was found before
+            HashSet<string> all = new HashSet<string>(savedMine); all.UnionWith(found);
+            if (all.SetEquals(savedMine)) return;
+            List<string> l = new List<string>(all); l.Sort(StringComparer.Ordinal);
+            try { WriteFile("mine.txt", "; his series, found in his own races (HOME's next race); one key per line\r\n" + string.Join("\r\n", l.ToArray()) + "\r\n"); savedMine = all; mineStamp = File.GetLastWriteTimeUtc(P("mine.txt")); }
+            catch (Exception ex) { Log.W("official: mine.txt: " + ex.Message); }
         }
 
         // ---- career cache: licence and the cars he drives (read only) ----
@@ -563,9 +589,11 @@ namespace IRDash
                             h.Car = p[6].Trim();
                             h.Track = p[7].Trim();
                             h.Series = "";
-                            // W3-3: a race (the event or the session says so; not qualifying or practice) can name his series by car, track and week
+                            // W3-3: a rated race (the event or the session says race; iRating above the 1 that AI races and test drives carry)
+                            // can name his series by car, track and week; an AI race in the same car says nothing about his series
                             string kind = p[8] + " " + (p.Length >= 20 ? p[19] : "");
-                            h.Race = Regex.IsMatch(kind, "race", RegexOptions.IgnoreCase) && !Regex.IsMatch(kind, "qual|prac|test", RegexOptions.IgnoreCase);
+                            int irr;
+                            h.Race = int.TryParse(p[5], out irr) && irr > 1 && Regex.IsMatch(kind, "race", RegexOptions.IgnoreCase) && !Regex.IsMatch(kind, "qual|prac|test", RegexOptions.IgnoreCase);
                             hints.Add(h);
                             // a rated session (iRating above the 1 that test drives carry) has his real licence class
                             if (int.TryParse(p[5], out ir) && ir > 1 && p[11].Trim().Length > 0 && ticks > licWhen) { licWhen = ticks; lic = p[11].Trim(); }
@@ -743,8 +771,10 @@ namespace IRDash
             // It picks HOME's next race and sorts his series first; the day and deck lists keep filtering on the favourites alone,
             // as before, so the OFFICIAL deck screen does not shrink to one series by surprise.
             HashSet<string> hisAll = new HashSet<string>(his);
-            hisAll.UnionWith(OfficialCore.SeriesOfRaces(series, careerSessions, 10));
-            if (!fake) LogMine(hisAll);
+            HashSet<string> found = OfficialCore.SeriesOfRaces(series, careerSessions, 10);
+            hisAll.UnionWith(found); hisAll.UnionWith(savedMine);       // mine.txt: the ones found before (they outlive a season change)
+            if (!fake) { SaveMine(found); LogMine(hisAll); }            // a test's pretend clock never writes or logs
+            curHis = hisAll;
 
             DateTime lastDayEnd = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(sun.AddDays(1), DateTimeKind.Unspecified), tz);
             DateTime to = nowUtc.AddDays(8) > lastDayEnd ? nowUtc.AddDays(8) : lastDayEnd;
@@ -875,7 +905,7 @@ namespace IRDash
             bool ownedCar = mine.Count > 0;
             bool ownedTrack = OfficialCore.OwnsTrack(o, r.W.Track);
             int cd = OfficialCore.CountdownSeconds(r.Utc, nowUtc, tz);
-            return "{\"id\":" + Json_.S(r.S.Id) + ",\"series\":" + Json_.S(r.S.Short) + ",\"tiny\":" + Json_.S(TinySeries(r.S.Short)) + ",\"fav\":" + (fav ? "true" : "false") + ",\"mine\":" + (isFam(r.S) ? "true" : "false") +
+            return "{\"id\":" + Json_.S(r.S.Id) + ",\"series\":" + Json_.S(r.S.Short) + ",\"tiny\":" + Json_.S(TinySeries(r.S.Short)) + ",\"fav\":" + (fav ? "true" : "false") + ",\"mine\":" + (isFam(r.S) ? "true" : "false") + ",\"his\":" + (OfficialCore.IsHisSeries(r.S, curHis) ? "true" : "false") +
                    ",\"t\":" + Json_.S(Iso(r.Utc)) + ",\"est\":" + (r.Est ? "true" : "false") + ",\"more\":" + Math.Max(0, n - 1) + ",\"pattern\":" + Json_.S(OfficialCore.PatternShort(p)) + ",\"every\":" + Json_.S(OfficialCore.PatternTiny(p)) +
                    ",\"car\":" + Json_.S(car) + ",\"carShort\":" + Json_.S(TinyCar(car)) + ",\"carsOwned\":" + mine.Count +
                    ",\"track\":" + Json_.S(r.W.Track) + ",\"trackShort\":" + Json_.S(TinyTrack(r.W.Track)) + ",\"layout\":" + Json_.S(r.W.Layout) +

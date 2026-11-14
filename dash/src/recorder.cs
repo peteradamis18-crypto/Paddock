@@ -200,8 +200,9 @@ namespace IRDash
     }
 
     // W3-3: his place in a session's results, from iRacing's session info text (pure: tests call it on a fixture).
-    //   finish = his Position in SessionInfo.Sessions[num].ResultsPositions (1-based, overall), field = how many cars are listed there;
-    //   grid   = his place in QualifyResultsInfo (0-based there, so +1), the starting grid of a race; 0 when it is not published.
+    //   finish = his place in SessionInfo.Sessions[num].ResultsPositions, field = how many cars are listed there;
+    //   start  = his place in QualifyResultsInfo (0-based there, so +1), the starting grid of a race; 0 when it is not published.
+    // With more than one class in the session (DriverInfo's CarClassID), places and the field are his class's: "P4 of 12", not "P31 of 40".
     static class RacePlace
     {
         public static int DriverIdx(string yaml)
@@ -220,12 +221,28 @@ namespace IRDash
         }
 
         static int Lead(string s) { Match m = Regex.Match(s, @"^\s*(-?\d+)"); return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -99; }
-        static int IdxOf(string row) { Match m = Regex.Match(row, @"(?m)^\s*CarIdx:\s*(\d+)"); return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1; }
+        static int IntOf(string row, string key) { Match m = Regex.Match(row, @"(?m)^\s*" + key + @":\s*(-?\d+)"); return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1; }
+
+        // CarIdx -> CarClassID of the cars racing (not the pace car, not spectators); empty when the session info has no driver list
+        public static Dictionary<int, int> Classes(string yaml)
+        {
+            Dictionary<int, int> d = new Dictionary<int, int>();
+            string[] rows = Regex.Split(Block(yaml ?? "", "DriverInfo"), @"(?m)^[ \t]*- CarIdx:");
+            for (int k = 1; k < rows.Length; k++)
+            {
+                int idx = Lead(rows[k]); if (idx < 0) continue;
+                if (IntOf(rows[k], "CarIsPaceCar") == 1 || IntOf(rows[k], "IsSpectator") == 1) continue;
+                d[idx] = IntOf(rows[k], "CarClassID");
+            }
+            return d;
+        }
+        static bool Multi(Dictionary<int, int> cls) { HashSet<int> s = new HashSet<int>(cls.Values); return s.Count > 1; }
 
         public static void Results(string yaml, int sessionNum, int carIdx, out int pos, out int field)
         {
             pos = 0; field = 0;
             if (string.IsNullOrEmpty(yaml) || carIdx < 0) return;
+            Dictionary<int, int> cls = Classes(yaml); bool multi = Multi(cls); int mine; if (!cls.TryGetValue(carIdx, out mine)) mine = -1;
             string[] parts = Regex.Split(Block(yaml, "SessionInfo"), @"(?m)^[ \t]*- SessionNum:");
             for (int i = 1; i < parts.Length; i++)
             {
@@ -236,8 +253,10 @@ namespace IRDash
                 for (int k = 1; k < rs.Length; k++)
                 {
                     int p = Lead(rs[k]); if (p <= 0) continue;
+                    int idx = IntOf(rs[k], "CarIdx"), c; if (!cls.TryGetValue(idx, out c)) c = -1;
+                    if (multi && c != mine) continue;            // another class: not in his field
                     field++;
-                    if (IdxOf(rs[k]) == carIdx) pos = p;
+                    if (idx == carIdx) { int cp = IntOf(rs[k], "ClassPosition"); pos = multi ? (cp >= 0 ? cp + 1 : 0) : p; }      // ClassPosition is 0-based
                 }
                 return;
             }
@@ -246,12 +265,15 @@ namespace IRDash
         public static int Grid(string yaml, int carIdx)
         {
             if (string.IsNullOrEmpty(yaml) || carIdx < 0) return 0;
+            bool multi = Multi(Classes(yaml));
             string[] rs = Regex.Split(Block(yaml, "QualifyResultsInfo"), @"(?m)^[ \t]*- Position:");
-            for (int k = 1; k < rs.Length; k++) if (IdxOf(rs[k]) == carIdx) { int p = Lead(rs[k]); return p >= 0 ? p + 1 : 0; }
+            for (int k = 1; k < rs.Length; k++)
+                if (IntOf(rs[k], "CarIdx") == carIdx) { int p = multi ? IntOf(rs[k], "ClassPosition") : Lead(rs[k]); return p >= 0 ? p + 1 : 0; }
             return 0;
         }
 
-        // one look at the newest session info of an open race: the grid (or, without one, the first place seen) is the start; the last place seen is the finish
+        // one look at the newest session info of an open race: the grid is the start (no grid published = 0, never a guess from the
+        // results: the place after lap 1 is not where he started); the last place seen is the finish
         public static void Update(RecSess s, string yaml)
         {
             if (s == null || !SessionIndex.IsRaceType(s.Type) || string.IsNullOrEmpty(yaml)) return;
@@ -259,7 +281,6 @@ namespace IRDash
             int pos, field; Results(yaml, s.SessionNum, me, out pos, out field);
             int grid = Grid(yaml, me);
             if (grid > 0) s.StartPos = grid;
-            else if (s.StartPos == 0 && pos > 0) s.StartPos = pos;
             if (pos > 0) { s.FinishPos = pos; s.FieldSize = field; }
         }
     }

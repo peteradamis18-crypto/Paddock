@@ -2,19 +2,20 @@
      mount(el, ctx)  ctx = { data, Fmt, go, close, banner, kidsOn(), driving() };  unmount();  onState(state, changed)
    Copied from the Porsche watch face (time first, few complications, empty space on purpose), StartLight / iRacePlan
    (my series only, local time, one countdown) and Formula E's "quiet, then data as it heats up" (the gold ring).
-   Zones: the clock (W3-2's Clock) in the middle; NOW / NEXT left (the session he is in, or his next races: /official);
-   MY RACES right (his last three drives: /api/library) and LAST RACE; the RIG band at the bottom (the doctor's cached
-   result and the apps, never a fresh check) with the one button: RIG ON, DRIVE (in the session, or his last car and track) or START.
+   Zones: the clock (W3-2's Clock) in the middle; NOW / NEXT left (the session he is in, or his next races: /official, only
+   rows irdash marks "his"); MY RACES right (his last three drives: /api/library) and LAST RACE; the RIG band at the bottom
+   (the doctor's cached result and the apps, never a fresh check from the page) with the one button: RIG ON, DRIVE (in the
+   session, or his last car and track) or START.
    Nothing here polls: three answers at mount, then only when irdash says something changed (the state push, onList).
+   The offline and kids banners are the shell's (W3-1); HOME only greys its button then.
    The clock is local time. Never shown: the real-world TV schedule, developer text, phone pairing, statistics tiles. */
 const DOT = ' · ';
-const OFFLINE = 'Paddock is not running. Press HOME on the deck.';
-const AFTER_MS = 10 * 60 * 1000;            // the "your race" card stays for ten minutes after the drive
+const AFTER_MS = 10 * 60 * 1000;            // the "your race" card stays for ten minutes
+const MEM_KEY = 'paddock.home';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const num = x => typeof x === 'number' && isFinite(x);
 
 let Clock = null;                          // W3-2's clock (app/lib/clock.js), loaded once
-let seen = null;                           // the newest drive seen { id, at }: module state, so it outlives an unmount
 
 // ---------------------------------------------------------------- pure helpers (tests import them)
 const pad = n => (n < 10 ? '0' : '') + n;
@@ -41,19 +42,54 @@ export function place(r, from) {
   const of = r.field > 0 ? ' of ' + r.field : '';
   return 'P' + r.finish + (from && r.start > 0 ? ' from P' + r.start : of);
 }
+// the same track? the words that name the place, as officialcore.cs SameTrack ("Road Atlanta" / "Michelin Raceway Road Atlanta")
+const FILLER = new Set('circuit circuito raceway racing race international speedway motorsport motorsports motor park the at of de du des la le and road course full grand prix gp track national ring autodromo autodrome oval layout config short long north south east west club'.split(' '));
+const placeWords = s => new Set(String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !FILLER.has(w)));
+export function sameTrack(a, b) { const B = placeWords(b); for (const w of placeWords(a)) if (B.has(w)) return true; return false; }
+
+// ---------------------------------------------------------------- what HOME remembers across mounts and a page reload
+// (sessionStorage: the 10 minutes of the after-drive card, when the session began; a page reload in those minutes keeps them)
+//   driving / driveEnd: the last driving -> not driving edge;  newestId / newestAt: the newest drive in the library and when it
+//   first appeared (0 = it was already there);  sessionOn / sessionSince: when the session he is in was loaded (0 = not seen)
+const mem = { seen: false, driving: false, driveEnd: 0, newestId: '', newestAt: 0, sessionOn: false, sessionSince: 0 };
+function memLoad() { try { const s = JSON.parse(sessionStorage.getItem(MEM_KEY) || 'null'); if (s) Object.assign(mem, s); } catch (e) { } }
+function memSave() { try { sessionStorage.setItem(MEM_KEY, JSON.stringify(mem)); } catch (e) { } }
+let watching = null;
+// one listener for the life of the page (the shell unmounts HOME while he drives, and HOME must still see the drive end)
+function watch(data) {
+  if (watching === data) return; watching = data;
+  data.on('state', observe);
+}
+// the edges, from any state push (idempotent: the page's onState calls it too, so it never draws with an old answer)
+function observe(st) {
+  if (!st || !st.rig) return;
+  const r = st.rig, now = H.now();
+  // the first look of this page: how things are is not an edge (a page opened mid-session does not know when it began)
+  if (!mem.seen) { mem.seen = true; mem.driving = !!r.driving; mem.sessionOn = !!r.sessionOn; memSave(); return; }
+  let changed = false;
+  if (!!r.driving !== mem.driving) {
+    mem.driving = !!r.driving; changed = true;
+    if (mem.driving) mem.newestAt = 0;                  // a new drive: the card about the last one is over
+    else mem.driveEnd = now;
+  }
+  if (!!r.sessionOn !== mem.sessionOn) { mem.sessionOn = !!r.sessionOn; mem.sessionSince = mem.sessionOn ? now : 0; changed = true; }
+  if (changed) memSave();
+}
 
 // ---------------------------------------------------------------- the page
 const H = {
   el: null, ctx: null, offs: [], tick: 0, wake: 0, st: {}, online: true,
   off: null, lib: null, home: null,          // /official, /api/library, /home
   act: null, busyUntil: 0, failUntil: 0, failMsg: '', busyWord: '', dry: false, sent: [],
-  shownReadout: undefined, shownRing: undefined, bannerText: undefined, offAsked: 0,
+  shownReadout: undefined, shownRing: undefined, offAsked: 0, fixAt: 0,
 
   now() { if (Clock && Clock.now) { const v = Clock.now(); return v instanceof Date ? v.getTime() : +v; } return Date.now(); },
   $(c) { return H.el ? H.el.querySelector(c) : null; },
+  rig() { return (H.ctx && H.ctx.data.rig) || {}; },
 
   mount(el, ctx) {
-    H.el = el; H.ctx = ctx; H.offs = []; H.shownReadout = undefined; H.shownRing = undefined; H.bannerText = undefined;
+    H.el = el; H.ctx = ctx; H.offs = []; H.shownReadout = undefined; H.shownRing = undefined;
+    memLoad(); watch(ctx.data); observe(ctx.data.state);
     if (!document.querySelector('link[data-page="home"]')) {
       const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = new URL('./home.css', import.meta.url).href; l.dataset.page = 'home';
       document.head.appendChild(l);
@@ -86,12 +122,11 @@ const H = {
     clearInterval(H.tick); clearTimeout(H.wake); H.tick = 0;
     H.offs.forEach(f => { try { if (typeof f === 'function') f(); } catch (e) { } }); H.offs = [];
     if (Clock && Clock.unmount) { try { Clock.unmount(); } catch (e) { } }
-    if (H.ctx && H.bannerText) H.ctx.banner(null);
     H.el = null;
   },
 
   onState(st, ch) {
-    H.st = st || {};
+    H.st = st || {}; observe(H.st);
     if (!ch || ch.health || ch.doctor || ch.rig || ch.kids || ch.session || ch.mydrive) H.draw();
   },
 
@@ -112,73 +147,78 @@ const H = {
   async loadLib() { try { H.lib = await H.ctx.data.json('/api/library', 0); } catch (e) { } if (H.el) { H.noteNewest(); H.draw(); } },
   async loadHome() { try { H.home = await H.ctx.data.json('/home', 30000); } catch (e) { } if (H.el) H.draw(); },
 
-  // ---- NOW / NEXT ----
+  // ---- NOW / NEXT: his series only ("his" is irdash's flag: favourites and the series of his own races) ----
   races() {
     const o = H.off, rows = [], key = {};
     if (!o || !o.loaded) return rows;
     const add = r => { if (!r || !r.t) return; const k = r.series + '|' + r.t; if (key[k]) return; key[k] = 1; rows.push(r); };
     add(o.next);
-    // more starts of his series (the same rows the OFFICIAL screen has); without a series of his, only the one
-    if (o.nextMine) (o.days || []).forEach(d => (d.rows || []).forEach(r => { if (r.mine) add(r); }));
+    if (o.nextMine) (o.days || []).forEach(d => (d.rows || []).forEach(r => { if (r.his) add(r); }));
     rows.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
     return rows.slice(0, 4);
   },
   upcoming() { const now = H.now(); return H.races().find(r => Date.parse(r.t) > now) || null; },
 
+  // the series of the session he is in: only when one of his races starts at this track within an hour of the session (no guessing)
+  sessionSeries(track) {
+    const at = mem.sessionSince || H.now(), o = H.off;
+    if (!o || !o.loaded || !track) return '';
+    const all = [o.next].concat(...(o.days || []).map(d => d.rows || [])).filter(r => r && (r.his || (r === o.next && o.nextMine)));
+    const hit = all.find(r => Math.abs(Date.parse(r.t) - at) <= 3600000 && sameTrack(r.track + ' ' + (r.layout || ''), track));
+    return hit ? hit.series : '';
+  },
   drawNow() {
     const z = H.$('.now'); if (!z) return;
-    const lbl = z.querySelector('.lbl'), box = z.querySelector('.rows'), rig = (H.ctx.data.rig || {}), s = H.st.session;
-    if (rig.sessionOn && s && s.WeekendInfo) {
+    const lbl = z.querySelector('.lbl'), box = z.querySelector('.rows'), s = H.st.session;
+    if (H.rig().sessionOn && s && s.WeekendInfo) {
       lbl.textContent = 'Now';
       const wi = s.WeekendInfo, di = s.DriverInfo || {}, me = (di.Drivers || []).find(x => String(x.CarIdx) === String(di.DriverCarIdx)) || {};
-      const track = wi.TrackDisplayName || wi.TrackName || '', next = H.off && H.off.next;
-      const series = next && track && String(next.track || '').toLowerCase().indexOf(String(track).toLowerCase().split(' ')[0]) === 0 ? next.series : '';
+      const track = wi.TrackDisplayName || wi.TrackName || '', series = H.sessionSeries(track);
       box.innerHTML = '<div class="nx big"><div class="t">' + esc(H.ctx.Fmt.sessionName(wi.EventType || '')) + '</div>' +
         (series ? '<div class="s">' + esc(series) + '</div>' : '') + '<div class="s">' + esc(track) + '</div>' +
-        '<div class="d">' + esc(me.CarScreenName || '') + '</div><div class="d">In the session since ' + esc(H.sinceText()) + '</div></div>';
+        '<div class="d">' + esc(me.CarScreenName || '') + '</div>' +
+        (mem.sessionSince ? '<div class="d since">Loaded at ' + esc(localTime(mem.sessionSince)) + '</div>' : '') + '</div>';
       return;
     }
     const rows = H.races(), now = H.now(), up = H.upcoming();
     lbl.textContent = H.off && H.off.next && !H.off.nextMine ? 'Next race you can join' : 'Next race';
     if (!rows.length) { box.innerHTML = '<div class="none">' + (H.off && H.off.loaded ? 'No race of your series this week' : 'No race schedule yet') + '</div>'; return; }
     box.innerHTML = rows.map(r => {
-      const t = Date.parse(r.t), big = r === up, past = t <= now, cd = countdown(t, now);
-      const time = big && cd.ring != null ? 'in ' + Math.floor(cd.secs / 60) + ':' + pad(cd.secs % 60) : localTime(t);
+      const t = Date.parse(r.t), big = r === up, past = t <= now;
       return '<div class="nx' + (big ? ' big' : '') + (past ? ' past' : '') + '" data-t="' + t + '">' +
         (big ? '<div class="when">' + esc(localDay(t, now)) + (r.est ? DOT + 'time estimated' : '') + '</div>' : '') +
-        '<div class="t' + (big && cd.ring != null ? ' soon' : '') + '">' + esc(time) + (big ? '' : DOT + esc(r.tiny || r.series)) + '</div>' +
+        '<div class="t">' + esc(localTime(t)) + (big ? '' : DOT + esc(r.tiny || r.series)) + '</div>' +
         (big ? '<div class="s">' + esc(r.series) + '</div>' : '') +
-        '<div class="d">' + esc(r.trackShort || r.track) + (big && r.carShort ? DOT + esc(r.carShort) : '') + '</div></div>';
+        // a smaller row on another day says which day ("Tomorrow · Road Atlanta"): a bare 19:15 would read as today
+        '<div class="d">' + (!big && localDay(t, now) !== 'Today' ? esc(localDay(t, now)) + DOT : '') + esc(r.trackShort || r.track) + (big && r.carShort ? DOT + esc(r.carShort) : '') + '</div></div>';
     }).join('');
   },
-  sinceText() { const a = H.ctx.data.at ? H.ctx.data.at('session') : 0; return localTime(a || H.now()); },
 
   // ---- MY RACES and the after-drive card ----
+  // the card's ten minutes start at the later of "he stopped driving" and "the drive first appeared in the library"
   noteNewest() {
-    const r = H.lib && H.lib.races && H.lib.races[0]; if (!r) return;
-    const end = (r.startMs || 0) + (r.sec || 0) * 1000;
-    if (!seen) seen = { id: r.id, at: end };                         // the first look: an old drive is not news
-    else if (seen.id !== r.id) seen = { id: r.id, at: Math.max(end, H.now()) };   // a new drive arrived while HOME was up
+    const r = H.lib && H.lib.races && H.lib.races[0]; if (!r || r.id === mem.newestId) return;
+    mem.newestAt = mem.newestId ? H.now() : 0;          // the first look ever: what is there is old news
+    mem.newestId = r.id; memSave();
   },
   afterDrive() {
     const r = H.lib && H.lib.races && H.lib.races[0];
-    if (!r || !seen || seen.id !== r.id || H.ctx.driving()) return null;
-    const end = (r.startMs || 0) + (r.sec || 0) * 1000, from = Math.max(end, seen.at);
-    return H.now() - from < AFTER_MS ? r : null;
+    if (!r || r.id !== mem.newestId || !mem.newestAt || H.ctx.driving() || H.rig().driving) return null;
+    return H.now() - Math.max(mem.driveEnd, mem.newestAt) < AFTER_MS ? r : null;
   },
   drawMine() {
     const z = H.$('.mine'); if (!z) return;
     const F = H.ctx.Fmt, races = (H.lib && H.lib.races) || [], box = z.querySelector('.rows'), card = z.querySelector('.after'), now = H.now();
     const a = H.afterDrive();
     if (a) {
-      const p = place(a, true);
-      const say = a.isRace ? 'Your race: ' + (p || ((a.laps || 0) + ' laps' + (a.best > 0 ? ', best ' + F.lap(a.best) : '')))
-        : 'Your ' + F.sessionName(a.type).toLowerCase() + ': ' + (a.laps || 0) + ' laps' + (a.best > 0 ? ', best ' + F.lap(a.best) : '');
+      const p = place(a, true), laps = (a.laps || 0) + ' laps' + (a.best > 0 ? ', best ' + F.lap(a.best) : '');
+      const say = a.isRace ? 'Your race: ' + (p || laps) : 'Your ' + F.sessionName(a.type).toLowerCase() + ': ' + laps;
       card.innerHTML = '<div class="s">' + esc(say) + '</div><button type="button" class="btn">Review</button>';
       card.hidden = false;
     } else { card.hidden = true; card.innerHTML = ''; }
+    const list = a ? races.slice(1, 3) : races.slice(0, 3);       // the card is the newest drive: not twice
     if (!races.length) box.innerHTML = '<div class="none">No drives recorded yet</div>';
-    else box.innerHTML = races.slice(0, a ? 2 : 3).map(r => {
+    else box.innerHTML = list.map(r => {
       const p = place(r), what = r.isRace ? (p || 'Race') : F.sessionName(r.type) + DOT + (r.laps || 0) + ' laps';
       return '<div class="mr" data-id="' + esc(r.id) + '"><div class="s">' + esc(r.track) + '</div><div class="d">' + esc(localDay(r.startMs, now)) + DOT + '<span class="res">' + esc(what) + '</span></div></div>';
     }).join('');
@@ -192,9 +232,10 @@ const H = {
     const dot = z.querySelector('.dot'), line = z.querySelector('.line'), fix = z.querySelector('.fix');
     const apps = H.apps(), doc = H.st.doctor || null;
     let say = null, bad = false, canFix = false;
-    if (!H.online) { say = '<span class="w">Not connected to Paddock</span>'; dot.className = 'dot off'; fix.hidden = true; line.innerHTML = say; return; }
+    if (!H.online) { dot.className = 'dot off'; fix.hidden = true; line.innerHTML = '<span class="w">Not connected to Paddock</span>'; return; }
+    if (doc && doc.running) { dot.className = 'dot off'; line.innerHTML = '<span class="w">Checking the rig…</span>'; fix.hidden = false; fix.disabled = true; return; }
     if (apps.ui && apps.ui.state !== 'ok') { say = 'The rig is off. Press RIG ON.'; bad = true; }
-    else if (doc && doc.ask) { say = esc(doc.ask); bad = true; canFix = true; }
+    else if (doc && doc.ask) { say = esc(doc.ask); bad = true; }          // only he can do this one: the sentence, no FIX IT
     else {
       const worst = doc && (doc.items || []).find(i => i.state && i.state !== 'ok' && i.state !== 'warn');
       const offApp = ['deck', 'cc', 'overlays'].map(k => apps[k]).find(x => x && x.state !== 'ok');
@@ -207,24 +248,33 @@ const H = {
     }
     dot.className = 'dot' + (bad ? ' bad' : '');
     line.innerHTML = say;
-    fix.hidden = !canFix; fix.disabled = H.ctx.kidsOn() || !!(H.ctx.data.rig || {}).sessionOn;
+    fix.hidden = !canFix; fix.disabled = H.ctx.kidsOn() || !!H.rig().sessionOn || Date.now() - H.fixAt < 5000;
   },
-  // FIX IT: the doctor runs again and makes the fixes it safely can (it never acts while a session is on)
-  async fix() { const b = H.$('.fix'); if (!b || b.disabled) return; b.disabled = true; await H.send('doctor', ''); setTimeout(() => { if (H.el) H.drawRig(); }, 4000); },
+  // FIX IT: the doctor checks again and makes the fixes it safely can (it never acts while a session is on); it says
+  // "Checking the rig" on its own push while it runs
+  async fix() {
+    const b = H.$('.fix'); if (!b || b.disabled) return;
+    H.fixAt = Date.now(); b.disabled = true;
+    await H.send('doctorcheck', '');
+    setTimeout(() => { if (H.el) H.drawRig(); }, 5000);
+  },
 
   // ---- the one button. Carried over from v2/home.js next()/go() unchanged in behaviour: RIG ON when the iRacing UI is off; DRIVE
-  // (the deck's GO) once a session is loaded; else LAST DRIVE (that exact car and track through MY DRIVE: choose, check, start);
+  // (the deck's GO) once a session is loaded; else DRIVE his last car and track (through MY DRIVE: choose, check, start);
   // else START (test drive the last one). Its plain-words failure goes on the button. ----
   short(car) { return String(car || '').replace(/^Chevrolet /, ''); },
   pick() {
-    const apps = H.apps(), rig = H.ctx.data.rig || {}, l = H.home && H.home.last;
-    if (!H.online) return { key: 'rig-on', label: 'Rig on', off: true };
+    const apps = H.apps(), rig = H.rig(), l = H.home && H.home.last;
+    if (!H.online) return { key: 'rig-on', label: 'Rig on', off: 'Paddock is not running' };
     if (!H.st.health) return null;
-    if (apps.ui && apps.ui.state !== 'ok') return { key: 'rig-on', label: 'Rig on', busy: 'Turning on' };
-    if ((apps.sim && apps.sim.state === 'live') || rig.sessionOn) return { key: 'go', label: 'Drive', busy: 'Getting in' };
+    let act;
+    if (apps.ui && apps.ui.state !== 'ok') act = { key: 'rig-on', label: 'Rig on', busy: 'Turning on' };
+    else if ((apps.sim && apps.sim.state === 'live') || rig.sessionOn) act = { key: 'go', label: 'Drive', busy: 'Getting in' };
     // the old HOME said "Last drive"; the deck's key for it is DRIVE (PLAN 4.6), and LAST RACE (REVIEW) sits on this screen too
-    if (l && l.car && l.track) return { label: 'Drive', car: l.car, track: l.track, sub: H.short(l.car) + DOT + l.track, busy: 'Choosing car and track' };
-    return { key: 'test-drive-last', label: 'Start', busy: 'Loading the session' };
+    else if (l && l.car && l.track) act = { label: 'Drive', car: l.car, track: l.track, sub: H.short(l.car) + DOT + l.track, busy: 'Choosing car and track' };
+    else act = { key: 'test-drive-last', label: 'Start', busy: 'Loading the session' };
+    if (H.ctx.kidsOn()) act.off = 'Kids mode is on';
+    return act;
   },
   drawButton() {
     const b = H.$('.one'); if (!b) return;
@@ -232,11 +282,12 @@ const H = {
     if (!act) { b.hidden = true; return; }
     b.homeAct = act;
     const now = Date.now(), busy = now < H.busyUntil, failed = !busy && now < H.failUntil;
-    b.hidden = false; b.className = 'btn gold one' + (busy ? ' busy' : failed ? ' failed' : '');
-    b.disabled = !!act.off || H.ctx.kidsOn() || busy;
+    // offline or kids mode: flat grey, saying why, so it never looks half pressable
+    b.hidden = false; b.className = 'btn gold one' + (act.off ? ' off' : busy ? ' busy' : failed ? ' failed' : '');
+    b.disabled = !!act.off || busy;
     b.setAttribute('data-car', act.car || ''); b.setAttribute('data-track', act.track || '');
-    const sub = busy ? '' : failed ? (H.failMsg || 'Could not get going') : (act.sub || '');
-    b.innerHTML = esc(busy ? (H.busyWord || act.busy || '') : act.label) + (sub ? '<span>' + esc(sub) + '</span>' : '');
+    const sub = act.off ? act.off : busy ? '' : failed ? (H.failMsg || 'Could not get going') : (act.sub || '');
+    b.innerHTML = esc(busy && !act.off ? (H.busyWord || act.busy || '') : act.label) + (sub ? '<span>' + esc(sub) + '</span>' : '');
     // the label changes back by itself when the busy or failed time is over (no timer while nothing happens)
     clearTimeout(H.wake);
     const until = busy ? H.busyUntil : failed ? H.failUntil : 0;
@@ -264,7 +315,7 @@ const H = {
     if (!act || act.off || H.ctx.kidsOn() || Date.now() < H.busyUntil) return;
     H.busyUntil = Date.now() + 25000; H.busy(act.busy);
     if (!act.car) { await H.send('key', act.key); return; }
-    // LAST DRIVE: choose that exact car and track, make sure MY DRIVE has them chosen, only then start
+    // DRIVE his last car and track: choose that exact car and track, make sure MY DRIVE has them chosen, only then start
     const id = H.fnv('r', act.car + '|' + act.track);
     await H.send('mdpick', id);
     let chosen = H.dry;
@@ -294,22 +345,19 @@ const H = {
   // ---- drawing ----
   draw() {
     if (!H.el) return;
-    const kids = H.ctx.kidsOn(), k = H.st.kids;
-    const text = !H.online ? OFFLINE : kids ? ((k && k.text) || 'Kids mode is on') : null;
-    if (text !== H.bannerText) { H.bannerText = text; H.ctx.banner(text); }
     H.drawNow(); H.drawMine(); H.drawRig(); H.drawButton(); H.second();
   },
-  // once a second: the clock's readout and ring, the "in 12:34" row, rows that have just passed, the end of the after-drive card
+  // once a second: the clock's readout and ring (none while a session is loaded), rows that have just passed, the end of the card
   second() {
     if (!H.el) return;
-    const now = H.now(), up = H.upcoming(), cd = countdown(up ? Date.parse(up.t) : NaN, now);
+    const now = H.now(), up = H.upcoming(), cd = H.rig().sessionOn ? countdown(NaN, now) : countdown(up ? Date.parse(up.t) : NaN, now);
     const ring = cd.ring == null ? null : Math.round(cd.ring * 1000) / 1000;
     if (Clock && Clock.set && (cd.readout !== H.shownReadout || ring !== H.shownRing)) { H.shownReadout = cd.readout; H.shownRing = ring; Clock.set({ ring: ring, readout: cd.readout }); }
     const box = H.$('.now .rows');
     if (box && box.querySelector('[data-t]')) {
       const big = box.querySelector('.nx.big'), want = up ? String(Date.parse(up.t)) : '';
       const stale = (big ? big.dataset.t : '') !== want || [...box.querySelectorAll('.nx')].some(x => !x.classList.contains('past') && +x.dataset.t <= now);
-      if (stale || (cd.ring != null)) H.drawNow();
+      if (stale) H.drawNow();
     }
     // the shown race has started and nothing else is known: ask /official again (its 60 s cache keeps this to one a minute at most)
     if (H.off && H.off.loaded && !up && H.races().length && now - H.offAsked > 60000) H.loadOfficial();
@@ -319,6 +367,8 @@ const H = {
 };
 
 export const Home = H;          // tests reach the button logic and the clock through this
+export const Mem = { get: () => Object.assign({}, mem), load: memLoad,       // tests: reset = a fresh page (a reload starts from sessionStorage)
+  reset: () => Object.assign(mem, { seen: false, driving: false, driveEnd: 0, newestId: '', newestAt: 0, sessionOn: false, sessionSince: 0 }) };
 export default {
   name: 'home', title: 'HOME',
   mount(el, ctx) { H.mount(el, ctx); },

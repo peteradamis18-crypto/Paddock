@@ -19,7 +19,6 @@
 .home .nx .s { font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .nx .d { font-size: var(--t-body); line-height: 1.35; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .nx.big .t { font-size: var(--t-display); line-height: 1; margin-bottom: 8px; }
-.home .nx.big .t.soon { color: var(--gold); }
 .home .nx .when { font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; }
 .home .none { font-size: var(--t-read); line-height: 1.25; color: var(--muted); }
 
@@ -44,3 +43,5 @@
   align-items: center; padding: 0 32px; font-size: var(--t-read); line-height: 1.1; }
 .home .rig .one span { font-size: var(--t-body); font-weight: 400; letter-spacing: 0; text-transform: none; white-space: normal; text-align: center; line-height: 1.2; }
 .home .rig .one.busy { cursor: default; }
+/* offline or kids mode: flat grey with the reason under it, never a dimmed gold that looks half pressable */
+.home .rig .one.off, .home .rig .one.off:hover { background: var(--panel); border-color: var(--line); color: var(--muted); opacity: 1; cursor: default; }
