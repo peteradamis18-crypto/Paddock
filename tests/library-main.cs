@@ -327,7 +327,7 @@ namespace IRDash
             Ok("5. 30 % free is not low", !st.LowSpace);
             DiskFrom(14, 100, true); st = Library.Storage();
             Ok("5. 14 % free is low; moreRaces 4", st.LowSpace && st.MoreRaces == 4, st.MoreRaces + "");
-            Ok("5. /api/library storage: usedGb 7, freeGb 14, trashGb 1 (0.5 rounds up), moreRaces 4, lowSpace true", Library.Json().StartsWith("{\"storage\":{\"usedGb\":7,\"freeGb\":14,\"trashGb\":1,\"moreRaces\":4,\"lowSpace\":true}"), Library.Json().Substring(0, 90));
+            Ok("5. /api/library storage: usedGb 7, freeGb 14, trashGb 1 (0.5 rounds up), moreRaces 4, lowSpace true (+ W1-4: freeUp when low)", Library.Json().StartsWith("{\"storage\":{\"usedGb\":7,\"freeGb\":14,\"trashGb\":1,\"moreRaces\":4,\"lowSpace\":true,\"freeUp\":{"), Library.Json().Substring(0, 120));
             Clean(); DiskFrom(12, 100, true); st = Library.Storage();
             Ok("5. no race yet: the average is 1.2 GB (12 / 1.2 = 10)", st.MoreRaces == 10, st.MoreRaces + "");
             DiskFrom(500, 1000, true);

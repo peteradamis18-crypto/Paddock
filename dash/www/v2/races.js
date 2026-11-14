@@ -316,9 +316,17 @@ const Races = {
     try {
       const f = typeof data !== 'undefined' && data.fetch ? data.fetch : fetch;
       const r = await f(url, { cache: 'no-store' }), t = await r.text();
-      let j = null; try { j = JSON.parse(t); } catch (e) { j = { say: t.length < 200 ? t : '' }; }
+      let j = null; try { j = JSON.parse(t); } catch (e) { j = { say: r.status === 409 ? this.notNow(c) : t.length < 200 ? t : '' }; }
       return { ok: r.ok, status: r.status, json: j || {} };
     } catch (e) { return { ok: false, status: 0, json: { say: 'The dashboard is not answering. Try again in a moment.' } }; }
+  },
+
+  // the session guard (W0-2) answers 409 in plain text: say what to do instead, for that key
+  notNow(c) {
+    if (c === 'raceshare') return 'Not while a session is on. Share it after the session.';
+    if (c === 'racewatch') return 'Not while a session is on. Watch it after the session.';
+    if (c === 'racetrash' || c === 'raceempty' || c === 'racefree') return 'Not while a session is on. Delete it after the session.';
+    return 'Not while a session is on. Try again after the session.';
   },
 
   async del(ids) {
