@@ -1666,7 +1666,8 @@ const RaceThumbs = {
     if (e) { if (e.state === 'fail' && performance.now() - e.at > 20000) this.m.delete(k); else return e.bmp || null; }
     e = { bmp: null, state: 'loading', at: performance.now() }; this.m.set(k, e);
     if (this.m.size > 80) for (const [kk, v] of this.m) { if (kk === k) continue; try { if (v.bmp) v.bmp.close(); } catch (x) { } this.m.delete(kk); if (this.m.size <= 60) break; }
-    fetchT(API + '/api/library/thumb?id=' + encodeURIComponent(id) + '&w=' + w)
+    const path = '/api/library/thumb?id=' + encodeURIComponent(id) + '&w=' + w;       // a read: no secret needed
+    fetchT(API + path)
       .then(r => { if (!r.ok) throw new Error('no picture ' + r.status); return r.blob(); })
       .then(b => createImageBitmap(b))
       .then(bmp => { e.bmp = bmp; e.state = 'ok'; done(); })
