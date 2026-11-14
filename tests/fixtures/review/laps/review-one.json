@@ -1,6 +1,6 @@
-{"state":"ready",
+{"state":"ready","units":"imperial",
  "session":{"id":"toyotagr86_roadatlanta full 2026-11-12 09-28-07","track":"Michelin Raceway Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Test",
-   "date":1794493680000,"laps":2,"clean":1,"speedUnit":"mph",
+   "date":1794493680000,"laps":2,"clean":1,
    "best":{"lap":2,"time":94.611},"ref":null,"result":null},
  "cards":[],"plan":"","race":null,
  "map":{"key":"roadatlanta-full","id":127,"gain":[],"marks":[]},

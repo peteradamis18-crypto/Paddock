@@ -106,6 +106,15 @@ window.__run = async () => {
   const pv = vals('pedals'), pa = Math.round(A.Throttle[2500] * (A.Throttle[2500] <= 1.001 ? 100 : 1)), pb = Math.round(R.Throttle[2500] * (R.Throttle[2500] <= 1.001 ? 100 : 1));
   ok('1. pedals at 2500 m: column 1 is this lap, column 2 the reference (throttle ' + pa + ' / ' + pb + ')', pv[0] === String(pa) && pv[1] === String(pb), pv.join());
   ok('1. the key under the readout names the two columns "lap 8" and "lap 9" (the library\'s own key)', qa('.rl-readout .chro-k').map(e => e.textContent).join() === 'lap 8,lap 9', qa('.rl-readout .chro-k').map(e => e.textContent).join());
+  { const rr = e => e.getBoundingClientRect(), hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+    const key = q('.rl-readout .chro-key'), rowsEl = qa('.rl-readout .chro-row'), ro = rr(q('.rl-readout'));
+    ok('1. the "lap 8 / lap 9" key overlaps no row of the readout (gear included) and stays inside the readout column',
+      !!key && rowsEl.length === 5 && rowsEl.every(e => !hit(rr(key), rr(e))) && rr(key).top >= ro.top - 1 && rr(key).bottom <= ro.bottom + 1 && rr(key).right <= ro.right + 1,
+      key && JSON.stringify(rr(key)) + ' rows ' + rowsEl.map(e => Math.round(rr(e).top) + '-' + Math.round(rr(e).bottom)).join(',')); }
+  { const lab = qa('.rl-readout .chro-l'), pl = q('.rl-readout [data-key="pedals"] .chro-l'), pr = q('.rl-readout [data-key="pedals"]');
+    ok('1. the pedals name is shown whole ("THROTTLE + BRAKE", wrapped if it must), not cut to "THROTTLE ..."; no row name is clipped; names are 24 px or more',
+      pl && /THROTTLE \+ BRAKE/i.test(pl.textContent.replace(/\s+/g, ' ')) && lab.every(e => e.scrollWidth <= e.clientWidth + 1 && e.scrollHeight <= e.clientHeight + 1) && pl.getBoundingClientRect().bottom <= pr.getBoundingClientRect().bottom + 1 &&
+      lab.every(e => parseFloat(getComputedStyle(e).fontSize) >= 24), lab.map(e => e.textContent + ':' + e.scrollWidth + '/' + e.clientWidth + ',' + e.scrollHeight + '/' + e.clientHeight).join(' | ')); }
   let neg = 0; for (let i = 0; i < 4088; i++) if (A.SteeringWheelAngle[i] < A.SteeringWheelAngle[neg]) neg = i;
   await at(neg);
   ok('1. steering is passed as "deg": the library prints a true minus sign and whole degrees (at ' + neg + ' m, ' + Math.round(A.SteeringWheelAngle[neg] * 57.29578) + ' deg, never a hyphen)',
@@ -263,6 +272,8 @@ window.__run = async () => {
   // pure helpers
   { const cr = M.cornerRows({ lap: { n: 9, time: 93.8, rows: [{ n: 1, label: 'The Esses', detected: true, brakeM: 5, minSpeed: 60, pickupM: 9, time: 2 }] }, ref: { n: 8, rows: [{ n: 1, label: 'The Esses', brakeM: 6, minSpeed: 61, pickupM: 8, time: 3 }] } });
   ok('3. cornerRows reads the one engine shape (lap.rows / ref.rows, flat rows; a null ref gives dashes; the label is the name as given)', cr.length === 1 && cr[0].label === 'The Esses' && cr[0].lap.brakeM === 5 && cr[0].ref.time === 3 && M.cornerRows({ lap: { rows: [{ n: 1, time: 2 }] }, ref: null })[0].ref.time === null && M.cornerRows({ state: 'working' }).length === 0); }
+  ok('3. speedUnit switches on exactly what review.cs writes: review "units" imperial / metric, corners "units" mph / km/h (nothing else, default mph)',
+    M.speedUnit({ units: 'metric' }) === 'km/h' && M.speedUnit({ units: 'imperial' }) === 'mph' && M.speedUnit({ units: 'imperial' }, { units: 'km/h' }) === 'km/h' && M.speedUnit({ units: 'metric' }, { units: 'mph' }) === 'mph' && M.speedUnit({ session: { speedUnit: 'km/h' } }) === 'mph' && M.speedUnit(null) === 'mph');
   ok('3. optimalLine: one day once, one lap singular', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }) === 'Theoretical best ' + F.lap(93.4) + ' from lap 9 (13 Nov)', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }));
 
   out.push('DONE');

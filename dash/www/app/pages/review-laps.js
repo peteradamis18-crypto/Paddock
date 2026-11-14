@@ -42,9 +42,12 @@ export function readPwb(buf) {
   return { head, arr };
 }
 // the speed unit: what W4-1 says for the session (Peter's iRacing setting), else mph (his DisplayUnits is imperial)
-export function speedUnit(session, corners) {
-  const u = String((corners && (corners.speedUnit || corners.units)) || (session && (session.speedUnit || session.units)) || '').toLowerCase();
-  return /km|metric/.test(u) ? 'km/h' : 'mph';
+// exactly what dash/src/review.cs writes: the review's top-level "units" is "imperial" | "metric" (Peter's iRacing setting, imperial by
+// default); the corners answer's "units" is "mph" | "km/h". The session object carries no unit. Anything else is imperial (his setting).
+export function speedUnit(rv, corners) {
+  if (corners && corners.units === 'km/h') return 'km/h';
+  if (corners && corners.units === 'mph') return 'mph';
+  return rv && rv.units === 'metric' ? 'km/h' : 'mph';
 }
 const MS_TO = { mph: 2.2369363, 'km/h': 3.6 };
 // the corner-table rows from the engine's one shape (dash/src/review.cs CornersRoute):
@@ -182,7 +185,7 @@ const P = {
     P.pending = false;
     P.busy(false);
     try { P.tr = P.traces(readPwb(buf), s); } catch (e) { P.tr = null; P.msgStack('The traces would not load. Press the lap again.'); return; }
-    P.unit = speedUnit(P.session(), cj);
+    P.unit = speedUnit(P.rv, cj);
     P.rows = cornerRows(cj);
     P.defs = Object.assign({}, DEFS, (cj && cj.defs) || {});
     P.drawStack(libs); P.drawMap(libs); P.drawTable(); P.drawSum();
@@ -206,7 +209,7 @@ const P = {
       return o;
     };
     const A = lap('lap'), R = s.ref ? lap('ref') : null;
-    const sp = String(cS && cS.unit || 'm/s').toLowerCase(), unit = speedUnit(P.session());
+    const sp = String(cS && cS.unit || 'm/s').toLowerCase(), unit = speedUnit(P.rv);
     const toU = v => sp === 'm/s' ? v * MS_TO[unit] : (sp === unit ? v : sp === 'km/h' ? v / 3.6 * MS_TO[unit] : v / 2.2369363 * MS_TO[unit]);
     const map = (arr, f) => { if (!arr) return null; const o = new Float32Array(arr.length); for (let i = 0; i < arr.length; i++) o[i] = f(arr[i]); return o; };
     const pct = v => v <= 1.001 ? v * 100 : v, deg = v => v * 57.29578;

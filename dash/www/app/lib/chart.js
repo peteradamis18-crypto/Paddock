@@ -307,7 +307,9 @@ const CSS = '.chro{position:relative;font-family:var(--font);font-variant-numeri
   '.chro-l i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim);margin-left:8px}.chro-row.flat .chro-l i{display:none}' +
   '.chro-vals{display:grid;grid-template-columns:repeat(2,2.6em);column-gap:20px;justify-content:end;font-size:var(--t-read);flex:none}' +
   '.chro-v{font-size:var(--t-read);line-height:1.15;text-align:right;white-space:nowrap}.chro-v.wide{grid-column:span 2}' +
-  '.chro-key{bottom:0;align-items:center;justify-content:flex-end}' +
+  // the key (which column is which lap) sits in the top band beside the cursor's distance, never over a row: rows can run into the axis band when the stack is short
+  '.chro-key{top:0;align-items:center;justify-content:flex-end}' +
+  '.chro-row.flat .chro-l{white-space:normal;line-height:1.1;text-overflow:clip}' +
   '.chro-k{font-size:var(--t-body);text-align:right;letter-spacing:var(--track);text-transform:uppercase;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
 function tokName(c) { return String(c || 'ink').replace(/^var\(--|\)$/g, '').replace(/^--/, ''); }
 function placeReadout() {
@@ -342,7 +344,7 @@ function placeReadout() {
   }
   ro.style.height = st.h + 'px';
   st.ro.top.style.height = BAND_H + 'px';
-  if (st.ro.key) st.ro.key.style.height = AXIS_H + 'px';
+  if (st.ro.key) st.ro.key.style.height = BAND_H + 'px';
   st.box.forEach((b, k) => {
     const e = st.ro.rows[k].el; e.style.top = b.y0 + 'px'; e.style.height = (b.y1 - b.y0) + 'px';
     e.classList.toggle('flat', !b.tall);     // too short for the name over the values: the name goes beside them

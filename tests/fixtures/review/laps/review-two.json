@@ -1,6 +1,6 @@
-{"state":"ready",
+{"state":"ready","units":"imperial",
  "session":{"id":"toyotagr86_roadatlanta full 2026-11-13 16-27-02","track":"Michelin Raceway Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Practice",
-   "date":1794605220000,"laps":10,"clean":7,"speedUnit":"mph",
+   "date":1794605220000,"laps":10,"clean":7,
    "best":{"lap":9,"time":93.832},"ref":{"kind":"session","lap":9,"time":93.832,"date":1794605220000,"conditions":"track 31°, 42 L fuel"},"result":null},
  "cards":[],
  "plan":"Next time: Turn 5, brake at the 100 m board, check the entry speed",

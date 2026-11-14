@@ -43,7 +43,8 @@ window.fetch = (u, o) => {
   }
   if (u.indexOf('/api/review/corners?') === 0) {
     const c = JSON.parse(JSON.stringify(window.__fx.corners));
-    if (rv.session && rv.session.speedUnit === 'km/h') { c.units = 'metric'; [c.lap, c.ref].forEach(s => s.rows.forEach(r => { if (r.minSpeed != null) r.minSpeed = Math.round(r.minSpeed * 16.09344) / 10; })); }
+    // the engine: the corners file says "mph" or "km/h" (dash/src/review.cs 1031), the review says "imperial" or "metric"
+    if (rv.units === 'metric') { c.units = 'km/h'; [c.lap, c.ref].forEach(s => s.rows.forEach(r => { if (r.minSpeed != null) r.minSpeed = Math.round(r.minSpeed * 16.09344) / 10; })); }
     if (!q.get('ref')) c.ref = null;       // the engine: "ref":null without a reference lap
     return j(c);
   }
