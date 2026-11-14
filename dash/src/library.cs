@@ -909,7 +909,7 @@ namespace IRDash
         static int CutFfmpeg(string args, int timeoutMs)
         {
             string err; int rc = Recorder.LibFfmpeg(args, timeoutMs, out err);
-            if (rc == -1 && (err ?? "").StartsWith("stopped", StringComparison.Ordinal)) return Cuts.Yielded;
+            if (rc == -1 && ((err ?? "").StartsWith("stopped", StringComparison.Ordinal) || Jobs.ShouldYield)) return Cuts.Yielded;   // the runner says "stopped: a session started"; the yield flag is the second witness
             return rc;
         }
 
