@@ -3033,6 +3033,7 @@ namespace IRDash
             try { Vault.Init(RootDir); Vault.Start(); } catch (Exception ex) { Log.W("vault: could not start: " + ex.Message); }   // vault=0: both return at once
             try { Recorder.Init(RootDir); Recorder.Start(); } catch (Exception ex) { Log.W("recorder: could not start: " + ex.Message); }   // recorder=0 (the default): Start returns at once; Init only reads the clips already made
             try { Library.Start(); } catch (Exception ex) { Log.W("library: could not start: " + ex.Message); }   // W1-1: once a minute the tidy and missing race thumbnails go on the Jobs queue (between sessions only)
+            try { Library.ShareState = YouTube.StateJson; Library.YouTubeJson = YouTube.Json; YouTube.Start(); } catch (Exception ex) { Log.W("youtube: could not start: " + ex.Message); }   // W1-2: the library shows each race's share state; a half-sent upload resumes between sessions
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
             if (!TestMode) { try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); } }   // test mode: no internet
