@@ -761,6 +761,7 @@ namespace IRDash
                 if (r == null || r.InTrash) { res.Missing++; continue; }
                 string k = Kind(id);
                 if (k == "shared" || k == "sharing") { res.Already++; continue; }
+                if (k == "queued" || k == "offline" || k == "signin") { res.Started++; continue; }     // already cut and waiting in YouTube's queue
                 lock (shareGate)
                 {
                     if (pendingShare.Contains(id)) { res.Started++; continue; }      // a second press: the first one is already on it
