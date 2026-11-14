@@ -563,7 +563,7 @@ if (Test-Path "$tdir\t.exe") {
 # ================= 6. the two fixes from keys-test =================
 ''; '6. the two keys-test warnings are gone'
 $plug = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\plugin.html'))
-Check 'MY DRIVE no longer has the dim AI RACE / coming later tile (W3-4: AI RACE is the folded screen itself now; its START key says AI RACE)' (-not ($plug -match "add([^)]*'AI RACE'[^)]*'dim')") -and -not ($plug -match 'coming later'))
+Check 'MY DRIVE no longer has the dim AI RACE / coming later tile (W3-4: AI RACE is the folded screen itself now; its START key says AI RACE)' (-not ($plug -match "add\(\d+, \d+, \d+, \d+, 'AI RACE'") -and -not ($plug -match 'coming later'))
 Check 'the PHOTO key''s long line is short now' (-not $plug.Contains('SWITCH ON IN IRACING SETTINGS') -and $plug.Contains("'PHOTO', 'TURN ON IN IRACING'"))
 $inst = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\install.ps1'))
 Check 'install.ps1 has a higher version than 1.6.1.0 and bundles the RigAnalysis and RigSound profiles with their actions' ($inst -match "\`$ver = '1\.([7-9]|\d\d)\.\d+\.\d+'" -and $inst.Contains("Build-Profile 'RigAnalysis' 'analysis'") -and $inst.Contains("Build-Profile 'RigSound' 'sound'") -and $inst.Contains('$uuid.analysis') -and $inst.Contains('$uuid.sound'))
