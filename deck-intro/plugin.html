@@ -1634,7 +1634,7 @@ const raceState = x => {
   const st = x.state || {}, k = st.kind || 'none', pct = Math.round(st.pct || 0), err = String(st.error || '').trim();
   switch (k) {
     case 'sharing': return { k, word: 'SHARING ' + pct + '%', long: 'SHARING ' + pct + '%', col: GOLD, style: 'sel' };
-    case 'queued': return { k, word: 'QUEUED', long: 'WAITING TO SHARE', col: GOLD, style: 'sel' };
+    case 'queued': return { k, word: 'WAITING', long: 'WAITING TO SHARE', why: err.slice(0, 40), col: GOLD, style: 'sel' };
     case 'shared': return { k, word: 'ON YT', long: 'ON YOUTUBE' + (st.privacy === 'public' ? '' : ' (PRIVATE)'), col: GREEN, style: 'go' };
     case 'failed': return { k, word: (err.split(/\s+/)[0] || 'FAILED').toUpperCase().slice(0, 9), long: 'SHARE FAILED' + (err ? ': ' + err : ''), col: RED, style: 'stop' };
     case 'signin': return { k, word: 'SIGN IN', long: 'SIGN IN TO YOUTUBE', col: AMBER, style: 'amber' };
@@ -1674,6 +1674,34 @@ const RaceThumbs = {
       .catch(() => { e.state = 'fail'; e.at = performance.now(); });
     return null;
   },
+};
+// Words per key. A key's picture is cut out of one sheet and the bezel hides the 6 px between keys, so a word drawn across two keys loses
+// letters ("NA|ME"). Every text over several keys is split into words, one short run per key, each centred in its own key (as CONFIRM does).
+const raceSplit = (text, n, maxc) => {
+  const words = String(text == null ? '' : text).replace(/\s*·\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  for (let m = maxc || 9; ; m++) {
+    const out = []; let cur = '';
+    for (const w of words) { if (cur && (cur + ' ' + w).length > m) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+    out.push(cur);
+    if (out.length <= n || m > 40) { out.length = Math.min(out.length, n); return out; }
+  }
+};
+// a paint hook for a tile w keys wide: parts = { main: [one run per key], sub: [...] } (centred as a group), size = the main size
+const raceSpan = (parts, w, h, size) => (g, px, py, pw, ph, bg, fg) => {
+  const cell = PX - 6, rowMain = h < 3 ? 0 : 1;
+  const row = (arr, rw, weight, sz, alpha, dy) => {
+    const off = Math.floor((w - arr.length) / 2);
+    g.globalAlpha = alpha; g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    arr.forEach((t, i) => {
+      let s = sz; do { g.font = weight + ' ' + s + 'px ' + FONT; s--; } while (g.measureText(t).width > cell - 12 && s > 10);
+      g.fillText(t, px + (off + i) * PX + cell / 2, py + rw * PX + cell / 2 + dy);
+    });
+    g.globalAlpha = 1;
+  };
+  const sub = parts.sub || [];
+  if (h === 1) { row(parts.main, 0, '600', Math.min(size || 24, 24), 1, sub.length ? -11 : 0); if (sub.length) row(sub, 0, '400', 14, .85, 15); }
+  else { row(parts.main, rowMain, '600', Math.min(size || 28, 28), 1, 0); if (sub.length) row(sub, rowMain + 1, '400', 18, .85, 0); }
 };
 const RACOLORS = Object.assign({}, SNDCOLORS, { card: ['#0b0b0b', INK], hint: ['#101010', '#8d8a82'] });
 const raceCover = (g, im, x, y, w, h) => { const s = Math.max(w / im.width, h / im.height), sw = w / s, sh = h / s; g.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, x, y, w, h); };
@@ -1835,7 +1863,7 @@ const Races = new class extends Screen {
       paint: (g, px, py, pw, ph) => {
         g.fillStyle = ticked ? '#2a2208' : '#141414'; g.fillRect(px, py, pw, ph);
         const lines = raceTrackLines(name), cx = px + pw / 2, total = lines.length * 22 + 16 + (st.word ? 16 : 0);
-        let y = py + (ph - total) / 2 + 11;
+        let y = py + (ph - total) / 2 + (st.word ? 8 : 11);
         g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = INK; g.font = '700 20px ' + FONT;
         for (const l of lines) { g.fillText(l, cx, y, pw - 14); y += 22; }
         y += -3;
@@ -1849,7 +1877,12 @@ const Races = new class extends Screen {
 
   build() {
     const s = this.s, R = [];
-    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more); R.push(o); };
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more);
+      if (w > 1 && !o.paint && o.text != null) {          // text over several keys: one run per key, never across a gap
+        const parts = o.parts || { main: raceSplit(String(o.text).toUpperCase(), w), sub: raceSplit(String(o.sub || '').toUpperCase(), w, 6) };
+        o.paint = raceSpan(parts, w, h, o.size);
+      }
+      R.push(o); };
     const msg = this.msg && Date.now() < this.msg.until ? this.msg : null, undo = this.undo && Date.now() < this.undo.until ? this.undo : null;
     if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop'); return R; }
     const every = this.list(), races = this.all ? every : every.filter(isRace), st = s.storage || {};
@@ -1857,7 +1890,7 @@ const Races = new class extends Screen {
     if (!race) {
       // the list: six cards a page, newest first; a page shows only the cards it has
       const per = 6, pages = Math.max(1, Math.ceil(races.length / per)), pg = Math.min(this.page, pages - 1); this.page = pg;
-      if (!races.length) add(0, 0, 6, 2, this.all ? 'NO VIDEOS YET' : 'NO RACES YET', this.all ? 'Paddock films every session you drive' : 'Practice and qualifying: ALL SESSIONS', null, null, 'banner', 2, { size: 34, noflash: true });
+      if (!races.length) add(0, 0, 6, 2, this.all ? 'NO VIDEOS YET' : 'NO RACES YET', this.all ? 'EVERY DRIVE IS FILMED' : 'TRY ALL SESSIONS', null, null, 'banner', 2, { size: 28, noflash: true });
       races.slice(pg * per, pg * per + per).forEach((x, i) => this.card(R, x, (i % 3) * 2, Math.floor(i / 3)));
       if (pg > 0) add(6, 0, 1, 1, 'NEWER', '◀', 'page', -1, '', 0, { size: 20 });
       if (pg < pages - 1) add(7, 0, 1, 1, 'OLDER', '▶', 'page', 1, '', 0, { size: 20 });
@@ -1867,7 +1900,7 @@ const Races = new class extends Screen {
       const n = this.ticks.size, w = undo ? 4 : 7;
       if (msg) add(0, 2, w, 1, msg.text, '', null, null, msg.style, 2, { size: 24, noflash: true });
       else if (n) add(0, 2, w, 1, n + ' TICKED', '', null, null, 'banner', 0, { size: 30, noflash: true });
-      else if (races.length) add(0, 2, w, 1, 'PICTURE OPENS · NAME TICKS', '', null, null, 'hint', 0, { size: 17, noflash: true });
+      else if (races.length) add(0, 2, w, 1, 'PICTURE OPENS · NAME TICKS', '', null, null, 'hint', 0, { noflash: true, parts: { main: ['PICTURE', 'NAME'], sub: ['OPENS IT', 'TICKS IT'] } });
       if (undo) add(4, 2, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
       if (n) {
         add(0, 3, 2, 1, 'SHARE SELECTED', n + ' ON YOUTUBE', 'sharesel', null, 'sel', 2, { size: 24 });
@@ -1894,23 +1927,17 @@ const Races = new class extends Screen {
     add(5, 0, 1, 1, raceWhen(race.startMs), raceShortType(race.type).replace(' · ', '') || 'RACE', null, null, 'banner', 2, { noflash: true });
     add(6, 0, 1, 1, raceMin(race) + ' MIN', race.laps + ' LAPS', null, null, 'banner', 0, { size: 28, noflash: true });
     add(7, 0, 1, 1, raceLap(race.best), 'BEST LAP', null, null, 'banner', 0, { size: 22, noflash: true });
-    add(4, 1, 4, 1, state.long, '', state.k === 'signin' ? 'ytsignin' : null, null, state.style, 2, { size: 26, noflash: state.k !== 'signin' });
+    add(4, 1, 4, 1, state.long, state.why || '', state.k === 'signin' ? 'ytsignin' : null, null, state.style, 2, { size: 26, noflash: state.k !== 'signin' });
     if (shared) add(0, 2, 1, 1, 'ON YOUTUBE', 'SHARED', null, null, 'grey', 2, { size: 18, noflash: true });
-    else if (busy) add(0, 2, 1, 1, 'SHARING', state.k === 'sharing' ? state.word.replace('SHARING ', '') : 'SOON', null, null, 'grey', 2, { size: 22, noflash: true });
+    else if (busy) add(0, 2, 1, 1, state.k === 'sharing' ? 'SHARING' : 'WAITING', state.k === 'sharing' ? state.word.replace('SHARING ', '') : 'TO SHARE', null, null, 'grey', 2, { size: 22, noflash: true });
     else add(0, 2, 1, 1, 'SHARE', 'ON YOUTUBE', 'shareone', race.id, 'sel', 2, { size: 26 });
     add(1, 2, 1, 1, 'DELETE', 'CAN UNDO', 'trashone', race.id, 'stop', 2, { size: 26 });
     add(2, 2, 1, 1, 'WATCH', 'ON MIDDLE SCREEN', 'racewatch', race.id, 'go', 2, { size: 26 });
     if (race.kept) add(3, 2, 1, 1, 'KEPT', 'FOR GOOD', null, null, 'grey', 2, { size: 26, noflash: true });
     else add(3, 2, 1, 1, 'KEEP', 'FOR GOOD', 'recsave', race.id, '', 2, { size: 26 });
     const link = shared && (race.state || {}).url ? /(?:youtu\.be\/|[?&]v=)([\w-]+)/.exec(race.state.url) : null;
-    // drawn by hand: the key renderer capitalises, and a YouTube address is case-sensitive
-    if (link) add(4, 2, 2, 1, 'youtu.be/' + link[1], 'LINK IS ON THE PAGE', null, null, 'banner', 0, { noflash: true, extra: 'link' + link[1],
-      paint: (g, px, py, pw, ph) => {
-        g.fillStyle = '#0b0b0b'; g.fillRect(px, py, pw, ph); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = GOLD;
-        let sz = 26; do { g.font = '600 ' + sz + 'px ' + FONT; sz--; } while (g.measureText('youtu.be/' + link[1]).width > pw - 16 && sz > 12);
-        g.fillText('youtu.be/' + link[1], px + pw / 2, py + ph / 2 - 10);
-        g.fillStyle = '#a8a59d'; g.font = '400 15px ' + FONT; g.fillText('LINK IS ON THE PAGE', px + pw / 2, py + ph / 2 + 18);
-      } });
+    // parts, not text: a YouTube address is case-sensitive (the renderer capitalises) and must not cross a key gap
+    if (link) add(4, 2, 2, 1, 'youtu.be/' + link[1], 'LINK ON THE PAGE', null, null, 'banner', 0, { noflash: true, parts: { main: ['youtu.be/', link[1]], sub: ['LINK ON', 'THE PAGE'] } });
     add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
     if (undo) add(1, 3, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
     if (msg) add(undo ? 4 : 1, 3, undo ? 3 : 6, 1, msg.text, '', null, null, msg.style, 2, { size: 22, noflash: true });

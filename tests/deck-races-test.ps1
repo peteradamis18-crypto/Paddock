@@ -110,7 +110,13 @@ try {
   # the card keys of the page: [{ c, r, id, track }] (the name keys)
   function Cards { @(Invoke-DeckJs $page "Races.regions.filter(x => x.act === 'tick').map(x => ({ c: x.c, r: x.r, id: x.arg, t: x.text }))") }
   function WaitFor($js, $sec = 6) { for ($i = 0; $i -lt $sec * 5; $i++) { if ((Invoke-DeckJs $page $js) -eq $true) { return $true }; Start-Sleep -Milliseconds 200 }; return $false }
-  function Sheet($name) { Start-Sleep -Milliseconds 700; return Save-DeckSheet $page (Join-Path $shots "deck-races-$name.png") }
+  # no text run of a multi-key tile may cross a key gap (the bezel hides the 6 px between keys): replay each multi-key tile's paint hook on a canvas that records every fillText
+  $nocross = [IO.File]::ReadAllText((Join-Path $root 'tests\deck-races-nocross.js'))
+  function NoCross($where) {
+    $r = Invoke-DeckJs $page $nocross
+    Check "no text of a multi-key tile crosses a key gap: $where ($($r.runs) runs)" ($r.bad.Count -eq 0 -and $r.runs -gt 0) (@($r.bad) -join ' | ')
+  }
+  function Sheet($name) { Start-Sleep -Milliseconds 700; NoCross $name; return Save-DeckSheet $page (Join-Path $shots "deck-races-$name.png") }
   # what a key picture looks like: mean brightness, how many gold pixels, how many colourful (picture) pixels
   function Stats($c, $r) { Invoke-DeckJs $page "(async () => { const u = __sd.images[__sd.tileCtx($c, $r)]; return await new Promise(res => { const im = new Image(); im.onload = () => { const cv = document.createElement('canvas'); cv.width = cv.height = 96; const g = cv.getContext('2d'); g.drawImage(im, 0, 0); const d = g.getImageData(6, 6, 84, 84).data; let s = 0, gold = 0, col = 0, n = 0; for (let i = 0; i < d.length; i += 4) { s += d[i] + d[i + 1] + d[i + 2]; n++; if (d[i] > 150 && d[i + 1] > 110 && d[i + 2] < 110 && d[i] - d[i + 2] > 80) gold++; if (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 25) col++; } res({ mean: s / n / 3, gold, col }); }; im.src = u; }); })()" }
   function ThumbCount($key) { @(Invoke-DeckJs $page "window.__thumbs.filter(x => x === '$key')").Count }
