@@ -349,9 +349,10 @@ WB.raceSelect = function (i) { select(i); };
 WB.raceLoad = function (j) { prep(j); WB.cmd('page', 'driver'); WB.cmd('page', 'race'); return !!RS.sm; };
 WB.raceHover = function (lap) { RS.hover = lap; A.need.o = true; };
 // the colour of a canvas pixel of a chart ('trace' | 'pos') where a car's point on a lap is, and the point itself
-WB.racePoint = function (which, idx, lap) {
+// rad = pixels either side of the point that are searched (default 1; the car ahead's line is dotted, so its last point can sit in a gap: the test asks for 4)
+WB.racePoint = function (which, idx, lap, rad) {
   var ch = RS.p[which]; if (!ch) return null; var pt = ch.point(idx, lap); if (!pt) return null;
-  var dpr = window.devicePixelRatio || 1, d = ch.cs.getImageData(Math.round(pt.x * dpr) - 1, Math.round(pt.y * dpr) - 1, 3, 3).data, best = [0, 0, 0, 0];
+  var rr = rad > 1 ? Math.min(8, Math.round(rad)) : 1, dpr = window.devicePixelRatio || 1, d = ch.cs.getImageData(Math.round(pt.x * dpr) - rr, Math.round(pt.y * dpr) - rr, 2 * rr + 1, 2 * rr + 1).data, best = [0, 0, 0, 0];
   var bl = -1; for (var k = 0; k < d.length; k += 4) { var lm = (d[k] + d[k + 1] + d[k + 2]) * d[k + 3]; if (lm > bl) { bl = lm; best = [d[k], d[k + 1], d[k + 2], d[k + 3]]; } }
   return { x: pt.x, y: pt.y, rgba: best };
 };
