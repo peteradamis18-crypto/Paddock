@@ -65,6 +65,7 @@ body { background: var(--bg); }
 .fuel.ok .c-big b { color: var(--gain); }
 .fuel.short .c-big b { color: var(--loss); }
 .fuel.save .c-big b { color: var(--amber); }
+.fuel.restale .c-big b, .fuel.restale .c-line { color: var(--dim); }   /* after a refuel: last numbers, greyed, until 3 new laps */
 .c-line { margin-top: 16px; font-size: var(--t-read); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-line em { font-style: normal; color: var(--muted); }
 .c-win { display: flex; gap: 4px; margin-top: 24px; height: 40px; }
@@ -118,14 +119,14 @@ body { background: var(--bg); }
 .row.ghost { color: var(--gold); background: transparent; box-shadow: inset 0 0 0 2px var(--gold-dim); }
 .row.ghost .nm { color: var(--gold); letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; }
 .row.ghost .p { color: var(--gold); }
-.row.cut { height: 24px; border-bottom: 2px solid var(--line); }
-.row.cut::before { content: ''; }
+.row.cut { height: 32px; grid-template-columns: 1fr; border-bottom: 2px solid var(--line); }
+.row.cut .p { font-size: var(--t-body); line-height: 1; letter-spacing: .3em; color: var(--muted); }   /* the cars between the leader and the window */
 .row.head { height: 56px; grid-template-columns: 1fr; padding: 0 24px; font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track);
   text-transform: uppercase; font-weight: 600; box-shadow: inset 6px 0 0 var(--cls, var(--dim)); }
 .row.lapr { grid-template-columns: 160px minmax(0, 1fr) 240px; padding: 0 24px; }
 .row.lapr .p { text-align: left; }
 .row.lapr .d { text-align: right; }
-.row.lapr .iv, .row.head .n, .row.head .nm, .row.head .iv, .row.cut > span { display: none; }
+.row.lapr .iv, .row.head .n, .row.head .nm, .row.head .iv, .row.cut .n, .row.cut .nm, .row.cut .iv { display: none; }
 .row.head .p { text-align: left; color: var(--muted); }
 .row.lapr .t { text-align: left; }
 .row.lapr.best .t { color: var(--purple); }

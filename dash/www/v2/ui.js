@@ -87,14 +87,16 @@ const UI = {
   setFlag(cls, text, blink) { this.flagCls = cls; this.flagText = text; this.flagBlink = !!blink; },
 };
 
-// THE SWITCH (W2-2): the race screen covers HOME the moment irdash says he is driving (rig.driving: a fresh frame with IsOnTrack,
-// not a replay) and HOME comes back once that has been false for 5 s, so a tow, a reset or a moment off track does not flick it.
-// While it shows, the one stream carries only the race set (24 channels). Friends mode keeps its own in-car view (guest.js).
-// ?race=1 shows it whatever the rig says (tests, previews).
+// THE SWITCH (W2-2): the race screen covers HOME while irdash says he is driving AND irdash answers AND this page has a fresh frame
+// AND it is not a replay; HOME comes back once any of those has failed for 5 s, so a tow or a reset does not flick it, and a hung sim,
+// an irdash restart or a replay in the sim brings HOME (and its "Paddock program not running") back. While driving, the one stream
+// carries only the race set; when irdash already says driving at the first frame, the stream goes straight from idle to that set.
+// Friends mode keeps its own in-car view (guest.js). ?race=1 shows it whatever the rig says (tests, previews).
 const RaceSwitch = {
   on: false, offSince: 0, forced: QS.has('race'), el: null,
 
   init() {
+    data.on('connect', () => this.syncSet());
     this.el = $('raceHost');
     if (!this.el) return;
     // made here, after data.js has run, so the page inside borrows HOME's one connection instead of opening its own
@@ -102,11 +104,10 @@ const RaceSwitch = {
     this.el.appendChild(f);
   },
 
+  guest() { const g = data.state && data.state.guest; return !!(g && g.active); },
   want() {
     if (this.forced) return true;
-    const g = data.state && data.state.guest;
-    if (g && g.active) return false;
-    return !!data.rig.driving;
+    return !this.guest() && !!(data.rig.driving && data.online && UI.live() && !L.v.IsReplayPlaying);
   },
 
   tick(now) {
@@ -114,11 +115,18 @@ const RaceSwitch = {
     if (want) this.offSince = 0;
     else if (this.on && !this.offSince) this.offSince = now;
     const on = want || (this.on && now - this.offSince < 5000);
-    if (on === this.on) return;
-    this.on = on;
-    if (this.el) this.el.hidden = !on;
-    document.body.classList.toggle('race-on', on);
-    Conn.layout(on);
+    if (on !== this.on) {
+      this.on = on;
+      if (this.el) this.el.hidden = !on;
+      document.body.classList.toggle('race-on', on);
+    }
+    this.syncSet();
+  },
+  // the stream's set: the race set while it shows, or as soon as irdash says driving (also asked at the first frame, data.js
+  // 'connect', so a session that starts with him already driving opens one stream with the race set, not HOME's variables first)
+  syncSet() {
+    const race = this.on || (!this.guest() && data.online && !!data.rig.driving);
+    if (!L.demo && (data.set === 'race') !== race) Conn.layout(race);
   },
 };
 window.UI = UI; window.RaceSwitch = RaceSwitch;      // the race screen inside the frame reads these (the flag, shown or not)

@@ -1,5 +1,5 @@
 ﻿# race-page-test.ps1 - offline: THE RACE SCREEN (W2-2; dash\www\v2\race.html, race.css, dash\www\app\pages\race.js) and the switch
-# that puts it over HOME (dash\www\v2\ui.js RaceSwitch). Headless Chrome only; the pretend irdash on 8299 (never 8199).
+# that puts it over HOME (dash\www\v2\ui.js RaceSwitch). Headless Chrome only; the pretend irdash on 8311 (never 8199; 8299 is often busy with other builders' tests).
 #   1. every state from fixtures (tests\fixtures\race\*.json, the W2-1 contract): one picture each in tests\shots\rework\race-<state>.png;
 #      nothing under 24 px on screen, the zones where PLAN 4.2 puts them, nothing outside 1920 x 1080
 #   2. no flicker: a gap or interval changes at most 4 times a second and only when its tenth changes (DOM text changes counted)
@@ -53,15 +53,17 @@ $stub = @'
       var c = o.multi && idx % 2 ? 'b' : 'a'; cls[c] = (cls[c] || 0) + 1;
       // the gaps wobble (o.wobble seconds, o.rate times faster than real) so the tenths change on almost every frame
       var f2 = k === 0 ? 0 : Math.max(0.05, k * 1.37 + (o.wobble || 0) * Math.sin(t * (o.rate || 1) * (0.7 + idx * 0.13)));
+      if (o.f2 && idx in o.f2) f2 = o.f2[idx];          // a car's own gap to the leader (two cars swapping)
       v.CarIdxPosition[idx] = k + 1; v.CarIdxClassPosition[idx] = cls[c]; v.CarIdxF2Time[idx] = f2;
       var dist = 31.5 - f2 / 93.4; v.CarIdxLap[idx] = Math.floor(dist); v.CarIdxLapDistPct[idx] = dist - Math.floor(dist);
       v.CarIdxEstTime[idx] = (dist - Math.floor(dist)) * 93.4; v.CarIdxClass[idx] = c === 'a' ? 4083 : 4084;
       v.CarIdxOnPitRoad[idx] = (o.pit || []).indexOf(idx) >= 0 ? 1 : 0;
     });
     var lap = o.lap || 31;
-    v.PlayerCarIdx = 2; v.IsOnTrack = 1; v.OnPitRoad = (o.pit || []).indexOf(2) >= 0 ? 1 : 0; v.Lap = lap; v.LapCompleted = lap - 1;
+    v.PlayerCarIdx = 2; v.IsOnTrack = 1; v.OnPitRoad = (o.pit || []).indexOf(2) >= 0 ? 1 : 0; v.Lap = lap; v.LapCompleted = o.lc != null ? o.lc : lap - 1;
     v.SessionFlags = 0; v.SessionTime = 3753 + t; v.FuelLevel = 22.4; v.LapLastLapTime = 93.832; v.LapBestLapTime = 93.412;
-    v.LapDeltaToBestLap = -0.21; v.LapDeltaToBestLap_OK = 1; v.PlayerCarMyIncidentCount = 4; v.SessionLapsRemainEx = 21; v.SessionTimeRemain = -1;
+    v.LapDeltaToBestLap = -0.21; v.LapDeltaToBestLap_OK = 1; v.PlayerCarMyIncidentCount = 4; v.SessionLapsRemainEx = 21;
+    v.SessionTimeRemain = o.timeRemain != null ? o.timeRemain : 604800; v.SessionNum = o.sessNum != null ? o.sessNum : 2; v.IsReplayPlaying = 0; v.DisplayUnits = 1; v.EngineWarnings = 0;
     return v;
   };
   window.__run = function (o) { clearInterval(window.__timer); var t0 = performance.now(); window.__o = o;
@@ -124,6 +126,10 @@ function Common($state, $l) {
 }
 
 $pret = $null
+function Get-J($u) { try { Invoke-RestMethod -Uri $u -TimeoutSec 5 } catch { $null } }
+function Push-Part($part, $json) { $null = Get-J ("http://localhost:8312/__push?part=$part&json=" + [uri]::EscapeDataString($json)) }
+$driveOn = '{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'; $driveOff = '{"driving":false,"sessionOn":true,"simRunning":true,"online":true}'
+$dash = [string][char]0x2013
 try {
   Cdp-Open 'about:blank'
   $null = Cdp 'Page.addScriptToEvaluateOnNewDocument' @{ source = $stub }
@@ -138,10 +144,11 @@ try {
   ok 'green: the zones sit where PLAN 4.2 puts them (A 24,24,1872,96 / B 24,136,912,288 / C 24,440,912,360 / D 24,816,912,240 / E 952,136,944,920)' `
     ($l.boxes.A -eq '24,24,1872,96' -and $l.boxes.B -eq '24,136,912,288' -and $l.boxes.C -eq '24,440,912,360' -and $l.boxes.D -eq '24,816,912,240' -and $l.boxes.E -eq '952,136,944,920') ($l.boxes | ConvertTo-Json -Compress)
   ok "green: the strip says P4 of 19, lap 31/52, 21 to go, 4x / 17 ($($l.A.pos) $($l.A.of) | $($l.A.mid) | $($l.A.inc))" ($l.A.pos -eq 'P4' -and $l.A.of -eq 'of 19' -and $l.A.mid -eq 'Lap 31/52 · 21 to go' -and $l.A.inc -eq '4x / 17' -and -not $l.A.incNear -and $l.A.cls -eq '')
+  ok "green: the strip's P4 is YOU's row ($(@($l.rows | Where-Object { $_.cls -match '\bme\b' })[0].p))" (@($l.rows | Where-Object { $_.cls -match '\bme\b' })[0].p -eq '4')
   ok "green: the session clock ($($l.A.clock))" ($l.A.clock -eq '1:02:33')
   ok "green: AHEAD and BEHIND with the gap, number and name ($($l.B.ahead) | $($l.B.behind))" ($l.B.ahead -match '^Ahead\s*−1\.4.*#19\s*Okafor' -and $l.B.behind -match '^Behind\s*\+1\.4.*#22\s*Lindqvist')
-  ok "4. fuel ok: '+1.7 LAPS' (irdash's spare) in green, laps of fuel and to go, '+1 lap kept back', no window ($($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" `
-    ($l.C.num -eq '+1.7' -and $l.C.unit -eq 'laps' -and $l.C.line -eq '23.8 laps of fuel · 21 to go' -and $l.C.note -eq '+1 lap kept back' -and $l.C.numColor -eq $l.tok.gain -and -not $l.C.win)
+  ok "4. fuel ok: irdash's spare '+2.8 LAPS' in green, laps of fuel and to go, '+1.1 laps kept back' from fuel.margin, no window ($($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" `
+    ($l.C.num -eq '+2.8' -and $l.C.unit -eq 'laps' -and $l.C.line -eq '23.8 laps of fuel · 21 to go' -and $l.C.note -eq '+1.1 laps kept back' -and $l.C.numColor -eq $l.tok.gain -and -not $l.C.win)
   ok "green: last lap, best, the delta bar and 'to best' -0.21 in green ($($l.D.last) / $($l.D.best) / $($l.D.num))" ($l.D.last -eq '1:33.832' -and $l.D.best -eq '1:33.412' -and $l.D.bar -and $l.D.num -eq '−0.21' -and $l.D.numColor -eq $l.tok.gain -and $l.D.lastColor -eq $l.tok.ink)
   ok "green: the key message's place (x 540-1380, y 1012-1070, keymsg.css) covers no text for its 4 s ($($l.km -join ', '))" ($l.km.Count -eq 0)
   ok 'green: ten rows, no class header in a one-class race' ($l.rows.Count -eq 10 -and @($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 0) ($l.rows.Count)
@@ -150,12 +157,12 @@ try {
   Shot 'green'
 
   # the fuel states (4)
-  foreach ($fs in 'short', 'save', 'measuring') {
+  foreach ($fs in 'short', 'save', 'measuring', 'restale') {
     $null = Cdp-Eval "__push({ race: __fx['race-$fs'] }); 1"; Start-Sleep -Milliseconds 700
     $l = Look; Common "fuel $fs" $l
     switch ($fs) {
       'short' {
-        ok "4. fuel short: '−12.3 LAPS' in red ($($l.C.num) $($l.C.unit))" ($l.C.num -eq '−12.3' -and $l.C.numColor -eq $l.tok.loss -and $l.C.cls -match 'short')
+        ok "4. fuel short: '−11.3 LAPS' in red ($($l.C.num) $($l.C.unit))" ($l.C.num -eq '−11.3' -and $l.C.numColor -eq $l.tok.loss -and $l.C.cls -match 'short')
         $want = (($fx['race-short'] | ConvertFrom-Json).fuel.window)
         $got = @($l.C.cells | ForEach-Object { ($_ -split '=')[0] })
         ok "4. the pit window: $($want.Count) cells in the fixture's order" ($l.C.win -and ($got -join ',') -eq ($want -join ',')) ($got -join ',')
@@ -166,7 +173,7 @@ try {
         Shot 'fuel-short'
       }
       'save' {
-        ok "4. fuel save: amber, 'SAVE 0.12 L/LAP to gain a lap' ($($l.C.num) | $($l.C.note))" ($l.C.cls -match 'save' -and $l.C.note -eq 'SAVE 0.12 L/LAP to gain a lap' -and $l.C.numColor -eq $l.tok.amber -and $l.C.num -eq '−0.4')
+        ok "4. fuel save: amber '+0.6', 'SAVE 0.12 L/LAP to gain a lap' ($($l.C.num) | $($l.C.note))" ($l.C.cls -match 'save' -and $l.C.note -eq 'SAVE 0.12 L/LAP to gain a lap' -and $l.C.numColor -eq $l.tok.amber -and $l.C.num -eq '+0.6')
         Shot 'fuel-save'
       }
       'measuring' {
@@ -174,16 +181,20 @@ try {
         ok "measuring: the last lap is purple when it is the best ($($l.D.last))" ($l.D.lastColor -eq $l.tok.purple)
         Shot 'fuel-measuring'
       }
+      'restale' {
+        ok "4. after a refuel (fuel.stale): the numbers greyed, 're-measuring' ($($l.C.num) | $($l.C.note))" ($l.C.cls -match 'restale' -and $l.C.numColor -eq $l.tok.dim -and $l.C.note -eq 'Re-measuring after the stop (1 of 3 laps)' -and -not $l.C.win)
+        Shot 'fuel-remeasuring'
+      }
     }
   }
 
   # caution
-  $null = Cdp-Eval "__push({ race: __fx['race-caution'] }); __run({ mePos: 4, pit: [3, 6] }); 1"; Start-Sleep -Milliseconds 900
+  $null = Cdp-Eval "__push({ race: __fx['race-caution'] }); __run({ mePos: 4, lap: 33, pit: [3, 6] }); 1"; Start-Sleep -Milliseconds 900
   $l = Look; Common 'caution' $l
-  ok "caution: CAUTION in amber in the strip ($($l.A.mid))" ($l.A.mid -match '^Caution' -and $l.raceCls -match 'caution')
+  ok "caution: CAUTION in amber in the strip ($($l.A.mid))" ($l.A.mid -match '^Caution\s+Lap 33/52 · 19 to go$' -and $l.raceCls -match 'caution')
   ok "caution: the incident chip turns amber within 3 of the limit ($($l.A.inc))" ($l.A.inc -eq '15x / 17' -and $l.A.incNear)
   ok "caution: B is the gap to the leader ($($l.B.one))" ($l.B.one -match '^To the leader\s*\+4\.1' -and -not $l.B.aVis)
-  ok "caution: C asks PIT NOW? with what it needs and has ($($l.C.num) | $($l.C.line))" ($l.C.num -eq 'Pit now?' -and $l.C.line -eq 'needs 51 L, have 22 L')
+  ok "caution: C asks PIT NOW? with what it needs (level + toEnd) and has ($($l.C.num) | $($l.C.line))" ($l.C.num -eq 'Pit now?' -and $l.C.line -eq 'needs 46 L, have 22 L')
   ok "caution: D fades ($($l.D.op))" ([double]$l.D.op -lt 0.5)
   $ivs = @($l.rows | Select-Object -Skip 1 | ForEach-Object { $_.iv })
   ok "caution: E shows the gap to the leader ($($ivs -join ' '))" ($ivs[0] -eq '+1.4' -and $ivs[1] -eq '+2.7' -and $ivs[3] -eq '+5.5')
@@ -191,49 +202,77 @@ try {
   ok "caution: PIT chips on the cars on pit road ($($pits -join ' '))" (($pits -join ',') -eq '#19,#28')
   Shot 'caution'
 
-  # on pit road, without and with the rejoin
-  foreach ($ps in 'pit', 'pit-rejoin') {
-    $null = Cdp-Eval "__push({ race: __fx['race-$ps'] }); __run({ mePos: 4, pit: [2] }); 1"; Start-Sleep -Milliseconds 900
+  # on pit road: the limiter from the race part, the rejoin ghost (near, far down, multiclass), gallons
+  $pitCases = [ordered]@{
+    'pit' = @("__push({ race: __fx['race-pit'] }); __run({ mePos: 4, lap: 34, pit: [2] });", 'LIMITER ON')
+    'pit-rejoin' = @("__push({ race: __fx['race-pit-rejoin'] }); __run({ mePos: 4, lap: 34, pit: [2] });", 'On pit road')
+    'pit-rejoin-far' = @("__push({ race: __fx['race-pit-rejoin-far'] }); __run({ mePos: 15, lap: 34, pit: [2] });", 'LIMITER ON')
+    'gallons' = @("__push({ race: __fx['race-gallons'] }); __run({ mePos: 4, lap: 34, pit: [2] });", 'LIMITER ON')
+  }
+  foreach ($ps in $pitCases.Keys) {
+    $null = Cdp-Eval ($pitCases[$ps][0] + ' 1'); Start-Sleep -Milliseconds 900
     $l = Look; Common $ps $l
     ok "$ps : B and D fold away" (-not $l.B.bVis -and -not $l.D.vis)
-    ok "$ps : C says pit road and the fuel in the tank ($($l.C.lbl) | $($l.C.num) $($l.C.unit) | $($l.C.line))" ($l.C.lbl -eq 'Pit road' -and $l.C.num -eq '22.4' -and $l.C.unit -eq 'L in the tank' -and $l.C.line -eq 'On pit road')
+    $tankWant = if ($ps -eq 'gallons') { '6|gal in the tank|0.6 gal a lap' } else { '22.4|L in the tank|2.31 L a lap' }
+    ok "$ps : C says pit road, the fuel in the tank and the limiter ($($l.C.lbl) | $($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" ($l.C.lbl -eq 'Pit road' -and ($l.C.num + '|' + $l.C.unit + '|' + $l.C.note) -eq $tankWant -and $l.C.line -eq $pitCases[$ps][1])
     $ghost = @($l.rows | Where-Object { $_.cls -match 'ghost' })
-    if ($ps -eq 'pit') { ok 'pit: no ghost row before the pit loss is measured (rejoin null)' ($ghost.Count -eq 0) }
-    else {
-      $i = [array]::IndexOf(@($l.rows | ForEach-Object { $_.cls -match 'ghost' }), $true)
-      ok "pit-rejoin: the ghost row 'You rejoin P7' sits before P7 ($($ghost.nm))" ($ghost.Count -eq 1 -and $ghost[0].nm -eq 'You rejoin P7' -and $ghost[0].p -eq '' -and $l.rows[$i + 1].p -eq '7' -and $l.rows[$i - 1].p -eq '6')
+    $flags = @($l.rows | ForEach-Object { $_.cls -match 'ghost' }); $i = [array]::IndexOf($flags, $true)
+    $ps2 = @($l.rows | ForEach-Object { $_.p }) -join ' '
+    switch ($ps) {
+      'pit' { ok 'pit: no ghost row before the pit loss is measured (rejoin null)' ($ghost.Count -eq 0) }
+      'gallons' { ok 'gallons (units imperial): the tank with no decimals, a lap with one' ($ghost.Count -eq 0 -and $l.C.num -eq '6'); Shot 'gallons' }
+      'pit-rejoin' { ok "pit-rejoin: the ghost row 'You rejoin P7' sits between P6 and P7 ($ps2)" ($ghost.Count -eq 1 -and $ghost[0].nm -eq 'You rejoin P7' -and $ghost[0].p -eq '' -and $l.rows[$i + 1].p -eq '7' -and $l.rows[$i - 1].p -eq '6') }
+      'pit-rejoin-far' { ok "pit-rejoin-far: the window centres on P17 (leader, cut, P12..P16, ghost, P17..P19) and keeps the ghost ($ps2)" ($ghost.Count -eq 1 -and $l.rows[$i + 1].p -eq '17' -and $l.rows[$l.rows.Count - 1].p -eq '19' -and $l.rows[1].cls -match 'cut' -and $l.rows[2].p -eq '12'); Shot 'pit-rejoin-far' }
     }
-    ok "$ps : his own row is grey with a PIT chip" (@($l.rows | Where-Object { $_.cls -match '\bme\b' -and $_.cls -match 'pit' -and $_.pit }).Count -eq 1)
-    Shot $ps
+    if ($ps -ne 'pit-rejoin-far') { ok "$ps : his own row is grey with a PIT chip" (@($l.rows | Where-Object { $_.cls -match '\bme\b' -and $_.cls -match 'pit' -and $_.pit }).Count -eq 1) }
+    if ($ps -eq 'pit' -or $ps -eq 'pit-rejoin') { Shot $ps }
   }
 
-  # practice and qualifying: the lap list
+  # practice and qualifying: the layout from the session type (the server fills toGo and spare there too), the lap list, the time left
   foreach ($pq in 'practice', 'qualifying') {
     $laps = if ($pq -eq 'practice') { '[{n:5,t:94.863,dirty:false},{n:6,t:93.919,dirty:false},{n:7,t:94.933,dirty:true},{n:8,t:93.832,dirty:false},{n:9,t:93.920,dirty:false}]' } else { '[{n:1,t:93.512,dirty:false}]' }
-    $null = Cdp-Eval "__push({ race: __fx['race-$pq'] }); RacePage.laps = $laps; __run({ mePos: 6 }); 1"; Start-Sleep -Milliseconds 900
+    $run = if ($pq -eq 'practice') { '__run({ mePos: 6, lap: 10, lc: 9, sessNum: 0, timeRemain: 1214.5 })' } else { '__run({ mePos: 3, lap: 2, lc: 1, sessNum: 1, timeRemain: 252 })' }
+    $null = Cdp-Eval "$run; __push({ race: __fx['race-$pq'] }); RacePage.laps = $laps; 1"; Start-Sleep -Milliseconds 900
     $l = Look; Common $pq $l
     $lr = @($l.rows | Where-Object { $_.cls -match 'lapr' -and $_.cls -notmatch 'thead' })
     if ($pq -eq 'practice') {
-      ok "practice: B is 'best 1:33.832 · optimal 1:33.4' ($($l.B.one))" ($l.B.one -match '^Your best\s*1:33\.832\s*optimal 1:33\.4$')
+      ok "practice: B is his best only, no optimal ($($l.B.one))" ($l.B.one -match '^Your best\s*1:33\.832$')
       ok "practice: E is the lap list, newest first, with the gap to the best ($(($lr | ForEach-Object { $_.p + ' ' + $_.n + ' ' + $_.nm }) -join ' / '))" ($lr.Count -eq 5 -and $lr[0].p -eq 'Lap 9' -and $lr[0].nm -eq '+0.088' -and $lr[1].nm -eq 'Best' -and $lr[1].cls -match 'best')
-      ok "practice: the strip says the time left ($($l.A.mid))" ($l.A.mid -eq 'Practice · 20:14 left')
-      ok "practice: the fuel says laps of fuel and what is in the tank, no race margin ($($l.C.num) $($l.C.unit) | $($l.C.line))" ($l.C.num -eq '22.7' -and $l.C.unit -eq 'laps of fuel' -and $l.C.line -eq '52.4 L in the tank · 2.31 L a lap' -and $l.C.numColor -eq $l.tok.ink)
+      ok "practice: the strip says the time left from SessionTimeRemain ($($l.A.mid))" ($l.A.mid -eq 'Practice · 20:14 left')
+      ok "practice: the fuel layout comes from the session type even with spare and toGo filled ($($l.C.num) $($l.C.unit) | $($l.C.line))" ($l.C.num -eq '22.7' -and $l.C.unit -eq 'laps of fuel' -and $l.C.line -eq '52.4 L in the tank · 2.31 L a lap' -and $l.C.numColor -eq $l.tok.ink)
     } else {
-      ok "qualifying: B is the best only when no optimal is known ($($l.B.one))" ($l.B.one -match '^Your best\s*1:33\.512$')
+      ok "qualifying: B is the best ($($l.B.one))" ($l.B.one -match '^Your best\s*1:33\.512$')
       ok 'qualifying: one lap in the list, purple as the best' ($lr.Count -eq 1 -and $lr[0].cls -match 'best')
+      ok "qualifying: the strip shows the time left ($($l.A.mid); P$($l.A.pos))" ($l.A.mid -eq 'Qualifying · 4:12 left' -and $l.A.pos -eq 'P3')
     }
     Shot $pq
   }
+  # a new session (SessionNum) clears this session's laps
+  $null = Cdp-Eval "__run({ mePos: 3, lap: 1, lc: 0, sessNum: 2, timeRemain: 252 }); 1"; Start-Sleep -Milliseconds 700
+  $l = Look
+  ok "3. a session change (SessionNum 1 -> 2) clears the lap list ($(@($l.rows | ForEach-Object { $_.nm }) -join ' | '))" ((Cdp-Eval 'RacePage.laps.length') -eq 0 -and @($l.rows | Where-Object { $_.cls -match 'lapr' -and $_.cls -notmatch 'thead' }).Count -eq 0)
 
-  # multiclass, Peter far down his class: the class leader pinned, a class header
+  # a timed race: the clock in the strip, the fuel module's laps to go marked as an estimate
+  $null = Cdp-Eval "__push({ race: __fx['race-timed'] }); __run({ mePos: 4, lap: 12, timeRemain: 1330 }); 1"; Start-Sleep -Milliseconds 900
+  $l = Look; Common 'timed' $l
+  ok "timed race: the strip says the time left, not a lap count ($($l.A.mid))" ($l.A.mid -eq 'Lap 12 · 22:10 left')
+  ok "timed race: the estimated laps to go carry a tilde ($($l.C.line))" ($l.C.line -eq '18.2 laps of fuel · ~14 to go')
+  Shot 'timed'
+
+  # multiclass, Peter far down his class: a class header; 10 cars fit
   Open-Fixture
   $null = Cdp-Eval "__push({ session: __fx['session-multi'], race: __fx['race-multiclass'] }); __run({ mePos: 18, multi: true }); 1"; Start-Sleep -Milliseconds 1200
   $l = Look; Common 'multiclass' $l
   ok "multiclass: one class header row ($(@($l.rows | Where-Object { $_.cls -match 'head' })[0].p))" (@($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 1 -and $l.rows[0].p -eq 'GT3 · 10 cars')
   $cars = @($l.rows | Where-Object { $_.cls -match '^row( me)?( pit)?$' })
   ok "multiclass: only his class, 10 cars fit, so no cut: P1..P10 with YOU at P9 ($(($cars | ForEach-Object { $_.p }) -join ' '))" ($cars[0].p -eq '1' -and @($l.rows | Where-Object { $_.cls -match 'cut' }).Count -eq 0 -and (($cars | ForEach-Object { $_.p }) -join ' ') -eq '1 2 3 4 5 6 7 8 9 10')
-  ok "multiclass: the strip shows the class position ($($l.A.cls))" ($l.A.cls -eq 'Class P9 of 10' -and $l.A.pos -eq 'P18')
+  ok "multiclass: the strip shows the class position, and YOU's row agrees ($($l.A.pos) $($l.A.cls))" ($l.A.cls -eq 'Class P9 of 10' -and $l.A.pos -eq 'P18' -and @($l.rows | Where-Object { $_.cls -match '\bme\b' })[0].p -eq '9')
   Shot 'multiclass'
+  $null = Cdp-Eval "__push({ race: __fx['race-pit-rejoin-multi'] }); __run({ mePos: 18, multi: true, pit: [2] }); 1"; Start-Sleep -Milliseconds 900
+  $l = Look; Common 'pit-rejoin-multi' $l
+  $flags = @($l.rows | ForEach-Object { $_.cls -match 'ghost' }); $i = [array]::IndexOf($flags, $true)
+  ok "multiclass on pit road: header, leader, cut, P3..P9, the ghost before P10, nothing dropped ($(@($l.rows | ForEach-Object { if ($_.cls -match 'ghost') { 'GHOST' } else { $_.p } }) -join ' '))" ($i -gt 0 -and $l.rows[$i + 1].p -eq '10' -and $l.rows[0].cls -match 'head' -and $l.rows[2].cls -match 'cut' -and $l.rows.Count -eq 12)
+  Shot 'pit-rejoin-multi'
 
   # 3. standings order at three moments, YOU gold, pinned leader, PIT chips
   Section '3. standings'
@@ -258,13 +297,20 @@ try {
     $pitShown = @($pitWant | Where-Object { $shown -contains $_.TrimStart('#') })
     ok "3. moment $mi : PIT chips follow CarIdxOnPitRoad ($($pitGot -join ' '))" (($pitGot -join ',') -eq ($pitShown -join ','))
     if ($mi -eq 3) {
-      ok "3. YOU in P15: the leader pinned on top, a cut, then P11..P19 ($($pos -join ' '))" ($pos[0] -eq 1 -and $l.rows[1].cls -match 'cut' -and (($pos | Select-Object -Skip 1) -join ' ') -eq '11 12 13 14 15 16 17 18 19')
+      ok "3. YOU in P15: the leader pinned on top, a visible cut ('$($l.rows[1].p)'), then P11..P19 ($($pos -join ' '))" ($pos[0] -eq 1 -and $l.rows[1].cls -match 'cut' -and $l.rows[1].p -eq '···' -and (($pos | Select-Object -Skip 1) -join ' ') -eq '11 12 13 14 15 16 17 18 19')
       ok "3. iRacing's duplicate-name digits are dropped ('Sam Whitaker11' shows as '$(($cars | Select-Object -Last 1).nm)')" (($cars | Select-Object -Last 1).nm -eq 'Whitaker')
       Shot 'far'
     }
   }
+  # two cars swap: each row's interval follows its car in the same pass
+  $ordA = '[0,1,5,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18]'; $ordB = '[0,1,5,2,4,3,6,7,8,9,10,11,12,13,14,15,16,17,18]'
+  $null = Cdp-Eval "__run({ order: $ordA, f2: { 3: 5.48, 4: 6.0 } }); 1"; Start-Sleep -Milliseconds 1200
+  $null = Cdp-Eval "__run({ order: $ordB, f2: { 4: 5.0, 3: 6.9 } }); 1"; Start-Sleep -Milliseconds 330
+  $l = Look
+  $ok5 = @($l.rows | Where-Object { $_.nm -eq 'Lindqvist' })[0]; $ok6 = @($l.rows | Where-Object { $_.nm -eq 'Okafor' })[0]
+  ok "3. two cars swap: one draw later each row shows its own car's interval (P$($ok5.p) Lindqvist $($ok5.iv), P$($ok6.p) Okafor $($ok6.iv))" ($ok5.p -eq '5' -and $ok5.iv -eq '+0.9' -and $ok6.p -eq '6' -and $ok6.iv -eq '+1.9')
 
-  # flag flash (caught mid-flash), no data, feed frozen
+  # flag flash (caught mid-flash), a flag already out when the screen comes up, no data, feed frozen
   Section '1. flag flash, no data, feed frozen'
   $null = Cdp-Eval "__run({ mePos: 4 }); 1"; Start-Sleep -Milliseconds 600
   $null = Cdp-Eval "window.__flag = 'blue'; 1"; Start-Sleep -Milliseconds 700
@@ -274,13 +320,16 @@ try {
   Start-Sleep -Milliseconds 1700
   $l = Look
   ok "flag: 2 s later the strip is back to normal while the flag is still out ($($l.stripCls))" ($l.stripCls -eq 'zone strip')
-  $null = Cdp-Eval "window.__flag = ''; 1"
+  $null = Cdp-Eval "window.__shown = false; RacePage.shownFrom = () => window.__shown; window.__flag = 'yellow'; 1"; Start-Sleep -Milliseconds 700
+  $null = Cdp-Eval "window.__shown = true; 1"; Start-Sleep -Milliseconds 700
+  $l = Look
+  ok "flag: a flag already out when the screen comes up does not flash ($($l.stripCls))" ($l.stripCls -eq 'zone strip')
+  $null = Cdp-Eval "RacePage.shownFrom = null; window.__flag = ''; 1"
 
   Open-Fixture
   Start-Sleep -Milliseconds 700
   $l = Look; Common 'nodata' $l
-  $dash = [string][char]0x2013
-  ok "no data: every zone shows the dash in its place, never blank ($($l.texts))" ($l.A.pos -eq $dash -and $l.A.mid -eq $dash -and $l.B.ahead -match $dash -and $l.B.behind -match $dash -and $l.C.num -eq $dash -and $l.D.last -eq $dash -and $l.D.best -eq $dash -and $l.raceCls -match 'nodata')
+  ok "no data: every zone shows the dash in its place, never blank; the strip says 'Waiting for the car' ($($l.texts))" ($l.A.pos -eq $dash -and $l.A.mid -eq 'Waiting for the car' -and $l.B.ahead -match $dash -and $l.B.behind -match $dash -and $l.C.num -eq $dash -and $l.D.last -eq $dash -and $l.D.best -eq $dash -and $l.raceCls -match 'nodata')
   ok "no data: E says so in its place ($(@($l.rows).Count) row)" (@($l.rows).Count -ge 1 -and $l.rows[0].nm -eq $dash)
   Shot 'nodata'
 
@@ -327,26 +376,28 @@ try {
   $race = Join-Path $root 'tests\fixtures\race-12nov.ibt'
   if (-not (Test-Path $race)) { '  skip tests\fixtures\race-12nov.ibt is not here (tests\tools-test.ps1 builds it)' }
   else {
-    & (Join-Path $tools 'pretend-irdash.ps1') -Port 8299 -Stop | Out-Null
-    $null = & (Join-Path $tools 'pretend-irdash.ps1') -Port 8299 -Ibt $race -Speed 20 -Www (Join-Path $root 'dash\www') -Loop
+    & (Join-Path $tools 'pretend-irdash.ps1') -Port 8311 -Stop | Out-Null
+    $null = & (Join-Path $tools 'pretend-irdash.ps1') -Port 8311 -Ibt $race -Speed 20 -Www (Join-Path $root 'dash\www') -Loop
     $pret = $true
-    $get = { param($u) try { Invoke-RestMethod -Uri $u -TimeoutSec 5 } catch { $null } }
-    Cdp-Open 'http://localhost:8299/v2/index.html' -Port 9393
+    $racing = 'RaceSwitch.on && !document.getElementById("raceHost").hidden && !document.getElementById("overlay").classList.contains("show")'
+    $atHome = '!RaceSwitch.on && document.getElementById("raceHost").hidden && document.getElementById("overlay").classList.contains("show")'
+    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9393
     ok 'HOME is up on the pretend irdash (one stream, the session from the 12 Nov file)' (Wait-Until 'typeof data !== "undefined" && data.online && S.drivers.size > 1' 15)
-    ok 'not driving: HOME shows, the race screen does not' ((Cdp-Eval 'document.getElementById("overlay").classList.contains("show") && document.getElementById("raceHost").hidden && !RaceSwitch.on') -eq $true)
+    ok 'not driving: HOME shows, the race screen does not' ((Cdp-Eval $atHome) -eq $true)
     ok 'the race page is loaded in its frame and borrows HOME''s connection' (Wait-Until '(() => { const w = document.getElementById("raceFrame").contentWindow; return !!(w.RacePage && w.data && w.data.__borrowed); })()' 10)
-    $null = & $get ('http://localhost:8300/__push?part=rig&json=' + [uri]::EscapeDataString('{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'))
+    Push-Part 'rig' $driveOn
     $t0 = Get-Date
-    $on = Wait-Until 'RaceSwitch.on && !document.getElementById("raceHost").hidden && !document.getElementById("overlay").classList.contains("show")' 5
+    $on = Wait-Until $racing 5
     $took = [math]::Round(((Get-Date) - $t0).TotalMilliseconds)
-    ok "6. rig.driving true: the race screen covers HOME ($took ms after the push)" ($on -and $took -lt 1500)
+    ok "6. rig.driving true with fresh frames: the race screen covers HOME ($took ms after the push)" ($on -and $took -lt 1500)
     ok "6. the one stream now asks for the race set ($(Cdp-Eval 'data.url'))" (Wait-Until '/[?&]set=race/.test(data.url) && data.set === "race"' 5)
-    ok '6. the race page gets the race set''s frames through HOME (CarIdxClassPosition in, Speed not)' (Wait-Until '(() => { const v = document.getElementById("raceFrame").contentWindow.RacePage.v; return !!(v && "CarIdxClassPosition" in v && !("Speed" in v)); })()' 6)
+    ok '6. the race page gets the race set''s frames through HOME (CarIdxClassPosition and SessionNum in, Speed not; the .ibt has no IsReplayPlaying)' (Wait-Until '(() => { const v = document.getElementById("raceFrame").contentWindow.RacePage.v; return !!(v && "CarIdxClassPosition" in v && "SessionNum" in v && !("Speed" in v)); })()' 6)
+    ok '6. switching to the race set is not a new session for HOME (the live log is kept)' ((Cdp-Eval 'L.sessKey.split("|")[0] !== "undefined"') -eq $true)
     Start-Sleep -Seconds 3
     $null = Cdp-Eval '(() => { const w = document.getElementById("raceFrame").contentWindow; w.__mut = {}; w.document.querySelectorAll("#race b, #race span, #race .iv, #race .g-n").forEach((el, i) => { let last = el.textContent; w.__mut[i] = []; new w.MutationObserver(() => { if (el.textContent !== last) { last = el.textContent; w.__mut[i].push(performance.now()); } }).observe(el, { childList: true, characterData: true, subtree: true }); }); return 1; })()'
-    $null = & $get 'http://localhost:8300/__reset'
+    $null = Get-J 'http://localhost:8312/__reset'
     Start-Sleep -Seconds 20
-    $s = & $get 'http://localhost:8300/__stats'
+    $s = Get-J 'http://localhost:8312/__stats'
     $n = 0; $by = @(); foreach ($p in $s.routes.PSObject.Properties) { if ($p.Name -eq '/stream') { continue }; $n += $p.Value.count; $by += "$($p.Name) x$($p.Value.count)" }
     $opens = $(if ($s.routes.'/stream') { $s.routes.'/stream'.count } else { 0 }); $n += $opens
     $rate = [math]::Round($n / 20, 2)
@@ -357,21 +408,44 @@ try {
     Cdp-Shot (Join-Path $shots 'race-replay.png'); ok 'picture tests\shots\rework\race-replay.png' $true
     $rp = Cdp-Json '(() => { const d = document.getElementById("raceFrame").contentDocument; return { pos: d.getElementById("aPos").textContent, of: d.getElementById("aOf").textContent, ahead: d.querySelector("#bAhead .g-n").textContent }; })()'
     ok "the replay (only his own car in the file's arrays): his position and the entry list, never 'Leading' ($($rp.pos) $($rp.of), ahead '$($rp.ahead)')" ($rp.of -eq 'of 19' -and $rp.ahead -ne 'Leading')
-    $null = & $get ('http://localhost:8300/__push?part=rig&json=' + [uri]::EscapeDataString('{"driving":false,"sessionOn":true,"simRunning":true,"online":true}'))
+
+    # 1 (review): the screen needs a fresh frame, irdash answering and no replay, not only rig.driving
+    $null = Cdp-Eval 'window.__realOnFrame = onFrame; onFrame = function () { }; 1'          # frames stop reaching HOME (a hung sim)
+    ok '6. a stale frame (hung sim) with rig.driving still true: HOME is back (3 s stale + 5 s)' (Wait-Until $atHome 12)
+    $null = Cdp-Eval 'onFrame = window.__realOnFrame; 1'
+    ok '6. frames again: the race screen is back' (Wait-Until $racing 5)
+    $null = Cdp-Eval 'onFrame = function (v) { window.__realOnFrame(Object.assign({}, v, { IsReplayPlaying: 1 })); }; 1'
+    ok '6. a replay in the sim (IsReplayPlaying): HOME is back after 5 s' (Wait-Until $atHome 9)
+    $null = Cdp-Eval 'onFrame = window.__realOnFrame; 1'
+    ok '6. out of the replay: the race screen is back' (Wait-Until $racing 5)
+    $null = Get-J 'http://localhost:8312/__fault?mode=down'
+    ok '6. irdash down: HOME is back after 5 s (it can say "Paddock program not running")' (Wait-Until "$atHome && !data.online" 12)
+    $null = Get-J 'http://localhost:8312/__fault?mode=ok'
+    ok '6. irdash back: the race screen is back' (Wait-Until $racing 20)
+
+    Push-Part 'rig' $driveOff
     Start-Sleep -Seconds 3
     ok '6. 3 s after driving ends: still the race screen (a tow or a reset does not flick it)' ((Cdp-Eval 'RaceSwitch.on && !document.getElementById("raceHost").hidden') -eq $true)
-    $back = Wait-Until '!RaceSwitch.on && document.getElementById("raceHost").hidden && document.getElementById("overlay").classList.contains("show")' 4
-    ok '6. about 5 s after it ends HOME is back' $back
+    ok '6. about 5 s after it ends HOME is back' (Wait-Until $atHome 4)
     ok "6. and the stream asks for HOME's variables again ($(Cdp-Eval 'data.set + "|" + (data.vars || []).length'))" (Wait-Until 'data.set === "" && (data.vars || []).length > 20' 5)
     Cdp-Close
     # ?race=1: straight to the race screen (tests, previews) whatever the rig says
-    Cdp-Open 'http://localhost:8299/v2/index.html?race=1' -Port 9394
+    Cdp-Open 'http://localhost:8311/v2/index.html?race=1' -Port 9394
     ok '6. ?race=1 shows the race screen with rig.driving false' (Wait-Until 'RaceSwitch.on && !document.getElementById("raceHost").hidden' 8)
-    # a guest drive keeps Friends mode's own view
-    $null = & $get ('http://localhost:8300/__push?part=guest&json=' + [uri]::EscapeDataString('{"active":true}'))
-    $null = & $get ('http://localhost:8300/__push?part=rig&json=' + [uri]::EscapeDataString('{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'))
     Cdp-Close
-    Cdp-Open 'http://localhost:8299/v2/index.html' -Port 9395
+    # 12 (review): irdash already says driving when the page starts: idle stream, then straight to the race set (two opens, not three)
+    Push-Part 'rig' $driveOn
+    $null = Get-J 'http://localhost:8312/__reset'
+    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9396
+    $null = Wait-Until $racing 10
+    Start-Sleep -Seconds 3
+    $s = Get-J 'http://localhost:8312/__stats'
+    $opens = $(if ($s.routes.'/stream') { $s.routes.'/stream'.count } else { 0 })
+    ok "6. driving at the first frame: the stream opened $opens times (idle, then the race set; no HOME-variables stream in between) ($(Cdp-Eval 'data.url'))" ($opens -eq 2 -and (Cdp-Eval 'data.set') -eq 'race')
+    Cdp-Close
+    # a guest drive keeps Friends mode's own view
+    Push-Part 'guest' '{"active":true}'
+    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9395
     Start-Sleep -Seconds 4
     ok '6. Friends mode on: no race screen (the guest view is theirs)' ((Cdp-Eval '!RaceSwitch.on && data.rig.driving && !!(data.state.guest && data.state.guest.active)') -eq $true)
     Cdp-Close
@@ -380,7 +454,7 @@ try {
   $script:fail++; "  FAIL  the test stopped: $($_.Exception.Message) ($($_.InvocationInfo.PositionMessage))"
 } finally {
   Cdp-Close
-  if ($pret) { & (Join-Path $tools 'pretend-irdash.ps1') -Port 8299 -Stop | Out-Null }
+  if ($pret) { & (Join-Path $tools 'pretend-irdash.ps1') -Port 8311 -Stop | Out-Null }
 }
 "$($script:pass) passed, $($script:fail) failed."
 if ($script:fail -gt 0 -or $script:pass -eq 0) { exit 1 }

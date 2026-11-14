@@ -202,7 +202,8 @@ function resetLive() {
 function onFrame(v) {
   L.v = v; L.connected = true; L.lastFrameAt = performance.now();
   if (isNum(v.DisplayUnits)) { Units.metric = v.DisplayUnits === 1; if (Units.saved !== Units.metric) { Units.saved = Units.metric; store.set('irdash-units', Units.metric); } }
-  const key = [v.SessionUniqueID, v.SessionNum, S.track.key].join('|');
+  // SessionNum and the track: both are in HOME's variables and in the race set, so switching sets is not a new session (W2-2)
+  const key = [v.SessionNum, S.track.key].join('|');
   if (key !== L.sessKey) { resetLive(); L.sessKey = key; }
   trackLaps(v);
   trackSectors(v);

@@ -14,7 +14,8 @@
    A page inside HOME's frame (Sessions, Vault, Performance, Analysis ...) uses HOME's connection, so the whole top screen has one.
    Telemetry: no variables are asked for until iRacing is connected (HOME idle asks for none), then the visible layout's list at 15 Hz.
      data.telemetry(['A', 'B'])  these variables;   data.telemetry('race')  irdash's named set (W2-1: the race screen's 24 channels)
-     data.set                    the named set asked for now ('' = a variable list or nothing) */
+     data.set                    the named set asked for now ('' = a variable list or nothing)
+     data.on('connect', fn)      iRacing just connected (the first frame on the idle stream): fn() may still change data.telemetry(...) */
 (function () {
   'use strict';
   if (window.data && window.data.__paddock) return;
@@ -133,7 +134,8 @@
       es.addEventListener('status', function () { api.connected = false; api.emit('status', { connected: false }); });
       es.onmessage = function (e) {
         // the first frame of a session on the idle stream: ask again for the layout's variables
-        if (api.mode !== 'live' && (api.vars || api.set)) { api.connected = true; open('live'); return; }
+        // ('connect' first: a page can still change what it asks for, so the stream opens once with the right set)
+        if (api.mode !== 'live' && (api.vars || api.set)) { api.connected = true; api.emit('connect'); open('live'); return; }
         api.connected = true;
         if (!api.ls.frame.length) return;
         var f; try { f = JSON.parse(e.data); } catch (err) { return; }

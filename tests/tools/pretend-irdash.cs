@@ -509,7 +509,8 @@ static class PretendIrdash
 
     static readonly string[] RaceSet = { "CarIdxPosition", "CarIdxClassPosition", "CarIdxF2Time", "CarIdxLapDistPct", "CarIdxEstTime", "CarIdxOnPitRoad", "CarIdxClass",
         "CarIdxLap", "Lap", "LapCompleted", "SessionLapsRemainEx", "SessionTimeRemain", "SessionTime", "PlayerCarMyIncidentCount", "SessionFlags", "FuelLevel",
-        "FuelUsePerHour", "LapLastLapTime", "LapBestLapTime", "LapDeltaToBestLap", "LapDeltaToBestLap_OK", "OnPitRoad", "PlayerCarIdx", "IsOnTrack" };
+        "FuelUsePerHour", "LapLastLapTime", "LapBestLapTime", "LapDeltaToBestLap", "LapDeltaToBestLap_OK", "OnPitRoad", "PlayerCarIdx", "IsOnTrack",
+        "IsReplayPlaying", "SessionNum", "DisplayUnits", "EngineWarnings" };
     static readonly string[] DerivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
     static readonly string[] DerivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
     static readonly double[] DerivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
