@@ -62,8 +62,8 @@ That is all of the Google side. You are done with the console. Close it.
 
 ## Part 5: the first SHARE ON YOUTUBE
 
-1. Press **SHARE ON YOUTUBE** on a race, as you normally would.
-2. A browser tab opens on Google's sign-in page.
+1. Press **SHARE ON YOUTUBE** on a race, as you normally would. The race card says **Sign in to YouTube**.
+2. Press **SIGN IN TO YOUTUBE**. A browser tab opens on Google's sign-in page.
 3. Pick your Google account (the one that owns your channel).
 4. If Google shows the warning in the next section, follow it. If not, go on.
 5. Press **Allow** (or **Continue**).
