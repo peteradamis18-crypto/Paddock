@@ -208,6 +208,10 @@ window.__run = async () => {
   ok('1. back online: asked again, no longer grey, pressable', !q('.rv').classList.contains('stale') && !q('.show').disabled, q('.rv').className);
   await use('card-practice-8', {}, () => { window.__fail = true; });
   ok('1. the answer fails while online (irdash restarting): the last answer greyed', q('.rv').classList.contains('stale') && qa('.card').length === 3);
+  await use('card-practice-8', {}, () => { for (const k in M.Review.memo) delete M.Review.memo[k]; window.__fail = true; });
+  ok('1. the answer fails while online, nothing seen before: "This review could not be read."', txt('.rv') === 'This review could not be read.', txt('.rv'));
+  window.__fail = false; window.__req.length = 0; window.__emit('list:review'); await sleep(300);
+  ok('1. ... and the review list changing asks again', qa('.card').length === 3 && window.__req[0] === '/api/review?id=last', window.__req.join(' '));
 
   // ---------------- 3. the presses ----------------
   await use('card-practice-8'); j = FX['card-practice-8'];

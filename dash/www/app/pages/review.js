@@ -144,7 +144,8 @@ const R = {
     R.closeWatch(); R.dropMap();
     document.body.classList.remove('page-bar');
     box.classList.toggle('stale', R.stale && !!j);
-    if (!j) { box.innerHTML = R.stale ? R.line('Your review shows here when Paddock is running.') : ''; return; }
+    // nothing seen before: Paddock off (the shell's banner says so) or Paddock on but the answer failed (asked again on the list's change)
+    if (!j) { box.innerHTML = !R.stale ? '' : R.line(R.ctx.data.online === false ? 'Your review shows here when Paddock is running.' : 'This review could not be read.'); return; }
     if (j.state === 'working') { box.innerHTML = R.line(j.say || 'Reading your laps…'); return; }
     if (j.state !== 'ready' || !j.session) { box.innerHTML = R.line(j.say || 'This drive could not be read.'); return; }
     const s = j.session, race = j.race || null, F = R.ctx.Fmt;

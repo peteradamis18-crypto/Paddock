@@ -1,6 +1,6 @@
 # shell-test.ps1 - offline (W3-1): the top screen's shell (dash\www\app\index.html, shell.js, shell.css, pages\*.js) in headless Chrome
 # against the pretend irdash (tests\tools\pretend-irdash.exe) on 8341 (control 8342; never 8199, and clear of the 8297-8312 other tests use):
-#   1. the four doors mount their page, one at a time; RACES shows the W1-4 grid; Esc (also inside REVIEW's and RIG's frames) and
+#   1. the four doors mount their page, one at a time; RACES shows the W1-4 grid; Esc (also inside RIG's frame and REVIEW's clip) and
 #      CLOSE go HOME; the deck's nav push opens a page; /api/nav?to=home is sent on close; the hash follows (and leads)
 #   2. offline: the banner says the exact sentence and the doors still switch; back online it clears within 5 s;
 #      kids, tow, a key message and the page's own line take the one banner in that order
@@ -34,6 +34,9 @@ $OFFLINE = 'Paddock is not running. Press HOME on the deck.'
 $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 $races = @(1, 2, 3) | ForEach-Object { '{"id":"s' + $_ + '","track":"' + @('Road Atlanta', 'Lime Rock Park', 'Watkins Glen International')[$_ - 1] + '","config":"Full Course","car":"Toyota GR86","type":"Race","isRace":true,"startMs":' + ($now - $_ * 86400000) + ',"sec":1268,"laps":10,"counted":7,"best":93.832,"bestLap":9,"mb":1101,"kept":false,"thumb":false,"state":{"kind":"none"},"markers":[]}' }
 [IO.File]::WriteAllText((Join-Path $fx 'api_library.json'), '{"storage":{"usedGb":412,"freeGb":280,"trashGb":0,"moreRaces":38,"lowSpace":false},"youtube":{"signedIn":true,"privacy":"private","template":1},"titles":[],"races":[' + ($races -join ',') + '],"trash":[]}', (New-Object Text.UTF8Encoding($false)))
+
+# REVIEW's answer (W4-3's card page asks /api/review?id=last): the practice fixture of tests\review-card-test.ps1
+Copy-Item (Join-Path $root 'tests\fixtures\review\card-practice-8.json') (Join-Path $fx 'api_review~id=last.json')
 
 function Get-J($url) { try { return Invoke-RestMethod -Uri $url -TimeoutSec 5 } catch { return $null } }
 function Push($part, $json) { $null = Get-J ("http://localhost:$CTL/__push?part=$part&json=" + [uri]::EscapeDataString($json)) }
@@ -89,15 +92,11 @@ try {
   $null = Cdp-Eval '(() => { document.getElementById("shellClose").click(); return 1; })()'
   ok 'CLOSE goes HOME' (Wait-Until 'Shell.cur === "home"' 3)
   Door 'review'
-  ok 'REVIEW: the Sessions page in its frame (v2/sessions.html?embed=1)' (Wait-Until "Shell.cur === 'review' && $one && /v2\/sessions\.html\?embed=1/.test((document.querySelector('#page iframe') || {}).src || '') && !!document.querySelector('#page iframe').contentDocument.body && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 10)
-  ok 'its document forwards Esc (hooked)' (Wait-Until '!!document.querySelector("#page iframe").contentDocument.__paddockEsc' 5)
+  ok 'REVIEW: the card page (W4-3), one page, the review of the last drive (/api/review?id=last)' (Wait-Until "Shell.cur === 'review' && $one && document.querySelectorAll('#page .rv .card').length === 3" 10)
   Start-Sleep -Milliseconds 800
   Cdp-Shot (Join-Path $shots 'shell-review.png')
-  $null = Cdp-Eval '(() => { Shell.msgs.length = 0; const f = document.querySelector("#page iframe"); f.focus(); f.contentWindow.focus(); return 1; })()'
   Key
-  $r = (Wait-Until 'Shell.cur === "home"' 3) -and ((Cdp-Eval 'Shell.msgs.includes("esc")') -eq $true)
-  $r = (Wait-Until 'Shell.cur === "home" && /^home:press:(sessions-close|esc-frame)$/.test(Shell.log.slice(-1)[0])' 3)
-  ok "Esc pressed inside REVIEW's frame goes HOME (messages: $(Cdp-Eval 'Shell.msgs.join()'); moves: $(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" $r
+  ok "Esc on REVIEW goes HOME (moves: $(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" (Wait-Until 'Shell.cur === "home" && Shell.log.slice(-1)[0] === "home:press:esc"' 3)
   Door 'rig'
   ok "RIG: the Performance page in its frame (v2/perf.html?embed=1)" (Wait-Until "Shell.cur === 'rig' && $one && /v2\/perf\.html\?embed=1/.test((document.querySelector('#page iframe') || {}).src || '') && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15) "(moves: $(Cdp-Eval 'Shell.log.join(" ")'))"
   Start-Sleep -Milliseconds 800
@@ -161,16 +160,13 @@ try {
   $null = Cdp-Eval '(() => { const d = document.querySelector("#page iframe").contentDocument; d.dispatchEvent(new d.defaultView.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return 1; })()'
   ok "the page up now closing itself is believed ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home' && /^home:press:(perf-close|sessions-close|esc-frame)$/.test(Shell.log.slice(-1)[0])" 3)
 
-  # Esc inside REVIEW with a session open: Sessions uses it (back to the list); only the next Esc goes HOME
-  Door 'review'; $null = Wait-Until "Shell.cur === 'review' && document.querySelector('#page iframe').contentDocument.readyState === 'complete' && !!document.querySelector('#page iframe').contentDocument.__paddockEsc" 15
-  $null = Cdp-Eval '(() => { const w = document.querySelector("#page iframe").contentWindow; w.location.hash = "a=" + encodeURIComponent("test.ibt"); return 1; })()'
-  $opened = Wait-Until '(() => { const d = document.querySelector("#page iframe").contentDocument; return !!d.getElementById("wbHost"); })()' 8
-  ok 'a session opened inside REVIEW' $opened
-  $null = Cdp-Eval '(() => { const f = document.querySelector("#page iframe"); f.focus(); f.contentWindow.focus(); f.contentDocument.body.focus(); return 1; })()'
+  # Esc inside REVIEW with a clip open (W4-3's WATCH): the page uses it (the clip goes); only the next Esc goes HOME
+  Door 'review'; $null = Wait-Until "Shell.cur === 'review' && !!document.querySelector('#page .rv .watch')" 10
+  $null = Cdp-Eval '(() => { document.querySelector("#page .rv .watch").click(); return 1; })()'
+  ok 'a clip opened inside REVIEW' (Wait-Until '!!document.querySelector("#page .rv-watch video")' 5)
   Key
   Start-Sleep -Milliseconds 600
-  ok "Esc with the session open goes back inside REVIEW, not HOME ($(Cdp-Eval 'Shell.cur + " / " + Shell.log.slice(-1)[0]'))" ((Cdp-Eval "Shell.cur === 'review' && document.querySelector('#page iframe').contentWindow.location.hash === ''") -eq $true)
-  $null = Cdp-Eval '(() => { const w = document.querySelector("#page iframe").contentWindow; const h = w.document.getElementById("wbHost"); if (h) h.remove(); w.focus(); return 1; })()'
+  ok "Esc with the clip open closes it and stays on REVIEW, not HOME ($(Cdp-Eval 'Shell.cur + " / " + Shell.log.slice(-1)[0]'))" ((Cdp-Eval "Shell.cur === 'review' && !document.querySelector('#page .rv-watch')") -eq $true)
   Key
   ok "the next Esc goes HOME ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home'" 3)
   $null = Cdp-Eval '(() => { Shell.go("races", { from: "press" }); Shell.go("review", { from: "press" }); Shell.go("rig", { from: "press" }); return 1; })()'
