@@ -3,7 +3,7 @@
 # or 404 for the "no outline" case. Every request is counted.
 #   1. the outline from the fixture answer, one fetch and no polling   2. colour(): gains green, losses red, zero ink (pixels)
 #   3. marks 1-3 at the right places   4. the cursor moves   5. cars, Peter in gold   6. no outline: one retry after 5 s, then
-#   "Map not available", nothing after that   7. unmount   8. hidden: nothing drawn
+#   "Map not available", nothing after that   7. unmount   8. idle: nothing drawn, no polling
 # Pictures: tests\shots\rework\map-<state>.png. Nothing reaches irdash.
 #   powershell -ExecutionPolicy Bypass -File tests\map-test.ps1
 . (Join-Path $PSScriptRoot 'guard.ps1')
@@ -168,7 +168,7 @@ try {
   Shot 'colour'
   $null = Cdp-Eval "TrackMap.cars([]); TrackMap.marks([{ n: 1, p: 0.555 }, { n: 2, p: 0.15 }, { n: 3, p: 0.82 }]); T.frame()"
 
-  Section '8. hidden'
+  Section '8. idle'
   Run-Js @'
 (async () => {
   const f0 = TrackMap.frames; await T.wait(1200);

@@ -181,6 +181,7 @@ const TrackMapView = {
     st.col.font = tok('font') || 'sans-serif';
     [st.w, st.h] = size();
     cv.style.width = st.w + 'px'; cv.style.height = st.h + 'px';
+    cv.width = Math.round(st.w * (window.devicePixelRatio || 1)); cv.height = Math.round(st.h * (window.devicePixelRatio || 1));
     document.addEventListener('visibilitychange', onVisible);
     load(st.token);
     return TrackMapView;
