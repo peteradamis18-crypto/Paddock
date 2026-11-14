@@ -9,7 +9,7 @@ html, body { width: 100%; height: 100%; min-width: 1920px; background: var(--bg)
 .gold { color: var(--gold); } .ref { color: var(--ref); } .gain { color: var(--gain); } .loss { color: var(--loss); } .mute { color: var(--mute); } .purple { color: var(--purple); }
 
 /* header: brand, pages, this lap vs the reference */
-.top { position: absolute; left: 32px; right: 32px; top: 16px; height: 48px; display: flex; align-items: center; gap: 12px; }   /* INT-3: 12 px, not 22: with ADD LAPS, OPEN IN COSWORTH, MAKE SHARE VIDEO and 9 tabs the lap times ran off the 1920 px screen */
+.top { position: absolute; left: 32px; right: 32px; top: 8px; height: 44px; display: flex; align-items: center; gap: 12px; }   /* INT-3: 12 px, not 22: with ADD LAPS, OPEN IN COSWORTH, MAKE SHARE VIDEO and 9 tabs the lap times ran off the 1920 px screen */
 .top .tabs, .top .addch, .top .vs { flex: none; }
 .tabs { display: flex; gap: 4px; }
 .tabs span { padding: 10px 9px; font-size: 20px; letter-spacing: .14em; color: var(--mute); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
@@ -19,7 +19,7 @@ html, body { width: 100%; height: 100%; min-width: 1920px; background: var(--bg)
 .sw { display: inline-block; width: 26px; border-top: 3px solid var(--gold); margin-right: 8px; vertical-align: middle; }
 .sw.r { border-top: 3px dotted var(--ref); }
 .mode { font-size: 20px; letter-spacing: .18em; color: var(--mute); flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.top .mode { position: absolute; left: 0; right: 0; top: 40px; width: auto; text-align: left; }
+.top .mode { position: absolute; left: 0; right: 0; top: 46px; letter-spacing: .08em; width: auto; text-align: left; }
 .mode b { color: var(--gold); font-weight: 500; }
 
 /* lap navigator: one block per lap of the session, width = lap time */
@@ -30,7 +30,7 @@ html, body { width: 100%; height: 100%; min-width: 1920px; background: var(--bg)
 
 /* displays */
 .panel { position: absolute; }
-.ph { font-size: 20px; letter-spacing: .22em; color: var(--mute); text-transform: uppercase; height: 20px; white-space: nowrap; overflow: hidden; }
+.ph { font-size: 20px; letter-spacing: .1em; color: var(--mute); text-transform: uppercase; height: 20px; line-height: 20px; white-space: nowrap; overflow: hidden; }
 .ph b { color: var(--gold); font-weight: 500; }
 .ph .r { color: var(--ref); }
 .cv { position: absolute; left: 0; top: 0; display: block; }
@@ -116,7 +116,7 @@ table.rs td small .mute { font-size: 20px; }table.rs th:first-child { width: 210
 .addch.on { background: rgba(201, 162, 75,.18); }
 /* W6 RACE page (workbench-race.js): the timing tower, the compare table, the passes list */
 table.rt { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 20px; }
-table.rt th { font-size: 20px; letter-spacing: .1em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 6px; border-bottom: 1px solid var(--line); white-space: nowrap; height: 28px; overflow: hidden; }
+table.rt th { font-size: 20px; letter-spacing: .02em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 6px; border-bottom: 1px solid var(--line); white-space: nowrap; height: 28px; overflow: hidden; }
 table.rt td { padding: 0 6px; text-align: right; border-bottom: 1px solid #19191c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 table.rt th.l, table.rt td.l { text-align: left; }
 table.rt td.pos, table.rt td.cls { color: var(--mute); }
@@ -141,7 +141,7 @@ table.rt td.no .cpic { margin-left: 10px; }   /* CP-1: iRacing's own car picture
 .ph .rpc .pcar { height: 18px; width: auto; }
 .plate { display: inline-block; min-width: 46px; padding: 0 8px; border-radius: 4px; font-size: 20px; font-weight: 600; line-height: 24px; text-align: center; letter-spacing: .02em; }
 table.rc { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: 20px; }
-table.rc th { font-size: 20px; letter-spacing: .08em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 4px; border-bottom: 1px solid var(--line); height: 28px; white-space: nowrap; overflow: hidden; }
+table.rc th { font-size: 20px; letter-spacing: .02em; color: var(--mute); font-weight: 400; text-align: right; padding: 0 4px; border-bottom: 1px solid var(--line); height: 28px; white-space: nowrap; overflow: hidden; }
 table.rc td { padding: 0 4px; text-align: right; border-bottom: 1px solid #19191c; height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 table.rc th.l, table.rc td.l { text-align: left; }
 table.rc tr.me td { color: var(--gold); }

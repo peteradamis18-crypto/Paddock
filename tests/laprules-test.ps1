@@ -71,10 +71,9 @@ ok 'coach.cs: the reference is LapStore.Best' ($all['coach.cs'] -match 'LapRec t
 ok 'deepdive.cs: a stint best is a counted lap' ($all['deepdive.cs'] -match 'if \(Counted\(lp\) && \(double\.IsNaN\(cur\.Best\)')
 ok 'build.ps1 compiles ibtfile.cs and lapstore.cs' ((Get-Content (Join-Path $root 'dash\build.ps1') -Raw) -match 'ibtfile\.cs' -and (Get-Content (Join-Path $root 'dash\build.ps1') -Raw) -match 'lapstore\.cs')
 # pages: none works out a best lap itself (grep for Math.min over lap times in the pages that show a best)
-$js = @{}; foreach ($n in 'vault.js', 'sessions.js', 'races.js', 'home.js', 'coach.js') { $p = if ($n -eq 'races.js') { Join-Path $root 'dash\www\app\pages\races.js' } else { Join-Path $www $n }; $js[$n] = [IO.File]::ReadAllText($p) }   # W3-1: RACES moved into the shell
+$js = @{}; foreach ($n in 'sessions.js', 'races.js', 'home.js', 'coach.js') { $p = if ($n -eq 'races.js') { Join-Path $root 'dash\www\app\pages\races.js' } else { Join-Path $www $n }; $js[$n] = [IO.File]::ReadAllText($p) }   # W3-1: RACES moved into the shell
 $sums = @(); foreach ($n in $js.Keys) { foreach ($m in [regex]::Matches($js[$n], '[^\r\n]*Math\.min\([^)]*\.time[^\r\n]*')) { $sums += "$n : $($m.Value.Trim())" } }
-ok 'no page computes a best lap itself (Math.min over lap times in vault/sessions/races/home/coach.js)' ($sums.Count -eq 0) ($sums -join ' | ')
-ok 'vault.js shows the server''s best and counted laps' ($js['vault.js'] -match 'best = V\.laps\.bestTime, bestN = V\.laps\.best')
+ok 'no page computes a best lap itself (Math.min over lap times in sessions/races/home/coach.js)' ($sums.Count -eq 0) ($sums -join ' | ')
 ok 'races.js says "no clean lap" when nothing counted' ($js['races.js'] -match "'no clean lap'")
 
 "`n$($script:pass) ok, $($script:fail) FAIL"

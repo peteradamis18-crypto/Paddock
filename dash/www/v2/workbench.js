@@ -11,7 +11,10 @@
 var C = { gold: '#C9A24B', ref: '#cfd8e3', gain: '#3ccf7e', loss: '#e5534b', mute: '#8b877d', dim: '#5d5a54', line: '#26262a', abs: '#ff9f43',
   purple: '#b46cff', ink: '#ece8df', band: '#131316', bandOn: 'rgba(201, 162, 75,.07)', rear: '#e8a94a', wf: '#9b87d6' };
 var FONT = 'Bahnschrift, "Segoe UI", sans-serif';
-// BOT: the lowest pixel a page may use. The page is designed for 1920x1080; inside the REVIEW door the frame is shorter (the shell's header takes 88 px) and the links of #tools\r\n// (72 px) sit at its foot, so the tall boxes give up SQ pixels (48 at a full 1080, 136 in the shell). Tests with ?data= keep the 1080 design.\r\nvar BOT = Math.min(1056, window.innerHeight - 72), SQ = 1056 - BOT;\r\nvar GRAV = 9.81, PH = 20;                                   // PH: the display title line above every canvas
+// BOT: the lowest pixel a page may use. The page is designed for 1920x1080; inside the REVIEW door the frame is shorter (the shell's header takes 88 px) and the links of #tools
+// (72 px) sit at its foot, so the tall boxes give up SQ pixels (48 at a full 1080, 136 in the shell). Tests with ?data= keep the 1080 design.
+var BOT = Math.min(1056, window.innerHeight - 72), SQ = 1056 - BOT;
+var GRAV = 9.81, PH = 20;                                   // PH: the display title line above every canvas
 var CHANS = ['Speed', 'Throttle', 'Brake', 'BrakeABSactive', 'SteeringWheelAngle', 'SteeringWheelPctTorque', 'Gear', 'RPM', 'LatAccel', 'LongAccel',
   'VelocityX', 'VelocityY', 'YawRate', 'Lat', 'Lon', 'LFspeed', 'RFspeed', 'LRspeed', 'RRspeed', 'dcBrakeBias',
   'LFrideHeight', 'RFrideHeight', 'LRrideHeight', 'RRrideHeight', 'LFshockDefl', 'RFshockDefl', 'LRshockDefl', 'RRshockDefl', 'LFshockVel', 'RFshockVel', 'LRshockVel', 'RRshockVel'];
@@ -41,10 +44,10 @@ var S = { cur: 0, refCur: null, z0: 0, z1: 1, tile: false, offsetM: 0, offsetS: 
   axis: 'dist', mapColour: 'gap', zoomStack: [], driving: false, extra: [], stint: null, selectedLaps: (P.get('laps') || '').split(',').filter(Boolean) };   // extra: channels he added with the picker (they stay on every page that has a trace stack)
 var D = null;                                               // data: A, R, n, L, step, corners, events, head, deep (C-34 engines), sess (session reply), dc (deep corners by number)
 var displays = [], hooks = [], perf = { frames: 0, total: 0, max: 0, last: [] }, lastTs = 0, need = { s: false, o: false };
-// A page that lives in its own file (workbench-video.js, card W5) registers here: add({ id, name, avail(), build() }); tick(ts, dt) runs every frame before
+// A page that lives in its own file (workbench-race.js) registers here: add({ id, name, avail(), build() }); tick(ts, dt) runs every frame before
 // drawing; drives() true = that file's clock (the video) moves the cursor, so the engine's own playback stands still; before/after run around buildPage and
 // head after header(); keys[k] and cmds[name] extend the keyboard and WB.cmd; loads run with the other replies (they return promises).
-var X = window.WBX = { pages: {}, ticks: [], before: [], after: [], head: [], keys: {}, cmds: {}, loads: [], pickActs: [], drives: function () { return false; },   // pickActs: extra buttons in the channel picker (workbench-pro.js: X/Y, HIST)
+var X = window.WBX = { pages: {}, ticks: [], before: [], after: [], head: [], keys: {}, cmds: {}, loads: [], pickActs: [], drives: function () { return false; },   // pickActs: extra buttons in the channel picker (none left)
   add: function (p) { PAGES.push({ id: p.id, name: p.name }); X.pages[p.id] = p; } };
 
 // ---------- small helpers ----------
@@ -319,9 +322,9 @@ Traces.prototype.drawStatic = function () {
   var lastRight = -1e9, worst = D.worst ? D.worst.c : null;
   D.corners.forEach(function (c) {
     var a = self.xOf(c.i0), b = self.xOf(c.i1); if (b < X0 || a > w) return;
-    g.fillStyle = c === worst ? C.bandOn : C.band; g.fillRect(a, 16, Math.max(1, b - a), total);
+    g.fillStyle = c === worst ? C.bandOn : C.band; g.fillRect(a, 22, Math.max(1, b - a), total - 6);
     g.font = '20px ' + FONT; var tw = g.measureText(c.label).width, cx = (a + b) / 2;
-    if (cx - tw / 2 > lastRight + 6 && cx - tw / 2 >= X0 && cx + tw / 2 < w) { self.text(g, self.tbS, c.label, cx, 12, 14, c === worst ? C.gold : C.mute, 'center'); lastRight = cx + tw / 2; }
+    if (cx - tw / 2 > lastRight + 6 && cx - tw / 2 >= X0 && cx + tw / 2 < w) { self.text(g, self.tbS, c.label, cx, 19, 20, c === worst ? C.gold : C.mute, 'center'); lastRight = cx + tw / 2; }
   });
   g.restore();
   this.rows.forEach(function (r) {
@@ -824,7 +827,7 @@ function buildPicker() {
   });
   picker = { el: box, input: inp, render: render, note: note, choose: choose, pt: pt, acts: acts, cb: null };
 }
-// openPicker(cb, title): with a callback the picker just picks one channel and hands it over (workbench-pro.js: X, Y, colour, histogram); on any page then
+// openPicker(cb, title): with a callback the picker just picks one channel and hands it over (a picker for one channel); on any page then
 var ADDTXT = 'Add a channel';
 function openPicker(cb, title) {
   if (!D || (!cb && !canExtra())) return false;
@@ -860,9 +863,9 @@ function buildPage() {
   } else if (X.pages[S.page]) {
     X.pages[S.page].build();
   } else {
-    var map = new MapView({ x: 32, y: 126, w: 540, h: 330 }, mapTitle()); map.mapTitle = mapTitle;
-    new Readouts({ x: 32, y: 478, w: 540, h: 0 }, ['kmh', 'Gear', 'RPM', 'thrPct', 'brkPct', 'steerDeg', 'latG', 'longG', 'beta', 'wfPct']);
-    new Pedals({ x: 32, y: 884, w: 540, h: 48 });
+    var map = new MapView({ x: 32, y: 126, w: 540, h: 270 }, mapTitle()); map.mapTitle = mapTitle;
+    new Readouts({ x: 32, y: 424, w: 540, h: 0 }, ['kmh', 'Gear', 'thrPct', 'brkPct', 'steerDeg', 'latG', 'longG', 'wfPct']);      // RPM and slip angle: still one press away in + CHANNEL
+    new Pedals({ x: 32, y: 764, w: 540, h: 48 });
     new Traces({ x: 600, y: 126, w: 1288, h: 726 - SQ }, '', scaleRows([
       { k: 'GAP s', kind: 'gap', h: 84, lo: -0.6, hi: 0.6 },
       { k: 'SPEED', key: 'kmh', h: 156, lo: SPD_LO, hi: SPD_HI },
@@ -932,7 +935,7 @@ function showLapPicker() {
   var open = box.style.display === 'grid'; box.innerHTML = ''; box.style.display = open ? 'none' : 'grid'; if (open) return;
   D.head.laps.filter(function (l) { return l.clean && l.time != null; }).forEach(function (l) {
     var key = (P.get('id') || '') + ':' + l.n, active = l.n === D.head.lap.lap, picked = S.selectedLaps.indexOf(key) >= 0;
-    var item = el('div', '', 'L' + l.n + '  ' + fmt(l.time)); item.style.cssText = 'padding:9px;border:1px solid ' + (picked ? '#5a4a14' : '#26262a') + ';color:' + (active ? C.gold : picked ? C.gain : C.mute) + ';font-size:16px;cursor:pointer;white-space:nowrap';
+    var item = el('div', '', 'L' + l.n + '  ' + fmt(l.time)); item.style.cssText = 'padding:9px;border:1px solid ' + (picked ? '#5a4a14' : '#26262a') + ';color:' + (active ? C.gold : picked ? C.gain : C.mute) + ';font-size:20px;cursor:pointer;white-space:nowrap';
     item.title = active ? 'OPEN LAP' : picked ? 'REMOVE LAP' : 'ADD LAP';
     if (!active) item.addEventListener('click', function () { var at = S.selectedLaps.indexOf(key); if (at >= 0) S.selectedLaps.splice(at, 1); else if (S.selectedLaps.length < 5) S.selectedLaps.push(key); else return; reloadSelectedLaps(); });
     box.appendChild(item);
@@ -959,7 +962,7 @@ function modeLine() {
   if (D.R) m.push((S.offsetMode ? '<b>OFFSET MODE</b> · ' : '') + 'OFFSET <button class="offbtn" data-off="-1" aria-label="Offset minus one metre">−</button> <b>' + sgn(S.offsetM, 0) + ' m · ' + sgn(S.offsetS, 2) + ' s</b> <button class="offbtn" data-off="1" aria-label="Offset plus one metre">+</button>' + (S.autoResult === 'unavailable' ? ' · AUTO UNAVAILABLE' : ''));
   if (S.refCur != null) m.push('R CURSOR'); if (zoomed()) m.push('ZOOM <b>' + ((S.z1 - S.z0) * D.step / 1000).toFixed(2) + ' km</b>');
   document.getElementById('mode').innerHTML = m.join(' · ');
-  Array.prototype.forEach.call(document.querySelectorAll('.offbtn'), function (b) { b.onclick = function () { WB.cmd('offset', b.getAttribute('data-off')); }; b.style.cssText = 'background:#121214;border:1px solid #5a4a14;color:#C9A24B;font:inherit;font-size:16px;line-height:18px;width:28px;height:20px;padding:0;vertical-align:middle;cursor:pointer'; });
+  Array.prototype.forEach.call(document.querySelectorAll('.offbtn'), function (b) { b.onclick = function () { WB.cmd('offset', b.getAttribute('data-off')); }; b.style.cssText = 'background:#121214;border:1px solid #5a4a14;color:#C9A24B;font:inherit;font-size:20px;line-height:22px;width:36px;height:30px;padding:0;vertical-align:middle;cursor:pointer'; });
 }
 function openLap(n, ref) {
   if (!LIVE) return;                                     // a fixture is one lap; nothing to open
@@ -971,7 +974,7 @@ function frame(ts) {
   requestAnimationFrame(frame);
   if (!D) return;
   var dt = lastTs ? Math.min(0.1, (ts - lastTs) / 1000) : 0; lastTs = ts;
-  if (S.playing && dt > 0 && !X.drives()) {                     // while a video is on screen it is the clock (workbench-video.js)
+  if (S.playing && dt > 0 && !X.drives()) {                     // while a video is on screen it is the clock (a video file, gone in W4-5)
     var tNow = at(D.A.t, S.cur) + dt * S.speed * (S.reverse ? -1 : 1), ni = idxOf(D.A.t, clamp(tNow, at(D.A.t, 0), at(D.A.t, D.n - 1)));
     if (ni >= D.n - 1 || ni <= 0) { ni = ni >= D.n - 1 ? D.n - 1 : 0; S.playing = false; modeLine(); }
     S.cur = ni; need.o = true;
@@ -1184,11 +1187,11 @@ function load() {
     loadExtras();
   }).catch(function (e) { empty(String(e.message || e)); WB.error = String(e.message || e); });
 }
-// what workbench-video.js (and any later page file) may use; loaded right after this file, before the first reply arrives
+// what workbench-race.js (and any later page file) may use; loaded right after this file, before the first reply arrives
 X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
   data: function () { return D; }, hook: function (f) { hooks.push(f); }, rIdx: rIdx, setCursor: setCursor, setZoom: setZoom, zoomed: zoomed, scaleRows: scaleRows, modeLine: modeLine,
   header: header, fetchJson: fetchJson, Display: Display, Traces: Traces, MapView: MapView,
-  // for workbench-pro.js: the channel list and picker, loading any channel, the binary reply reader, a page rebuild
+  // for page files: the channel list and picker, loading any channel, the binary reply reader, a page rebuild
   catalog: catalog, search: searchChannels, meta: function (k) { catalog(); return xmeta[k] || null; }, fetchChannel: fetchExtra, openPicker: openPicker, closePicker: closePicker,
   addCatalog: addCatalog, dropCatalog: dropCatalog, readReply: readReply, fetchBuf: fetchBuf, rebuild: function () { buildPage(); } };
 // W4-5: the three links at the foot of the page (#tools). Which programs exist is asked once, at load (GET /api/review/tools, dash\src\vault.cs):
@@ -1237,5 +1240,5 @@ function addTools() {
   }).catch(function () { });
 }
 addTools();requestAnimationFrame(frame);
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load); else load();      // after workbench-video.js has registered
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load); else load();      // after the page files have registered
 })();

@@ -16,7 +16,7 @@ $seat = @('dash/www/v2/race.html', 'dash/www/v2/race.css', 'dash/www/app/pages/r
   'dash/www/app/index.html', 'dash/www/app/shell.css', 'dash/www/app/shell.js', 'dash/www/app/pages/races.js', 'dash/www/app/pages/races.css',
   'dash/www/app/pages/home.js', 'dash/www/app/pages/review.js', 'dash/www/app/pages/rig.js')
 $seat += @('dash/www/app/pages/home.css')   # W3-3: HOME's files
-$leanIn = @()
+$leanIn = @('dash/www/app/pages/review-more.js', 'dash/www/app/pages/review-more.css')   # W4-5: REVIEW > MORE DATA (the workbench inside its frame has its own css, held to 20 px by tests\review-more-test.ps1)
 # ------------------------------------------------------------------------------
 $designCss = 'dash/www/app/design.css'
 
@@ -90,7 +90,7 @@ foreach ($rel in $leanIn) {
   $b = @(Min-Px $t 20 $rel)
   if ($b.Count) { Bad "$rel (lean-in page) has text under 20 px: $($b -join '; ')" } else { Ok "$rel (lean-in page) has nothing under 20 px" }
 }
-if (-not $leanIn.Count) { Ok 'no lean-in page is converted yet (list is empty)' }
+
 
 Assert-RigFree -Where '3. one :root'
 foreach ($rel in ($files.Keys | Sort-Object)) {

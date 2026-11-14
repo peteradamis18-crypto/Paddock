@@ -397,27 +397,6 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $null = Cdp-Eval 'WB.cmd("offset", "0"); WB.cmd("zoom-reset"); WB.cmd("cursor", WB.data().worst.c.ia); WB.cmd("page", "driver")'; Start-Sleep -Milliseconds 400
   Cdp-Shot (Join-Path $shots 'wb-driver.png')
   Check 'picture tests\shots\wb-driver.png written' ((Get-Item (Join-Path $shots 'wb-driver.png')).Length -gt 50000)
-  # GRIP & BALANCE
-  $null = Cdp-Eval 'WB.cmd("page", "grip")'; Start-Sleep -Milliseconds 500
-  $kinds = Cdp-Json 'WB.displays().map(function(d){return d.kind})'
-  Check 'GRIP & BALANCE has g-g, corner table, slip-angle trace, wheel-slip traces and time in gear' (($kinds -contains 'gg') -and ($kinds -contains 'corners') -and (@($kinds | Where-Object { $_ -eq 'traces' }).Count -eq 2) -and ($kinds -contains 'gears'))
-  $null = Cdp-Eval 'WB.cmd("cursor", 2000); WB.cmd("zoom-in")'; Start-Sleep -Milliseconds 150
-  $link = Cdp-Json '(function(){var t=WB.displays().filter(function(d){return d.kind==="traces"});return t.map(function(d){return (d.xOf(WB.state.cur)-d.X0)/d.W})})()'
-  Check 'the zoom is linked: both trace displays put the cursor at the same fraction of their width' ($link.Count -eq 2 -and (Near $link[0] $link[1] 0.001) -and $link[0] -gt 0.4 -and $link[0] -lt 0.6)
-  $gg = Cdp-Json ('(function(){var g=WB.displays().filter(function(d){return d.kind==="gg"})[0],p=g.xy(WB.data().A,Math.round(WB.state.cur));var px=' + $pixelJs + ';return px("gg",p[0],p[1])})()')
-  Check 'the g-g skidpad shows the cursor as the gold dot' (Gold $gg)
-  $null = Cdp-Eval 'WB.cmd("zoom-reset")'; Start-Sleep -Milliseconds 300
-  $ov = Cdp-Json 'WB.overlaps()'
-  Note "GRIP text boxes measured: $($ov.boxes)"; if ($ov.bad.Count) { Note ('overlapping: ' + ($ov.bad -join '; ')) }
-  Check 'no text overlaps another on GRIP & BALANCE' ($ov.boxes -gt 150 -and $ov.bad.Count -eq 0)
-  $gaps = Cdp-Json 'Array.prototype.slice.call(document.querySelectorAll("table.ct tr")).slice(1).map(function(r){return parseFloat(r.children[1].textContent.replace(String.fromCharCode(8722),"-").replace(String.fromCharCode(177),""))})'
-  $sorted = $true; for ($i = 1; $i -lt $gaps.Count; $i++) { if ($gaps[$i] -gt $gaps[$i - 1] + 1e-9) { $sorted = $false } }
-  Check 'the corner table lists all 14 corners sorted by time lost' ($gaps.Count -eq 14 -and $sorted -and $gaps[0] -gt 0)
-  $ms2 = Cdp-Json '(function(){return {overlay:WB.bench(120), full:WB.bench(30, true)}})()'
-  Note ("FRAME TIME GRIP: cursor/playback frame {0:N2} ms, full redraw {1:N2} ms" -f $ms2.overlay, $ms2.full)
-  Check 'GRIP cursor frames under 8 ms, full redraws under 16 ms' ($ms2.overlay -lt 8 -and $ms2.full -lt 16)
-  Cdp-Shot (Join-Path $shots 'wb-grip.png')
-  Check 'picture tests\shots\wb-grip.png written' ((Get-Item (Join-Path $shots 'wb-grip.png')).Length -gt 50000)
   # ---------------------------------------------------------------------------------------------------------------
   # C-41: BRAKING, TYRES & STINT, SUSPENSION, SPLITS and the channel picker. Same fixtures (one real lap + its reference, the C-34 deep
   # reply and the session reply with every lap's corner times), same rules: each page renders from a real lap, one number per page is
@@ -449,17 +428,17 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
 
   Section '4b. tabs: a tab exists only for a page that works; the cursor and the zoom are one state for every page'
   $pg = @(Cdp-List 'WB.pages()')
-  Check 'six pages are offered: DRIVER, GRIP, BRAKING, TYRES, SUSPENSION, SPLITS (each one has its data)' (($pg -join ',') -eq 'driver,grip,braking,tyres,suspension,splits')
+  Check 'three pages are offered: DRIVER, BRAKING, SPLITS (each one has its data; RACE only with a field log)' (($pg -join ',') -eq 'driver,braking,splits')
   $tabs = @(Cdp-List 'Array.prototype.map.call(document.querySelectorAll("#tabs span"),function(s){return s.getAttribute("data-p")})')
   Check 'the tab row shows exactly those pages and nothing else (no dead tab)' (($tabs -join ',') -eq ($pg -join ','))
-  Check 'the deck is told the same page list (what the ANALYSIS screen offers)' ((Cdp-Eval 'WB.deck()') -like '*pgs=driver%2Cgrip%2Cbraking%2Ctyres%2Csuspension%2Csplits*')
+  Check 'the deck is told the same page list (what the ANALYSIS screen offers)' ((Cdp-Eval 'WB.deck()') -like '*pgs=driver%2Cbraking%2Csplits*')
   $null = Cdp-Eval 'WB.cmd("page","driver"); WB.cmd("zoom-reset"); WB.cmd("cursor", 3400); WB.cmd("zoom-in"); WB.cmd("zoom-in")'; Start-Sleep -Milliseconds 300
   $keep = Cdp-Json 'WB.state'; $same = $true
-  foreach ($p in 'braking', 'tyres', 'suspension', 'splits', 'driver') {
+  foreach ($p in 'braking', 'splits', 'driver') {
     $null = Cdp-Eval "WB.cmd('page','$p')"; Start-Sleep -Milliseconds 250
     $s2 = Cdp-Json 'WB.state'; if ($s2.cur -ne $keep.cur -or $s2.z0 -ne $keep.z0 -or $s2.z1 -ne $keep.z1) { $same = $false; Note "the shared state moved on $p : cursor $($s2.cur) window $($s2.z0)..$($s2.z1)" }
   }
-  Check 'cursor and zoom window are identical after going through all six pages and back' ($same -and $keep.cur -eq 3400)
+  Check 'cursor and zoom window are identical after going through all three pages and back' ($same -and $keep.cur -eq 3400)
   Cdp-Key '3' 'Digit3' '3'; Start-Sleep -Milliseconds 250
   Check 'the key 3 opens the third tab (BRAKING)' ((Cdp-Json 'WB.state').page -eq 'braking')
 
@@ -507,141 +486,6 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check-Layout 'BRAKING'
   Cdp-Shot (Join-Path $shots 'wb-braking.png')
   Check 'picture tests\shots\wb-braking.png written' ((Get-Item (Join-Path $shots 'wb-braking.png')).Length -gt 50000)
-
-  Section '4d. TYRES & STINT'
-  $null = Cdp-Eval 'WB.cmd("zoom-reset"); WB.cmd("page","tyres")'; Start-Sleep -Milliseconds 700
-  $kinds = Cdp-Json 'WB.displays().map(function(d){return d.kind})'
-  Check 'TYRES & STINT has the four tyre cards, the lap-time, fuel and temperature charts and the setting changes' (($kinds -contains 'tyres') -and (@($kinds | Where-Object { $_ -eq 'stintchart' }).Count -eq 3) -and ($kinds -contains 'settings') -and ([int](Cdp-Eval 'document.querySelectorAll(".tc").length') -eq 4))
-  $body = Cdp-Eval 'document.getElementById("page").innerText'
-  Check 'wear and carcass say they are "as at the last pit stop" (iRacing refreshes them only in the pits)' ($body -like '*as at the last pit stop*')
-  $lf = $dpj.stints[0].tyres.LF
-  $page66 = Cdp-Eval 'document.querySelectorAll(".tc")[0].querySelector("td.a").textContent'
-  $ix10 = Lap-Idx $raw 10; $sum = 0.0; foreach ($i in $ix10) { $sum += $raw['LFtempL'][$i] }; $rawMean = $sum / $ix10.Length
-  Note "HAND CHECK LF left surface temperature over lap $($dpj.stints[0].statLap): raw records mean $([math]::Round($rawMean, 2)) C, engine $($lf.surface.L.mean) C, page shows $page66"
-  Check 'the LF left surface temperature on the card is the mean of the raw records of the last full lap (lap 10) within 0.3 C' ((Near $rawMean $lf.surface.L.mean 0.3) -and $page66 -eq ([string][math]::Round([double]$lf.surface.L.mean)))
-  $wearTxt = Cdp-Eval '[].map.call(document.querySelectorAll(".tc")[0].querySelectorAll("tr"),function(r){return r.children[0].textContent+"="+[].slice.call(r.children,1).map(function(c){return c.textContent}).join("/")}).join(" ; ")'
-  Note "LF card: $wearTxt"
-  Check 'the LF card shows tread 100 / 100 / 100 % and carcass 39 / 39 / 39 C, as the engine says (constant in this file)' ($wearTxt -like '*TREAD LEFT %=100/100/100*' -and $wearTxt -like '*CARCASS °C=39/39/39*')
-  # L-1: the stint charts draw every lap iRacing TIMED (fuel and tyres of a lap with a short off-track are real); only "the best" is a lap it counted (3 of the 7)
-  $validN = @($ssj.laps | Where-Object { $_.timed } | ForEach-Object { $_.n })
-  $fuelRows = @($dpj.laps | Where-Object { $validN -contains $_.lap -and $_.fuelUsed -ne $null })
-  $avgFuel = ($fuelRows | Measure-Object -Property fuelUsed -Average).Average
-  $l7 = $dpj.laps | Where-Object { $_.lap -eq 7 }
-  $rawFuel = $raw['FuelLevel'][$ix7[0]] - $raw['FuelLevel'][$ix7[$ix7.Length - 1]]
-  Note "HAND CHECK fuel lap 7: raw records $([math]::Round($rawFuel, 3)) l, engine $($l7.fuelUsed) l; average over the $($fuelRows.Count) valid laps $([math]::Round($avgFuel, 3)) l"
-  Check 'the fuel used on lap 7 is the raw fuel level at the start minus the end of the lap within 0.02 l' (Near $rawFuel $l7.fuelUsed 0.02)
-  $avgTxt = Cdp-Eval 'WB.textBoxes().filter(function(b){return /^average /.test(b.s)}).map(function(b){return b.s})[0] || ""'
-  Check 'the fuel chart says the average litres per lap, equal to the mean of the timed laps' ($avgTxt -match '^average ([0-9.]+) l per lap' -and (Near ([double]$Matches[1]) $avgFuel 0.006))
-  $bestTxt = Cdp-Eval 'WB.textBoxes().filter(function(b){return /^1:19\./.test(b.s)}).map(function(b){return b.s}).join(",")'
-  Check 'the lap-time chart marks the best lap 1:19.549 and draws the 7 timed laps (a chart only with 5 or more); the 4 timed laps iRacing did not count are grey dots, never the best' ($bestTxt -like '*1:19.549*' -and @($validN).Count -eq 7 -and @($ssj.laps | Where-Object { $_.timed -and -not $_.valid }).Count -eq 4)
-  Check 'with no change in this session the list says so and shows the settings at the start (brake bias 55.96 %)' ($body -like '*Setting changes*No changes*' -and $body -like '*brake bias 55.96 %*' -and @($dpj.changes).Count -eq 0)
-  # C-41b: carcass and tread are only refreshed in the pits, so they are drawn in the secondary grey (the colour of the note under the cards), not like the live rows
-  $cc = Cdp-Json '(function(){var g=function(e){return getComputedStyle(e).color},rows=[].filter.call(document.querySelectorAll(".tc"),function(c,i){return i<4}).map(function(c){return [].filter.call(c.querySelectorAll("tr"),function(r){return r.children[1]&&r.children[1].tagName==="TD"}).map(function(r){return {n:r.children[0].textContent,c:g(r.children[1])}})});return {cards:rows,note:g(document.querySelector(".tnote"))}})()'
-  $cardsOk = (@($cc.cards).Count -eq 4)
-  foreach ($cd in $cc.cards) {
-    $car = @($cd | Where-Object { $_.n -like 'CARCASS*' })[0].c; $tre = @($cd | Where-Object { $_.n -like 'TREAD*' })[0].c; $sur = @($cd | Where-Object { $_.n -like 'SURFACE °C*' -or $_.n -like 'SURFACE ?C*' })[0].c
-    if ($car -ne $cc.note -or $tre -ne $cc.note -or $car -eq $sur) { $cardsOk = $false; Note "card colours: carcass $car, tread $tre, surface $sur, note $($cc.note)" }
-  }
-  Check 'CARCASS and TREAD LEFT are drawn in the secondary grey (same as the note under the cards) on all four cards, not in the colour of the live surface rows' $cardsOk
-  Check-Layout 'TYRES & STINT'
-  Cdp-Shot (Join-Path $shots 'wb-tyres.png')
-  Check 'picture tests\shots\wb-tyres.png written' ((Get-Item (Join-Path $shots 'wb-tyres.png')).Length -gt 50000)
-
-  Section '4e. SUSPENSION'
-  $null = Cdp-Eval 'WB.cmd("zoom-reset"); WB.cmd("cursor", 1500); WB.cmd("zoom-in"); WB.cmd("page","suspension")'; Start-Sleep -Milliseconds 700
-  $kinds = Cdp-Json 'WB.displays().map(function(d){return d.kind})'
-  Check 'SUSPENSION has the ride-height trace stack, eight histograms (position and speed at each corner of the car) and the ride-height table' (($kinds -contains 'traces') -and (@($kinds | Where-Object { $_ -eq 'histo' }).Count -eq 8) -and ($kinds -contains 'ridestrip'))
-  $sums = Cdp-Json 'WB.displays().filter(function(d){return d.kind==="histo"}).map(function(d){var a=0,r=0;for(var i=0;i<d.H.nb;i++){a+=d.H.a[i];r+=d.H.r?d.H.r[i]:100}return [a,r]})'
-  $okSum = $true; foreach ($s in $sums) { if (-not (Near $s[0] 100 0.05) -or -not (Near $s[1] 100 0.05)) { $okSum = $false } }
-  Check 'every histogram holds the whole lap: bins add up to 100 % (this lap and the reference)' $okSum
-  # HAND CHECK, raw records: average LF ride height over the lap (distance-weighted = speed-weighted for time samples) and rake
-  $sw = 0.0; $sh = @{ LF = 0.0; RF = 0.0; LR = 0.0; RR = 0.0 }
-  foreach ($i in $ix7) { $v = $raw['Speed'][$i]; $sw += $v; foreach ($w in 'LF', 'RF', 'LR', 'RR') { $sh[$w] += $raw[$w + 'rideHeight'][$i] * $v } }
-  $avgRaw = @{}; foreach ($w in 'LF', 'RF', 'LR', 'RR') { $avgRaw[$w] = $sh[$w] / $sw * 1000 }
-  $rakeRaw = ($avgRaw.LR + $avgRaw.RR) / 2 - ($avgRaw.LF + $avgRaw.RF) / 2
-  $cellLF = [double](Cdp-Eval 'document.querySelectorAll("table.rs tr")[1].children[1].childNodes[0].nodeValue')
-  $cellRake = [double](Cdp-Eval 'document.querySelectorAll("table.rs tr")[1].children[5].childNodes[0].nodeValue')
-  Note "HAND CHECK ride height lap 7 (raw records, weighted by distance): LF $([math]::Round($avgRaw.LF, 2)) mm, rake $([math]::Round($rakeRaw, 2)) mm; page shows LF $cellLF, rake $cellRake"
-  Check 'the average LF ride height on the page is the raw average within 0.3 mm' (Near $cellLF $avgRaw.LF 0.3)
-  Check 'the rake on the page (rear minus front) is the raw figure within 0.3 mm' (Near $cellRake $rakeRaw 0.3)
-  $rawPeak = ($raw['LFshockVel'][$ix7] | Measure-Object -Maximum).Maximum * 1000
-  $keysTxt = Cdp-Eval 'WB.displays().filter(function(d){return d.kind==="histo"&&d.hk==="vel"&&d.wheel==="LF"})[0].keys.textContent'
-  Note "HAND CHECK LF damper speed: raw 60 Hz peak $([math]::Round($rawPeak, 0)) mm/s; page: $keysTxt"
-  Check 'the LF bump peak on the page is the raw peak within 3 % (the 1 m grid cannot be higher than a raw record)' ($keysTxt -match 'bump peak (\d+)' -and [double]$Matches[1] -le $rawPeak + 0.5 -and [double]$Matches[1] -ge $rawPeak * 0.97)
-  $frac = Cdp-Json '(function(){var tr=WB.displays().filter(function(d){return d.kind==="traces"})[0],s=WB.state;return {f:(tr.xOf(s.cur)-tr.X0)/tr.W,e:(s.cur-s.z0)/(s.z1-s.z0)}})()'
-  Check 'the trace stack puts the shared cursor at the shared window position (linked zoom with the other pages)' (Near $frac.f $frac.e 0.001)
-  $ms = Cdp-Json '(function(){return {overlay:WB.bench(120), full:WB.bench(30, true)}})()'
-  Note ("FRAME TIME SUSPENSION: cursor frame {0:N2} ms, full redraw {1:N2} ms" -f $ms.overlay, $ms.full)
-  Check 'SUSPENSION: cursor frames under 8 ms, full redraws under 16 ms' ($ms.overlay -lt 8 -and $ms.full -lt 16)
-  # ---- C-41b: LOWEST AT replaces "on the ground" (an interpretation: the ride-height channel's zero is not proven to be the floor; the reference lap goes to -7 mm) ----
-  $rs = Cdp-Json '(function(){var t=document.querySelector("table.rs"),p=t.parentNode.parentNode,rows=[].map.call(t.querySelectorAll("tr"),function(r){return r.children[0].textContent}),at=[].filter.call(t.querySelectorAll("tr"),function(r){return r.children[0].textContent==="LOWEST AT"})[0];return {rows:rows,loss:t.querySelectorAll(".loss,.gain").length,red:(p.innerHTML.match(/e5534b/gi)||[]).length,title:p.querySelector(".ph").textContent,txt:document.getElementById("page").innerText,at:at?[].slice.call(at.children,1,5).map(function(c){return {a:c.childNodes[0].nodeValue,r:c.querySelector("small")?c.querySelector("small").textContent:null}}):null}})()'
-  Note ("SUSPENSION table rows: " + (($rs.rows | Where-Object { $_ }) -join ' | ') + "; LOWEST AT: " + (($rs.at | ForEach-Object { $_.a + ' (ref ' + $_.r + ')' }) -join ', '))
-  Check 'the table rows are AVERAGE mm, LOWEST mm and LOWEST AT; the old "on the ground" row, its 1 mm threshold and its red counts are gone' ((($rs.rows | Where-Object { $_ }) -join ',') -eq 'AVERAGE mm,LOWEST mm,LOWEST AT' -and $rs.loss -eq 0 -and $rs.red -eq 0)
-  Check 'no word "ground" anywhere on the SUSPENSION page, title line included' ($rs.txt -notmatch '(?i)ground' -and $rs.title -notmatch '(?i)ground' -and $rs.title -like 'Ride height*')
-  # ---- C-41c: LOWEST mm and LOWEST AT are the raw 60 Hz minimums and the places they happened (the engine sends them in /analysis/deep: laps[].lowRide and refLowRide).
-  # The 1 m grid misses a dip one record wide: lap 7 RF is -1.09 mm in the file and 1.01 mm on the grid. Every number below is worked out here from the .ibt records. ----
-  $step = [double]$wf.head.step; $gn = [int]$wf.head.n; $inv = [Globalization.CultureInfo]::InvariantCulture
-  function Corner-Word($i) {
-    foreach ($c in $wf.head.corners) {
-      $d0 = [double]$c.p0 * $L; $d1 = $(if ([double]$c.p1 -gt [double]$c.p0) { [double]$c.p1 } else { 1.0 }) * $L
-      $i0 = [math]::Floor($d0 / $step + 0.5); $i1 = [math]::Min($gn - 1, [math]::Floor($d1 / $step + 0.5))
-      if ($i -ge $i0 - 20 -and $i -le $i1 + 20) { if ($c.official) { return 'T' + ([string]$c.official).ToUpper() } else { $nm = ([string]$c.name) -replace '^The ', ''; if ($nm) { return $nm } else { return 'T' + $c.n } } }
-    }
-    return ($i * $step / 1000).ToString('0.00', $inv) + ' km'
-  }
-  function Low-Index($a) { $at = 0; for ($i = 1; $i -lt $gn; $i++) { if ($a[$i] -lt $a[$at]) { $at = $i } }; return $at }
-  # the lowest raw record of the lap for one wheel: mm and distance (m); a tie takes the first record, like the engine
-  function Raw-Low($rw, $ix, $w) { $rv = $rw[$w + 'rideHeight']; $b = $ix[0]; foreach ($i in $ix) { if ($rv[$i] -lt $rv[$b]) { $b = $i } }; return @{ mm = $rv[$b] * 1000; at = $rw['LapDistPct'][$b] * $L } }
-  $rawMid = [WbRaw]::All((Join-Path $work $midName), @('SessionTime', 'LapDistPct', 'LFrideHeight', 'RFrideHeight', 'LRrideHeight', 'RRrideHeight'))
-  $ixMid = Lap-Idx $rawMid 7
-  $lowJs = '(function(){var t=document.querySelector("table.rs"),lm=[].filter.call(t.querySelectorAll("tr"),function(r){return r.children[0].textContent==="LOWEST mm"})[0];return [].slice.call(lm.children,1,5).map(function(c){return {a:c.childNodes[0].nodeValue,r:c.querySelector("small")?c.querySelector("small").textContent:null}})})()'
-  $lowCells = @(Cdp-List $lowJs)
-  $r7 = ($dpj.laps | Where-Object { $_.lap -eq 7 }).lowRide
-  Check 'the deep reply has lowRide on every lap row (4 wheels, mm and metres) and refLowRide for the reference lap' (@($dpj.laps | Where-Object { $_.lowRide -and $_.lowRide.LF -and $_.lowRide.RR }).Count -eq @($dpj.laps).Count -and $dpj.refLowRide.LF -and $dpj.refLowRide.RR)
-  $engBad = @(); $pgBad = @(); $atBad = @(); $gridBad = @(); $wantAt = @(); $k = 0
-  foreach ($w in 'LF', 'RF', 'LR', 'RR') {
-    $ra = Raw-Low $raw $ix7 $w; $rr = Raw-Low $rawMid $ixMid $w
-    $ea = $r7.$w; $er = $dpj.refLowRide.$w
-    $gridA = ($wf.arr["lap.${w}rideHeight"] | Measure-Object -Minimum).Minimum * 1000; $gridR = ($wf.arr["ref.${w}rideHeight"] | Measure-Object -Minimum).Minimum * 1000
-    Note ("HAND CHECK lowest ride height $w lap 7: raw records {0:N2} mm at {1:N1} m (engine {2:N3} mm at {3:N1} m; 1 m grid {4:N2} mm); reference raw {5:N2} mm at {6:N1} m (engine {7:N3} at {8:N1}; grid {9:N2}); page '{10}' / '{11}'" -f $ra.mm, $ra.at, $ea.mm, $ea.atM, $gridA, $rr.mm, $rr.at, $er.mm, $er.atM, $gridR, $lowCells[$k].a, $lowCells[$k].r)
-    if (-not (Near $ea.mm $ra.mm 0.002) -or -not (Near $ea.atM $ra.at 0.2)) { $engBad += "$w lap" }
-    if (-not (Near $er.mm $rr.mm 0.002) -or -not (Near $er.atM $rr.at 0.2)) { $engBad += "$w ref" }
-    if (-not (Near ([double]$lowCells[$k].a) $ra.mm 0.051) -or -not (Near ([double]$lowCells[$k].r) $rr.mm 0.051)) { $pgBad += "$w page '$($lowCells[$k].a)' / '$($lowCells[$k].r)'" }
-    $wa = Corner-Word ([int][math]::Floor($ra.at / $step + 0.5)); $wr = Corner-Word ([int][math]::Floor($rr.at / $step + 0.5)); $wantAt += "$w $wa / $wr"
-    if ($rs.at[$k].a -ne $wa -or $rs.at[$k].r -ne $wr) { $atBad += "$w page '$($rs.at[$k].a)' ref '$($rs.at[$k].r)', raw records say '$wa' / '$wr'" }
-    if ($gridA -lt $ra.mm - 0.05 -or $gridR -lt $rr.mm - 0.05) { $gridBad += $w }       # the 1 m grid is a resampling: it can miss a dip but never goes below a record
-    $k++
-  }
-  Note ('LOWEST AT worked out from the raw records: ' + ($wantAt -join '; '))
-  if ($atBad.Count) { Note ($atBad -join ' ; ') }
-  Check 'the engine''s lowRide for lap 7 and refLowRide for the reference are, for all four wheels, the raw records'' lowest ride height (within 0.002 mm) and the distance where it happened (within 0.2 m)' ($engBad.Count -eq 0)
-  Check 'lap 7 raw lowest ride heights are RF -1.09 mm, RR -0.32 mm, LF 2.07 mm (the 1 m grid said 1.01, 0.71 and 2.76), and LR is the raw record too' ((Near $r7.RF.mm -1.09 0.006) -and (Near $r7.RR.mm -0.32 0.006) -and (Near $r7.LF.mm 2.07 0.006) -and (Near $r7.LR.mm (Raw-Low $raw $ix7 'LR').mm 0.002))
-  if ($pgBad.Count) { Note ($pgBad -join ' ; ') }
-  Check 'LOWEST mm on the page is the raw lowest ride height of the lap and of the reference, for all four wheels (1 decimal, within 0.05 mm), not the 1 m grid''s' ($pgBad.Count -eq 0 -and @($lowCells).Count -eq 4)
-  Check 'LOWEST AT on the page is, for each wheel and for both laps, the corner containing the lowest raw record of the lap (turn name, or the distance where no corner is near)' ($atBad.Count -eq 0)
-  Check 'the 1 m grid is never lower than a raw record (so the raw minimum is the one that can be trusted); it does miss a dip: RF lap 7 grid minimum is at least 1 mm above the raw one' ($gridBad.Count -eq 0 -and ((($wf.arr['lap.RFrideHeight'] | Measure-Object -Minimum).Minimum * 1000) - (Raw-Low $raw $ix7 'RF').mm) -gt 1)
-  # an older irdash sends no lowRide / refLowRide: the page falls back to the 1 m grid (minimum and place) exactly as before, then gets the raw ones back
-  $null = Cdp-Eval '(function(){var dp=WB.data().deep;window.__lr={laps:dp.laps.map(function(l){return l.lowRide}),ref:dp.refLowRide};dp.laps.forEach(function(l){delete l.lowRide});delete dp.refLowRide;return 1})()'
-  $null = Cdp-Eval 'WB.cmd("page","driver"); WB.cmd("page","suspension")'; Start-Sleep -Milliseconds 500
-  $oldCells = @(Cdp-List $lowJs)
-  $oldAt = Cdp-Json '(function(){var t=document.querySelector("table.rs"),at=[].filter.call(t.querySelectorAll("tr"),function(r){return r.children[0].textContent==="LOWEST AT"})[0];return [].slice.call(at.children,1,5).map(function(c){return {a:c.childNodes[0].nodeValue,r:c.querySelector("small")?c.querySelector("small").textContent:null}})})()'
-  $fbBad = @(); $k = 0
-  foreach ($w in 'LF', 'RF', 'LR', 'RR') {
-    $gridA = ($wf.arr["lap.${w}rideHeight"] | Measure-Object -Minimum).Minimum * 1000; $gridR = ($wf.arr["ref.${w}rideHeight"] | Measure-Object -Minimum).Minimum * 1000
-    $ga = Corner-Word (Low-Index $wf.arr["lap.${w}rideHeight"]); $gr = Corner-Word (Low-Index $wf.arr["ref.${w}rideHeight"])
-    if (-not (Near ([double]$oldCells[$k].a) $gridA 0.051) -or -not (Near ([double]$oldCells[$k].r) $gridR 0.051) -or $oldAt[$k].a -ne $ga -or $oldAt[$k].r -ne $gr) { $fbBad += "$w '$($oldCells[$k].a)' / '$($oldCells[$k].r)' at '$($oldAt[$k].a)' / '$($oldAt[$k].r)', grid says $([math]::Round($gridA, 1)) / $([math]::Round($gridR, 1)) at '$ga' / '$gr'" }
-    $k++
-  }
-  if ($fbBad.Count) { Note ($fbBad -join ' ; ') }
-  Check 'a reply without lowRide (an older irdash) falls back to the 1 m grid for LOWEST mm and LOWEST AT, as before' ($fbBad.Count -eq 0)
-  $null = Cdp-Eval '(function(){var dp=WB.data().deep;dp.laps.forEach(function(l,i){l.lowRide=window.__lr.laps[i]});dp.refLowRide=window.__lr.ref;return 1})()'
-  $null = Cdp-Eval 'WB.cmd("page","driver"); WB.cmd("page","suspension")'; Start-Sleep -Milliseconds 500
-  $backCells = @(Cdp-List $lowJs)
-  Check 'with the raw minimums back the page shows them again' ((Near ([double]$backCells[1].a) (Raw-Low $raw $ix7 'RF').mm 0.051))
-  $null = Cdp-Eval 'WB.cmd("zoom-reset"); WB.cmd("page","driver"); WB.cmd("page","suspension")'; Start-Sleep -Milliseconds 500
-  Check-Layout 'SUSPENSION'
-  Cdp-Shot (Join-Path $shots 'wb-suspension.png')
-  Check 'picture tests\shots\wb-suspension.png written' ((Get-Item (Join-Path $shots 'wb-suspension.png')).Length -gt 50000)
 
   Section '4f. SPLITS'
   $null = Cdp-Eval 'WB.cmd("zoom-reset"); WB.cmd("page","splits")'; Start-Sleep -Milliseconds 700
@@ -780,36 +624,6 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   if ($badMid.Count) { Note ($badMid -join ' ; ') }
   Check "afternoon session: the BEST row is green where the sector is only the best of this session ($($clsMid -join ', ')), as the cells above are" ($badMid.Count -eq 0 -and -not ($clsMid -contains 'sp') -and ($clsMid -contains 'sn'))
 
-  Section '4g. TYRES & STINT with two stints and two setting changes (a pretend session: a copy of the real reply with a pit stop and the changes written in)'
-  # nothing like it exists in the 12 vault files (C-34 found none), so the real reply is patched: stint 1 = laps 0-4, stint 2 = laps 5-11 with
-  # fresh-looking tread and carcass, a brake bias change before lap 8 (best 3 laps before / after) and a traction control change across a stop
-  $pj = Get-Content $dp.path -Raw | ConvertFrom-Json
-  $s1 = $pj.stints[0]; $s2 = ($s1 | ConvertTo-Json -Depth 12 | ConvertFrom-Json)
-  $s1.lapLast = 4; $s1.cleanLaps = 2; $s1.statLap = 2
-  $s2.n = 2; $s2.lapFirst = 5; $s2.lapLast = 11; $s2.cleanLaps = 6; $s2.statLap = 10; $s2.minutes = 9.5
-  foreach ($w in 'LF', 'RF', 'LR', 'RR') { $s2.tyres.$w.wear.L = 97.0; $s2.tyres.$w.wear.M = 96.5; $s2.tyres.$w.wear.R = 96.0; $s2.tyres.$w.wear.live = $true; $s2.tyres.$w.carcass.L = 62.0; $s2.tyres.$w.carcass.M = 63.0; $s2.tyres.$w.carcass.R = 64.0; $s2.tyres.$w.carcass.live = $true }
-  $pj.stints = @($s1, $s2)
-  $ch1 = [pscustomobject]@{ channel = 'dcBrakeBias'; from = 55.9646; to = 56.4646; t = 700.0; lap = 7; atM = 2100; before = @([pscustomobject]@{ lap = 5; time = 80.205 }, [pscustomobject]@{ lap = 6; time = 79.931 }); after = @([pscustomobject]@{ lap = 9; time = 80.471 }, [pscustomobject]@{ lap = 10; time = 80.078 }); bestBefore = 79.931; bestAfter = 80.078; delta = 0.147; pitBetween = $false }
-  $ch2 = [pscustomobject]@{ channel = 'dcTractionControl'; from = 2; to = 3; t = 800.0; lap = 10; atM = 400; before = @([pscustomobject]@{ lap = 8; time = 79.878 }); after = @([pscustomobject]@{ lap = 12; time = 79.5 }); bestBefore = 79.878; bestAfter = 79.5; delta = -0.378; pitBetween = $true }
-  $pj.changes = @($ch1, $ch2)
-  $patched = Join-Path $work 'deep-patched.json'; [IO.File]::WriteAllText($patched, ($pj | ConvertTo-Json -Depth 14 -Compress), (New-Object Text.UTF8Encoding($false)))
-  Cdp-Goto ($fxBase + '&page=tyres&deep=' + (FxUrl $patched) + '&session=' + (FxUrl $se.path))
-  $stt = Cdp-Json 'WB.state'
-  Check 'opening with page=tyres works once the engine reply is in, on the stint the lap belongs to (stint 2)' ($stt.page -eq 'tyres' -and ((Cdp-Eval 'document.querySelector(".ph b").textContent') -eq '2'))
-  $chips = @(Cdp-List '[].map.call(document.querySelectorAll(".chip"),function(c){return c.textContent+(c.className.indexOf("on")>=0?"*":"")})')
-  Check 'two stints give two chips, the shown one lit' (($chips -join ',') -eq 'STINT 1,STINT 2*')
-  $body = Cdp-Eval 'document.getElementById("page").innerText'
-  Check 'stint 2 shows the new tread (97 / 96 / 96 %), the warm carcass and says carcass and tread are as at the last pit stop' ($body -like '*Carcass and tread: as at the last pit stop*' -and (Cdp-Eval 'document.querySelectorAll(".tc")[0].querySelectorAll("td.v")[3].textContent') -eq '97')
-  $sc = @(Cdp-List '[].map.call(document.querySelectorAll(".sc"),function(r){return r.textContent})')
-  Note ('changes on screen: ' + ($sc -join ' || '))
-  Check 'the brake bias change is listed with its lap, both values, the best before / after and the difference (+0.147 s)' ($sc.Count -eq 2 -and $sc[0] -like '*BRAKE BIAS*lap 7*55.96 % → 56.46 %*1:19.931*1:20.078*+0.147*')
-  Check 'the traction control change across a stop says a pit stop was in between and never claims the gain is the setting' ($sc[1] -like '*TRACTION CONTROL*setting 2 → setting 3*pit stop between*')
-  Check-Layout 'TYRES & STINT (two stints)'
-  $null = Cdp-Eval 'document.querySelectorAll(".chip")[0].click()'; Start-Sleep -Milliseconds 500
-  $body = Cdp-Eval 'document.getElementById("page").innerText'
-  Check 'the chip of stint 1 shows it: only 2 clean laps there, so the charts say "Under 5 clean laps" and list them instead of drawing' ((Cdp-Eval 'WB.textBoxes().some(function(b){return /^Under 5 clean laps/.test(b.s)})') -eq $true -and (Cdp-Eval 'document.querySelector(".ph b").textContent') -eq '1')
-  Check-Layout 'TYRES & STINT (stint 1, short)'
-
   Section '4h. the channel picker: initials search, any of the 288 channels becomes a trace row'
   $url4h = $fxBase + '&page=driver&deep=' + (FxUrl $dp.path) + '&session=' + (FxUrl $se.path) + '&xdata=' + (FxUrl (Join-Path $work 'x-{ch}.bin'))
   Cdp-Goto $url4h
@@ -817,7 +631,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check '"LG" finds Lateral G first (initials, like Pi Toolbox)' ((@(Cdp-List 'WB.search("LG")'))[0] -eq 'Lateral G')
   Check '"lg" also finds Longitudinal G, and "ride h" finds the ride heights, "pitch" the pitch orientation' ((@(Cdp-List 'WB.search("lg")') -contains 'Longitudinal G') -and ((@(Cdp-List 'WB.search("ride h")'))[0] -like 'Ride height*') -and (@(Cdp-List 'WB.search("pitch")') -contains 'Pitch orientation'))
   Check 'a search that matches nothing finds nothing' ((@(Cdp-List 'WB.search("qqzzqq")') | Where-Object { $_ }).Count -eq 0)
-  Check '+ CHANNEL is on DRIVER (it has a trace stack with room) and not on TYRES or SPLITS (no dead button)' (((Cdp-Eval 'document.getElementById("addch").style.display') -ne 'none') -and ((Cdp-Eval 'WB.cmd("page","tyres"); document.getElementById("addch").style.display') -eq 'none') -and ((Cdp-Eval 'WB.cmd("page","splits"); document.getElementById("addch").style.display') -eq 'none'))
+  Check '+ CHANNEL is on DRIVER (it has a trace stack with room) and not on SPLITS (no dead button)' (((Cdp-Eval 'document.getElementById("addch").style.display') -ne 'none') -and ((Cdp-Eval 'WB.cmd("page","splits"); document.getElementById("addch").style.display') -eq 'none'))
   $null = Cdp-Eval 'WB.cmd("page","driver")'; Start-Sleep -Milliseconds 400
   $rows0 = [int](Cdp-Eval 'WB.displays().filter(function(d){return d.kind==="traces"})[0].rows.length')
   $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 200
@@ -903,11 +717,11 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Section '4i. no dead tabs when an engine reply is missing'
   Cdp-Goto ($fxBase + '&page=braking')
   $pg0 = (@(Cdp-List 'WB.pages()')) -join ','
-  Check 'with no engine reply at all only the pages that work are offered (no BRAKING, TYRES, SPLITS) and a request for BRAKING opens DRIVER' ($pg0 -eq 'driver,grip,suspension' -and (Cdp-Json 'WB.state').page -eq 'driver' -and (@(Cdp-List 'Array.prototype.map.call(document.querySelectorAll("#tabs span"),function(s){return s.getAttribute("data-p")})') -join ',') -eq $pg0)
+  Check 'with no engine reply at all only the pages that work are offered (no BRAKING, SPLITS) and a request for BRAKING opens DRIVER' ($pg0 -eq 'driver' -and (Cdp-Json 'WB.state').page -eq 'driver' -and (@(Cdp-List 'Array.prototype.map.call(document.querySelectorAll("#tabs span"),function(s){return s.getAttribute("data-p")})') -join ',') -eq $pg0)
   Cdp-Goto ($fxBase + '&page=driver&deep=' + (FxUrl $dp.path))
-  Check 'with the deep-dive reply but no session reply SPLITS has no tab and the rest do' ((@(Cdp-List 'WB.pages()') -join ',') -eq 'driver,grip,braking,tyres,suspension')
+  Check 'with the deep-dive reply but no session reply SPLITS has no tab and the rest do' ((@(Cdp-List 'WB.pages()') -join ',') -eq 'driver,braking')
   Cdp-Goto ($fxBase + '&page=driver&deep=' + (FxUrl (Join-Path $work 'does-not-exist.json')))
-  Check 'an engine reply that cannot be read leaves no BRAKING or TYRES tab and no error on screen' ((@(Cdp-List 'WB.pages()') -join ',') -eq 'driver,grip,suspension' -and -not (Cdp-Eval 'WB.error || ""'))
+  Check 'an engine reply that cannot be read leaves no BRAKING tab and no error on screen' ((@(Cdp-List 'WB.pages()') -join ',') -eq 'driver' -and -not (Cdp-Eval 'WB.error || ""'))
 
 Section '4j. Session Review ANALYSIS sends the selected lap, not the session best, to Workbench'
   $reviewFx = 'file:///' + ($root -replace '\\', '/') + '/dash/www/v2/sessionreview.html?data=' + [uri]::EscapeDataString((FxUrl $se.path)) + '&map=' + [uri]::EscapeDataString((FxUrl $wf.path))

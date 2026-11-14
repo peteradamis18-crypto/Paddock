@@ -14,7 +14,6 @@ const PageHost = {
     sessions: { id: 'sessHost', src: 'sessions.html?embed=1', title: 'Sessions', nav: 'nav', open: '/api/nav?to=sessions', close: '/api/nav?to=home', z: 948 },
     // the deck's DEBRIEF key: the coach for his last outing (same irdash request flag as Sessions, value 'coach')
     coach: { id: 'coachHost', src: 'coach.html?id=last', title: 'Review', nav: 'nav', open: '/api/nav?to=coach', close: '/api/nav?to=home', z: 948 },
-    vault: { id: 'vaultHost', src: 'vault.html?embed=1', title: 'Vault', nav: 'vaultNav', open: '/api/do?c=vkopen', close: '/api/do?c=vkclose', z: 947 },
     perf: { id: 'perfHost', src: 'perf.html?embed=1', title: 'Performance', nav: 'perfNav', open: '/api/do?c=perf', close: '/api/do?c=perfclose', z: 946 },
     // MY RACES (top bar of HOME): the whole-race videos. Opened only from this screen, so irdash keeps no flag for it.
     races: { id: 'racesHost', src: '../app/index.html?page=races&intro=0', title: 'Races',   /* W3-1: RACES lives in the shell now */
@@ -43,7 +42,6 @@ const PageHost = {
     setInterval(() => { if (this.driving() && this.cur) this.close(true); }, 1500);
     const q = location.search;
     if (/[?&]sessions=1/.test(q)) this.open('sessions', false);
-    else if (/[?&]vault=1/.test(q)) this.open('vault', false);
     else if (/[?&]perf=1/.test(q)) this.open('perf', false);
     else if (/[?&]races=1/.test(q)) this.open('races', false);
     const rl = document.getElementById('idleRaces');

@@ -290,13 +290,13 @@ if (Test-Path $chrome) {
         $o = $sb.ToString() | ConvertFrom-Json; if ($o.id -eq $script:cid) { return $o } }
     }
     function Ev($expr) { $r = Cdp 'Runtime.evaluate' @{ expression = $expr; awaitPromise = $true; returnByValue = $true }; if ($r.result.exceptionDetails) { return 'js error: ' + $r.result.exceptionDetails.exception.description }; return $r.result.result.value }
-    $null = Cdp 'Page.navigate' @{ url = "$api/v2/vault.html?nothing=1" }; Start-Sleep -Seconds 3
+    $null = Cdp 'Page.navigate' @{ url = "$api/v2/workbench.html?nothing=1" }; Start-Sleep -Seconds 3
     $js = "(async()=>{const v=document.createElement('video');v.src='/api/rec/session-video?id=" + [uri]::EscapeDataString($sid) + "';document.body.appendChild(v);v.muted=false;await new Promise(r=>{v.onloadeddata=r;setTimeout(r,8000)});try{await v.play()}catch(e){return 'play: '+e.name}await new Promise(r=>setTimeout(r,2500));const a=v.webkitAudioDecodedByteCount||0;v.pause();return JSON.stringify({t:v.currentTime,a:a,muted:v.muted})})()"
     $res = Ev $js
     $rj = $null; try { $rj = $res | ConvertFrom-Json } catch { }
     # webkitAudioDecodedByteCount counts the COMPRESSED sound bytes decoded: the test clicks are mostly silence (~6 kbit/s), so 2.5 s is ~2 kB
     Check "Chrome plays the session file with sound, not muted (decoded $(if ($rj) { $rj.a } else { $res }) bytes of AAC in $(if ($rj) { [math]::Round($rj.t, 1) }) s)" ($rj -and $rj.a -gt 1000 -and $rj.t -gt 1 -and -not $rj.muted)
-    $syn = Ev "(async()=>{const out=[];for(const f of ['workbench-video.js','home.js','debrief-v4.js','vault.js']){try{new Function(await (await fetch('/v2/'+f,{cache:'no-store'})).text());out.push(f+' ok')}catch(e){out.push(f+' '+e.message)}}return out.join(', ')})()"
+    $syn = Ev "(async()=>{const out=[];for(const f of ['workbench.js','home.js','debrief-v4.js','workbench-race.js']){try{new Function(await (await fetch('/v2/'+f,{cache:'no-store'})).text());out.push(f+' ok')}catch(e){out.push(f+' '+e.message)}}return out.join(', ')})()"
     Check "the changed scripts parse ($syn)" ($syn -notmatch 'js error' -and ([regex]::Matches($syn, ' ok').Count -eq 5))
   } finally {
     try { $ws.Dispose() } catch { }; try { $p | Stop-Process -Force } catch { }
