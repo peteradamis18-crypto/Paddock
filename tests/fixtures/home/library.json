@@ -1,0 +1,7 @@
+{"storage":{"usedGb":412,"freeGb":280,"trashGb":0,"moreRaces":38,"lowSpace":false},"youtube":{"signedIn":false,"privacy":"private","template":1},"titles":[],
+ "races":[
+  {"id":"20261113-2000-road-atlanta","track":"Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Race","isRace":true,"startMs":1794564000000,"sec":1500,"laps":12,"counted":10,"best":93.832,"bestLap":7,"mb":1100,"kept":true,"start":7,"finish":4,"field":19,"thumb":false,"state":{"kind":"none"},"markers":[]},
+  {"id":"20261112-2000-lime-rock","track":"Lime Rock Park","config":"Full Course","car":"Toyota GR86","type":"Practice","isRace":false,"startMs":1794477600000,"sec":1800,"laps":14,"counted":12,"best":60.114,"bestLap":9,"mb":900,"kept":false,"start":0,"finish":0,"field":0,"thumb":false,"state":{"kind":"none"},"markers":[]},
+  {"id":"20261111-1900-road-atlanta","track":"Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Race","isRace":true,"startMs":1794387600000,"sec":1500,"laps":12,"counted":11,"best":94.102,"bestLap":5,"mb":1100,"kept":false,"start":0,"finish":0,"field":0,"thumb":false,"state":{"kind":"none"},"markers":[]},
+  {"id":"20261110-1500-okayama","track":"Okayama International Circuit","config":"Full Course","car":"Toyota GR86","type":"Race","isRace":true,"startMs":1794297600000,"sec":1500,"laps":15,"counted":13,"best":88.5,"bestLap":4,"mb":1000,"kept":false,"start":12,"finish":9,"field":20,"thumb":false,"state":{"kind":"none"},"markers":[]}],
+ "trash":[]}

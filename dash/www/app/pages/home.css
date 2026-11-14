@@ -1,0 +1,46 @@
+/* HOME (W3-3, docs/rework/PLAN.md 4.1). Colours and sizes come from design.css only; nothing here is under 24 px.
+   The zones sit at the plan's screen positions (1920 x 1080): the clock in the middle, NOW / NEXT left, MY RACES right,
+   the RIG band at the bottom. The space between them is empty on purpose (the watch-face rule: time first, few complications). */
+.home { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; }
+.home .zone { position: absolute; pointer-events: auto; }
+.home .now { left: 96px; top: 120px; width: 464px; height: 720px; }
+.home .dial { left: 600px; top: 120px; width: 720px; height: 720px; }
+.home .mine { left: 1360px; top: 120px; width: 464px; height: 720px; display: flex; flex-direction: column; }
+.home .rig { left: 96px; top: 900px; width: 1728px; height: 100px; display: flex; align-items: center; gap: 32px;
+  border-top: 2px solid var(--line); }
+
+.home .lbl { margin: 0 0 24px; font-size: var(--t-body); line-height: 1.2; font-weight: 600; letter-spacing: var(--track);
+  text-transform: uppercase; color: var(--muted); }
+
+/* NOW / NEXT: the next race large, at most three more rows; a row whose start has passed fades */
+.home .nx { margin: 0 0 28px; transition: opacity var(--enter) var(--ease); }
+.home .nx.past { opacity: .35; }
+.home .nx .t { font-size: var(--t-read); line-height: 1.15; }
+.home .nx .s { font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home .nx .d { font-size: var(--t-body); line-height: 1.35; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home .nx.big .t { font-size: var(--t-display); line-height: 1; margin-bottom: 8px; }
+.home .nx.big .t.soon { color: var(--gold); }
+.home .nx .when { font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; }
+.home .none { font-size: var(--t-read); line-height: 1.25; color: var(--muted); }
+
+/* MY RACES: three rows and LAST RACE; after a drive the card with REVIEW takes the top for ten minutes */
+.home .mr { margin: 0 0 24px; }
+.home .mr .s { font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home .mr .d { font-size: var(--t-body); line-height: 1.35; color: var(--muted); }
+.home .mr .d .res { color: var(--ink); }
+.home .after { margin: 0 0 40px; padding: 24px; border: 2px solid var(--gold-dim); border-radius: 6px; background: var(--panel); }
+.home .after .s { font-size: var(--t-read); line-height: 1.2; margin-bottom: 20px; }
+.home .mine .last { align-self: flex-start; margin-top: auto; }
+
+/* RIG: one line and, when there is one, the one button (the only gold fill on the screen) */
+.home .rig .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--gain); flex: none; }
+.home .rig .dot.bad { background: var(--danger); }
+.home .rig .dot.off { background: var(--dim); }
+.home .rig .line { flex: 1; margin: 0; font-size: var(--t-read); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home .rig .line .ok { color: var(--gain); }
+.home .rig .line .w { color: var(--muted); }
+.home .rig .fix { flex: none; }
+.home .rig .one { flex: none; min-width: 240px; max-width: 760px; height: 96px; display: flex; flex-direction: column; justify-content: center;
+  align-items: center; padding: 0 32px; font-size: var(--t-read); line-height: 1.1; }
+.home .rig .one span { font-size: var(--t-body); font-weight: 400; letter-spacing: 0; text-transform: none; white-space: normal; text-align: center; line-height: 1.2; }
+.home .rig .one.busy { cursor: default; }
