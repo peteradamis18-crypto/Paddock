@@ -243,14 +243,17 @@ namespace IRDash
             string root = Corners.DataRoot ?? Program.RootDir;
             string lovely = e == null ? null : Path.Combine(root, @"data\corners\lovely", e.File);
             bool onDisk = lovely != null && File.Exists(lovely);
-            bool fresh = onDisk && (DateTime.UtcNow - File.GetLastWriteTimeUtc(lovely)).TotalDays <= 45;
             CornerSet cs;
             // Resolve would fetch a missing or stale Lovely file. Read the disk copy instead, or skip Lovely.
-            if (fresh || e == null) cs = Corners.Resolve(s.TrackName.Length > 0 ? s.TrackName : s.Track, s.Config, s.TrackId, key, false);
-            else cs = Corners.ParseLovely(File.ReadAllText(lovely, Encoding.UTF8));
+            // W4-1: Lovely's own lap fractions, always: Resolve moved each apex to the outline's tightest point when dash\maps held the
+            // track and left it in the middle when it did not (12 Nov lap 9: apexes 65 m apart, W4-6's raw read), so the measures depended
+            // on a map file being there. A Lovely entry whose file is not on disk: the auto set only (it used to throw on the missing file).
+            if (onDisk) cs = Corners.ParseLovely(File.ReadAllText(lovely, Encoding.UTF8));
+            else if (e != null) cs = Corners.AutoSet(key);
+            else cs = Corners.Resolve(s.TrackName.Length > 0 ? s.TrackName : s.Track, s.Config, s.TrackId, key, false);
             if (cs == null) cs = new CornerSet();
             if (cs.Credit.Length == 0 && cs.Turns.Count > 0 && cs.Source == "lovely") cs.Credit = Corners.LovelyCredit;
-            lock (gate) cornerCache[key] = cs;
+            if (cs.Turns.Count > 0) lock (gate) cornerCache[key] = cs;      // W4-1: never cache an empty set (a corner file that arrives later is seen)
             return cs;
         }
 
@@ -356,6 +359,7 @@ namespace IRDash
                 int i = 0;
                 while (i < n)
                 {
+                    Review.Check();      // W4-1: a review job stops here once a session starts (does nothing on a request thread)
                     int want = Math.Min(per, n - i), got = 0;
                     while (got < want * t.bufLen) { int r = t.fs.Read(buf, got, want * t.bufLen - got); if (r <= 0) break; got += r; }
                     int recs = got / t.bufLen; if (recs == 0) break;
@@ -573,7 +577,11 @@ namespace IRDash
             // a whole lap with a long off-track (skip "off") is still a whole lap: it can be the reference iRacing counted (CleanOf), so its corners are measured too
             bool whole = lap.Clean || (lap.Skip == "off" && lap.Tm != null && !lap.Partial);
             if (!whole || cs == null || cs.Turns == null) return;
-            for (int ti = 0; ti < cs.Turns.Count; ti++) lap.Corners.Add(MeasureOne(lap, cs.Turns[ti], ti > 0 ? cs.Turns[ti - 1].Pa : cs.Turns[cs.Turns.Count - 1].Pa));
+            for (int ti = 0; ti < cs.Turns.Count; ti++)
+            {
+                CornerTurn prev = ti > 0 ? cs.Turns[ti - 1] : cs.Turns[cs.Turns.Count - 1];
+                lap.Corners.Add(MeasureOne(lap, cs.Turns[ti], prev.Pa, cs.Turns.Count > 1 ? prev.P1 : -1));
+            }
             List<double[]> iv = new List<double[]>();
             foreach (Met m in lap.Corners)
             {
@@ -590,7 +598,14 @@ namespace IRDash
             if (cursor < 1 - 1e-6) lap.Straights.Add(Span(lap, cursor * lap.LengthM, lap.LengthM));
         }
 
-        static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa)
+        static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa) { return MeasureOne(lap, t, prevPa, -1); }
+
+        // prevP1 >= 0: prefer this corner's own braking. W4-1 / W4-6's raw read of 12 Nov lap 9: T7's "brake point" was T6's press 266 m
+        // before T7's apex (its own press is at 2044 m), so a card could name the wrong corner. A press that STARTS after the previous corner's
+        // apex is this corner's own and wins when there is one; when the only press in the window is one carried on from the previous corner
+        // (linked corners: T3-T4, T10a-T10b, a kink before a hairpin) it is kept, with its real start (up to 80 m back), as before.
+        // 12 Nov lap 9: T6 = 1861 m, T7 = 2044 m, T4 = 748 m (tests\review-test.ps1).
+        static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa, double prevP1)
         {
             double L = lap.LengthM;
             Met m = new Met();
@@ -619,12 +634,18 @@ namespace IRDash
             // (2026-10-18, BMW at Road America T6: best lap 2486 m, this lap 2495 m, coach said "60 m earlier"). A press already
             // on at the start of the window counts from where it really began (up to 80 m further back).
             // (A press that runs on from the previous corner is shared with it: the deep dive then looks for a separate press after that
-            // corner's apex, deepdive.cs ZoneStarts. Cutting the window at the previous apex here broke linked corners: T4 with T3.)
-            int minStep = 0;
-            bool found = false; double brakeAt = 0, bestArea = 0, area = 0, curStart = 0; bool inApp = false;
-            if (minStep == 0 && ChAt(lap, lap.Brk, da - 250) > 0.10)
+            // corner's apex, deepdive.cs ZoneStarts. Cutting the window at the previous apex broke linked corners - T4 with T3 - so a carried
+            // press is only passed over when the corner has a press of its own, see the note above MeasureOne.)
+            int cutStep = 0;
+            if (prevP1 >= 0)
             {
-                inApp = true; curStart = DistNorm(da - 250, L);
+                double back = DeltaM(da, DistNorm(prevPa * L, L), L);       // metres from the previous corner's apex to this apex
+                if (back > 0 && back < 250) cutStep = 250 - (int)Math.Floor(back);
+            }
+            bool found = false, foundOwn = false; double brakeAt = 0, bestArea = 0, ownAt = 0, ownArea = 0, area = 0, curStart = 0; bool inApp = false; int startStep = 0;
+            if (ChAt(lap, lap.Brk, da - 250) > 0.10)
+            {
+                inApp = true; curStart = DistNorm(da - 250, L); startStep = 0;
                 for (int k = 1; k <= 80; k++)
                 {
                     double x = DistNorm(da - 250 - k, L);
@@ -632,19 +653,22 @@ namespace IRDash
                     curStart = x;
                 }
             }
-            for (int step = Math.Max(1, minStep); step <= 251; step++)
+            for (int step = 1; step <= 251; step++)
             {
                 double x = DistNorm(da - 250 + step, L);
                 double bv = step <= 250 ? ChAt(lap, lap.Brk, x) : 0;
                 bool on = bv > 0.10;
-                if (on && !inApp) { inApp = true; curStart = x; area = 0; }
+                if (on && !inApp) { inApp = true; curStart = x; area = 0; startStep = step; }
                 if (on) area += bv;
                 if (!on && inApp)
                 {
                     inApp = false;
                     if (area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
+                    if (cutStep > 0 && startStep > cutStep && area > ownArea) { ownArea = area; ownAt = curStart; foundOwn = true; }
                 }
-            }            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
+            }
+            if (foundOwn) brakeAt = ownAt;      // this corner's own press beats one carried on from the previous corner
+            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
             for (int k = 1; k <= 200; k++)
             {
                 double x = DistNorm(da + k, L);

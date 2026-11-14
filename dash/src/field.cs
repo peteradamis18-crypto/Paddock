@@ -1072,6 +1072,30 @@ namespace IRDash
             return l;
         }
 
+        // W4-1 (review.cs): the field log of ONE iRacing session of a telemetry file, as /analysis/race answers it (with its summary).
+        // A file can hold practice, qualifying and the race: the log whose id ends in that session number wins, then the longest overlap.
+        // null = no log for it. Reads only the vault's field folder.
+        internal static string LogFor(string fileId, int sessNum)
+        {
+            try
+            {
+                long from, to;
+                if (!WindowOf(fileId, out from, out to)) return null;
+                FileIdx best = null; long bestOv = 0; bool bestSame = false;
+                foreach (FileIdx x in Files())
+                {
+                    long ov = Math.Min(x.EndMs, to + 120000) - Math.Max(x.StartMs, from - 120000);
+                    if (ov <= 0) continue;
+                    bool same = sessNum >= 0 && x.Id.EndsWith("-" + sessNum.ToString(Inv), StringComparison.Ordinal);
+                    if (best == null || (same && !bestSame) || (same == bestSame && (ov > bestOv || (ov == bestOv && x.Laps > best.Laps)))) { best = x; bestOv = ov; bestSame = same; }
+                }
+                if (best == null) return null;
+                RfData d = RfData.FromJson(File.ReadAllText(best.Path, Encoding.UTF8));
+                return d == null ? null : d.ToJson(false, RfSummary.Build(d), true);
+            }
+            catch (Exception ex) { Log.W("field: log for " + fileId + ": " + ex.Message); return null; }
+        }
+
         static string RaceRoute(Dictionary<string, string> q, out int code)
         {
             code = 200; string id = Q(q, "id");

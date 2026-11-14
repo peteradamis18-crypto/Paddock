@@ -515,6 +515,9 @@ namespace IRDash
         // ---------------- what we found by ourselves: data\corners\auto\<trackkey>.json ----------------
         static readonly Dictionary<string, LovelyData> autoCache = new Dictionary<string, LovelyData>();
 
+        // W4-1: the corners worked out from telemetry only (no Lovely, never a fetch); null = none saved for this track yet
+        internal static CornerSet AutoSet(string key) { try { return LoadAuto(key ?? ""); } catch { return null; } }
+
         static CornerSet LoadAuto(string key)
         {
             if (key.Length == 0) return null;
