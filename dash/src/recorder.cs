@@ -193,6 +193,75 @@ namespace IRDash
         public string State = "";    // "finalize-stalled" while a finish timed out waiting (overrides ready/partial)
         public double RecEndMs;     // wall clock of the last recorded picture (the review asks "was this lap driven while it ran?")
         public string Audio = "", AudioSource = "";   // ok | partial | none, and whose sound it is ("iRacing + CrewChief", "whole PC")
+        // W3-3: where he started and finished a race and how many cars were in the results (0 = not known: not a race, an old sidecar,
+        // or iRacing never listed him). From the SDK's session info (RacePlace), read while the session is open and once more at its end.
+        public int StartPos, FinishPos, FieldSize;
+        public int PosVer = -1; public string PosYaml = ""; public double PosAt;      // while open: the newest session info not yet read, and when we last read one
+    }
+
+    // W3-3: his place in a session's results, from iRacing's session info text (pure: tests call it on a fixture).
+    //   finish = his Position in SessionInfo.Sessions[num].ResultsPositions (1-based, overall), field = how many cars are listed there;
+    //   grid   = his place in QualifyResultsInfo (0-based there, so +1), the starting grid of a race; 0 when it is not published.
+    static class RacePlace
+    {
+        public static int DriverIdx(string yaml)
+        {
+            Match m = Regex.Match(yaml ?? "", @"(?m)^\s*DriverCarIdx:\s*(\d+)");
+            return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1;
+        }
+
+        // the text of a top-level block ("SessionInfo:", "QualifyResultsInfo:") up to the next top-level key
+        static string Block(string yaml, string name)
+        {
+            Match m = Regex.Match(yaml, "(?m)^" + name + ":");
+            if (!m.Success) return "";
+            Match n = Regex.Match(yaml.Substring(m.Index + m.Length), @"(?m)^[A-Za-z]");
+            return n.Success ? yaml.Substring(m.Index, m.Length + n.Index) : yaml.Substring(m.Index);
+        }
+
+        static int Lead(string s) { Match m = Regex.Match(s, @"^\s*(-?\d+)"); return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -99; }
+        static int IdxOf(string row) { Match m = Regex.Match(row, @"(?m)^\s*CarIdx:\s*(\d+)"); return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1; }
+
+        public static void Results(string yaml, int sessionNum, int carIdx, out int pos, out int field)
+        {
+            pos = 0; field = 0;
+            if (string.IsNullOrEmpty(yaml) || carIdx < 0) return;
+            string[] parts = Regex.Split(Block(yaml, "SessionInfo"), @"(?m)^[ \t]*- SessionNum:");
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (Lead(parts[i]) != sessionNum) continue;
+                int rp = parts[i].IndexOf("ResultsPositions:", StringComparison.Ordinal); if (rp < 0) return;
+                string rb = parts[i].Substring(rp); int ff = rb.IndexOf("ResultsFastestLap:", StringComparison.Ordinal); if (ff > 0) rb = rb.Substring(0, ff);
+                string[] rs = Regex.Split(rb, @"(?m)^[ \t]*- Position:");
+                for (int k = 1; k < rs.Length; k++)
+                {
+                    int p = Lead(rs[k]); if (p <= 0) continue;
+                    field++;
+                    if (IdxOf(rs[k]) == carIdx) pos = p;
+                }
+                return;
+            }
+        }
+
+        public static int Grid(string yaml, int carIdx)
+        {
+            if (string.IsNullOrEmpty(yaml) || carIdx < 0) return 0;
+            string[] rs = Regex.Split(Block(yaml, "QualifyResultsInfo"), @"(?m)^[ \t]*- Position:");
+            for (int k = 1; k < rs.Length; k++) if (IdxOf(rs[k]) == carIdx) { int p = Lead(rs[k]); return p >= 0 ? p + 1 : 0; }
+            return 0;
+        }
+
+        // one look at the newest session info of an open race: the grid (or, without one, the first place seen) is the start; the last place seen is the finish
+        public static void Update(RecSess s, string yaml)
+        {
+            if (s == null || !SessionIndex.IsRaceType(s.Type) || string.IsNullOrEmpty(yaml)) return;
+            int me = DriverIdx(yaml); if (me < 0) return;
+            int pos, field; Results(yaml, s.SessionNum, me, out pos, out field);
+            int grid = Grid(yaml, me);
+            if (grid > 0) s.StartPos = grid;
+            else if (s.StartPos == 0 && pos > 0) s.StartPos = pos;
+            if (pos > 0) { s.FinishPos = pos; s.FieldSize = field; }
+        }
     }
 
     // S1: a clip cut around a rise in the player's incident count
@@ -1267,7 +1336,21 @@ namespace IRDash
                     }
                 }
                 if (added > 0) QueueIncident(current, now, added);
+                // W3-3: his place. The session info changes every few seconds in a race; keep the newest text (a reference, no copy)
+                // and read it at most every 5 s here, and once more when the session ends (EndSession), so the finish is the last word.
+                if (f.SessionVersion != current.PosVer && f.SessionYaml.Length > 0)
+                {
+                    current.PosVer = f.SessionVersion; current.PosYaml = f.SessionYaml;
+                    if (now - current.PosAt >= 5000) ReadPlace(current, now);
+                }
             }
+        }
+
+        static void ReadPlace(RecSess s, double now)
+        {
+            string y = s.PosYaml; s.PosYaml = ""; s.PosAt = now;
+            if (y.Length == 0) return;
+            try { RacePlace.Update(s, y); } catch (Exception ex) { Log.W("recorder: could not read the race positions (" + ex.Message + ")"); }
         }
 
         static void BeginSession(Frame f, double now)
@@ -1320,7 +1403,8 @@ namespace IRDash
                 s = openSess; if (s == null) return;
                 openSess = null; s.Open = false; finishing.Add(s);
             }
-            Log.W("recorder: session " + s.Id + " ended (" + why + ")");
+            if (s.PosYaml.Length > 0) ReadPlace(s, WallMs());      // the newest results not read yet: the finish
+            Log.W("recorder: session " + s.Id + " ended (" + why + ")" + (s.FinishPos > 0 ? " - P" + s.FinishPos + " of " + s.FieldSize + (s.StartPos > 0 ? " from P" + s.StartPos : "") : ""));
             if (s.Segs.Count == 0 && ff == null) { lock (gate) finishing.Remove(s); Log.W("recorder: nothing was recorded for session " + s.Id); return; }
             lock (gate)
             {
@@ -1602,6 +1686,7 @@ namespace IRDash
                    ",\"audio\":" + Json_.S(s.Audio.Length > 0 ? s.Audio : "none") + ",\"audioSource\":" + Json_.S(s.AudioSource) +
                    ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
                    ",\"keptBy\":" + Json_.S(s.PeterKept ? "peter" : "auto") +
+                   ",\"start\":" + s.StartPos + ",\"finish\":" + s.FinishPos + ",\"field\":" + s.FieldSize +
                    ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
                    ",\"laps\":" + lb + ",\"incidents\":" + ib + "}";
         }
@@ -1671,6 +1756,7 @@ namespace IRDash
             s.DurationSource = DS(d, "durationSource"); s.SaveBlocked = DS(d, "saveBlocked"); s.SaveWhenDone = DB(d, "saveWhenDone") && !s.Saved;
             s.Audio = DS(d, "audio"); s.AudioSource = DS(d, "audioSource");
             s.PeterKept = DS(d, "keptBy") == "peter";      // no field (a sidecar from before W1-1) = "auto"
+            s.StartPos = (int)DD(d, "start"); s.FinishPos = (int)DD(d, "finish"); s.FieldSize = (int)DD(d, "field");     // W3-3; a sidecar from before = 0, unknown
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;

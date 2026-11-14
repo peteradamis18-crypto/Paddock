@@ -121,6 +121,7 @@ namespace IRDash
                 if (want(7)) Thumbnails();
                 if (want(8)) Review();
                 if (want(9)) ShareChain();
+                if (want(10)) Positions();
             }
             catch (Exception ex) { Ok("the harness ran without an exception", false, ex.ToString()); }
             Console.WriteLine("DONE");
@@ -387,6 +388,72 @@ namespace IRDash
             Ok("6. raceempty: \"Emptying the trash\", then the trash is empty", code == 200 && j.Contains("Emptying the trash") && Wait(delegate { return Library.TrashList().Count == 0; }, 5000) && Gone("p-prac") && Gone("q-lone"), j);
             j = D("raceempty", "", out code);
             Ok("6. raceempty again: \"The trash is already empty\"", code == 409 && j.Contains("already empty"), j);
+        }
+
+        // W3-3: where he started and finished. A pretend iRacing session info: he is CarIdx 4, gridded 9th (QualifyResultsInfo is 0-based),
+        // 19 cars in the race results, he finished 3rd.
+        static string PosYaml(bool withQualify, int finish)
+        {
+            StringBuilder y = new StringBuilder("---\nWeekendInfo:\n TrackName: roadatlanta full\nDriverInfo:\n DriverCarIdx: 4\n Drivers:\n - CarIdx: 0\n   UserName: Pace Car\n");
+            y.Append("SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\n   ResultsPositions:\n   - Position: 1\n     ClassPosition: 0\n     CarIdx: 4\n     LapsComplete: 9\n   ResultsFastestLap:\n   - CarIdx: 4\n");
+            y.Append(" - SessionNum: 2\n   SessionType: Race\n   SessionName: RACE\n   ResultsPositions:\n");
+            for (int i = 0; i < 19; i++) { int idx = i == finish - 1 ? 4 : 10 + i; y.Append("   - Position: " + (i + 1) + "\n     ClassPosition: " + i + "\n     CarIdx: " + idx + "\n     Lap: 12\n     LapsComplete: 12\n"); }
+            y.Append("   ResultsFastestLap:\n   - CarIdx: 12\n     FastestLap: 5\n");
+            if (withQualify)
+            {
+                y.Append("QualifyResultsInfo:\n Results:\n");
+                for (int i = 0; i < 19; i++) { int idx = i == 8 ? 4 : 30 + i; y.Append(" - Position: " + i + "\n   ClassPosition: " + i + "\n   CarIdx: " + idx + "\n   FastestLap: 2\n   FastestTime: 93.5\n"); }
+            }
+            y.Append("SplitTimeInfo:\n Sectors:\n - SectorNum: 0\n   SectorStartPct: 0.000000\n...\n");
+            return y.ToString();
+        }
+
+        static void Positions()
+        {
+            Console.WriteLine("-- 10. start and finish (W3-3)");
+            string y = PosYaml(true, 3);
+            int pos, field; RacePlace.Results(y, 2, 4, out pos, out field);
+            Ok("10. RacePlace: the race session's results: P3 of 19 for CarIdx 4", pos == 3 && field == 19, pos + " of " + field);
+            Ok("10. RacePlace: DriverCarIdx is read (4), the grid from QualifyResultsInfo is 9 (0-based 8)", RacePlace.DriverIdx(y) == 4 && RacePlace.Grid(y, 4) == 9, RacePlace.DriverIdx(y) + " / " + RacePlace.Grid(y, 4));
+            RacePlace.Results(y, 0, 4, out pos, out field);
+            Ok("10. RacePlace: the practice session is its own (P1 of 1)", pos == 1 && field == 1);
+            RecSess live = new RecSess(); live.Type = "Race"; live.SessionNum = 2;
+            RacePlace.Update(live, PosYaml(false, 7));
+            Ok("10. a race without a qualifying result: the start is the first place seen (P7)", live.StartPos == 7 && live.FinishPos == 7 && live.FieldSize == 19, live.StartPos + "/" + live.FinishPos);
+            RacePlace.Update(live, PosYaml(false, 3));
+            Ok("10. later results move the finish (P3), the start stays (P7)", live.StartPos == 7 && live.FinishPos == 3, live.StartPos + "/" + live.FinishPos);
+            RacePlace.Update(live, PosYaml(true, 3));
+            Ok("10. once the grid is known it is the start (P9)", live.StartPos == 9 && live.FinishPos == 3);
+            RecSess prac = new RecSess(); prac.Type = "Practice"; prac.SessionNum = 0;
+            RacePlace.Update(prac, y);
+            Ok("10. a practice gets no positions (0 = not a race)", prac.StartPos == 0 && prac.FinishPos == 0);
+            RecSess none = new RecSess(); none.Type = "Race"; none.SessionNum = 2;
+            RacePlace.Update(none, y.Replace(" DriverCarIdx: 4\n", ""));
+            Ok("10. no DriverCarIdx: nothing guessed", none.StartPos == 0 && none.FinishPos == 0);
+
+            Clean();
+            Fix(Sess, "r-pos", "Race", now - 2 * 3600000, 1500, 1000, false, RaceLaps(), "", now - 2 * 3600000);
+            Patch(Sess, "r-pos", "\"recovered\":", "\"start\":9,\"finish\":3,\"field\":19,\"recovered\":");
+            Fix(Sess, "r-old", "Race", now - 3 * 3600000, 1500, 1000, false);
+            Reload();
+            RaceInfo r = SessionIndex.Get("r-pos"), o = SessionIndex.Get("r-old");
+            Ok("10. a sidecar with start/finish/field -> the race carries them (9, 3, 19)", r != null && r.Start == 9 && r.Finish == 3 && r.Field == 19, r == null ? "none" : r.Start + "," + r.Finish + "," + r.Field);
+            Ok("10. an old sidecar without them -> 0, 0, 0", o != null && o.Start == 0 && o.Finish == 0 && o.Field == 0);
+            Dictionary<string, object> d = Parse(Library.Json());
+            Dictionary<string, object> jr = null, jo = null;
+            foreach (object x in (object[])d["races"]) { Dictionary<string, object> xx = x as Dictionary<string, object>; if ((string)xx["id"] == "r-pos") jr = xx; if ((string)xx["id"] == "r-old") jo = xx; }
+            Ok("10. /api/library races carry start, finish, field", jr != null && Convert.ToInt32(jr["start"]) == 9 && Convert.ToInt32(jr["finish"]) == 3 && Convert.ToInt32(jr["field"]) == 19 && jo != null && Convert.ToInt32(jo["finish"]) == 0 && Convert.ToInt32(jo["start"]) == 0);
+            Facts f = (Facts)typeof(Library).GetMethod("FactsOf", Any).Invoke(null, new object[] { r });
+            Facts fo = (Facts)typeof(Library).GetMethod("FactsOf", Any).Invoke(null, new object[] { o });
+            Ok("10. the title facts carry them (Finish 3, Start 9; the old one 0)", f.Finish == 3 && f.Start == 9 && fo.Finish == 0 && fo.Start == 0);
+            string t2 = Cuts.Title(2, f);
+            Ok("10. a YouTube title (template 2) says P3 from P9", t2.StartsWith("P3 from P9"), t2);
+            RecSess rs = Recorder.LibFind("r-pos");
+            string sj = (string)typeof(Recorder).GetMethod("SessJson", Any).Invoke(null, new object[] { rs });
+            Ok("10. the recorder writes them back (SessJson)", sj.Contains("\"start\":9,\"finish\":3,\"field\":19"));
+            RecSess ro = Recorder.LibFind("r-old");
+            string so = (string)typeof(Recorder).GetMethod("SessJson", Any).Invoke(null, new object[] { ro });
+            Ok("10. an old one is written with 0 (unknown), never a made-up place", so.Contains("\"start\":0,\"finish\":0,\"field\":0"));
         }
 
         static void Thumbnails()
