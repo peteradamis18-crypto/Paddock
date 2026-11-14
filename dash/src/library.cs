@@ -482,7 +482,9 @@ namespace IRDash
                 if (HasThumb(r.Id)) continue;
                 lock (thumbFailed) if (thumbFailed.Contains(r.Id)) continue;
                 if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); break; }
-                if (MakeThumb(r)) made++; else lock (thumbFailed) thumbFailed.Add(r.Id);
+                if (MakeThumb(r)) made++;
+                else if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); break; }     // ffmpeg was stopped for a session: not a failure
+                else lock (thumbFailed) thumbFailed.Add(r.Id);
                 Action<string> after = AfterThumb; if (after != null) after(r.Id);
             }
             if (made > 0) { Log.W("library: " + made + " race thumbnail" + (made == 1 ? "" : "s") + " made"); Changed(); }
@@ -538,9 +540,10 @@ namespace IRDash
             st.LowSpace = st.Total > 0 && st.Free < st.Total * FreeShare;
             return st;
         }
+        static string GbOf(long b) { return Math.Round(b / Gb, MidpointRounding.AwayFromZero).ToString("0", Inv); }   // half a GB in the trash shows as 1, not 0
         static string StoreJson(Store st)
         {
-            return "{\"usedGb\":" + Math.Round(st.Used / Gb).ToString("0", Inv) + ",\"freeGb\":" + Math.Round(st.Free / Gb).ToString("0", Inv) + ",\"trashGb\":" + Math.Round(st.Trash / Gb).ToString("0", Inv) +
+            return "{\"usedGb\":" + GbOf(st.Used) + ",\"freeGb\":" + GbOf(st.Free) + ",\"trashGb\":" + GbOf(st.Trash) +
                    ",\"moreRaces\":" + st.MoreRaces.ToString(Inv) + ",\"lowSpace\":" + (st.LowSpace ? "true" : "false") + "}";
         }
 
@@ -599,7 +602,7 @@ namespace IRDash
         {
             List<RaceInfo> all = SessionIndex.All(), trash = TrashList();
             Store st = Storage(all, trash);
-            StringBuilder sb = new StringBuilder("{\"freeGb\":" + Math.Round(st.Free / Gb).ToString("0", Inv) + ",\"storage\":" + StoreJson(st) + ",\"races\":[");
+            StringBuilder sb = new StringBuilder("{\"freeGb\":" + GbOf(st.Free) + ",\"storage\":" + StoreJson(st) + ",\"races\":[");
             int n = 0;
             foreach (RaceInfo r in Shown(all))
             {
