@@ -150,9 +150,9 @@ namespace IRDash
         }
 
         // the .ibt has no field arrays, so the car's own channels go into its own slot and every other slot stays empty (not in the world)
-        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
-        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
-        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
+        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time", "CarIdxClass" };   // CarIdxClass: W2-1 race set
+        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "", "PlayerCarClass" };
+        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0 };
         // all: every slot (the first frame); after that only the player's own slot changes (the pretend session keeps the others: W0-3,
         // 832 idle slots re-sent 30 times a second were most of the test hook's cost in the load test)
         static int derivedFor = -1;
@@ -209,328 +209,7 @@ namespace IRDash
         }
     }
 
-    // ---------------- iRacing SDK reader ----------------
-    static class Sdk
-    {
-        static readonly object gate = new object();
-        static Frame latest = new Frame();
-        static long seq;
-        static DateTime lastFrameAt = DateTime.MinValue;
-        public static Frame Latest { get { lock (gate) return latest; } }
-        public static bool Fresh { get { lock (gate) return DateTime.UtcNow - lastFrameAt <= TimeSpan.FromSeconds(2); } }
-        public static bool FreshDeck { get { lock (gate) return DateTime.UtcNow - lastFrameAt <= TimeSpan.FromSeconds(1); } }
-
-        static void Publish(Frame f)
-        {
-            lock (gate) { f.Seq = ++seq; latest = f; lastFrameAt = DateTime.UtcNow; Monitor.PulseAll(gate); }
-            RigState.Feed(f.Connected, f.Connected && f.Num("IsOnTrack") != 0, fakeUp);     // the one "is he busy" answer (rigstate.cs)
-        }
-        public static Frame WaitNext(long lastSeq, int timeoutMs)
-        {
-            lock (gate)
-            {
-                if (latest.Seq == lastSeq) Monitor.Wait(gate, timeoutMs);
-                return latest;
-            }
-        }
-        // ---- test hook (tests\overlays-test.ps1): pretend a session is running, without iRacing ----
-        // Only works while the file dash\test-hook.on exists (the test makes it and removes it). The values go to
-        // irdash's own readers only (delta bar, timings, restart gate); no other program sees anything.
-        static bool fakeUp; static Thread fakePump; static string fakeYaml = ""; static int fakeSess = 1;
-        static volatile bool realUp;
-        static readonly Dictionary<string, double> fakeVals = new Dictionary<string, double>();
-        public static bool TestHook { get { return File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-hook.on")) && RealBusy() == null; } }
-        // true while the pretend session is on: the REPLAY screen then records its SDK messages instead of broadcasting them (replay.cs)
-        public static bool Pretend { get { return fakeUp; } }
-        public static volatile int FakePumpMs = 33;      // how often the pretend session publishes a frame; tests\race-field-test.ps1 shortens it (and restores 33) to run a pretend race faster than real time
-        static readonly Regex ArrayKey = new Regex("^(CarIdx[A-Za-z0-9]+)_([0-9]{1,2})$");   // test hook: CarIdxPosition_3=5 = slot 3 of that array
-
-        // Why the test hook must stay shut: Peter is racing or about to (2026-10-09 a test's pretend race mixed with his real one).
-        // null = nothing real is going on.
-        // Forwarder (more than five callers): the rule itself is RigState.RealBusyWhy (rigstate.cs).
-        public static string RealBusy() { return RigState.RealBusyWhy(); }
-
-        // W0-3: a replay sends about 1,100 keys 30 times a second; the regex per key per frame cost the test server 3-5 % of a core (the
-        // load test measures irdash, not its test hook). Each key is parsed once.
-        static readonly Dictionary<string, KeyValuePair<string, int>> slotOf = new Dictionary<string, KeyValuePair<string, int>>();
-        static bool ArraySlot(string key, out string name, out int slot)
-        {
-            KeyValuePair<string, int> s;
-            lock (slotOf)
-            {
-                if (!slotOf.TryGetValue(key, out s))
-                {
-                    Match am = ArrayKey.Match(key); int n;
-                    s = am.Success && int.TryParse(am.Groups[2].Value, out n) ? new KeyValuePair<string, int>(am.Groups[1].Value, n) : new KeyValuePair<string, int>(null, -1);
-                    slotOf[key] = s;
-                }
-            }
-            name = s.Key; slot = s.Value;
-            return s.Key != null;
-        }
-
-        public static void FakeSet(Dictionary<string, double> v)
-        {
-            lock (fakeVals) foreach (KeyValuePair<string, double> kv in v) fakeVals[kv.Key] = kv.Value;
-            if (fakeUp) return;
-            fakeUp = true;
-            Log.W("test hook: pretending a session is running");
-            Timings.OnConnected();
-            fakePump = new Thread(delegate ()
-            {
-                IbtReplay.PumpThread = IbtReplay.CurrentOsThread();
-                while (fakeUp)
-                {
-                    if (realUp) { Log.W("test hook: a real session started - the pretend one stops now"); new Thread(FakeEnd) { IsBackground = true }.Start(); return; }
-                    Frame f = new Frame(); f.Connected = true; f.Vars = new Dictionary<string, VarDef>(); f.SessionVersion = fakeSess; f.SessionYaml = fakeYaml;
-                    lock (fakeVals)
-                    {
-                        // CarIdxPosition_3=5 style keys are slots of a 64-car array (the REPLAY screen reads those); the rest are single values.
-                        // A lap fraction such as CarIdxLapDistPct was stored as an int, so 0.42 became 0 and every car sat on the start line.
-                        // Whole-number arrays stay ints. One fractional slot stores that whole array as floats (still 4 bytes a slot).
-                        var arrays = new Dictionary<string, double[]>();
-                        var whole = new Dictionary<string, bool>();
-                        int scalars = 0;
-                        foreach (KeyValuePair<string, double> kv in fakeVals)
-                        {
-                            string an; int slot;
-                            if (!ArraySlot(kv.Key, out an, out slot)) { scalars++; continue; }
-                            double[] arr; if (!arrays.TryGetValue(an, out arr)) { arr = new double[64]; arrays[an] = arr; whole[an] = true; }
-                            if (slot < 0 || slot >= 64) continue;
-                            arr[slot] = kv.Value;
-                            if (Math.Abs(kv.Value - Math.Round(kv.Value)) > 1e-6) whole[an] = false;
-                        }
-                        int arrBase = 8 * Math.Max(1, scalars), ai = 0;
-                        f.Data = new byte[arrBase + 256 * arrays.Count];
-                        foreach (KeyValuePair<string, double[]> ar in arrays)
-                        {
-                            bool isWhole = whole[ar.Key];
-                            VarDef av = new VarDef(); av.Name = ar.Key; av.Type = isWhole ? 2 : 4; av.Count = 64; av.Offset = arrBase + 256 * ai++;
-                            if (isWhole) { int[] iv = new int[64]; for (int k = 0; k < 64; k++) iv[k] = (int)ar.Value[k]; Buffer.BlockCopy(iv, 0, f.Data, av.Offset, 256); }
-                            else { float[] fv = new float[64]; for (int k = 0; k < 64; k++) fv[k] = (float)ar.Value[k]; Buffer.BlockCopy(fv, 0, f.Data, av.Offset, 256); }
-                            f.Vars[ar.Key] = av;
-                        }
-                        int i = 0;
-                        foreach (KeyValuePair<string, double> kv in fakeVals)
-                        {
-                            string an2; int slot2; if (ArraySlot(kv.Key, out an2, out slot2)) continue;
-                            VarDef d = new VarDef(); d.Name = kv.Key; d.Count = 1; d.Offset = i * 8;
-                            int rt = IbtReplay.TypeFor(kv.Key);      // an .ibt replay knows the real type (W0-8); -1 = old rules
-                            bool flag = rt == 1 || kv.Key == "IsOnTrack" || kv.Key == "OnPitRoad" || kv.Key.EndsWith("_OK");
-                            d.Type = flag ? 1 : rt >= 0 ? rt : kv.Key == "Lap" ? 2 : 4;
-                            if (flag) f.Data[d.Offset] = (byte)(kv.Value != 0 ? 1 : 0);
-                            else if (d.Type == 2 || d.Type == 3) Array.Copy(BitConverter.GetBytes(unchecked((int)(long)kv.Value)), 0, f.Data, d.Offset, 4);
-                            else if (d.Type == 5) Array.Copy(BitConverter.GetBytes(kv.Value), 0, f.Data, d.Offset, 8);
-                            else Array.Copy(BitConverter.GetBytes((float)kv.Value), 0, f.Data, d.Offset, 4);
-                            f.Vars[kv.Key] = d; i++;
-                        }
-                    }
-                    Publish(f);
-                    Timings.OnFrame(f);
-                    Thread.Sleep(FakePumpMs);
-                }
-            });
-            fakePump.IsBackground = true; fakePump.Start();
-        }
-
-        // a pretend session's YAML (taken from a real .ibt by the test); the page gets it through /stream like the real one
-        public static void FakeSession(string yaml) { fakeYaml = yaml ?? ""; fakeSess++; }
-
-        public static void FakeEnd()
-        {
-            if (!fakeUp) return;
-            fakeUp = false; fakeYaml = "";
-            lock (fakeVals) fakeVals.Clear();
-            Thread.Sleep(80);
-            Publish(new Frame());
-            Timings.OnDisconnected();
-            Log.W("test hook: the pretend session ended");
-        }
-
-        public static void Run()
-        {
-            MemoryMappedFile mmf = null; MemoryMappedViewAccessor va = null; EventWaitHandle ev = null;
-            Dictionary<string, VarDef> vars = null;
-            int numVarsSeen = -1, lastUpd = -1, sessVer = 0, lastTick = -1;
-            string yaml = "";
-            DateTime offSince = DateTime.MinValue, lastIdle = DateTime.MinValue;
-            bool wasConnected = false;
-            while (true)
-            {
-                try
-                {
-                    if (va == null)
-                    {
-                        try
-                        {
-                            mmf = MemoryMappedFile.OpenExisting("Local\\IRSDKMemMapFileName", MemoryMappedFileRights.Read);
-                            va = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-                        }
-                        catch { Close(ref mmf, ref va, ref ev); }
-                        if (va != null)
-                        {
-                            try { ev = EventWaitHandle.OpenExisting("Local\\IRSDKDataValidEvent", EventWaitHandleRights.Synchronize); }
-                            catch { ev = null; }
-                            vars = null; numVarsSeen = -1; lastUpd = -1; lastTick = -1; offSince = DateTime.Now;
-                        }
-                    }
-                    if (va == null) { Idle(ref lastIdle, ref wasConnected); Thread.Sleep(1000); continue; }
-
-                    if (ev != null) ev.WaitOne(250); else Thread.Sleep(16);
-
-                    int status = va.ReadInt32(4);
-                    if ((status & 1) == 0)
-                    {
-                        Idle(ref lastIdle, ref wasConnected);
-                        // Let go of the mapping after a while so a fresh sim launch is picked up cleanly.
-                        if ((DateTime.Now - offSince).TotalSeconds > 5) Close(ref mmf, ref va, ref ev);
-                        Thread.Sleep(250);
-                        continue;
-                    }
-                    offSince = DateTime.Now;
-
-                    int numVars = va.ReadInt32(24);
-                    int upd = va.ReadInt32(12);
-                    if (vars == null || numVars != numVarsSeen || upd != lastUpd) { vars = ReadVars(va, numVars); numVarsSeen = numVars; }
-                    if (upd != lastUpd) { yaml = ReadYaml(va); lastUpd = upd; sessVer++; }
-
-                    int numBuf = Math.Min(4, va.ReadInt32(32)), bufLen = va.ReadInt32(36);
-                    byte[] data = null; int tick = -1;
-                    for (int attempt = 0; attempt < 3 && data == null; attempt++)
-                    {
-                        int best = -1, bestI = 0;
-                        for (int i = 0; i < numBuf; i++)
-                        {
-                            int t = va.ReadInt32(48 + i * 16);
-                            if (t > best) { best = t; bestI = i; }
-                        }
-                        int off = va.ReadInt32(52 + bestI * 16);
-                        byte[] b = new byte[bufLen];
-                        va.ReadArray<byte>(off, b, 0, bufLen);
-                        // The sim may have started rewriting this slot while we copied it; only keep a clean copy.
-                        if (va.ReadInt32(48 + bestI * 16) == best) { data = b; tick = best; }
-                    }
-                    if (data == null || tick == lastTick) continue;
-                    lastTick = tick;
-                    // W0-3: a test copy of irdash (--test) never runs beside a real session: it ends itself the moment iRacing connects
-                    if (!wasConnected && Program.TestMode) { Log.W("test mode: a real iRacing session started - this test copy of irdash stops now"); Log.Flush(1000); Environment.Exit(3); }
-                    if (!wasConnected) { Log.W("iRacing connected"); wasConnected = true; realUp = true; if (fakeUp) FakeEnd(); Timings.OnConnected(); }
-                    Frame f = new Frame();
-                    f.Connected = true; f.Data = data; f.Vars = vars; f.SessionVersion = sessVer; f.SessionYaml = yaml;
-                    Publish(f);
-                    Timings.OnFrame(f);
-                }
-                catch (Exception ex)
-                {
-                    Log.W("sdk: " + ex.Message);
-                    Close(ref mmf, ref va, ref ev);
-                    Thread.Sleep(1000);
-                }
-            }
-        }
-
-        static void Idle(ref DateTime lastIdle, ref bool wasConnected)
-        {
-            if (wasConnected) { Log.W("iRacing disconnected"); wasConnected = false; realUp = false; Timings.OnDisconnected(); }
-            if ((DateTime.Now - lastIdle).TotalMilliseconds < 1000 || fakeUp) return;
-            lastIdle = DateTime.Now;
-            Publish(new Frame());
-        }
-
-        static void Close(ref MemoryMappedFile mmf, ref MemoryMappedViewAccessor va, ref EventWaitHandle ev)
-        {
-            try { if (va != null) va.Dispose(); } catch { }
-            try { if (mmf != null) mmf.Dispose(); } catch { }
-            try { if (ev != null) ev.Dispose(); } catch { }
-            va = null; mmf = null; ev = null;
-        }
-
-        static Dictionary<string, VarDef> ReadVars(MemoryMappedViewAccessor va, int numVars)
-        {
-            int hdrOff = va.ReadInt32(28);
-            var d = new Dictionary<string, VarDef>(StringComparer.Ordinal);
-            byte[] nm = new byte[32];
-            for (int i = 0; i < numVars; i++)
-            {
-                int b = hdrOff + i * 144;
-                va.ReadArray<byte>(b + 16, nm, 0, 32);
-                int len = Array.IndexOf(nm, (byte)0); if (len < 0) len = 32;
-                VarDef v = new VarDef();
-                v.Name = Encoding.ASCII.GetString(nm, 0, len);
-                v.Type = va.ReadInt32(b); v.Offset = va.ReadInt32(b + 4); v.Count = Math.Max(1, va.ReadInt32(b + 8));
-                d[v.Name] = v;
-            }
-            return d;
-        }
-
-        static string ReadYaml(MemoryMappedViewAccessor va)
-        {
-            int len = va.ReadInt32(16), off = va.ReadInt32(20);
-            if (len <= 0 || off <= 0) return "";
-            byte[] bytes = new byte[len];
-            va.ReadArray<byte>(off, bytes, 0, len);
-            int z = Array.IndexOf(bytes, (byte)0); if (z < 0) z = len;
-            return Encoding.GetEncoding(28591).GetString(bytes, 0, z);
-        }
-
-        // ---- JSON for one frame, limited to the variables a client asked for ----
-        static int Size(int type) { return type <= 1 ? 1 : (type == 5 ? 8 : 4); }
-
-        static void Val(StringBuilder sb, VarDef d, byte[] data, int p)
-        {
-            if (p < 0 || p + Size(d.Type) > data.Length) { sb.Append("null"); return; }
-            switch (d.Type)
-            {
-                case 0: sb.Append(data[p]); break;
-                case 1: sb.Append(data[p] != 0 ? '1' : '0'); break;
-                case 2: sb.Append(BitConverter.ToInt32(data, p)); break;
-                case 3: sb.Append(BitConverter.ToUInt32(data, p)); break;
-                case 4:
-                    {
-                        float f = BitConverter.ToSingle(data, p);
-                        if (float.IsNaN(f) || float.IsInfinity(f)) sb.Append("null");
-                        // W0-3: whole numbers (positions, laps, the empty car slots: most of a CarIdx array) skip the float formatter; the
-                        // text is the same as G7 gives below a million. /stream sends ~800 of these 30 times a second.
-                        else if (f > -1000000f && f < 1000000f && f == (float)(int)f) sb.Append((int)f);
-                        else sb.Append(f.ToString("G7", CultureInfo.InvariantCulture));
-                        break;
-                    }
-                case 5:
-                    {
-                        double x = BitConverter.ToDouble(data, p);
-                        if (double.IsNaN(x) || double.IsInfinity(x)) sb.Append("null");
-                        else sb.Append(x.ToString("G15", CultureInfo.InvariantCulture));
-                        break;
-                    }
-                default: sb.Append("null"); break;
-            }
-        }
-
-        public static string FrameJson(Frame f, string[] names)
-        {
-            StringBuilder sb = new StringBuilder(12000);
-            sb.Append("{\"seq\":").Append(f.Seq).Append(",\"v\":{");
-            bool first = true;
-            foreach (string n in names)
-            {
-                VarDef d;
-                if (!f.Vars.TryGetValue(n, out d)) continue;
-                if (!first) sb.Append(',');
-                first = false;
-                sb.Append('"').Append(n).Append("\":");
-                int sz = Size(d.Type);
-                if (d.Count > 1)
-                {
-                    sb.Append('[');
-                    for (int k = 0; k < d.Count; k++) { if (k > 0) sb.Append(','); Val(sb, d, f.Data, d.Offset + k * sz); }
-                    sb.Append(']');
-                }
-                else Val(sb, d, f.Data, d.Offset);
-            }
-            sb.Append("}}");
-            return sb.ToString();
-        }
-    }
+    // ---------------- iRacing SDK reader: the Sdk class lives in sdkreader.cs (W2-1) ----------------
 
     static class Json
     {
@@ -1125,6 +804,7 @@ namespace IRDash
             StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
             StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
+            StateBuilder.Add("race", 2000, 250, StateBuilder.RacePart);     // W2-1: the race screen (null unless he drives; every 2 s then)
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
@@ -1152,15 +832,19 @@ namespace IRDash
         // W0-5: /stream. ?vars= the telemetry variables (none = no frames' worth of values), ?hz= (default 15),
         // ?state=1 also pushes the state object as "event: state" (the whole object first, then only what changed) and leaves out the
         // raw session YAML (the parsed session is in the state); ?yaml=1 sends the YAML as before.
+        // W2-1: ?set=race instead of ?vars= = the race screen's 24 channels (Sdk.RaceSet), each on every frame (null when missing), no YAML.
         void Stream(NetworkStream s, Dictionary<string, string> q)
         {
             string varList; q.TryGetValue("vars", out varList);
             string[] names = (varList ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            // W2-1: ?set=race = exactly the race screen's 24 channels (sdkreader.cs Sdk.RaceSet), every key on every frame; no raw YAML
+            string setName; string[] setNames = q.TryGetValue("set", out setName) ? Sdk.SetNames(setName) : null;
+            if (setNames != null) names = setNames;
             string hzs; int hz;
             if (!q.TryGetValue("hz", out hzs) || !int.TryParse(hzs, out hz)) hz = 15;
             hz = Math.Max(1, Math.Min(60, hz));
             int interval = 1000 / hz;
-            bool withState = q.ContainsKey("state"), withYaml = !withState || q.ContainsKey("yaml");
+            bool withState = q.ContainsKey("state"), withYaml = (!withState && setNames == null) || q.ContainsKey("yaml");
 
             Write(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\nretry: 1000\n\n");
             long lastSeq = -1, stateSeq = -1; int sentSess = -1;
@@ -1183,7 +867,10 @@ namespace IRDash
                 }
                 long wait = interval - (sw.ElapsedMilliseconds - lastSend);
                 if (wait > 0) { Thread.Sleep((int)wait); f = Sdk.Latest; }
-                lastSend = sw.ElapsedMilliseconds; lastWrite = lastSend;
+                // W2-1: keep the beat (Sleep wakes up to 15 ms late, which made 15 Hz into 13): the next wait is shorter by the lateness.
+                // After a pause (no frames) the beat starts again from now, with one frame of catch-up, never a burst.
+                long sent = sw.ElapsedMilliseconds;
+                lastSend = Math.Max(lastSend + interval, sent - interval); lastWrite = sent;      // at most one frame of catch-up
                 lastSeq = f.Seq;
                 if (!f.Connected)
                 {
@@ -1197,7 +884,7 @@ namespace IRDash
                     sb.Append("event: session\ndata: ").Append(Json.Str(f.SessionYaml)).Append("\n\n");
                     sentSess = f.SessionVersion;
                 }
-                sb.Append("data: ").Append(Sdk.FrameJson(f, names)).Append("\n\n");
+                sb.Append("data: ").Append(Sdk.FrameJson(f, names, setNames != null)).Append("\n\n");
                 Write(s, sb.ToString());
             }
         }
