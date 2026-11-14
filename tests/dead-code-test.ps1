@@ -12,13 +12,15 @@ $gone = @(
   'dash\www\index.html', 'dash\www\core.js', 'dash\www\ui.js', 'dash\www\map.js', 'dash\www\demo.js', 'dash\www\style.css',
   'dash\www\v2\preview.png', 'dash\www\v2\official.js', 'dash\www\v2\official.css', 'dash\www\v2\idle.js', 'dash\www\v2\cars.js',
   'dash\www\v2\debrief.js', 'dash\www\v2\debrief.css', 'dash\www\v2\sr-demo.json', 'dash\www\v2\tv.js', 'dash\www\v2\tv.css',
-  'dash\src\tv.cs', 'tests\actions-test.ps1', 'tests\bench-test.ps1', 'tests\tv-test.ps1', 'tests\tv-live-race-test.ps1')
+  'dash\src\tv.cs', 'tests\actions-test.ps1', 'tests\bench-test.ps1', 'tests\tv-test.ps1', 'tests\tv-live-race-test.ps1',
+  # W2-2: the race screen (race.html, app\pages\race.js) replaced Drive v1, the old in-car grid and its SoF header
+  'dash\www\v2\drive.js', 'dash\www\v2\drive.css', 'dash\www\v2\race.js', 'tests\drive-v1-test.ps1')
 foreach ($g in $gone) { Check "$g does not exist" (-not (Test-Path (Join-Path $root $g))) }
 Check 'dash\www\v2\sessionreview.html still exists (Coach''s ALL LAPS opens it)' (Test-Path (Join-Path $root 'dash\www\v2\sessionreview.html'))
 Check 'dash\www\v2\sessionreview.js and .css still exist (that page uses them)' ((Test-Path (Join-Path $root 'dash\www\v2\sessionreview.js')) -and (Test-Path (Join-Path $root 'dash\www\v2\sessionreview.css')))
 
 '2. no page under dash\www points at a missing file or a deleted one'
-$deletedNames = @('official.js', 'official.css', 'idle.js', 'cars.js', 'debrief.js', 'debrief.css', 'tv.js', 'tv.css', 'sr-demo.json', 'preview.png')
+$deletedNames = @('official.js', 'official.css', 'idle.js', 'cars.js', 'debrief.js', 'debrief.css', 'tv.js', 'tv.css', 'sr-demo.json', 'preview.png', 'drive.js', 'drive.css')
 $bad = @(); $n = 0
 foreach ($h in Get-ChildItem (Join-Path $root 'dash\www') -Recurse -Include *.html) {
   $text = Get-Content -LiteralPath $h.FullName -Raw
@@ -37,8 +39,9 @@ Check 'index.html loads demo.js only through the ?demo=1 loader' ($idx -match 'd
 Check 'index.html no longer mounts the old debrief or session review' ($idx -notmatch 'sessionreview\.(js|css)' -and $idx -notmatch 'debrief\.(js|css)')
 $sess = Get-Content (Join-Path $root 'dash\www\v2\sessions.html') -Raw
 Check 'sessions.html no longer loads map.js' ($sess -notmatch 'src="map\.js"')
-Check 'the REC pill lives in drive.js now (Drive.recorder, Drive.showRec)' ((Get-Content (Join-Path $root 'dash\www\v2\drive.js') -Raw) -match 'showRec\(d\)' -and (Get-Content (Join-Path $root 'dash\www\v2\drive.js') -Raw) -notmatch 'Tower\.recorder')
 $wwwJs = (Get-ChildItem (Join-Path $root 'dash\www') -Recurse -Include *.js | Get-Content -Raw) -join "`n"
+Check 'index.html no longer loads drive.js, drive.css or the old race.js, and has no in-car grid (W2-2)' ($idx -notmatch 'src="(drive|race)\.js"' -and $idx -notmatch 'href="drive\.css"' -and $idx -notmatch 'id="(strip|pStand|drive)"')
+Check 'no page script calls Drive v1, the old grid or the SoF header (W2-2)' ($wwwJs -notmatch '\bDrive\.(tick|onFrame|frame|shown|showRec)' -and $wwwJs -notmatch 'RaceExtras' -and $wwwJs -notmatch "\`$\('(sofBox|standings|rpmbar|dRows)'\)")
 Check 'no page script calls the deleted debrief, tv or idle objects' ($wwwJs -notmatch 'Debrief\.(frame|show|hide)' -and $wwwJs -notmatch 'Tv\.(frame|on|poll)\b' -and $wwwJs -notmatch 'linkDebrief')
 Check 'the dead idle rules are gone from style.css' ((Get-Content (Join-Path $root 'dash\www\v2\style.css') -Raw) -notmatch '\.idle-(glow|mark|mid|line)\b')
 

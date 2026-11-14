@@ -323,32 +323,11 @@ Start-Sleep -Seconds 2
 $lv = J '/perf/live'
 Check "/perf/live knows the usual here: $($lv.normal) fps (worked out again by hand from $($last8.Count) drives: $([math]::Round($expectedNormal, 1)))" ($lv.on -and $expectedNormal -gt 0 -and (Near $lv.normal $expectedNormal 0.15) -and $lv.track -eq 'Road Atlanta')
 Cdp-Open "$api/v2/" 1920 1080
-Check 'the dashboard shows the live session' (Wait-Until 15 { (Cdp-Eval "document.getElementById('overlay') && !document.getElementById('overlay').classList.contains('show')") -eq $true })
-Check 'the fps figure is there, small, and says 104' (Wait-Until 20 { (Cdp-Eval "(document.getElementById('fpsLive')||{}).textContent") -match '^104\s*fps$' })
-Start-Sleep -Seconds 24                                # the 20 s after getting in (loading hitch) and a full 10 s of numbers
-Check 'at its usual frame rate there is no amber line' ((Cdp-Eval "document.getElementById('perfWarn').hidden") -eq $true)
-Cdp-Shot (Join-Path $shots 'perf-live-fps.png')
-Fake 'FrameRate=70&GpuUsage=0.95'
-Check 'a real drop (70 against the usual) brings up the amber line within 25 s' (Wait-Until 25 { (Cdp-Eval "document.getElementById('perfWarn').hidden") -eq $false })
-$null = Wait-Until 10 { (Cdp-Eval "document.getElementById('perfWarn').textContent") -match 'graphics card' }
-Check 'the line is two short lines: the rate against the usual, then the likely cause' ((Cdp-Eval "document.getElementById('perfWarn').innerText") -match '(?s)Frame rate \d+, usually \d+ here.*Likely cause: the graphics card is full')
-Check 'it takes the place of the small health dots and fits inside the header strip' ((Cdp-Eval "getComputedStyle(document.querySelector('.health')).display") -eq 'none' -and (Cdp-Eval "document.querySelector('.meta').scrollHeight <= document.getElementById('strip').offsetHeight") -eq $true)
-Check 'it is amber and small' ((Cdp-Eval "getComputedStyle(document.getElementById('perfWarn')).color") -match 'rgb\(255, 178, 30\)' -and [int](Cdp-Eval "parseInt(getComputedStyle(document.getElementById('perfWarn')).fontSize)") -le 14)
-Start-Sleep -Seconds 1
-Cdp-Shot (Join-Path $shots 'perf-live-amber.png')
-Fake 'FrameRate=104&GpuUsage=0.5'
-Check 'it goes away by itself once the frame rate is back (within 30 s)' (Wait-Until 30 { (Cdp-Eval "document.getElementById('perfWarn').hidden") -eq $true })
-# The rates are worked out from this PC's real usual figure ($lv.normal, from the history of his drives): they were fixed at 86 and 96,
-# which are 16 % and 6 % under a usual of 102 but 20 % and 11 % under today's 107.9 (new real sessions raised it). 11 % is inside the
-# page's 10-15 % hold zone, where a line that has been shown stays up on purpose, so a "6 %" dip was really an 11 % one (2026-10-11).
-$fpsBig = [math]::Round([double]$lv.normal * 0.84); $fpsSmall = [math]::Round([double]$lv.normal * 0.94)
-Fake "FrameRate=$fpsBig&GpuUsage=0.5"                # 15 % under is the line: 16 % under the usual is a bit more than that
-$null = Wait-Until 5 { $false }
-Fake "FrameRate=$fpsSmall"                           # 6 % under: nothing to say
-Start-Sleep -Seconds 14
-$dipHidden = ((Cdp-Eval "document.getElementById('perfWarn').hidden") -eq $true)
-Check 'a small dip (6 %) says nothing' $dipHidden
-if (-not $dipHidden) { "        the amber line says: $(Cdp-Eval "document.getElementById('perfWarn').innerText") (usual $($lv.normal) fps; the page's own usual: $(Cdp-Eval 'PerfLive.normal'), average of its last 10 s: $(Cdp-Eval '(PerfLive.ring.reduce(function(a,s){return a+s.v},0)/Math.max(1,PerfLive.ring.length)).toFixed(1)'))" }
+# W2-2: the small fps figure and the amber frame-rate line lived in the old in-car grid's header, which is gone; in the car the top screen
+# is the race screen now, and its stream carries only the race set (no FrameRate). /perf/live above is still the server's answer.
+Check 'in the car the race screen covers the dashboard (the pretend session counts as driving)' (Wait-Until 15 { (Cdp-Eval "typeof RaceSwitch !== 'undefined' && RaceSwitch.on && !document.getElementById('overlay').classList.contains('show')") -eq $true })
+Check 'no fps figure or amber line is drawn any more (retired with the grid)' ((Cdp-Eval "!document.getElementById('fpsLive') && !document.getElementById('perfWarn')") -eq $true)
+Cdp-Shot (Join-Path $shots 'perf-live-race-screen.png')
 $errs = Cdp-Eval 'JSON.stringify(window.__errs)'
 Check "no script errors on the dashboard page ($errs)" ($errs -eq '[]')
 Fake 'IsOnTrack=0&FrameRate=0'

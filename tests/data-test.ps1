@@ -293,24 +293,14 @@ Check "live: an official race, 6 rated drivers in your class, strength of field 
 Check "live: your estimated change in P3 is $($lv.delta) (by hand $([math]::Round((PsDelta $rt 0 3), 1)))" (Near $lv.delta (PsDelta $rt 0 3) 0.06)
 Fake 'PlayerCarClassPosition=1'; Start-Sleep -Milliseconds 400
 Check 'it follows your position: P1 is worth more than P3' ((J '/race').delta -gt $lv.delta -and (Near (J '/race').delta (PsDelta $rt 0 1) 0.06))
-Cdp-Open "$api/v2/"; Start-Sleep -Seconds 5
-$sof = Cdp-Eval "document.getElementById('sofBox').hidden + '|' + document.getElementById('sofBox').textContent"
-$sofTxt = ([math]::Round((PsSof $rt))).ToString('N0', [Globalization.CultureInfo]::GetCultureInfo('en-GB'))
-Check "the standings header shows it: $sof" ($sof -match ('^false\|SoF\s*' + $sofTxt + '.*iRating\s*\+'))
-$bmp = TopShot 'd-race-extras'; $bmp.Dispose()
-Cdp-Shot (Join-Path $shots 'd-race-extras-page.png')
+# (W2-2: the old in-car grid's SoF header, race.js, is gone with the grid; the race screen does not show it. /race is checked alone.)
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/session?file=$(Q $race)&irs=$($rt -join ',')&official=0" -TimeoutSec 8; Start-Sleep -Milliseconds 800
 $un = J '/race'
 Check 'not an official race: strength of field yes, but no iRating change promised' ($un.on -eq $true -and $un.official -eq $false -and $null -eq $un.delta)
-Start-Sleep -Milliseconds 2500
-Check 'and the page says the race is unrated' ((Cdp-Eval "document.getElementById('sofBox').textContent") -match 'unrated')
 Fake 'SessionNum=0'; Start-Sleep -Milliseconds 400
 Check 'in practice there is nothing (races only)' ((J '/race').on -eq $false)
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/session?file=$(Q $race)" -TimeoutSec 8; Fake 'SessionNum=2'; Start-Sleep -Milliseconds 400
 Check 'an AI race (no real iRatings) has nothing either' ((J '/race').on -eq $false)
-Start-Sleep -Milliseconds 2500
-Check 'and the header on the page is empty again' ((Cdp-Eval "document.getElementById('sofBox').hidden") -eq $true)
-Cdp-Close
 
 Section '6. pre-session brief on the top screen'
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/session?file=$(Q $race)" -TimeoutSec 8

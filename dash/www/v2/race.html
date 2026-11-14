@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head><link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Race</title>
+<link rel="stylesheet" href="../app/design.css">
+<link rel="stylesheet" href="race.css">
+</head>
+<body>
+<!-- THE RACE SCREEN (W2-2, docs/rework/PLAN.md 4.2): the one in-car layout on the top screen. HOME (index.html) shows it
+     full-screen while he drives. Five zones on a 24 px margin: A the strip, B gaps, C fuel, D lap, E standings.
+     Everything is drawn by app/pages/race.js from the one stream (the race channel set) and irdash's state push. -->
+<div id="race" class="race nodata">
+  <header id="zA" class="zone strip">
+    <div class="a-pos"><b id="aPos">&ndash;</b><span id="aOf"></span><span id="aCls" class="a-cls"></span></div>
+    <div class="a-mid" id="aMid"><span id="aLap">&ndash;</span></div>
+    <div class="a-inc" id="aInc"><span id="aIncN">&ndash;</span></div>
+    <div class="a-clock" id="aClock">&ndash;</div>
+  </header>
+
+  <section id="zB" class="zone gaps">
+    <div class="gap" id="bAhead"><label>Ahead</label><div class="g-row"><b class="g-n">&ndash;</b><i class="g-t"></i></div><div class="g-who">&nbsp;</div></div>
+    <div class="gap" id="bBehind"><label>Behind</label><div class="g-row"><b class="g-n">&ndash;</b><i class="g-t"></i></div><div class="g-who">&nbsp;</div></div>
+    <div class="b-one" id="bOne" hidden><label id="bOneL">To leader</label><b id="bOneN">&ndash;</b><div class="b-sub" id="bOneS">&nbsp;</div></div>
+  </section>
+
+  <section id="zC" class="zone fuel">
+    <label id="cLbl">Fuel</label>
+    <div class="c-big" id="cBig"><b id="cNum">&ndash;</b><span id="cUnit"></span></div>
+    <div class="c-line" id="cLine">&nbsp;</div>
+    <div class="c-win" id="cWin" hidden></div>
+    <div class="c-note" id="cNote">&nbsp;</div>
+  </section>
+
+  <section id="zD" class="zone lap">
+    <div class="d-times">
+      <div class="d-last"><label>Last lap</label><b id="dLast">&ndash;</b></div>
+      <div class="d-best"><label>Best</label><b id="dBest">&ndash;</b></div>
+      <div class="d-delta" id="dDelta"><label>To best</label><b id="dNum">&ndash;</b></div>
+    </div>
+    <div class="d-bar" id="dBar"><i id="dFill"></i><em></em></div>
+  </section>
+
+  <section id="zE" class="zone stand">
+    <div id="eRows"></div>
+  </section>
+</div>
+
+<script src="../app/lib/data.js"></script><!-- the one connection (inside HOME it borrows HOME's stream) -->
+<script src="../app/lib/format.js"></script>
+<script src="../app/pages/race.js"></script>
+</body>
+</html>

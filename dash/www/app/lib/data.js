@@ -12,7 +12,10 @@
      data.reloadOnVersion(wait) reload when the dashboard files change; wait() true = not now (asked again every 15 s)
      data.onList(name, fn)      fn() when the list "sessions" | "vault" | "races" | "perf" may have changed (instead of a timer)
    A page inside HOME's frame (Sessions, Vault, Performance, Analysis ...) uses HOME's connection, so the whole top screen has one.
-   Telemetry: no variables are asked for until iRacing is connected (HOME idle asks for none), then the visible layout's list at 15 Hz. */
+   Telemetry: no variables are asked for until iRacing is connected (HOME idle asks for none), then the visible layout's list at 15 Hz.
+     data.telemetry(['A', 'B'])  these variables;   data.telemetry('race')  irdash's named set (W2-1: the race screen's 24 channels)
+     data.set                    the named set asked for now ('' = a variable list or nothing)
+     data.on('connect', fn)      iRacing just connected (the first frame on the idle stream): fn() may still change data.telemetry(...) */
 (function () {
   'use strict';
   if (window.data && window.data.__paddock) return;
@@ -79,7 +82,7 @@
     var api = {
       __paddock: true, state: {}, seq: -1, online: false, connected: false,
       ls: { state: [], frame: [], status: [], online: [] },
-      vars: null, hz: 15, es: null, mode: '', partAt: {},
+      vars: null, set: '', hz: 15, es: null, mode: '', url: '', partAt: {},
       at: function (part) { return api.partAt[part] || 0; },      // when that part last arrived (this page's clock): a counter shown can run on from it
       on: function (name, fn) {
         var l = api.ls[name] || (api.ls[name] = []); l.push(fn);
@@ -89,7 +92,12 @@
       emit: function (name, a, b) { var l = (api.ls[name] || []).slice(); for (var i = 0; i < l.length; i++) { try { l[i](a, b); } catch (e) { console.error(e); } } },
       get rig() { var r = api.state.rig || {}; return { driving: !!r.driving, sessionOn: !!r.sessionOn, simRunning: !!r.simRunning, online: api.online }; },
       // the telemetry the visible layout needs; asked for only while iRacing is connected
-      telemetry: function (vars, hz) { api.vars = vars && vars.length ? vars.slice() : null; if (hz) api.hz = hz; if (api.connected) open('live'); },
+      // a string is a named set irdash knows (/stream?set=race): the race screen asks for exactly its channels and no more
+      telemetry: function (vars, hz) {
+        if (typeof vars === 'string') { api.set = vars; api.vars = null; }
+        else { api.set = ''; api.vars = vars && vars.length ? vars.slice() : null; }
+        if (hz) api.hz = hz; if (api.connected) open('live');
+      },
       json: jsonCache(function (u, o) { return fetch(u, o); }),
       fetch: paddockFetch(function (u, o) { return fetch(u, o); }),
     };
@@ -98,10 +106,10 @@
 
     function open(mode) {
       if (location.protocol === 'file:') return;     // a page opened from disk (tests): nothing to connect to
-      if (api.es && api.mode === mode) return;
+      var url = '/stream?state=1&hz=' + api.hz + (mode !== 'live' ? '' : api.set ? '&set=' + api.set : api.vars ? '&vars=' + api.vars.join(',') : '');
+      if (api.es && api.mode === mode && api.url === url) return;     // the same question: keep the one stream open
       if (api.es) { try { api.es.close(); } catch (e) { } }
-      api.mode = mode;
-      var url = '/stream?state=1&hz=' + api.hz + (mode === 'live' && api.vars ? '&vars=' + api.vars.join(',') : '');
+      api.mode = mode; api.url = url;
       var es = api.es = new EventSource(url);
       es.onopen = function () { api.retryMs = 0; if (!api.online) { api.online = true; api.emit('online', true); } };
       es.onerror = function () {
@@ -126,7 +134,8 @@
       es.addEventListener('status', function () { api.connected = false; api.emit('status', { connected: false }); });
       es.onmessage = function (e) {
         // the first frame of a session on the idle stream: ask again for the layout's variables
-        if (api.mode !== 'live' && api.vars) { api.connected = true; open('live'); return; }
+        // ('connect' first: a page can still change what it asks for, so the stream opens once with the right set)
+        if (api.mode !== 'live' && (api.vars || api.set)) { api.connected = true; api.emit('connect'); open('live'); return; }
         api.connected = true;
         if (!api.ls.frame.length) return;
         var f; try { f = JSON.parse(e.data); } catch (err) { return; }

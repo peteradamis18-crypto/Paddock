@@ -202,13 +202,13 @@ function resetLive() {
 function onFrame(v) {
   L.v = v; L.connected = true; L.lastFrameAt = performance.now();
   if (isNum(v.DisplayUnits)) { Units.metric = v.DisplayUnits === 1; if (Units.saved !== Units.metric) { Units.saved = Units.metric; store.set('irdash-units', Units.metric); } }
-  const key = [v.SessionUniqueID, v.SessionNum, S.track.key].join('|');
+  // SessionNum and the track: both are in HOME's variables and in the race set, so switching sets is not a new session (W2-2)
+  const key = [v.SessionNum, S.track.key].join('|');
   if (key !== L.sessKey) { resetLive(); L.sessKey = key; }
   trackLaps(v);
   trackSectors(v);
   pushTrace(v);
   TrackMap.feed(v);
-  if (typeof Drive !== 'undefined') Drive.onFrame(v);
 }
 
 // WHY a lap is not clean (the reasons behind lapDirty), kept only so the post-session review can say OUT / IN / PIT / OFF
@@ -454,7 +454,7 @@ const Conn = {
   start() {
     if (QS.has('demo')) { L.demo = true; Demo.start(); this.status = 'demo'; return; }
     // the in-car layouts' variables at 15 Hz (a glance screen); none are asked for while iRacing is not connected
-    const hz = +(QS.get('hz') || 15);
+    const hz = this.hz = +(QS.get('hz') || 15);
     data.telemetry(VARS, hz);
     L.traceMax = Math.max(30, Math.round(330 * hz / 30));     // the pedal trace keeps showing the last 11 s whatever the frame rate
     data.on('frame', v => { onFrame(v); this.status = 'live'; });
@@ -466,7 +466,9 @@ const Conn = {
     // Only a FRESH frame counts: the last frame of a session (or of a test's pretend race) keeps IsOnTrack set forever.
     data.reloadOnVersion(() => {
       const fresh = L.connected && performance.now() - (L.lastFrameAt || 0) < 3000;
-      return !!(fresh && L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying);
+      return !!(fresh && L.v && L.v.IsOnTrack && !L.v.IsReplayPlaying) || RaceSwitch.on;
     });
   },
+  // W2-2: while the race screen shows, the stream carries only its race set; out of the car, the variables HOME's helpers read
+  layout(race) { if (!L.demo) data.telemetry(race ? 'race' : VARS, this.hz); },
 };

@@ -440,6 +440,7 @@ static class PretendIrdash
                 }
             }
             string[] names = Q(c.Request, "vars").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            if (Q(c.Request, "set") == "race") names = RaceSet;      // W2-1: the race screen's named set (the same 24 names irdash sends)
             int hz; if (!int.TryParse(Q(c.Request, "hz"), out hz)) hz = 30; hz = Math.Max(1, Math.Min(60, hz));
             using (FileStream fs = new FileStream(ibtFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
@@ -506,6 +507,10 @@ static class PretendIrdash
         finally { Interlocked.Decrement(ref streamsOpen); try { r.Abort(); } catch { } }
     }
 
+    static readonly string[] RaceSet = { "CarIdxPosition", "CarIdxClassPosition", "CarIdxF2Time", "CarIdxLapDistPct", "CarIdxEstTime", "CarIdxOnPitRoad", "CarIdxClass",
+        "CarIdxLap", "Lap", "LapCompleted", "SessionLapsRemainEx", "SessionTimeRemain", "SessionTime", "PlayerCarMyIncidentCount", "SessionFlags", "FuelLevel",
+        "FuelUsePerHour", "LapLastLapTime", "LapBestLapTime", "LapDeltaToBestLap", "LapDeltaToBestLap_OK", "OnPitRoad", "PlayerCarIdx", "IsOnTrack",
+        "IsReplayPlaying", "SessionNum", "DisplayUnits", "EngineWarnings" };
     static readonly string[] DerivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
     static readonly string[] DerivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
     static readonly double[] DerivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };

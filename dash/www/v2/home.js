@@ -22,7 +22,8 @@ const Home = {
     HomeHost.init();
   },
 
-  shown() { const ov = $('overlay'); return !!(ov && ov.classList.contains('show')) && !(typeof UI !== 'undefined' && UI.live && UI.live()); },
+  // W2-2: HOME also shows in the garage (the old grid is gone); it hides only while the race screen covers it
+  shown() { const ov = $('overlay'); return !!(ov && ov.classList.contains('show')); },
 
   lap(t) { if (!(t > 0)) return DASH; const m = Math.floor(t / 60), s = t - m * 60; return (m ? m + ':' : '') + (m && s < 10 ? '0' : '') + s.toFixed(3); },
   short(car) { return String(car || '').replace(/^Chevrolet /, ''); },
