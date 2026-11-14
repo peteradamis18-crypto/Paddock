@@ -264,7 +264,7 @@ namespace IRDash
             return b;
         }
 
-        public static int DaysLeft(RaceInfo r) { return r.NoNote ? TrashDays : Math.Max(0, (int)Math.Ceiling(TrashDays - (Now - r.DeletedMs) / 86400000.0)); }
+        public static int DaysLeft(RaceInfo r) { return r.NoNote ? TrashDays : Math.Min(TrashDays, Math.Max(0, (int)Math.Ceiling(TrashDays - Math.Max(0, Now - r.DeletedMs) / 86400000.0))); }   // a note written in the same millisecond can round later than Now: never 15 days
 
         // Move one finished session into the trash. "" = done, else why not (RECORDING / BUSY / NOTHING / IN USE / NOT HERE / NO NOTE).
         static string MoveToTrash(string id, out RaceInfo moved)
