@@ -3,7 +3,7 @@
 // bar at the bottom shares or deletes them (no "are you sure": DELETE moves them to the trash and UNDO brings them back for 8 s);
 // OPEN shows one race with WATCH / SHARE TO YOUTUBE / TALK OVER IT / REVIEW / DELETE and its moments on a timeline.
 // irdash does the work (library.cs: racetrash, raceundo, raceempty, racefree, raceshare, ytsignin, ytprivacy, yttemplate;
-// vault.cs: racewatch). The list is /api/library, loaded again only when irdash says it changed (data.onList: no timer).
+// vault.cs: racewatch; commentary.cs (W1-6): racetalk, racetalkstop, raceshare a=<id>:c). The list is /api/library, loaded again only when irdash says it changed (data.onList: no timer).
 // Tests: ?fixture=<url> reads the list from a file, ?dry=1 records every command in window.racesDone instead of sending it,
 // ?thumbs=<url prefix> takes the pictures from <prefix><id>.jpg.
 const Q = new URLSearchParams(location.search), DRY = Q.get('dry') === '1', FIXTURE = Q.get('fixture') || '', THUMBS = Q.get('thumbs') || '';
@@ -34,6 +34,23 @@ function stateLine(r, full) {
     case 'offline': return { text: 'No internet, waiting', cls: 'wait' };
   }
   return { text: 'Not shared', cls: 'none' };
+}
+// W1-6 TALK OVER IT: the race's "talk" (commentary.cs): none | preparing | talking | mixing | ready | shared | failed
+const talkOf = r => r.talk || { kind: 'none' };
+const talkBusy = r => /^(preparing|talking|mixing)$/.test(talkOf(r).kind);
+// the second state line on the open card: the version with his commentary (null = none yet)
+function talkLine(r) {
+  const t = talkOf(r), yt = t.yt || { kind: 'none' };
+  switch (t.kind) {
+    case 'ready':
+      if (yt.kind === 'sharing') return { text: 'With commentary: sharing ' + (yt.pct | 0) + '%', cls: 'wait' };
+      if (yt.kind === 'queued' || yt.kind === 'offline' || yt.kind === 'signin') return { text: 'With commentary: waiting to share', cls: 'wait' };
+      if (yt.kind === 'failed') return { text: 'With commentary: ' + (yt.error || 'could not share it'), cls: 'bad', share: true };
+      return { text: 'With commentary: ready', cls: 'done', share: true };
+    case 'shared': return { text: 'With commentary: on YouTube', cls: 'done' };
+    case 'failed': return t.error ? { text: t.error, cls: 'bad' } : t.note ? { text: t.note, cls: 'wait' } : null;
+  }
+  return null;
 }
 const isShared = r => r.state && r.state.kind === 'shared';
 const busySharing = r => r.state && /^(queued|sharing|offline|signin)$/.test(r.state.kind);
@@ -107,7 +124,7 @@ const Races = {
     try {
       const r = await fetch(FIXTURE || '/api/library', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      this.data = await r.json(); this.failed = false;
+      this.data = await r.json(); this.failed = false; this.loadedAt = performance.now();
     } catch (e) { this.failed = true; }
     // ticks of races that are gone (deleted from the deck, say) go too
     const ids = new Set(this.races().map(r => r.id));
@@ -241,6 +258,7 @@ const Races = {
     const chips = marks.map(m => '<li class="chip k-' + esc(m.kind) + '"><b>' + mmss(m.sec) + '</b> ' + esc(m.label) + '</li>').join('');
     const url = isShared(r) && r.state.url ? r.state.url : '';
     const kind = r.isRace ? '' : ' · ' + esc(Fmt.sessionName(r.type));
+    const t = talkOf(r), tl = talkLine(r), turl = t.kind === 'shared' && t.url ? t.url : '';
     // shared or on its way: a plain label where the key was (a dim key reads as broken)
     const shareKey = canShare(r) ? '<button type="button" class="btn gold" data-act="share">Share to YouTube</button>'
       : '<div class="keylabel ' + (isShared(r) ? 'done' : 'wait') + '">' + (isShared(r) ? 'On YouTube' : 'Waiting to share') + '</div>';
@@ -257,17 +275,43 @@ const Races = {
           '<div class="o-line">' + (r.best > 0 ? 'Best lap <b>' + Fmt.lap(r.best) + '</b>' + (r.bestLap ? ' (lap ' + r.bestLap + ')' : '') : 'No clean lap') + ' · ' + Fmt.size((r.mb || 0) * 1048576) + '</div>' +
           stateHtml(s) +
           (url ? '<div class="o-link"><input id="linkField" readonly value="' + esc(url) + '" aria-label="YouTube link"><button type="button" class="btn" data-act="copy">Copy link</button></div>' : '') +
+          (tl ? '<div class="o-talk"><div class="state ' + tl.cls + '">' + esc(tl.text) + '</div>' +
+            (tl.share ? '<button type="button" class="btn gold" data-act="sharetalk">Share to YouTube</button>' : '') + '</div>' : '') +
+          (turl ? '<div class="o-link"><input id="talkLink" readonly value="' + esc(turl) + '" aria-label="YouTube link with commentary"><button type="button" class="btn" data-act="copytalk">Copy link</button></div>' : '') +
         '</div>' +
       '</div>' +
+      (talkBusy(r) ? this.talkBar(r) :
       '<div class="o-keys">' +
         '<button type="button" class="btn" data-act="watch">Watch</button>' +
         shareKey +
-        '<div class="soon"><button type="button" class="btn" disabled>Talk over it</button><span>Comes with the commentary update</span></div>' +
+        '<button type="button" class="btn" data-act="talk">Talk over it</button>' +
         '<button type="button" class="btn" data-act="review">Review</button>' +
         '<button type="button" class="btn danger" data-act="delete">Delete</button>' +
-      '</div>' +
+      '</div>') +
       (marks.length ? '<div class="o-time"><div class="rail">' + dots + '</div><ul class="chips">' + chips + '</ul></div>' : '');
     o.hidden = false;
+    this.talkTick();
+  },
+
+  // W1-6: while he talks the five keys give way to one bar: "Talking 3:12", the microphone, one red STOP (the deck shows the same)
+  talkBar(r) {
+    const t = talkOf(r);
+    if (t.kind === 'mixing') return '<div class="talkbar mixing"><div class="t-main">Mixing your commentary…</div>' +
+      '<div class="t-sub">' + esc(t.note || 'A few seconds. It shows here when it is ready.') + '</div></div>';
+    if (t.kind === 'preparing') return '<div class="talkbar"><div class="t-main">Getting the race ready…</div>' +
+      '<div class="t-sub">It plays on the middle screen in a moment</div><button type="button" class="btn stop" data-act="talkstop">Stop</button></div>';
+    return '<div class="talkbar talking"><i class="rec"></i><div class="t-main" id="talkClock">Talking ' + mmss(this.talkSec(t)) + '</div>' +
+      '<div class="t-sub">' + esc(t.mic || 'Microphone') + (t.silent ? '<b class="t-warn">The microphone is silent. Is it muted?</b>' : '') + '</div>' +
+      '<button type="button" class="btn stop" data-act="talkstop">Stop</button></div>';
+  },
+  talkSec(t) { return (t.sec || 0) + (this.loadedAt ? (performance.now() - this.loadedAt) / 1000 : 0); },
+  // the counter runs on the page from the server's seconds (no request: the list reloads only when irdash says it changed)
+  talkTick() {
+    clearTimeout(this.talkTimer);
+    const r = this.openId && this.find(this.openId);
+    if (!r || talkOf(r).kind !== 'talking') return;
+    const c = $('talkClock'); if (c) c.textContent = 'Talking ' + mmss(this.talkSec(talkOf(r)));
+    this.talkTimer = setTimeout(() => this.talkTick(), 1000);
   },
 
   drawPicker() {
@@ -316,7 +360,11 @@ const Races = {
       case 'review': return this.review(r);
       case 'delete': return this.del([r.id]);
       case 'signin': return this.signIn();
-      case 'copy': return this.copy();
+      case 'copy': return this.copy('linkField');
+      case 'copytalk': return this.copy('talkLink');
+      case 'talk': return this.talk(r);
+      case 'talkstop': return this.talkStop(r);
+      case 'sharetalk': return this.shareTalk(r);
     }
   },
   showPicker(on) { this.picker = on; this.draw(); },
@@ -349,6 +397,7 @@ const Races = {
   notNow(c) {
     if (c === 'raceshare') return 'Not while a session is on. Share it after the session.';
     if (c === 'racewatch') return 'Not while a session is on. Watch it after the session.';
+    if (c === 'racetalk') return 'Not while a session is on. Talk over it after the session.';
     if (c === 'racetrash' || c === 'raceempty' || c === 'racefree') return 'Not while a session is on. Delete it after the session.';
     return 'Not while a session is on. Try again after the session.';
   },
@@ -402,8 +451,28 @@ const Races = {
   // REVIEW: the Sessions page for now; the REVIEW door (wave 4) opens the drive from at=<startMs>
   review(r) { location.href = 'sessions.html?embed=1&at=' + encodeURIComponent(r.startMs || 0); },
 
-  copy() {
-    const f = $('linkField'); if (!f) return;
+  // W1-6 TALK OVER IT: irdash plays the race on the middle screen and records the microphone; STOP ends it and mixes
+  async talk(r) {
+    const was = r.talk;
+    r.talk = { kind: 'preparing', sec: 0 }; this.draw();       // the bar at once; the next list from irdash carries the real state
+    const a = await this.cmd('racetalk', r.id);
+    if (!a.ok) { r.talk = was; this.draw(); this.toast(esc(a.json.say || 'Could not start that.'), true); }
+  },
+  async talkStop(r) {
+    const a = await this.cmd('racetalkstop', r.id);
+    if (a.ok && talkOf(r).kind !== 'mixing') { r.talk = Object.assign({}, talkOf(r), { kind: talkOf(r).kind === 'preparing' ? 'none' : 'mixing' }); this.draw(); }
+    if (!a.ok) this.toast(esc(a.json.say || 'Could not stop it.'), true);
+  },
+  async shareTalk(r) {
+    const a = await this.cmd('raceshare', r.id + ':c');
+    if (a.json.signin) this.signinWanted = true;
+    if (a.ok && !a.json.signin) { r.talk = Object.assign({}, talkOf(r), { yt: { kind: 'queued', pct: 0 } }); }
+    this.draw();
+    this.toast(esc(a.json.say || (a.ok ? 'Sharing it with your commentary' : 'Could not share that.')), !a.ok && !a.json.signin);
+  },
+
+  copy(field) {
+    const f = $(field || 'linkField'); if (!f) return;
     const done = () => this.toast('Link copied');
     const pick = () => { f.focus(); f.select(); try { if (document.execCommand('copy')) return done(); } catch (e) { } this.toast('The link is selected: press Ctrl+C to copy it'); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(f.value).then(done, pick); else pick();

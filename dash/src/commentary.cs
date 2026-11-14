@@ -75,12 +75,14 @@ namespace IRDash
         // D > 0: the first D seconds were said before the video moved, so the voice starts D seconds in (-ss D on the voice input).
         // D < 0: the voice began after the video did: it is delayed by -D inside the filter (adelay). -itsoffset on the voice input was
         // measured not to move it once it goes through -filter_complex (the voice was heard from 0 s, 2026-11-14), so it is not used.
-        public static string MixArgs(string cut, string voice, double d, string outPath)
+        public static string MixArgs(string cut, string voice, double d, string outPath) { return MixArgs(cut, voice, d, outPath, true); }
+        // hevc: the rig's cuts are HEVC and get YouTube's hvc1 tag; mp4 refuses that tag on any other video (the test's h264 clip)
+        public static string MixArgs(string cut, string voice, double d, string outPath, bool hevc)
         {
             string seek = d > 0.0005 ? "-ss " + d.ToString("0.###", Inv) + " " : "";
             string delay = d < -0.0005 ? "adelay=delays=" + Math.Round(-d * 1000).ToString("0", Inv) + ":all=1," : "";
             return "-hide_banner -y -i \"" + cut + "\" " + seek + "-i \"" + voice + "\" -filter_complex \"" + Filter(delay) + "\"" +
-                   " -map 0:v:0 -map \"[a]\" -c:v copy -c:a aac -b:a 192k -tag:v hvc1 -movflags +faststart \"" + outPath + "\"";
+                   " -map 0:v:0 -map \"[a]\" -c:v copy -c:a aac -b:a 192k " + (hevc ? "-tag:v hvc1 " : "") + "-movflags +faststart \"" + outPath + "\"";
         }
         public static string Filter(string delay)
         {
@@ -404,7 +406,8 @@ namespace IRDash
             if (res != "ok") { MixDone(id, res); return; }
             if (Cuts.FreeBytes(Dir) < 3L * 1024 * 1024 * 1024) { MixDone(id, "Not enough space for the commentary video (needs 3 GB free)"); return; }
             try { if (File.Exists(part)) File.Delete(part); } catch { }
-            string args = MixArgs(cut, voice, m.D, part);
+            bool hevc = Probe("-v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 \"" + cut + "\"").Trim() != "h264";
+            string args = MixArgs(cut, voice, m.D, part, hevc);
             LastMixArgs = args;
             Stopwatch sw = Stopwatch.StartNew();
             string err; int rc = Ffmpeg(args, 30 * 60 * 1000, out err);

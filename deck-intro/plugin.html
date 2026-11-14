@@ -1642,6 +1642,11 @@ const raceState = x => {
   }
   return { k: 'none', word: '', long: 'NOT SHARED', col: '#8d8a82', style: 'grey' };
 };
+// W1-6 TALK OVER IT: a race being talked over (the screen becomes the talking view), its counter, the microphone's name in short
+// ("Default - Microphone (2- Arctis Nova 7P)" -> "ARCTIS NOVA 7P")
+const raceTalking = x => /^(preparing|talking|mixing)$/.test((x.talk || {}).kind || '');
+const raceClock = s => { s = Math.max(0, Math.floor(s || 0)); const m = Math.floor(s / 60); return (m < 10 ? '0' : '') + m + ':' + String(s % 60).padStart(2, '0'); };
+const raceMic = m => { let s = String(m || '').replace(/^(default|communications)\s*-\s*/i, '').trim(); const p = /\((?:\d+-\s*)?([^()]+)\)\s*$/.exec(s); if (p) s = p[1]; return s || 'MICROPHONE'; };
 // track name for the card key: at most 2 lines of 8 characters (a longer word breaks with a hyphen)
 const raceTrackLines = name => {
   const out = []; let cur = '';
@@ -1746,7 +1751,7 @@ const Races = new class extends Screen {
   busy() {
     const now = Date.now();
     if ((this.msg && now < this.msg.until) || (this.undo && now < this.undo.until)) return true;
-    return ((this.s && this.s.races) || []).some(x => { const k = (x.state || {}).kind; return k === 'sharing' || k === 'queued'; });
+    return ((this.s && this.s.races) || []).some(x => { const k = (x.state || {}).kind; return k === 'sharing' || k === 'queued' || raceTalking(x); });
   }
   // the library list while the screen is open: every 5 s, every 1.5 s only while something is in flight (the idle ceiling is 0.3 / s);
   // an irdash that does not answer is asked every pass so the screen clears the moment it is back
@@ -1755,6 +1760,7 @@ const Races = new class extends Screen {
     if (!this.force && this.s && performance.now() - this.lastGet < gap) { this.relayout(); return; }
     this.force = false; this.lastGet = performance.now();
     try { this.s = await this.get('/api/library'); } catch (e) { this.s = { offline: true, races: [] }; }
+    this.gotAt = performance.now();      // the talking counter runs on from the list's seconds between two lists
     if (!this.s.offline) {
       const ids = new Set((this.s.races || []).map(r => r.id));
       for (const id of [...this.ticks]) if (!ids.has(id)) this.ticks.delete(id);          // deleted elsewhere
@@ -1829,6 +1835,23 @@ const Races = new class extends Screen {
       this.say(this.words(ans, ans.ok ? 'BACK' : 'TOO LATE TO UNDO'), ans.ok ? 'go' : 'amber');
       this.relayout(); await this.after(); return;
     }
+    // W1-6 TALK OVER IT: the race plays on the middle screen and the microphone records; STOP ends it and Paddock mixes by itself
+    if (a === 'talkone') {
+      const ans = await this.doCmd('racetalk', r.arg);
+      if (ans.ok) { const x = this.list().find(y => y.id === r.arg); if (x) x.talk = { kind: 'preparing', sec: 0 }; } else this.say(this.words(ans, 'COULD NOT START'), 'amber');
+      this.relayout(); await this.after(); return;
+    }
+    if (a === 'talkstop') {
+      const ans = await this.doCmd('racetalkstop', r.arg || '');
+      if (ans.ok) { const x = this.list().find(y => y.id === r.arg); if (x && x.talk) x.talk = Object.assign({}, x.talk, { kind: x.talk.kind === 'preparing' ? 'none' : 'mixing' }); }
+      else this.say(this.words(ans, 'NOTHING TO STOP'), 'amber');
+      this.relayout(); await this.after(); return;
+    }
+    if (a === 'sharetalk') {
+      const ans = await this.doCmd('raceshare', r.arg + ':c');
+      this.say(this.words(ans, 'SHARING WITH COMMENTARY'), ans.ok ? 'go' : 'amber');
+      this.relayout(); await this.after(); return;
+    }
     if (a === 'racefree') { const ans = await this.doCmd('racefree'); this.say(this.words(ans, 'FREEING SPACE'), ans.ok ? 'go' : 'amber'); this.relayout(); await this.after(); return; }
     if (a === 'ytsignin') { this.say('SIGN IN ON THE MIDDLE SCREEN', 'go'); this.relayout(); await this.cmd('ytsignin'); await this.after(); return; }
     if (a === 'racewatch') this.say('PLAYING ON THE MIDDLE SCREEN', 'go');
@@ -1886,6 +1909,21 @@ const Races = new class extends Screen {
     const msg = this.msg && Date.now() < this.msg.until ? this.msg : null, undo = this.undo && Date.now() < this.undo.until ? this.undo : null;
     if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop'); return R; }
     const every = this.list(), races = this.all ? every : every.filter(isRace), st = s.storage || {};
+    // W1-6: while a race is being talked over, the whole screen is the talking view: the counter, the microphone, one STOP (EXIT does not stop it)
+    const talking = every.find(raceTalking);
+    if (talking) {
+      const t = talking.talk || {}, k = t.kind;
+      const sec = k === 'talking' ? (t.sec || 0) + (this.gotAt ? (performance.now() - this.gotAt) / 1000 : 0) : (t.sec || 0);
+      if (k === 'talking') add(2, 0, 4, 1, 'TALKING ' + raceClock(sec), '', null, null, 'banner', 0, { size: 28, noflash: true, parts: { main: ['TALKING', raceClock(sec)], sub: [] } });
+      else if (k === 'preparing') add(2, 0, 4, 1, 'GETTING READY', '', null, null, 'banner', 0, { size: 24, noflash: true, parts: { main: ['GETTING', 'READY'], sub: [] } });
+      else add(2, 0, 4, 1, 'MIXING NOW', '', null, null, 'banner', 0, { size: 26, noflash: true, parts: { main: ['MIXING', 'NOW'], sub: [] } });
+      const mic = k === 'mixing' ? (t.note ? 'SESSION ON · WHAT YOU SAID IS KEPT' : 'YOUR COMMENTARY') : k === 'preparing' ? 'ON THE MIDDLE SCREEN' : raceMic(t.mic);
+      add(2, 1, 4, 1, mic, '', null, null, 'hint', 0, { noflash: true, parts: { main: raceSplit(String(mic).toUpperCase(), 4, 7), sub: [] }, size: 18 });
+      if (k !== 'mixing') add(2, 2, 3, 2, 'STOP', 'ENDS AND MIXES', 'talkstop', talking.id, 'stop', 0, { size: 28, parts: { main: ['STOP'], sub: ['AND MIX'] } });
+      if (t.silent && k === 'talking') add(5, 2, 2, 1, 'MIC SILENT', 'IS IT MUTED?', null, null, 'amber', 0, { noflash: true, parts: { main: ['MIC', 'SILENT'], sub: ['IS IT', 'MUTED?'] } });
+      add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+      return R;
+    }
     const race = this.sel && every.find(x => x.id === this.sel);
     if (!race) {
       // the list: six cards a page, newest first; a page shows only the cards it has
@@ -1938,6 +1976,13 @@ const Races = new class extends Screen {
     const link = shared && (race.state || {}).url ? /(?:youtu\.be\/|[?&]v=)([\w-]+)/.exec(race.state.url) : null;
     // parts, not text: a YouTube address is case-sensitive (the renderer capitalises) and must not cross a key gap
     if (link) add(4, 2, 2, 1, 'youtu.be/' + link[1], 'LINK ON THE PAGE', null, null, 'banner', 0, { noflash: true, parts: { main: ['youtu.be/', link[1]], sub: ['LINK ON', 'THE PAGE'] } });
+    // W1-6: TALK OVER IT, and the version with his commentary once it is mixed (a second video of its own)
+    const tk = (race.talk || {}).kind || 'none', tyt = ((race.talk || {}).yt || {}).kind || 'none';
+    if (tk !== 'shared') add(6, 2, 1, 1, 'TALK', 'OVER IT', 'talkone', race.id, 'sel', 2, { size: 26 });
+    if (tk === 'shared') add(7, 2, 1, 1, 'COMMENT.', 'ON YOUTUBE', null, null, 'grey', 2, { size: 20, noflash: true });
+    else if (tk === 'ready' && (tyt === 'queued' || tyt === 'sharing' || tyt === 'offline' || tyt === 'signin')) add(7, 2, 1, 1, 'COMMENT.', tyt === 'sharing' ? 'SHARING ' + Math.round(race.talk.yt.pct || 0) + '%' : 'WAITING', null, null, 'grey', 2, { size: 20, noflash: true });
+    else if (tk === 'ready') add(7, 2, 1, 1, 'SHARE', 'COMMENTARY', 'sharetalk', race.id, 'sel', 2, { size: 24 });
+    else if (tk === 'failed') add(7, 2, 1, 1, /microphone/i.test(race.talk.error || '') ? 'NO MIC' : race.talk.error ? 'TALK' : 'STOPPED', /microphone/i.test(race.talk.error || '') ? 'PLUG IN HEADSET' : race.talk.error ? 'DID NOT WORK' : 'SESSION ON', null, null, 'amber', 2, { size: 22, noflash: true });
     add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
     if (undo) add(1, 3, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
     if (msg) add(undo ? 4 : 1, 3, undo ? 3 : 6, 1, msg.text, '', null, null, msg.style, 2, { size: 22, noflash: true });
