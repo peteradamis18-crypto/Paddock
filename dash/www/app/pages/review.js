@@ -262,10 +262,12 @@ const R = {
     const band = R.$('.rv-progress');
     if (gen !== R.gen || !band || !P || !P.mount) return;
     try {
-      band.hidden = false;
-      P.mount(band, R.ctx, { id: j.session.id, car: j.session.car, track: j.session.track, config: j.session.config, corners: cards.map(c => c.corner.n) });
+      band.hidden = false; R.$('.rv').classList.add('has-prog');      // the cards close up so all three still fit above the plan
+      const s = j.session, ids = { car: s.carId != null ? s.carId : s.car, track: s.trackId != null ? s.trackId : j.map && j.map.id != null ? j.map.id : s.track };
+      // W4-6 asks /api/review/progress by car and track id (the map's id is the track's); the names are for its words
+      P.mount(band, R.ctx, { id: s.id, car: ids.car, track: ids.track, carName: s.car, trackName: s.track, config: s.config, corners: cards.map(c => c.corner.n) });
       R.prog = P;
-    } catch (e) { console.error(e); band.hidden = true; }
+    } catch (e) { console.error(e); band.hidden = true; R.$('.rv').classList.remove('has-prog'); }
   },
 
   // ---- screens 2 and 3: their own modules, by name ----

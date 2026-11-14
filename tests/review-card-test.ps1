@@ -122,7 +122,7 @@ window.__run = async () => {
   ok('1. the map is the left half, the cards the right half', box('.rv-map').r <= 960 + 1 && box('.rv-right').l >= 960 - 1, JSON.stringify([box('.rv-map'), box('.rv-right')]));
   ok('1. SHOW ME and WATCH are 64 px buttons; WATCH (card 1 has a clip) is pressable, outlined', q('.show').offsetHeight >= 64 && q('.watch').offsetHeight >= 64 && !q('.watch').disabled && getComputedStyle(q('.watch')).backgroundColor !== GOLD);
   ok('1. two requests at mount: the review and the map\'s outline (' + window.__req.join(' ') + ')', window.__req.length === 2 && window.__req[0] === '/api/review?id=last' && /^\/trackmap\?key=roadatlanta-full&id=127$/.test(window.__req[1]), window.__req.join(' '));
-  ok('1. progress (W4-6) mounted in its band under the plan, told the car, the track and the three corners', (() => { const m = sub().find(x => x[0] === 'review-progress.js' && x[1] === 'mount'); if (!m) return false; const o = JSON.parse(m[2]); return o.car === 'Toyota GR86' && o.track === 'Road Atlanta' && o.corners.join() === '5,1,12' && box('.rv-progress').t >= box('.rv-bottom').b - 1; })(), JSON.stringify(sub()));
+  ok('1. progress (W4-6) mounted in its band under the plan, told the car and track (names; the map\'s track id) and the three corners', (() => { const m = sub().find(x => x[0] === 'review-progress.js' && x[1] === 'mount'); if (!m) return false; const o = JSON.parse(m[2]); return o.carName === 'Toyota GR86' && o.trackName === 'Road Atlanta' && o.track === 127 && o.corners.join() === '5,1,12' && box('.rv-progress').t >= box('.rv-bottom').b - 1; })(), JSON.stringify(sub()));
   // with a progress band of 160 px the three cards still fit
   await use('card-practice-8', {}, () => { window.__progH = 160; });
   ok('1. with a 160 px progress band the three cards still fit their half and nothing spills', spill().length === 0 && qa('.card').every(c => c.getBoundingClientRect().bottom <= box('.rv-right').b + 1) && box('.rv-progress').b <= 1080 + 1, JSON.stringify([box('.rv-right'), box('.rv-progress'), spill()]));
@@ -294,6 +294,51 @@ Src 'no banner calls (the shell owns the offline banner)' ($code -notmatch 'bann
 Src 'no colour literal in review.js or review.css' (($js + $cs) -notmatch '(?i)#[0-9a-f]{3,8}\b(?![\w-])\s*[;,)]|\brgba?\(|\bhsla?\(')
 Src 'the screens by name: review-laps.js, review-more.js, review-progress.js; the map from lib/map.js' ($js.Contains("'./review-laps.js'") -and $js.Contains("'./review-more.js'") -and $js.Contains("'./review-progress.js'") -and $js.Contains("'../lib/map.js'"))
 Src 'WATCH uses the recorder''s clip route (/api/rec/session-video)' ($js.Contains('/api/rec/session-video?id='))
+
+# ---------------- 5. with the real W4-4 and W4-6 modules (when they are in the tree): the hand-over and the progress band's fit ----------------
+Section '5. the real screen 2 and progress band'
+$realLaps = Test-Path (Join-Path $app 'pages\review-laps.js'); $realProg = Test-Path (Join-Path $app 'pages\review-progress.js')
+if ($realLaps -and $realProg) {
+  Copy-Item -Recurse $app "$tmp\app2"
+  Copy-Item -Force (Join-Path $fix 'map-stub.js') "$tmp\app2\lib\map.js"
+  $fx2 = $fx + ",`n'progress': " + (& $read 'progress-four.json')
+  function Page2([string]$name, [string]$setup, [string]$run) {
+    $h = $shellSrc.Replace('/*FX*/', $fx2).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
+    [IO.File]::WriteAllText("$tmp\app2\$name.html", $h, $utf8)
+    return 'file:///' + ("$tmp\app2\$name.html" -replace '\\', '/')
+  }
+  $run2 = @'
+<script>
+window.__run = async () => {
+  const out = [], ok = (what, cond, why) => out.push((cond ? 'ok ' : 'FAIL ') + what + (cond || why == null ? '' : ' -> ' + why));
+  const sleep = ms => new Promise(r => setTimeout(r, ms)), q = s => document.querySelector('#page ' + s);
+  for (let i = 0; i < 60 && !(q('.rv-progress') && q('.rv-progress').textContent.trim()); i++) await sleep(50);
+  const band = q('.rv-progress'), R = q('.rv-right').getBoundingClientRect(), B = band.getBoundingClientRect();
+  ok('5. the real progress band (W4-6) mounts under the plan and shows its section', !band.hidden && band.textContent.trim().length > 0 && B.top >= q('.rv-bottom').getBoundingClientRect().bottom - 1, band.textContent.slice(0, 80));
+  ok('5. with it, the three cards still fit their half and the band ends on screen (band ' + Math.round(B.height) + ' px)', [...document.querySelectorAll('#page .card')].every(c => c.getBoundingClientRect().bottom <= R.bottom + 1 && c.getBoundingClientRect().top >= R.top - 1) && B.bottom <= 1080 + 1, JSON.stringify({ R: [R.top, R.bottom], B: [B.top, B.bottom] }));
+  ok('5. it asked /api/review/progress with the map\'s track id', window.__req.some(u => /^\/api\/review\/progress\?car=Toyota%20GR86&track=127$/.test(u)), window.__req.join(' '));
+  window.__unmount(); window.__mount({ screen: 'laps', corner: 5, id: 'x.ibt', at: 'x.ibt' });
+  const pg = document.getElementById('page'); for (let i = 0; i < 100 && !/THIS LAP/i.test(pg.textContent); i++) await sleep(50);
+  ok('5. SHOW ME\'s screen: the real review-laps.js (W4-4) takes over inside REVIEW (its lap chips)', !q('.rv') && /THIS LAP/i.test(pg.textContent) && !/Coming with the next update/.test(pg.textContent), pg.textContent.slice(0, 120));
+  window.__unmount();
+  out.push('DONE'); const o = document.getElementById('out'); o.textContent = out.join('\n'); o.hidden = false;
+};
+</script>
+'@
+  $u2 = Page2 't2' '' $run2
+  $null = Start-Process -FilePath $chrome -ArgumentList (($common -replace '^--window-size=.*', '--window-size=1936,1175') + @('--virtual-time-budget=30000', '--dump-dom', $u2)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out2.txt" -RedirectStandardError "$tmp\err2.txt" -Wait
+  $m2 = [regex]::Match([string](Get-Content "$tmp\out2.txt" -Raw -Encoding UTF8), '(?s)<pre id="out"[^>]*>(.*?)</pre>')
+  $t2 = [Net.WebUtility]::HtmlDecode($m2.Groups[1].Value)
+  $l2 = @($t2 -split [char]10 | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -match '^(ok|FAIL) ' }); $l2 | ForEach-Object { '  ' + $_ }
+  $pass += @($l2 | Where-Object { $_ -match '^ok' }).Count; $fail += @($l2 | Where-Object { $_ -match '^FAIL' }).Count
+  if ($t2 -notmatch 'DONE') { '  FAIL  the real-module test did not finish'; $fail++ }
+  foreach ($s in @(@('practice-8-progress', "window.__setup = { fx: 'card-practice-8', online: true, opts: {} };"), @('show-me-laps', "window.__setup = { fx: 'card-practice-8', online: true, opts: { screen: 'laps', corner: 5, id: 'x.ibt', at: 'x.ibt' } };"))) {
+    $png = Join-Path $shots ('review-card-' + $s[0] + '.png'); Remove-Item $png -ErrorAction SilentlyContinue
+    $u = Page2 ('s-' + $s[0]) $s[1] ''
+    $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=4000', "--screenshot=$png", $u)) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\err2-$($s[0]).txt" -RedirectStandardOutput "$tmp\so2-$($s[0]).txt"
+    if (Test-Path $png) { $pass++; "  ok    picture: $png" } else { $fail++; "  FAIL  no picture for $($s[0])" }
+  }
+} else { '  (W4-4 / W4-6 not in this tree: section 5 skipped)' }
 
 # ---------------- one picture per state ----------------
 Section 'pictures'

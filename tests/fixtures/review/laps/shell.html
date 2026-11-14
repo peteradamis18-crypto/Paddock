@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- The fixture shell for tests\review-laps-test.ps1: the real shell's header and page box (design.css + shell.css), the W3-1 ctx,
+     a pretend irdash behind fetch (/api/review, /api/review/traces as PWB1 from make-pwb.js, /api/review/corners) and a stand-in
+     for data.js. The test writes /*FX*/ (the fixtures), /*SETUP*/ (the state and opts) and <!--RUN--> (the checks). -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="design.css"><link rel="stylesheet" href="shell.css"><script src="lib/format.js"></script>
+<style>/* the top screen is 1920 x 1080 whatever window headless Chrome gives the DOM run (it gives 1904 x 985) */
+html, body { width: 1920px; height: 1080px; } #page { right: auto; bottom: auto; width: 1920px; height: 992px; } .shell-top { width: 1920px; right: auto; }</style>
+<script src="make-pwb.js"></script>
+<script>
+window.__fx = { /*FX*/ }; window.__state = 'two'; window.__opts = {}; window.__offline = false;
+window.__req = []; window.__go = []; window.__ls = {};
+/*SETUP*/
+const mk = n => (window.__ls[n] = window.__ls[n] || []);
+window.data = { __paddock: true, state: { seq: 1, workbench: { cmd: '', arg: '', seq: 40, driving: false } }, seq: 1, online: !window.__offline,
+  get rig() { return { driving: false, sessionOn: false, simRunning: false, online: this.online }; },
+  on(n, f) { mk(n).push(f); return () => { const l = mk(n), i = l.indexOf(f); if (i >= 0) l.splice(i, 1); }; },
+  onList(n, f) { return this.on('list:' + n, f); },
+  json(u) { return window.fetch(u).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); },
+  fetch(u, o) { window.__posts = (window.__posts || 0) + 1; return window.fetch(u, o); } };
+window.__emit = (n, a, b) => mk(n).slice().forEach(f => f(a, b));
+window.__realFetch = window.fetch;
+window.fetch = (u, o) => {
+  u = String(u);
+  if (!/^\/api\//.test(u)) return window.__realFetch(u, o);
+  window.__req.push((o && o.method && o.method !== 'GET' ? o.method + ' ' : '') + u);
+  if (window.__offline) return Promise.reject(new TypeError('Failed to fetch'));
+  const j = x => Promise.resolve(new Response(JSON.stringify(x), { status: x && x.state === 'working' ? 202 : 200 }));
+  const rv = window.__fx[window.__state], q = new URLSearchParams(u.split('?')[1] || '');
+  if (u.indexOf('/api/review?') === 0) return j(rv);
+  const lapOf = v => { if (v === 'ever') return { n: rv.session.ref.lap, time: rv.session.ref.time }; const l = rv.laps.find(x => String(x.n) === v); return l ? { n: l.n, time: l.time } : null; };
+  if (u.indexOf('/api/review/traces?') === 0) {
+    const a = lapOf(q.get('lap')), r = q.get('ref') ? lapOf(q.get('ref')) : null;
+    if (!a) return Promise.resolve(new Response('{"error":"no lap"}', { status: 404 }));
+    return Promise.resolve(new Response(window.__pwb(a, r)));
+  }
+  if (u.indexOf('/api/review/corners?') === 0) {
+    const c = JSON.parse(JSON.stringify(window.__fx.corners));
+    if (rv.session && rv.session.speedUnit === 'km/h') { c.units = 'metric'; c.rows.forEach(r => [r.lap, r.ref].forEach(o => { if (o.minSpeed != null) o.minSpeed = Math.round(o.minSpeed * 16.09344) / 10; })); }
+    if (!q.get('ref')) c.rows.forEach(r => { r.ref = { brakeM: null, minSpeed: null, pickupM: null, time: null }; });
+    return j(c);
+  }
+  return Promise.resolve(new Response('{}', { status: 404 }));
+};
+</script></head><body>
+<header id="shellTop" class="shell-top"><span class="brand">Paddock</span><span class="dot">&middot;</span><span class="date">Sat 14 Nov</span>
+<nav class="doors"><button type="button" class="door">Home</button><button type="button" class="door">Races</button><button type="button" class="door on">Review</button><button type="button" class="door">Rig</button></nav>
+<button type="button" class="btn shell-close">Close</button></header>
+<main id="page"></main><pre id="out" hidden></pre>
+<script type="module">
+import * as M from './pages/review-laps.js';
+const ctx = { data: window.data, Fmt: window.Fmt, opts: {}, go: (n, o) => window.__go.push([n, o]), close() { }, kidsOn: () => false, driving: () => false, banner() { } };
+window.__mount = () => { ctx.opts = {}; window.data.online = !window.__offline; M.mount(document.getElementById('page'), ctx, Object.assign({ screen: 'laps' }, window.__opts)); };
+window.__unmount = () => { M.unmount(); };
+window.__M = M; window.__ctx = ctx;
+window.__chart = (await import('./lib/chart.js')).Chart; window.__map = (await import('./lib/map.js')).Map;
+window.__mount();
+if (window.__run) window.__run();
+</script>
+<!--RUN-->
+</body></html>

@@ -189,6 +189,19 @@ After every drive, **REVIEW** (the door, the deck key, or REVIEW on HOME's card)
 
 **Performance.** The last session's frame rate, the slowest places on the track, what else was using the PC, whether a change you made helped, and a short checklist of what is already right. Nothing on this page changes the graphics.
 
+### REVIEW: the laps
+
+One lap against another, the way the pros look at it. **SHOW ME** on a review card opens it at that corner.
+
+- **Top left: the track map.** A dot shows where you are looking. Green is where this lap was quicker than the reference, red where it was slower.
+- **Two rows of laps.** **THIS LAP** is the lap you look at, **REFERENCE** the lap you compare it with. Press a lap to change it. Laps that count are bright; the others are dim and say why (out lap, in lap, off track). Your best lap's time is purple. With fewer than 3 clean laps there is also **Your best here**: your best ever with this car at this track.
+- **Under the laps:** this lap against the reference ("Lap 8 1:34.020 against lap 9 1:33.832 · +0.188 s"), and your **theoretical best**: your best bits joined into one lap, with the laps and days they came from.
+- **The traces**, one above the other on the same stretch of track: the **delta** in gold (going up = losing time: that is where to look), speed, throttle and brake, steering, gear. The column on the right always shows both laps' numbers at the line, big. Scroll the mouse wheel on the traces to zoom in.
+- **The corner table** under the traces: for every corner, this lap, the reference and the difference (green = quicker, red = slower) for the brake point, the minimum speed, where you were back on the throttle, and the time through the corner. What each one means is written once underneath. Press a corner to zoom to it.
+- **The deck's REVIEW arrows** go to the next or previous corner, zoom in, and back to the whole lap.
+
+If no lap is finished yet it says **No full lap yet**. While Paddock reads a new session it says **Reading your laps…**. Nothing needs typing.
+
 ## The race screen
 
 The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session, a replay, or the sim or Paddock not answering), HOME comes back (or the page you asked for on the deck while you were driving). You press nothing. In Friends mode your guest keeps their own screen: the setup card, then their lap timer and leaderboard while they drive.
