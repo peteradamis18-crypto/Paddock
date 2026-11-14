@@ -1610,10 +1610,11 @@ const AiLevel = new class extends Screen {
     return R;
   }
 };
-// ---------------- RACES screen (2026-11-06) ----------------
-// Peter: "full races ... delete when done so I don't nuke the hard drive, then export so I can easily go to YouTube". Paddock already
-// films every session whole, with sound (dash\src\recorder.cs). This lists them newest first, one key each; a press opens that race:
-// WATCH, YOUTUBE (a clearly named file in Videos\Paddock, shown in Explorer, YouTube's upload page open), KEEP, DELETE (asks twice).
+// ---------------- RACES screen (W1-5: mirrors the library, dash\src\library.cs) ----------------
+// Peter: "full races ... delete when done so I don't nuke the hard drive, then export so I can easily go to YouTube". Paddock films every
+// session whole (dash\src\recorder.cs); irdash's library lists them with a picture and a state. This screen shows the same list:
+// six cards a page (a picture key + a name key each). The picture opens the race; the name key ticks it (gold frame on both keys).
+// Ticked races can be shared or deleted together. A delete leaves at once and offers UNDO for 8 s: nothing asks twice.
 const RACE_MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const raceWhen = ms => {
   const d = new Date(ms), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
@@ -1621,15 +1622,99 @@ const raceWhen = ms => {
   const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   return (same(d, now) ? 'TODAY' : same(d, y) ? 'YESTERDAY' : RACE_MON[d.getMonth()] + ' ' + d.getDate()) + ' ' + hm;
 };
+const raceDay = ms => raceWhen(ms).replace(/ \d\d:\d\d$/, '');           // the card key is small: the day, not the time
 const raceLap = t => { if (!(t > 0)) return '--'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); };
 // a race (not qualifying or practice): what the RACES list shows unless ALL SESSIONS is on (Peter 2026-11-12: too much to wade through)
-const isRace = x => /race/i.test(x.type || '') && !/qual|prac/i.test(x.type || '');
+const isRace = x => x.isRace !== undefined ? !!x.isRace : /race/i.test(x.type || '') && !/qual|prac/i.test(x.type || '');
 const raceShortType = t => /race/i.test(t || '') ? '' : /qual/i.test(t || '') ? 'QUALI · ' : /prac|warm/i.test(t || '') ? 'PRACTICE · ' : /test|offline/i.test(t || '') ? 'TEST · ' : t ? String(t).toUpperCase() + ' · ' : '';
+const raceMin = x => Math.max(1, Math.round((x.sec != null ? x.sec : (x.min || 0) * 60) / 60));
+const RED = '#e0493f', AMBER = '#d98b2b';
+// the one state line of a race, in the colour-by-job language: gold = busy, green = done, red = broke, amber = needs you, grey = nothing
+const raceState = x => {
+  const st = x.state || {}, k = st.kind || 'none', pct = Math.round(st.pct || 0), err = String(st.error || '').trim();
+  switch (k) {
+    case 'sharing': return { k, word: 'SHARING ' + pct + '%', long: 'SHARING ' + pct + '%', col: GOLD, style: 'sel' };
+    case 'queued': return { k, word: 'WAITING', long: 'WAITING TO SHARE', why: err.slice(0, 40), col: GOLD, style: 'sel' };
+    case 'shared': return { k, word: 'ON YT', long: 'ON YOUTUBE' + (st.privacy === 'public' ? '' : ' (PRIVATE)'), col: GREEN, style: 'go' };
+    case 'failed': return { k, word: (err.split(/\s+/)[0] || 'FAILED').toUpperCase().slice(0, 9), long: 'SHARE FAILED' + (err ? ': ' + err : ''), col: RED, style: 'stop' };
+    case 'signin': return { k, word: 'SIGN IN', long: 'SIGN IN TO YOUTUBE', col: AMBER, style: 'amber' };
+    case 'offline': return { k, word: 'OFFLINE', long: 'NO INTERNET', col: '#8d8a82', style: 'grey' };
+  }
+  return { k: 'none', word: '', long: 'NOT SHARED', col: '#8d8a82', style: 'grey' };
+};
+// track name for the card key: at most 2 lines of 8 characters (a longer word breaks with a hyphen)
+const raceTrackLines = name => {
+  const out = []; let cur = '';
+  for (let w of String(name || 'RACE').toUpperCase().split(/\s+/).filter(Boolean)) {
+    while (w.length > 8) { if (cur) { out.push(cur); cur = ''; } out.push(w.slice(0, 7) + '-'); w = w.slice(7); }
+    const t = cur ? cur + ' ' + w : w;
+    if (cur && t.length > 8) { out.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) out.push(cur);
+  if (out.length > 2) { out.length = 2; out[1] = out[1].replace(/-$/, '').slice(0, 7) + '.'; }
+  return out;
+};
+// the pictures on the keys: one fetch per race and size, kept (a bitmap each); fetched again only when irdash says the picture appeared
+// after not having one. While the screen is not open nothing is fetched (the idle rate stays at the summary's).
+const RaceThumbs = {
+  m: new Map(),
+  peek(id, w) { const e = this.m.get(id + '@' + w); return e && e.bmp || null; },
+  want(id, w, has, go, done) {
+    const k = id + '@' + w; let e = this.m.get(k);
+    if (!go) return e && e.bmp || null;
+    if (!has) { if (e && e.state !== 'loading') this.m.delete(k); return null; }
+    if (e) { if (e.state === 'fail' && performance.now() - e.at > 20000) this.m.delete(k); else return e.bmp || null; }
+    e = { bmp: null, state: 'loading', at: performance.now() }; this.m.set(k, e);
+    if (this.m.size > 80) for (const [kk, v] of this.m) { if (kk === k) continue; try { if (v.bmp) v.bmp.close(); } catch (x) { } this.m.delete(kk); if (this.m.size <= 60) break; }
+    const path = '/api/library/thumb?id=' + encodeURIComponent(id) + '&w=' + w;       // a read: no secret needed
+    fetchT(API + path)
+      .then(r => { if (!r.ok) throw new Error('no picture ' + r.status); return r.blob(); })
+      .then(b => createImageBitmap(b))
+      .then(bmp => { e.bmp = bmp; e.state = 'ok'; done(); })
+      .catch(() => { e.state = 'fail'; e.at = performance.now(); });
+    return null;
+  },
+};
+// Words per key. A key's picture is cut out of one sheet and the bezel hides the 6 px between keys, so a word drawn across two keys loses
+// letters ("NA|ME"). Every text over several keys is split into words, one short run per key, each centred in its own key (as CONFIRM does).
+const raceSplit = (text, n, maxc) => {
+  const words = String(text == null ? '' : text).replace(/\s*·\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  for (let m = maxc || 9; ; m++) {
+    const out = []; let cur = '';
+    for (const w of words) { if (cur && (cur + ' ' + w).length > m) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+    out.push(cur);
+    if (out.length <= n || m > 40) { out.length = Math.min(out.length, n); return out; }
+  }
+};
+// a paint hook for a tile w keys wide: parts = { main: [one run per key], sub: [...] } (centred as a group), size = the main size
+const raceSpan = (parts, w, h, size) => (g, px, py, pw, ph, bg, fg) => {
+  const cell = PX - 6, rowMain = h < 3 ? 0 : 1;
+  const row = (arr, rw, weight, sz, alpha, dy) => {
+    const off = Math.floor((w - arr.length) / 2);
+    g.globalAlpha = alpha; g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    arr.forEach((t, i) => {
+      let s = sz; do { g.font = weight + ' ' + s + 'px ' + FONT; s--; } while (g.measureText(t).width > cell - 12 && s > 10);
+      g.fillText(t, px + (off + i) * PX + cell / 2, py + rw * PX + cell / 2 + dy);
+    });
+    g.globalAlpha = 1;
+  };
+  const sub = parts.sub || [];
+  if (h === 1) { row(parts.main, 0, '600', Math.min(size || 24, 24), 1, sub.length ? -11 : 0); if (sub.length) row(sub, 0, '400', 14, .85, 15); }
+  else { row(parts.main, rowMain, '600', Math.min(size || 28, 28), 1, 0); if (sub.length) row(sub, rowMain + 1, '400', 18, .85, 0); }
+};
+const RACOLORS = Object.assign({}, SNDCOLORS, { card: ['#0b0b0b', INK], hint: ['#101010', '#8d8a82'] });
+const raceCover = (g, im, x, y, w, h) => { const s = Math.max(w / im.width, h / im.height), sw = w / s, sh = h / s; g.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, x, y, w, h); };
+const raceFrame = (g, x, y, w, h) => { g.strokeStyle = GOLD; g.lineWidth = 5; g.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5); };
 const Races = new class extends Screen {
   constructor() {
-    super('races', SNDCOLORS);
-    this.s = null; this.sel = null; this.page = 0; this.armed = 0; this.msg = null; this.all = false;
-    this.interval = 1500;
+    super('races', RACOLORS);
+    this.s = null; this.sel = null; this.page = 0; this.msg = null; this.all = false;
+    this.ticks = new Set();            // ticked race ids
+    this.hidden = new Map();           // id -> until: deleted here, gone from the list at once (irdash's next list confirms)
+    this.undo = null;                  // { batch, n, ids, until }: the UNDO key after a delete
+    this.lastGet = 0; this.force = false; this.fetchOn = false;
+    this.interval = 1000;
   }
   hasState() { return !!this.s; }
 
@@ -1644,78 +1729,218 @@ const Races = new class extends Screen {
   }
   async keyTick(sum) {
     if (!this.keys.size || this.live) return;
-    this.s = sum.races || null;        // /api/rec/races, in the summary
+    this.s = sum.races || null;        // the library's deck part, in the summary
     this.keyIcon(false);
     if (this.s) this.warm();
   }
   async open() {
     if (!deviceId) return;
     Perf.begin('races');
-    this.sel = null; this.page = 0; this.armed = 0; this.msg = null; this.all = false;
+    this.sel = null; this.page = 0; this.msg = null; this.all = false; this.ticks.clear(); this.fetchOn = true; this.lastGet = 0;
     this.switchTo('RigRaces'); Perf.mark('races', 'switchSent');
     this.fastUntil = performance.now() + 2500;
     if (this.s) this.warm();
   }
-  exit() { this.sel = null; this.switchTo(''); }
+  exit() { this.sel = null; this.ticks.clear(); this.fetchOn = false; this.switchTo(''); }
+
+  busy() {
+    const now = Date.now();
+    if ((this.msg && now < this.msg.until) || (this.undo && now < this.undo.until)) return true;
+    return ((this.s && this.s.races) || []).some(x => { const k = (x.state || {}).kind; return k === 'sharing' || k === 'queued'; });
+  }
+  // the library list while the screen is open: every 5 s, every 1.5 s only while something is in flight (the idle ceiling is 0.3 / s);
+  // an irdash that does not answer is asked every pass so the screen clears the moment it is back
   async poll() {
-    try { this.s = await this.get('/api/rec/races'); } catch (e) { this.s = { offline: true, races: [] }; }
-    if (this.sel && !(this.s.races || []).some(r => r.id === this.sel)) this.sel = null;   // deleted (here or on the top screen)
+    const gap = this.s && this.s.offline ? 0 : this.busy() ? 1500 : 5000;
+    if (!this.force && this.s && performance.now() - this.lastGet < gap) { this.relayout(); return; }
+    this.force = false; this.lastGet = performance.now();
+    try { this.s = await this.get('/api/library'); } catch (e) { this.s = { offline: true, races: [] }; }
+    if (!this.s.offline) {
+      const ids = new Set((this.s.races || []).map(r => r.id));
+      for (const id of [...this.ticks]) if (!ids.has(id)) this.ticks.delete(id);          // deleted elsewhere
+      for (const id of [...this.hidden.keys()]) if (!ids.has(id)) this.hidden.delete(id);
+      if (this.sel && !ids.has(this.sel)) this.sel = null;
+    }
     this.relayout();
   }
   say(text, style) { this.msg = { text, style: style || 'banner', until: Date.now() + 6000 }; later(6100, () => this.relayout()); }
+  list() {
+    const now = Date.now();
+    for (const [id, t] of this.hidden) if (t < now) this.hidden.delete(id);
+    return ((this.s && this.s.races) || []).filter(x => !this.hidden.has(x.id)).sort((a, b) => b.startMs - a.startMs);
+  }
+
+  // one command to irdash with its answer (the library answers JSON with a plain-words "say")
+  async doCmd(c, a) {
+    try {
+      const r = await sendCmd('/api/do?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')), t = (await r.text()).trim();
+      let j = null; try { j = JSON.parse(t); } catch (e) { }
+      return { ok: r.ok, j: j && typeof j === 'object' ? j : null, t };
+    } catch (e) { log('races: irdash not reachable (' + c + ')'); return { ok: false, j: null, t: '' }; }
+  }
+  words(a, fallback) { return a.j && a.j.say ? String(a.j.say) : a.t && a.t !== 'ok' && a.t.length < 60 && !/^[{<]/.test(a.t) ? a.t : fallback; }
+  async after() { this.force = true; await this.refreshSoon(250); }
 
   async act(r) {
-    if (r.act === 'exit') { this.exit(); return; }
-    if (r.act === 'pick') { this.sel = r.arg; this.armed = 0; this.msg = null; this.relayout(); return; }
-    if (r.act === 'back') { this.sel = null; this.armed = 0; this.relayout(); return; }
-    if (r.act === 'allsessions') { this.all = !this.all; this.page = 0; this.relayout(); return; }
-    if (r.act === 'page') { this.page = Math.max(0, this.page + r.arg); this.relayout(); return; }
-    if (r.act === 'racedelete' && Date.now() > this.armed) {
-      this.armed = Date.now() + 5000; this.relayout(); later(5100, () => this.relayout());   // the first press only asks
-      return;
+    const a = r.act;
+    if (a === 'exit') { this.exit(); return; }
+    if (a === 'pick') { this.sel = r.arg; this.msg = null; this.relayout(); return; }
+    if (a === 'back') { this.sel = null; this.relayout(); return; }
+    if (a === 'allsessions') { this.all = !this.all; this.page = 0; this.relayout(); return; }
+    if (a === 'page') { this.page = Math.max(0, this.page + r.arg); this.relayout(); return; }
+    if (a === 'tick') { if (this.ticks.has(r.arg)) this.ticks.delete(r.arg); else this.ticks.add(r.arg); this.relayout(); return; }
+    if (a === 'clear') { this.ticks.clear(); this.relayout(); return; }
+    // the shared races and nothing else ticked: this is the "free up space" selection (they are already on YouTube)
+    if (a === 'selshared') {
+      const ids = this.list().filter(x => raceState(x).k === 'shared').map(x => x.id);
+      if (ids.length) this.ticks = new Set(ids); else this.say('NONE ARE SHARED YET', 'amber');
+      this.relayout(); return;
     }
-    if (r.act === 'racedelete') { this.armed = 0; this.say('DELETED', 'stop'); this.sel = null; }
-    if (r.act === 'raceexport') this.say('YOUTUBE IS OPEN: DRAG THE SELECTED FILE INTO IT', 'go');
-    if (r.act === 'racewatch') this.say('PLAYING ON THE MIDDLE SCREEN', 'go');
-    if (r.act === 'recsave') this.say('KEPT FOR GOOD', 'sel');
+    if (a === 'sharesel' || a === 'shareone') {
+      const ids = a === 'shareone' ? [r.arg] : [...this.ticks];
+      if (!ids.length) return;
+      const ans = await this.doCmd('raceshare', ids.join('|'));
+      this.say(this.words(ans, ids.length === 1 ? 'SHARING STARTED' : 'SHARING ' + ids.length + ' RACES'), ans.ok ? 'go' : 'amber');
+      if (ans.ok) this.ticks.clear();
+      this.relayout(); await this.after(); return;
+    }
+    if (a === 'trashsel' || a === 'trashone') {
+      const ids = a === 'trashone' ? [r.arg] : [...this.ticks];
+      if (!ids.length) return;
+      // the cards leave now; if irdash refuses they come back
+      const until = Date.now() + 30000; for (const id of ids) { this.hidden.set(id, until); this.ticks.delete(id); }
+      this.sel = null; this.relayout();
+      const ans = await this.doCmd('racetrash', ids.join('|')), j = ans.j || {};
+      if (ans.ok && !(j.count === 0)) {
+        const n = j.count || ids.length;
+        if (j.batch) { this.undo = { batch: j.batch, n, ids, until: Date.now() + 8000 }; later(8100, () => this.relayout()); }
+        else this.say(this.words(ans, 'DELETED ' + n), 'stop');
+      } else {
+        for (const id of ids) this.hidden.delete(id);
+        this.say(this.words(ans, 'NOT DELETED'), 'amber');
+      }
+      this.relayout(); await this.after(); return;
+    }
+    if (a === 'undo') {
+      const u = this.undo; if (!u) return;
+      this.undo = null; this.relayout();
+      const ans = await this.doCmd('raceundo', u.batch);
+      if (ans.ok) for (const id of u.ids) this.hidden.delete(id);
+      this.say(this.words(ans, ans.ok ? 'BACK' : 'TOO LATE TO UNDO'), ans.ok ? 'go' : 'amber');
+      this.relayout(); await this.after(); return;
+    }
+    if (a === 'racefree') { const ans = await this.doCmd('racefree'); this.say(this.words(ans, 'FREEING SPACE'), ans.ok ? 'go' : 'amber'); this.relayout(); await this.after(); return; }
+    if (a === 'ytsignin') { this.say('SIGN IN ON THE MIDDLE SCREEN', 'go'); this.relayout(); await this.cmd('ytsignin'); await this.after(); return; }
+    if (a === 'racewatch') this.say('PLAYING ON THE MIDDLE SCREEN', 'go');
+    if (a === 'recsave') this.say('KEPT FOR GOOD', 'sel');
     this.relayout();
-    await this.cmd(r.act, r.arg);
-    await this.refreshSoon(400);
+    await this.cmd(a, r.arg);
+    await this.after();
+  }
+
+  thumb(x, w) { return RaceThumbs.want(x.id, w, !!x.thumb, this.live || this.fetchOn, () => this.relayout()); }
+
+  // a card: picture key (opens the race) + name key (ticks it)
+  card(R, x, col, row) {
+    const ticked = this.ticks.has(x.id), bmp = this.thumb(x, 144), st = raceState(x);
+    const name = (x.track || 'RACE').toUpperCase(), word = name.split(/\s+/)[0];
+    R.push({ c: col, r: row, w: 1, h: 1, text: x.track || 'RACE', sub: '', act: 'pick', arg: x.id, style: 'card', once: true, noflash: true, extra: 'pic' + x.id + (bmp ? 'I' : 'D') + (ticked ? 'T' : ''),
+      paint: (g, px, py, pw, ph) => {
+        if (bmp) raceCover(g, bmp, px, py, pw, ph);
+        else {
+          g.fillStyle = '#0b0b0b'; g.fillRect(px, py, pw, ph); g.fillStyle = GOLD; g.textAlign = 'center'; g.textBaseline = 'middle';
+          let s = 24; do { g.font = '600 ' + s + 'px ' + FONT; s--; } while (g.measureText(word).width > pw - 10 && s > 10);
+          g.fillText(word, px + pw / 2, py + ph / 2);
+        }
+        if (ticked) {
+          raceFrame(g, px, py, pw, ph);
+          g.fillStyle = GOLD; g.beginPath(); g.arc(px + 17, py + 17, 12, 0, 7); g.fill();
+          g.strokeStyle = '#111'; g.lineWidth = 3; g.beginPath(); g.moveTo(px + 11, py + 17); g.lineTo(px + 16, py + 22); g.lineTo(px + 24, py + 12); g.stroke();
+        }
+      } });
+    R.push({ c: col + 1, r: row, w: 1, h: 1, text: x.track || 'RACE', sub: raceDay(x.startMs) + ' · ' + raceMin(x) + ' MIN', act: 'tick', arg: x.id, style: 'card', once: true, noflash: true,
+      extra: 'nm' + x.id + (ticked ? 'T' : '') + (x.kept ? 'K' : '') + st.word + st.style,
+      paint: (g, px, py, pw, ph) => {
+        g.fillStyle = ticked ? '#2a2208' : '#141414'; g.fillRect(px, py, pw, ph);
+        const lines = raceTrackLines(name), cx = px + pw / 2, total = lines.length * 22 + 16 + (st.word ? 16 : 0);
+        let y = py + (ph - total) / 2 + (st.word ? 8 : 11);
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = INK; g.font = '700 20px ' + FONT;
+        for (const l of lines) { g.fillText(l, cx, y, pw - 14); y += 22; }
+        y += -3;
+        const sub = raceDay(x.startMs) + ' · ' + raceMin(x) + ' MIN'; let s = 12; do { g.font = '400 ' + s + 'px ' + FONT; s--; } while (g.measureText(sub).width > pw - 8 && s > 9);
+        g.fillStyle = '#a8a59d'; g.fillText(sub, cx, y + 8, pw - 6); y += 16;
+        if (st.word) { g.fillStyle = st.col; g.font = '700 13px ' + FONT; g.fillText(st.word, cx, y + 8, pw - 6); }
+        if (x.kept) { g.fillStyle = GOLD; g.beginPath(); g.moveTo(px + pw, py); g.lineTo(px + pw - 20, py); g.lineTo(px + pw, py + 20); g.closePath(); g.fill(); }
+        if (ticked) raceFrame(g, px, py, pw, ph);
+      } });
   }
 
   build() {
-    const s = this.s, R = [], every = s.races || [], races = this.all ? every : every.filter(isRace);
-    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more); R.push(o); };
-    const msg = this.msg && Date.now() < this.msg.until ? this.msg : null;
+    const s = this.s, R = [];
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more);
+      if (w > 1 && !o.paint && o.text != null) {          // text over several keys: one run per key, never across a gap
+        const parts = o.parts || { main: raceSplit(String(o.text).toUpperCase(), w), sub: raceSplit(String(o.sub || '').toUpperCase(), w, 6) };
+        o.paint = raceSpan(parts, w, h, o.size);
+      }
+      R.push(o); };
+    const msg = this.msg && Date.now() < this.msg.until ? this.msg : null, undo = this.undo && Date.now() < this.undo.until ? this.undo : null;
     if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop'); return R; }
+    const every = this.list(), races = this.all ? every : every.filter(isRace), st = s.storage || {};
     const race = this.sel && every.find(x => x.id === this.sel);
     if (!race) {
-      // the list: 24 a page, newest first; gold = kept for good
-      if (!races.length) add(0, 0, 8, 3, this.all ? 'NO VIDEOS YET' : 'NO RACES YET', this.all ? 'Paddock films every session you drive' : 'Practice and qualifying: ALL SESSIONS', null, null, 'banner', 2, { size: 34 });
-      const per = 24, pages = Math.max(1, Math.ceil(races.length / per)), pg = Math.min(this.page, pages - 1);
-      races.slice(pg * per, pg * per + per).forEach((x, i) => add(i % 8, Math.floor(i / 8), 1, 1, x.track || 'RECOVERED', raceShortType(x.type) + raceWhen(x.startMs) + ' · ' + x.min + ' MIN', 'pick', x.id, x.saved ? 'sel' : '', 2));
-      if (pg > 0) add(0, 3, 1, 1, '◀', 'NEWER', 'page', -1, '', 0, { size: 44 });
-      if (pg < pages - 1) add(1, 3, 1, 1, '▶', 'OLDER', 'page', 1, '', 0, { size: 44 });
-      add(2, 3, 1, 1, this.all ? 'RACES ONLY' : 'ALL SESSIONS', this.all ? 'HIDE PRACTICE' : 'PRACTICE, QUALI', 'allsessions', null, 'grey', 2);
-      add(3, 3, 1, 1, s.freeGb + ' GB', 'FREE ON DISK', null, null, 'banner', 0, { size: 30 });
-      if (msg) add(4, 3, 3, 1, msg.text, '', null, null, msg.style, 2);
+      // the list: six cards a page, newest first; a page shows only the cards it has
+      const per = 6, pages = Math.max(1, Math.ceil(races.length / per)), pg = Math.min(this.page, pages - 1); this.page = pg;
+      if (!races.length) add(0, 0, 6, 2, this.all ? 'NO VIDEOS YET' : 'NO RACES YET', this.all ? 'EVERY DRIVE IS FILMED' : 'TRY ALL SESSIONS', null, null, 'banner', 2, { size: 28, noflash: true });
+      races.slice(pg * per, pg * per + per).forEach((x, i) => this.card(R, x, (i % 3) * 2, Math.floor(i / 3)));
+      if (pg > 0) add(6, 0, 1, 1, 'NEWER', '◀', 'page', -1, '', 0, { size: 20 });
+      if (pg < pages - 1) add(7, 0, 1, 1, 'OLDER', '▶', 'page', 1, '', 0, { size: 20 });
+      add(6, 1, 1, 1, this.all ? 'RACES ONLY' : 'ALL SESSIONS', this.all ? 'HIDE PRACTICE' : 'PRACTICE, QUALI', 'allsessions', null, 'grey', 2);
+      if (st.lowSpace) add(7, 1, 1, 1, 'LOW', 'FREE UP', 'racefree', null, 'amber', 2, { size: 26 });
+      else add(7, 1, 1, 1, (st.freeGb != null ? st.freeGb : s.freeGb) + ' GB', 'FREE', null, null, 'banner', 0, { size: 24, noflash: true });
+      const n = this.ticks.size, w = undo ? 4 : 7;
+      if (msg) add(0, 2, w, 1, msg.text, '', null, null, msg.style, 2, { size: 24, noflash: true });
+      else if (n) add(0, 2, w, 1, n + ' TICKED', '', null, null, 'banner', 0, { size: 30, noflash: true });
+      else if (races.length) add(0, 2, w, 1, 'PICTURE OPENS · NAME TICKS', '', null, null, 'hint', 0, { noflash: true, parts: { main: ['PICTURE', 'NAME'], sub: ['OPENS IT', 'TICKS IT'] } });
+      if (undo) add(4, 2, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
+      if (n) {
+        add(0, 3, 2, 1, 'SHARE SELECTED', n + ' ON YOUTUBE', 'sharesel', null, 'sel', 2, { size: 24 });
+        add(2, 3, 2, 1, 'DELETE SELECTED', n + ' TO TRASH', 'trashsel', null, 'stop', 2, { size: 24 });
+        add(4, 3, 1, 1, 'SELECT ALL', 'SHARED', 'selshared', null, 'grey', 2);
+        add(5, 3, 1, 1, 'CLEAR', 'TICKS', 'clear', null, 'grey', 2);
+      }
       add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
       return R;
     }
-    // one race
-    add(0, 0, 1, 1, race.track || 'RECOVERED', race.car || '', null, null, 'banner', 2);
-    add(1, 0, 1, 1, raceWhen(race.startMs), raceShortType(race.type).replace(' · ', '') || 'RACE', null, null, 'banner', 2);
-    add(2, 0, 1, 1, race.min + ' MIN', race.laps + ' LAPS', null, null, 'banner', 0, { size: 30 });
-    add(3, 0, 1, 1, raceLap(race.best), 'BEST LAP', null, null, 'banner', 0, { size: 24 });
-    add(4, 0, 1, 1, (race.mb / 1024).toFixed(1) + ' GB', 'ON DISK', null, null, 'banner', 0, { size: 28 });
-    // what to do with it, in plain words (Peter 2026-11-12: "still can't easily see how to share a full race ... same with deleting")
-    add(0, 1, 1, 1, 'SHARE', 'ON YOUTUBE', 'raceexport', race.id, 'sel', 2, { size: 26 });
-    const armed = Date.now() < this.armed;
-    add(1, 1, 1, 1, armed ? 'PRESS AGAIN' : 'DELETE', armed ? 'TO DELETE IT' : 'FROM PC', 'racedelete', race.id, armed ? 'amber' : 'stop', 2, { size: armed ? 19 : 26 });
-    add(2, 1, 1, 1, 'WATCH', 'ON MIDDLE SCREEN', 'racewatch', race.id, 'go', 2, { size: 26 });
-    if (!race.saved) add(3, 1, 1, 1, 'KEEP', 'FOR GOOD', 'recsave', race.id, '', 2);
-    if (msg) add(4, 1, 3, 1, msg.text, '', null, null, msg.style, 2);
+    // one race: the picture across 4 x 2 keys, the facts, its state, what to do with it
+    const state = raceState(race), big = this.thumb(race, 600), shared = state.k === 'shared', busy = state.k === 'sharing' || state.k === 'queued';
+    const name = (race.track || 'RECOVERED').toUpperCase();
+    add(0, 0, 4, 2, name, '', null, null, 'card', 0, { noflash: true, extra: 'big' + race.id + (big ? 'I' : 'D'),
+      paint: (g, px, py, pw, ph) => {
+        if (big) raceCover(g, big, px, py, pw, ph);
+        else {
+          g.fillStyle = '#0b0b0b'; g.fillRect(px, py, pw, ph); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = GOLD;
+          let sz = 44; do { g.font = '600 ' + sz + 'px ' + FONT; sz -= 2; } while (g.measureText(name).width > pw - 20 && sz > 16);
+          g.fillText(name, px + pw / 2, py + ph / 2, pw - 20);
+        }
+      } });
+    add(4, 0, 1, 1, race.track || 'RECOVERED', race.car || '', null, null, 'banner', 2, { noflash: true });
+    add(5, 0, 1, 1, raceWhen(race.startMs), raceShortType(race.type).replace(' · ', '') || 'RACE', null, null, 'banner', 2, { noflash: true });
+    add(6, 0, 1, 1, raceMin(race) + ' MIN', race.laps + ' LAPS', null, null, 'banner', 0, { size: 28, noflash: true });
+    add(7, 0, 1, 1, raceLap(race.best), 'BEST LAP', null, null, 'banner', 0, { size: 22, noflash: true });
+    add(4, 1, 4, 1, state.long, state.why || '', state.k === 'signin' ? 'ytsignin' : null, null, state.style, 2, { size: 26, noflash: state.k !== 'signin' });
+    if (shared) add(0, 2, 1, 1, 'ON YOUTUBE', 'SHARED', null, null, 'grey', 2, { size: 18, noflash: true });
+    else if (busy) add(0, 2, 1, 1, state.k === 'sharing' ? 'SHARING' : 'WAITING', state.k === 'sharing' ? state.word.replace('SHARING ', '') : 'TO SHARE', null, null, 'grey', 2, { size: 22, noflash: true });
+    else add(0, 2, 1, 1, 'SHARE', 'ON YOUTUBE', 'shareone', race.id, 'sel', 2, { size: 26 });
+    add(1, 2, 1, 1, 'DELETE', 'CAN UNDO', 'trashone', race.id, 'stop', 2, { size: 26 });
+    add(2, 2, 1, 1, 'WATCH', 'ON MIDDLE SCREEN', 'racewatch', race.id, 'go', 2, { size: 26 });
+    if (race.kept) add(3, 2, 1, 1, 'KEPT', 'FOR GOOD', null, null, 'grey', 2, { size: 26, noflash: true });
+    else add(3, 2, 1, 1, 'KEEP', 'FOR GOOD', 'recsave', race.id, '', 2, { size: 26 });
+    const link = shared && (race.state || {}).url ? /(?:youtu\.be\/|[?&]v=)([\w-]+)/.exec(race.state.url) : null;
+    // parts, not text: a YouTube address is case-sensitive (the renderer capitalises) and must not cross a key gap
+    if (link) add(4, 2, 2, 1, 'youtu.be/' + link[1], 'LINK ON THE PAGE', null, null, 'banner', 0, { noflash: true, parts: { main: ['youtu.be/', link[1]], sub: ['LINK ON', 'THE PAGE'] } });
     add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
+    if (undo) add(1, 3, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
+    if (msg) add(undo ? 4 : 1, 3, undo ? 3 : 6, 1, msg.text, '', null, null, msg.style, 2, { size: 22, noflash: true });
     add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
     return R;
   }
