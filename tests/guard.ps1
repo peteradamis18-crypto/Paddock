@@ -33,6 +33,22 @@ public static class RigAwake {
 '@ -ErrorAction SilentlyContinue
 try { [RigAwake]::Keep() } catch { }
 
+# 2026-11-14: a whole deck journey ran while the PC was locked; irdeck rightly refused every click ("another window (LockApp)
+# covers the click spot") and the run said nothing. A test that clicks in iRacing's window needs the lock screen away.
+Add-Type @'
+using System; using System.Runtime.InteropServices; using System.Diagnostics;
+public static class RigLock {
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static string Reason() {
+    IntPtr h = GetForegroundWindow(); if (h == IntPtr.Zero) return "no window is in front (the PC is locked or the screens are off)";
+    uint pid; GetWindowThreadProcessId(h, out pid); if (pid == 0) return "no window is in front (the PC is locked)";
+    try { string n = Process.GetProcessById((int)pid).ProcessName; if (n.StartsWith("LockApp", StringComparison.OrdinalIgnoreCase)) return "the PC is locked (the lock screen is in front)"; } catch { }
+    return null;
+  }
+}
+'@ -ErrorAction SilentlyContinue
+
 $script:guardRoot = Split-Path -Parent $PSScriptRoot
 
 function Get-RigBusy {
@@ -61,6 +77,7 @@ if ($env:RIG_TEST_OWNS_SIM -and (Test-Path $own)) { $lastInput = (Get-Date).AddM
 $okf = Join-Path (Split-Path -Parent $PSScriptRoot) 'away-ok.txt'
 if ((Test-Path $okf) -and ((Get-Date) - (Get-Item $okf).LastWriteTime).TotalMinutes -lt 60) { $need = 0.5 }
 if ($idle -lt $need) { $why = "Peter used the PC $([math]::Round($idle, 1)) minutes ago (this test drives the real sim; it needs him away for $need minutes)" }
+    if (-not $why) { $lk = try { [RigLock]::Reason() } catch { $null }; if ($lk) { $why = "$lk; this test clicks in iRacing's window, so it waits for the PC to be unlocked" } }
   }
   if (-not $why) { return }
   $msg = if ($Where) { "NOT SAFE TO GO ON: $why (at '$Where'). Stopping and putting everything back." } else { "NOT SAFE TO TEST: $why. Nothing was changed." }
