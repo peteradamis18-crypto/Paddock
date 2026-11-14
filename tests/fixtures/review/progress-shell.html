@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- The fixture shell for tests\review-progress-test.ps1: stands in for the card screen that mounts the progress section
+     (a plan line above it, 96 px side gutters) with a pretend data.js. The test writes /*FX*/ (the fixtures) and <!--RUN-->. -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="design.css"><script src="lib/format.js"></script>
+<style>.screen{position:fixed;left:96px;top:120px;width:1728px}
+.plan{font-size:var(--t-read);color:var(--ink);margin:0 0 40px;padding:24px;border:2px solid var(--line)}
+.fake{height:300px;margin-bottom:40px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:var(--t-body)}</style>
+<script>
+window.__fx = { /*FX*/ }; window.__req = []; window.__ls = {}; window.__mode = 'ok';
+const mk = n => (window.__ls[n] = window.__ls[n] || []);
+window.data = { __paddock: true,
+  on(n, f) { mk(n).push(f); return () => { const l = mk(n), i = l.indexOf(f); if (i >= 0) l.splice(i, 1); }; },
+  onList(n, f) { return this.on('list:' + n, f); },
+  json(u) { window.__req.push(u); if (window.__mode === 'fail' || window.__name === 'fail') return Promise.reject(new Error('HTTP 500')); return Promise.resolve(JSON.parse(JSON.stringify(window.__fx[window.__name]))); } };
+window.__emit = (n, a) => mk(n).slice().forEach(f => f(a));
+</script></head><body>
+<div class="screen"><p class="plan">Next time: Turn 5, brake at the 100 m board, check the entry speed</p>
+<div class="fake">the three cards and the map</div><div id="host"></div></div>
+<pre id="out" hidden></pre>
+<script type="module">
+import * as P from './pages/review-progress.js';
+const ctx = { data: window.data, Fmt: window.Fmt, go() { } };
+window.__P = P; window.__ctx = ctx;
+window.__opts = { car: 'toyotagr86', track: 'roadatlanta full', carName: 'GR86', trackName: 'Road Atlanta', corners: [6, 9, 1] };
+window.__mount = name => { window.__name = name; window.__req.length = 0; P.mount(document.getElementById('host'), ctx, window.__opts); };
+window.__name = (location.hash || '#four').slice(1);
+if (window.__run) window.__run(); else window.__mount(window.__name);
+</script>
+<!--RUN-->
+</body></html>
