@@ -27,6 +27,7 @@ namespace IRDash
         public bool Recovered;          // rebuilt from segments after a crash: its type may be unknown, so it is treated as a race
         public double StartMs, Sec, Best, DeletedMs, Created;
         public int Laps, Counted, BestLap;
+        public int Start, Finish, Field;  // W3-3: grid place, finishing place, cars in the results (0 = not known)
         public long Bytes;
         public List<RaceMarker> Markers = new List<RaceMarker>();
         public string From = "";        // trash only: "sessions" or "saved", where UNDO puts it back
@@ -107,6 +108,7 @@ namespace IRDash
             int laps, counted, bestN; double best;
             Recorder.RaceLaps(s, !light, out laps, out counted, out best, out bestN);
             r.Laps = laps; r.Counted = counted; r.Best = best; r.BestLap = bestN;
+            r.Start = s.StartPos; r.Finish = s.FinishPos; r.Field = s.FieldSize;
             if (!light) r.Markers = Markers(s, best, bestN);
             return r;
         }
@@ -667,6 +669,7 @@ namespace IRDash
             return "\"id\":" + Json_.S(r.Id) + ",\"track\":" + Json_.S(r.Track) + ",\"config\":" + Json_.S(r.Config) + ",\"car\":" + Json_.S(r.Car) + ",\"type\":" + Json_.S(r.Type) +
                    ",\"isRace\":" + B(r.IsRace) + ",\"startMs\":" + N(r.StartMs, "0") + ",\"sec\":" + N(Math.Round(r.Sec), "0") + ",\"laps\":" + r.Laps + ",\"counted\":" + r.Counted +
                    ",\"best\":" + (r.Best > 0 ? N(r.Best, "0.000") : "0") + ",\"bestLap\":" + r.BestLap + ",\"mb\":" + N(Math.Round(r.MB), "0") + ",\"kept\":" + B(r.Kept) +
+                   ",\"start\":" + r.Start + ",\"finish\":" + r.Finish + ",\"field\":" + r.Field +
                    ",\"thumb\":" + B(HasThumb(r.Id)) + ",\"state\":" + StateJson(r.Id) + ",\"talk\":" + Commentary.StateJson(r.Id);
         }
 
@@ -748,12 +751,13 @@ namespace IRDash
         static string PrivacyNow() { return Regex.IsMatch(YouTube(), "\"privacy\"\\s*:\\s*\"public\"") ? "public" : "private"; }
 
         // what a title knows about a race. Series: no clean link from a recording to Peter's registered series yet (the schedule in
-        // official.cs knows series, not which one a session was), so it stays empty and the templates leave it out. Finish/Start: the
-        // sidecar has no positions yet, so 0 (the P segments vanish).
+        // official.cs knows series, not which one a session was), so it stays empty and the templates leave it out. Finish/Start: from
+        // the sidecar since W3-3 (the recorder reads iRacing's results); an older sidecar has 0 and the P segments vanish.
         static Facts FactsOf(RaceInfo r)
         {
             Facts f = new Facts();
             f.Car = r.Car ?? ""; f.Track = r.Track ?? ""; f.Config = r.Config ?? ""; f.Series = "";
+            f.Finish = r.Finish; f.Start = r.Start;
             if (r.StartMs > 0) f.Date = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(r.StartMs).ToLocalTime();
             return f;
         }

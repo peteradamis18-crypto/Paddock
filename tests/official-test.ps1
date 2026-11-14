@@ -72,6 +72,17 @@ $gl | Where-Object { $_ -match 'Unhandled|Exception' } | ForEach-Object { "  $_"
 $res = ($gl | Where-Object { $_ -match '^RESULT' } | Select-Object -Last 1) -split ' '
 if ($res.Count -ge 3) { $script:pass += [int]$res[1]; $script:fail += [int]$res[2] } else { $script:fail++; '  FAIL  the glue test did not finish' }
 
+# ================= W3-3 his series and HOME's next race =================
+Section '13. his series (W3-3)'
+$mr = Join-Path $tmp 'mineroot'; New-Item -ItemType Directory -Force $mr | Out-Null
+$mo = @(& $unit mine $mr)
+$mo | Where-Object { $_ -match '^(  ok|  FAIL|\d+\.|\s+his series)' }
+$res = ($mo | Where-Object { $_ -match '^RESULT' } | Select-Object -Last 1) -split ' '
+if ($res.Count -ge 3) { $script:pass += [int]$res[1]; $script:fail += [int]$res[2] } else { $script:fail++; '  FAIL  the his-series test did not finish' }
+$logLine = $mo | Where-Object { $_ -match "official: Peter's series: " } | Select-Object -First 1
+Check "the start-up log names his series: $($logLine -replace '^\s*\[log\]\s*', '')" ($logLine -match "official: Peter's series: " -and $logLine -match 'Toyota GR Cup' -and $logLine -match 'Porsche Cup' -and $logLine -notmatch 'Mazda')
+Check 'the log line is written once, not on every rebuild' (@($mo | Where-Object { $_ -match "official: Peter's series: " }).Count -le 2)
+
 # ================= H-01 source / S4 / 2027 =================
 $fix = Join-Path $root 'data\official\fixtures'
 $srcRoot = Join-Path $tmp 'h01root'

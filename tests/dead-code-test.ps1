@@ -60,6 +60,11 @@ $src = (Get-ChildItem (Join-Path $root 'dash\src') -Filter *.cs | ForEach-Object
 $routes = @('"/timings"', '/api/delta/preview', '"/cars/status"', '/corners/detect', '/corners/audit', '"/tv"', '"/tv/data"',
             '"/analysis/gain"', '"/field/status"', '"/official/import"', 'path.StartsWith("/maps/"', 'TvView', 'Tv.Start', 'Tv.Json')
 foreach ($r in $routes) { Check "no .cs under dash\src contains $r" (-not $src.Contains($r)) }
+# W3-3 (PLAN 10 item 6): the real-world calendar is not fetched or served any more; realworld.cs itself goes in wave 6
+$irSrc = Get-Content -LiteralPath (Join-Path $root 'dash\src\irdash.cs') -Raw
+Check 'irdash.cs no longer routes /realworld or starts RealWorld (W3-3)' (-not $irSrc.Contains('path == "/realworld"') -and -not $irSrc.Contains('RealWorld.Init(') -and -not $irSrc.Contains('RealWorld.Route('))
+$appJs = (Get-ChildItem (Join-Path $root 'dash\www\app') -Recurse -Include *.js | Get-Content -Raw) -join "`n"
+Check 'no page under dash\www\app asks for /realworld' ($appJs -notmatch '/realworld')
 Check 'the corner list route itself (/corners) is still there' ($src.Contains('path == "/corners"'))
 
 '4. the build and the test list only name files that exist'

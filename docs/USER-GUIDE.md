@@ -158,10 +158,17 @@ To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on th
 One line at the bottom of the screen tells you the one thing you need to know, never two at once, in this order: **Paddock is not running. Press HOME on the deck.** (the screen cannot reach Paddock; the doors still work), kids mode, **Reset car · waiting for the car to stop**, and what the last deck key did (for 4 seconds).
 
 While you drive: the race screen (below) covers everything, and no page stays open behind it. A coloured edge when a flag is out. Five seconds after you stop, HOME is back.
+### The top screen: HOME
 
-Home only counts real drives. A test, or a Test Drive where the car sat in the pit box and never went out, is not an outing: it is not in your last outing, your seat time, THIS WEEK, or the car shown. The small line **Since** and a month and year (when your first session was) is only a date, not a number of anything.
+When the rig is idle: **HOME**. It is quiet on purpose, like a good watch.
 
-The Corvette picture: until your own shot exists, Home shows a credited photo of a real Corvette Z06 GT3.R. Drop your own as `paddock\home\hero.jpg` and Home uses it at once.
+- **In the middle: the clock**, your own local time. When one of your races starts within a day, it says **NEXT GREEN FLAG** and how long to go. In the last 30 minutes a thin gold ring closes around the clock.
+- **On the left: your next races.** The series you race (the ones you made favourites, and the ones Paddock recognises from your last 10 official races: same car, same track, same week; it remembers them when a new season starts), with the time it starts, the track and your car. The next one is big; a race that has already started fades. If none of your series is racing soon, it says **Next race you can join** and shows the next race you have the car and track for. When a session is loaded it says **NOW**: the session, the track, your car and when it was loaded (and the series, when one of your races starts there within the hour). The countdown stops while a session is loaded.
+- **On the right: MY RACES.** Your last three drives: the track, the day, and where you finished (for example **P4 of 19**; in a race with more than one class, your place in your class). **LAST RACE** opens the review. For ten minutes after a drive shows up there, a card says how it went (**Your race: P3 from P9**) with a **REVIEW** button.
+- **At the bottom: the rig.** **Rig ready** in green with what it checked (iRacing, deck, spotter, overlays), or one sentence saying what is wrong, with a **FIX IT** button when the Rig Doctor can fix it itself (it then says **Checking the rig**).
+- **One gold button** that fits the moment: **RIG ON** when the rig is off; **DRIVE** when a session is loaded (it gets you in the car), or when nothing is running (it starts your last car at your last track, named under it); **START** if there is no last drive yet. While it works it says what it is doing; if it cannot, it says why on the button. In kids mode or when Paddock is not running it turns grey and says why.
+
+Home never shows while you drive. It no longer shows the real-world TV schedule, the phone code (it moves to RIG) or statistics.
 
 **Sessions & laps.** Every session you have driven: date, car, track, how long, best lap. Filter by car or track. Tap a session to see the laps, then one lap against another: speed, throttle, brake, and where time went. Your best at each car and track is listed, with the same comparison against the field and real IMSA times.
 

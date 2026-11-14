@@ -24,7 +24,7 @@ namespace IRDash
             new[] { "laptimelog", "LAP TIMES" }, new[] { "weather", "WEATHER" }, new[] { "battle", "BATTLE" }, new[] { "slowcarahead", "SLOW CAR" } };
         static readonly string[] Presets = { "race", "practice", "quali", "minimal", "friends" };
         static readonly HashSet<string> Commands = new HashSet<string> {
-            "ovtoggle", "ovpreset", "ovsave", "ovalloff", "ovedit", "ovapply", "deltaon", "deltaref", "deltaup", "deltadown", "doctor" };
+            "ovtoggle", "ovpreset", "ovsave", "ovalloff", "ovedit", "ovapply", "deltaon", "deltaref", "deltaup", "deltadown", "doctor", "doctorcheck" };
 
         static string dir;
         static readonly object gate = new object();
@@ -79,6 +79,7 @@ namespace IRDash
                 case "deltaup": DeltaBar.Nudge(-10); return true;
                 case "deltadown": DeltaBar.Nudge(10); return true;
                 case "doctor": Doctor.Run(true); return true;
+                case "doctorcheck": Doctor.Run(false); return true;      // W3-3 HOME's FIX IT: check and fix, without putting the old list on the screen
             }
             return false;
         }

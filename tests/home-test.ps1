@@ -1,461 +1,305 @@
-# Paddock HOME (P1): the top screen between sessions.
-#   1. /home answers from real data: every personal best equals the quickest official session best of that track in /sessions,
-#      the last session is the newest one with laps, the hero picture is served
-#   2. the real page in headless Chrome at 1920x1080: numbers equal /career and /home, the hero is drawn, the big button is there,
-#      no overlaps between the blocks, no JS errors (picture tests\shots\home.png)
-#   3. hidden while driving: a pretend session through the test hook makes the page live and #overlay (HOME) goes away; back after
-#      (picture tests\shots\home-driving.png)
-# Needs the deployed irdash (dash\build.ps1). Never runs while Peter races (guard.ps1); the test hook refuses then too (409).
-$ErrorActionPreference = 'Stop'
+﻿# home-test.ps1 - offline (W3-3): HOME on the top screen, dash\www\app\pages\home.js + home.css.
+# The page runs in headless Chrome inside a fixture shell (tests\fixtures\home\shell.html: the W3-1 page contract in 30 lines),
+# with a pretend irdash behind fetch, a stand-in for data.js and, until W3-2 lands, a stand-in clock (clock-stub.js, the same API).
+# /official is made by irdash's own code (tests\official-unit.cs homefx: the server decides which rows are "his"); the library,
+# /home and the state push are tests\fixtures\home\*.json. Nothing reaches the real irdash.
+#   1. the states (rig off; rig on, idle; race within 30 min; session loaded; offline; kids; after a drive; after a practice; a rig
+#      problem): one gold fill at most (none when the button cannot be pressed), no text under 24 px, the zones where PLAN 4.1 puts
+#      them and not overlapping, never a banner from HOME (the shell owns them), his series only
+#   2. countdown maths against a fixed clock: the 24 h boundary, the 30-minute ring, local time
+#   3. the one button: RIG ON / DRIVE / START; the DRIVE-his-last-car flow's requests in order and its failure sentence
+#   4. the after-drive card's ten minutes, the session's "loaded at", request rate idle <= 2/s, onList, unmount
+#   5. source: no real-world block anywhere, no banner calls, no New York clock
+# Pictures: tests\shots\rework\home-<state>.png (look at every one).
+#   powershell -ExecutionPolicy Bypass -File tests\home-test.ps1
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree
+try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
 $root = Split-Path -Parent $PSScriptRoot
-$api = 'http://localhost:8199'
-$shots = Join-Path $PSScriptRoot 'shots'; New-Item -ItemType Directory -Force $shots | Out-Null
-$script:ok = 0; $script:fail = 0
-function Check($name, $cond, $detail = '') { if ($cond) { $script:ok++; Write-Output "  ok    $name" } else { $script:fail++; Write-Output "  FAIL  $name $detail" } }
-function Section($t) { Assert-RigFree -Where $t; Write-Output ''; Write-Output $t }
-function J($u) { (Invoke-WebRequest -UseBasicParsing $u -TimeoutSec 30).Content | ConvertFrom-Json }
-function Lap($t) { $t = [double]$t; if ($t -le 0) { return '-' }; $m = [math]::Floor($t / 60); $s = $t - $m * 60; $ss = $s.ToString('0.000', [Globalization.CultureInfo]::InvariantCulture); if ($m -gt 0 -and $s -lt 10) { $ss = '0' + $ss }; if ($m -gt 0) { return "$m`:$ss" } else { return $ss } }
+$app = Join-Path $root 'dash\www\app'
+$fix = Join-Path $root 'tests\fixtures\home'
+$shots = Join-Path $root 'tests\shots\rework'; New-Item -ItemType Directory -Force $shots | Out-Null
+$chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $chrome) { '  FAIL  Chrome not found'; exit 1 }
+'HOME test (W3-3)'
+$pass = 0; $fail = 0
+function Section($t) { Assert-RigFree -Where $t; $t }
 
-# ---- headless Chrome with the DevTools protocol (the same harness as career-test, its own port) ----
-$chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
-$script:cdp = $null
-function Cdp-Open($url, $w = 1920, $h = 1080) {
-  $prof = Join-Path $env:TEMP ('home-test-chrome-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); $port = 9377
-  $p = Start-Process -FilePath $chrome -ArgumentList @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$prof", "--remote-debugging-port=$port", "--window-size=$w,$h", '--hide-scrollbars', '--autoplay-policy=no-user-gesture-required', 'about:blank') -PassThru -WindowStyle Hidden
-  try { $p.PriorityClass = 'BelowNormal' } catch { }
-  $page = $null
-  for ($i = 0; $i -lt 50 -and -not $page; $i++) { Start-Sleep -Milliseconds 200; try { $arr = Invoke-RestMethod "http://127.0.0.1:$port/json"; foreach ($x in $arr) { if ($x.type -eq 'page') { $page = $x; break } } } catch { } }
-  if (-not $page) { throw 'headless Chrome did not start' }
-  $ws = New-Object System.Net.WebSockets.ClientWebSocket
-  $null = $ws.ConnectAsync([Uri]$page.webSocketDebuggerUrl, [Threading.CancellationToken]::None).Wait()
-  $script:cdp = @{ ws = $ws; proc = $p; prof = $prof; id = 0; errors = New-Object System.Collections.Generic.List[string] }
-  $null = Cdp 'Page.enable' @{}
-  $null = Cdp 'Runtime.enable' @{}
-  $null = Cdp 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $false }
-  $null = Cdp 'Page.navigate' @{ url = $url }
+$tmp = Join-Path $env:TEMP ('home-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Force $tmp | Out-Null
+Copy-Item -Recurse $app "$tmp\app"
+Copy-Item -Force (Join-Path $fix 'clock-stub.js') "$tmp\app\lib\clock.js"      # the real clock is W3-2's; the stand-in keeps the test fixed
+$utf8 = New-Object Text.UTF8Encoding($false)
+$read = { param($n) [IO.File]::ReadAllText((Join-Path $fix $n), [Text.Encoding]::UTF8).Trim() }
+
+# /official from irdash's own code (official.cs + officialcore.cs through tests\official-unit.cs), as of Sat 14 Nov 12:30 UTC
+Section '0. /official from the server code'
+$fw = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319"
+$ou = Join-Path $tmp 'official-unit.exe'
+$null = & "$fw\csc.exe" -nologo -nowarn:0649 -r:System.Web.Extensions.dll "-out:$ou" "$root\tests\official-unit.cs" "$root\dash\src\officialcore.cs" "$root\dash\src\official.cs" 2>&1
+$ofJson = ''
+if (Test-Path $ou) { New-Item -ItemType Directory -Force "$tmp\ofroot" | Out-Null; $ofJson = ((& $ou homefx "$tmp\ofroot" '2026-11-14T12:30:00Z') | Where-Object { $_ -like 'JSON *' } | Select-Object -First 1) -replace '^JSON ', '' }
+if ($ofJson -match '"loaded":true') { $pass++; '  ok    0. /official made by official.cs for the fixture (his series flagged by the server)' } else { $fail++; '  FAIL  0. /official could not be made from the server code'; exit 1 }
+
+$fx = 'official: ' + $ofJson + ', library: ' + (& $read 'library.json') + ', home: ' + (& $read 'home.json') + ', state: ' + (& $read 'state.json')
+$shellSrc = & $read 'shell.html'
+$statesJs = & $read 'states.js'
+$common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--force-device-scale-factor=1')
+function Page([string]$name, [string]$state, [string]$run) {
+  $setup = $statesJs + "`nwindow.__base = JSON.stringify(window.__fx);" + $(if ($state) { "`ntry { sessionStorage.clear(); } catch (e) { }`nwindow.__setups['$state'](window.__fx);" } else { '' })
+  $h = $shellSrc.Replace('/*FX*/', $fx).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
+  [IO.File]::WriteAllText("$tmp\app\$name.html", $h, $utf8)
+  return 'file:///' + ("$tmp\app\$name.html" -replace '\\', '/')
 }
-function Cdp($method, $params) {
-  $c = $script:cdp; $c.id++
-  $bytes = [Text.Encoding]::UTF8.GetBytes((@{ id = $c.id; method = $method; params = $params } | ConvertTo-Json -Depth 8 -Compress))
-  $null = $c.ws.SendAsync([ArraySegment[byte]]$bytes, 'Text', $true, [Threading.CancellationToken]::None).Wait()
-  while ($true) {
-    $buf = New-Object byte[] 262144; $sb = New-Object Text.StringBuilder
-    do { $seg = New-Object ArraySegment[byte] -ArgumentList @(, $buf); $r = $c.ws.ReceiveAsync($seg, [Threading.CancellationToken]::None); $null = $r.Wait(); [void]$sb.Append([Text.Encoding]::UTF8.GetString($buf, 0, $r.Result.Count)) } while (-not $r.Result.EndOfMessage)
-    $o = $sb.ToString() | ConvertFrom-Json
-    if ($o.method -eq 'Runtime.exceptionThrown') { $c.errors.Add($o.params.exceptionDetails.exception.description) }
-    if ($o.id -eq $c.id) { return $o }
-  }
-}
-function Cdp-Eval($expr) { $r = Cdp 'Runtime.evaluate' @{ expression = $expr; awaitPromise = $true; returnByValue = $true }; if ($r.result.exceptionDetails) { return "js error: " + $r.result.exceptionDetails.exception.description }; return $r.result.result.value }
-function Cdp-Json($expr) { return (Cdp-Eval "JSON.stringify($expr)") | ConvertFrom-Json }
-function Cdp-Shot($path) { $s = Cdp 'Page.captureScreenshot' @{ format = 'png' }; [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($s.result.data)) }
-function Cdp-Close() {
-  $c = $script:cdp; if (-not $c) { return }; $script:cdp = $null
-  try { $c.ws.Dispose() } catch { }
-  try { $c.proc | Stop-Process -Force } catch { }
-  Start-Sleep -Milliseconds 400
-  Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like "*$($c.prof)*" } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch { } }
-  Start-Sleep -Milliseconds 300; try { Remove-Item -LiteralPath $c.prof -Recurse -Force -ErrorAction SilentlyContinue } catch { }
-}
-function Wait-Until($expr, $secs = 15) { $until = (Get-Date).AddSeconds($secs); while ((Get-Date) -lt $until) { $v = Cdp-Eval $expr; if ($v -eq $true -or $v -eq 'true') { return $true }; Start-Sleep -Milliseconds 300 }; return $false }
-$lock = Join-Path $root 'dash\deploy.lock'
-$hook = Join-Path $root 'dash\test-hook.on'
-# the session text at the top of a telemetry file, read with no code from irdash
-function Yaml-Of($path) { $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite'); try { $b = New-Object byte[] 144; [void]$fs.Read($b, 0, 144); $n = [BitConverter]::ToInt32($b, 16); $fs.Position = [BitConverter]::ToInt32($b, 20); $yb = New-Object byte[] $n; [void]$fs.Read($yb, 0, $n) } finally { $fs.Close() }; return [Text.Encoding]::GetEncoding(1252).GetString($yb) }
-function Yaml-Me($y, $key) { $idx = [regex]::Match($y, '(?m)^\s*DriverCarIdx:\s*(\d+)').Groups[1].Value; $blk = [regex]::Match($y, "(?s)- CarIdx: $idx\s*\r?\n(.*?)(?=\r?\n\s*- CarIdx:|\r?\n\S|$)").Groups[1].Value; return ([regex]::Match($blk, "(?m)^\s*$key`:\s*(.*?)\s*`$").Groups[1].Value).Trim('"') }
-$inv = [Globalization.CultureInfo]::InvariantCulture
-Enter-TestLock 'home'   # one live test at a time (tests\guard.ps1); released in finally
-try {
-  Section '0. outings: a test, and a Test Drive that sat in the pit box, are not Peter driving (a pretend cache, no server)'
-  $exe = if ($env:HOME_TEST_EXE) { $env:HOME_TEST_EXE } else { Join-Path $root 'dash\irdash.exe' }
-  $tele = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'iRacing\telemetry'
-  $scratch = Join-Path $env:TEMP ('home-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory -Force $scratch | Out-Null
-  $H1 = 36000000000L; $MIN = 600000000L
-  # the pretend cache = the real one (rows copied), minus the no-lap rows whose pit-road flag has not been read yet, plus three rows changed or made here
-  $rows = New-Object System.Collections.Generic.List[object]; $dropped = 0
-  foreach ($line in [IO.File]::ReadAllLines((Join-Path $root 'dash\career-cache.tsv'), [Text.Encoding]::UTF8)) {
-    $f = New-Object 'System.Collections.Generic.List[string]'; $f.AddRange([string[]]$line.Split("`t")); while ($f.Count -lt 22) { $f.Add('') }
-    $secs = [double]::Parse($f[2], $inv); $laps = [int]$f[4]
-    if ($laps -eq 0 -and $secs -ge 30 -and ($f[21] -eq '' -or $f[21] -eq '1')) { $dropped++; continue }     # '' = not read yet, 1 = the first draft's flag: both are read again by irdash
-    $rows.Add([pscustomobject]@{ f = $f; file = $f[0].Substring(0, $f[0].LastIndexOf('|')); secs = $secs; laps = $laps; start = $(if ($f[18]) { [long]$f[18] } else { [long]$f[1] }); tag = '' })
-  }
-  $realRows = @($rows | Where-Object { $_.laps -gt 0 -and $_.secs -ge 30 })
-  $A = $realRows | Sort-Object start -Descending | Select-Object -First 1
-  $maxStart = [long]($rows | Sort-Object start -Descending | Select-Object -First 1).start       # not Measure-Object: that gives a double and loses the last digits
-  $minStart = [long]($rows | Sort-Object start | Select-Object -First 1).start
-  $B = $rows | Where-Object { $_.f[6] -ne $A.f[6] -and $_.laps -gt 0 -and (Test-Path -LiteralPath (Join-Path $tele $_.file)) } | Sort-Object start -Descending | Select-Object -First 1
-  Check "the real cache has a session with laps to be his last outing ($($A.file)) and a second car's file for the idle one ($($B.file)); $dropped no-lap rows not yet read for the pit-road flag are left out" ($A -and $B -and (Test-Path -LiteralPath (Join-Path $tele $A.file)))
-  # B: that other car's session turned into "120 s in the car, no lap, never left pit road", the newest of all
-  $bStart = $maxStart + $H1; $B.tag = 'idle'; $B.f[2] = '120'; $B.f[3] = '0'; $B.f[4] = '0'; $B.f[13] = '0.000'; $B.f[18] = [string]$bStart; $B.f[1] = [string]($bStart + 120 * 10000000L); $B.f[21] = '0'; $B.laps = 0; $B.secs = 120; $B.start = $bStart
-  # C: a session WITH laps (3), newer still, in a car no real session has: only a test-started window can keep it out
-  $cStart = $maxStart + 2 * $H1; $cf = New-Object 'System.Collections.Generic.List[string]'; $cf.AddRange([string[]]$A.f)
-  $cf[0] = 'pl1-test-run.ibt|1'; $cf[2] = '300'; $cf[3] = '5000'; $cf[4] = '3'; $cf[6] = 'Test Car'; $cf[7] = 'Test Track'; $cf[10] = '99'; $cf[13] = '90.000'; $cf[18] = [string]$cStart; $cf[1] = [string]($cStart + 300 * 10000000L); $cf[21] = '2'
-  $rows.Add([pscustomobject]@{ f = $cf; file = 'pl1-test-run.ibt'; secs = 300.0; laps = 3; start = $cStart; tag = 'test' })
-  # D: newest real outing, no completed lap, but it left pit road.
-  $dStart = $maxStart + 3 * $H1; $df = New-Object 'System.Collections.Generic.List[string]'; $df.AddRange([string[]]$A.f)
-  $df[0] = 'no-lap-outing.ibt|1'; $df[2] = '90'; $df[3] = '0'; $df[4] = '0'; $df[6] = 'Outing Car'; $df[7] = 'Outing Track'; $df[13] = '0.000'; $df[18] = [string]$dStart; $df[1] = [string]($dStart + 90 * 10000000L); $df[21] = '2'
-  $rows.Add([pscustomobject]@{ f = $df; file = 'no-lap-outing.ibt'; secs = 90.0; laps = 0; start = $dStart; tag = 'no-lap' })
-  $cache = Join-Path $scratch 'career-cache.tsv'
-  [IO.File]::WriteAllText($cache, ((($rows | ForEach-Object { ($_.f -join "`t") }) -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding($false)))
-  $runCovers = Join-Path $scratch 'run-covers.txt'; [IO.File]::WriteAllText($runCovers, "$($cStart - $MIN)`t$($cStart + 5 * $MIN)`r`n")
-  $runOpen = Join-Path $scratch 'run-open.txt'; [IO.File]::WriteAllText($runOpen, "$($cStart - 10 * $MIN)`t`r`n")                     # still open: counts for 3 hours at most
-  $runStale = Join-Path $scratch 'run-stale.txt'; [IO.File]::WriteAllText($runStale, "$($cStart - 4 * $H1)`t`r`n")                       # open for 4 hours: too old to be this session
-  $runElsewhere = Join-Path $scratch 'run-elsewhere.txt'; [IO.File]::WriteAllText($runElsewhere, "$($minStart - 48 * $H1)`t$($minStart - 47 * $H1)`r`n")   # well before every real session: covers nothing
-  function Run-Home($tests) {
-    $out = Join-Path $scratch ('out-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.json')
-    $p = Start-Process -FilePath $exe -ArgumentList @('--home', '--cache', "`"$cache`"", '--tests', "`"$tests`"", '--telemetry', "`"$tele`"", '--out', "`"$out`"") -Wait -PassThru -WindowStyle Hidden
-    if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) { throw "irdash --home failed (exit $($p.ExitCode))" }
-    return ([IO.File]::ReadAllText($out, [Text.Encoding]::UTF8) | ConvertFrom-Json)
-  }
-  function Run-MeYaml($yaml) {
-    $yf = Join-Path $scratch ('me-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.yaml')
-    $out = Join-Path $scratch ('me-out-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.json')
-    [IO.File]::WriteAllText($yf, $yaml, [Text.Encoding]::GetEncoding(28591))
-    $p = Start-Process -FilePath $exe -ArgumentList @('--home', '--me-yaml', "`"$yf`"", '--out', "`"$out`"") -Wait -PassThru -WindowStyle Hidden
-    if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) { throw "irdash --home --me-yaml failed (exit $($p.ExitCode))" }
-    return ([IO.File]::ReadAllText($out, [Text.Encoding]::UTF8) | ConvertFrom-Json).me
-  }
-  Section '0a. DriverCarIdx YAML parser: production path with decoy and damaged fields'
-  $yamlRows = "DriverCarIdx: 7`nDriverInfo:`n  Drivers:`n  - CarIdx: 2`n    UserName: Wrong Driver`n    CarNumber: 91`n    TeamName: Decoy Team`n    CarScreenName: Decoy Car`n    CarPath: decoy`n  - CarIdx: 7`n    UserName: Peter Fixture`n    CarNumber: 4`n    TeamName: Pratt Miller Motorsports`n    CarScreenName: Corvette Fixture`n    CarPath: corvettez06rgt3`n"
-  $parsedMe = Run-MeYaml $yamlRows
-  Check 'production YAML parser selects only the DriverCarIdx row' ($parsedMe.name -eq 'Peter Fixture' -and $parsedMe.num -eq '4' -and $parsedMe.car -eq 'Corvette Fixture' -and $parsedMe.team -eq 'Pratt Miller Motorsports' -and $parsedMe.path -eq 'corvettez06rgt3') ($parsedMe | ConvertTo-Json -Compress)
-  $yamlMissing = "DriverCarIdx: 7`nDrivers:`n  - CarIdx: 2`n    UserName: Wrong Driver`n    CarNumber: 91`n    TeamName: Decoy Team`n  - CarIdx: 7`n    UserName:`n    CarNumber:`n    TeamName:`n    CarScreenName:`n    CarPath:`n"
-  $missingMe = Run-MeYaml $yamlMissing
-  Check 'missing row fields stay empty without borrowing the decoy or fixed team text' ($missingMe.name -eq '' -and $missingMe.num -eq '' -and $missingMe.team -eq '' -and $missingMe.car -eq '' -and $missingMe.path -eq '') ($missingMe | ConvertTo-Json -Compress)
-  $malformedMe = Run-MeYaml "not: [valid yaml structure`nDriverCarIdx: not-an-index`n"
-  Check 'malformed YAML returns null identity without throwing or inventing fields' ($null -eq $malformedMe)
-  function Expect($withC) {
-    # what counts: 30 s or more in the car, and not (no lap and never off pit road), and not the test-started one when a test run covers it
-    $inc = @($rows | Where-Object { $_.secs -ge 30 -and -not ($_.laps -eq 0 -and $_.f[21] -eq '0') -and ($withC -or $_.tag -ne 'test') })
-    $newest = $inc | Sort-Object { [long]$_.f[1] } -Descending | Select-Object -First 1
-    $wk = (Get-Date).Date.AddDays(-(([int](Get-Date).DayOfWeek + 6) % 7)); $inWeek = @($inc | Where-Object { ([DateTime]::new($_.start, 'Utc')).ToLocalTime() -ge $wk })
-    # P0-04: this week's personal bests by the same rule as data.cs WeekJson - a car+track+layout whose best lap is this week and beat an earlier
-    # one counts as a PB, a first lap on a new combination counts separately; short runs are already left out of $inc
-    $best = @{}; $before = @{}
-    foreach ($r in $inc) {
-      $b = [double]$r.f[13]; if ($b -le 0 -or $r.f[6].Length -eq 0) { continue }
-      $key = "$($r.f[6])|$($r.f[7])|$($r.f[16])"; $d = ([DateTime]::new([long]$r.start, 'Utc')).ToLocalTime()
-      if ($d -lt $wk) { $before[$key] = $true }
-      $cur = $best[$key]
-      if (-not $cur -or $b -lt [double]$cur.b - 0.0005 -or ([math]::Abs($b - [double]$cur.b) -le 0.0005 -and [long]$r.start -lt [long]$cur.t)) { $best[$key] = @{ b = $b; t = [long]$r.start } }
+
+# the id MY DRIVE gives a recent drive: FNV-1a of the lower-case "car|track", prefixed r (computed here, not by the page)
+$x = [uint32]2166136261
+foreach ($c in 'toyota gr86|road atlanta'.ToCharArray()) { $x = $x -bxor [uint32][int]$c; $x = [uint32](([uint64]$x * 16777619) % 4294967296) }
+$rid = 'r' + $x.ToString('x8')
+
+# ---------------- the behaviour test (one page; every state is a fresh mount, as the shell does it) ----------------
+$run = @'
+<script>
+window.__run = async () => {
+  const out = [], ok = (what, cond, why) => out.push((cond ? 'ok ' : 'FAIL ') + what + (cond || why == null ? '' : ' -> ' + why));
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const M = window.__M, H = M.Home, F = window.Fmt, q = s => document.querySelector('#page ' + s), txt = s => { const e = q(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+  const DOT = ' \u00b7 ';
+  const vis = e => !!e && !e.closest('[hidden]') && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const probe = document.createElement('div'); probe.style.background = 'var(--gold)'; document.body.appendChild(probe); const GOLD = getComputedStyle(probe).backgroundColor; probe.remove();
+  const golds = () => [...document.querySelectorAll('#page *')].filter(e => vis(e) && getComputedStyle(e).backgroundColor === GOLD);
+  const small = () => [...document.querySelectorAll('#page *')].filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 24)
+    .map(e => e.className + ' ' + getComputedStyle(e).fontSize);
+  const box = s => { const r = q(s).getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom) }; };
+  const meet = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const spill = s => { const z = q(s).getBoundingClientRect(); return [...q(s).querySelectorAll('*')].filter(e => vis(e)).filter(e => { const r = e.getBoundingClientRect(); return r.left < z.left - 1 || r.right > z.right + 1 || r.top < z.top - 1 || r.bottom > z.bottom + 1; }).map(e => e.className || e.tagName); };
+  const sends = () => window.__req.filter(u => u.indexOf('/api/do') === 0 || u === '/mydrive');
+  const one = () => q('.rig .one');
+  const lastSet = () => { const c = window.__clockCalls().filter(x => x[0] === 'set'); return c.length ? c[c.length - 1][1] : null; };
+  const allRows = () => [window.__fx.official.next].concat(...window.__fx.official.days.map(d => d.rows));
+  const hisOf = series => allRows().some(r => r.series === series && r.his);
+  const shownSeries = () => [...document.querySelectorAll('#page .now .nx')].map(e => (allRows().find(r => String(Date.parse(r.t)) === e.dataset.t && (e.textContent.indexOf(r.series) >= 0 || (r.tiny && e.textContent.indexOf(r.tiny) >= 0))) || {}).series || '?');
+  const mem = () => JSON.parse(sessionStorage.getItem('paddock.home') || '{}');
+  const push = (parts) => window.__emit('state', window.data.state, parts || { rig: true });
+  const use = async (name, extra) => {
+    window.__unmount();
+    window.__now = window.__now0; try { sessionStorage.clear(); } catch (e) { } M.Mem.reset();
+    window.__fx = JSON.parse(window.__base); window.__setups[name](window.__fx); if (extra) extra(window.__fx);
+    window.data.state = window.__fx.state; window.data.online = window.__fx.online !== false;
+    window.__req.length = 0; window.__banners.length = 0; window.__go.length = 0; H.busyUntil = 0; H.failUntil = 0; H.fixAt = 0;
+    window.__mount(); await sleep(400);
+  };
+  const clock = await import('./lib/clock.js'); window.__clockCalls = () => clock.Clock.calls;
+
+  // ---------------- 1. the states ----------------
+  for (const st of ['rig-off', 'rig-on-idle', 'race-soon', 'session-garage', 'offline', 'kids', 'after-drive', 'after-practice', 'rig-problem']) {
+    await use(st);
+    const g = golds(), pressable = !['offline', 'kids'].includes(st);
+    ok('1. ' + st + ': ' + (pressable ? 'exactly one gold fill (the one button)' : 'no gold fill (the button cannot be pressed)'), pressable ? g.length === 1 && g[0] === one() : g.length === 0, g.map(e => e.className).join(','));
+    const sm = small(); ok('1. ' + st + ': no text under 24 px', sm.length === 0, sm.join('; '));
+    const Z = { now: box('.now'), dial: box('.dial'), mine: box('.mine'), rig: box('.rig') }, names = Object.keys(Z);
+    const hits = []; for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) if (meet(Z[names[i]], Z[names[j]])) hits.push(names[i] + '/' + names[j]);
+    ok('1. ' + st + ': the four zones do not overlap', hits.length === 0, hits.join(','));
+    const sp = ['.now', '.mine', '.rig'].map(s => spill(s)).flat(); ok('1. ' + st + ': nothing spills out of its zone', sp.length === 0, sp.join(','));
+    ok('1. ' + st + ': HOME never calls ctx.banner (the shell owns the offline and kids banners)', window.__banners.length === 0, JSON.stringify(window.__banners));
+    ok('1. ' + st + ': the Mazda Cup (a car he has driven, not his series) is never shown', !/Mazda/.test(txt('.now')));
+    if (st === 'rig-on-idle') {
+      ok('1. zones at PLAN 4.1: clock 600-1320 x 120-840, NOW 96-560, MY RACES 1360-1824, RIG 96-1824 x 900-1000', JSON.stringify(Z) === JSON.stringify({ now: { l: 96, t: 120, r: 560, b: 840 }, dial: { l: 600, t: 120, r: 1320, b: 840 }, mine: { l: 1360, t: 120, r: 1824, b: 840 }, rig: { l: 96, t: 900, r: 1824, b: 1000 } }), JSON.stringify(Z));
+      const last = window.__fx.home.last;
+      ok('1. rig on, idle: the button is DRIVE with his last car and track under it, pressable', /^Drive/.test(one().textContent) && one().textContent.indexOf(last.car) > 0 && one().textContent.indexOf(last.track) > 0 && !one().disabled, one().textContent);
+      ok('1. rig on, idle: "Rig ready" in green with the four things it checked; green dot', /^Rig ready/.test(txt('.rig .line')) && ['iRacing', 'deck', 'spotter', 'overlays'].every(w => txt('.rig .line').indexOf(w) > 0) && q('.rig .dot').className === 'dot' && getComputedStyle(q('.rig .line .ok')).color !== getComputedStyle(q('.rig .line .w')).color, txt('.rig .line'));
+      ok('1. a doctor warning (frame rate) does not nag on HOME; no FIX IT', !vis(q('.rig .fix')));
+      ok('1. the clock is mounted at 720 px in the centre zone', window.__clockCalls().some(c => c[0] === 'mount' && c[1].size === 720) && q('.dial canvas') !== null);
+      const nt = Date.parse(window.__fx.official.next.t);
+      ok('1. NEXT RACE: the server\'s next race large, at its local start time; the readout is its countdown; no ring yet', txt('.now .nx.big .s') === window.__fx.official.next.series && txt('.now .nx.big .t') === M.localTime(nt) && lastSet() && lastSet().readout === M.countdown(nt, window.__now).readout && lastSet().readout !== null && lastSet().ring === null, txt('.now .nx.big') + ' / ' + JSON.stringify(lastSet()));
+      const rows = [...document.querySelectorAll('#page .now .nx')], ts = rows.map(r => +r.dataset.t), ser = shownSeries();
+      ok('1. NEXT RACE: at most 4 rows, in time order, every one a series irdash marks "his" (' + ser.join(', ') + ')', rows.length >= 2 && rows.length <= 4 && ts.every((t, i) => !i || ts[i - 1] <= t) && ser.every(hisOf), ser.join(', '));
+      ok('1. the next one is 96 px, the others 36 px', getComputedStyle(q('.now .nx.big .t')).fontSize === '96px' && rows.filter(r => !r.classList.contains('big')).every(r => getComputedStyle(r.querySelector('.t')).fontSize === '36px'));
+      const mr = [...document.querySelectorAll('#page .mine .mr')], lib = window.__fx.library.races;
+      ok('1. MY RACES: his last three drives, newest first', mr.length === 3 && mr.map(r => r.dataset.id).join() === lib.slice(0, 3).map(r => r.id).join(), mr.map(r => r.dataset.id).join());
+      ok('1. MY RACES: a race with a known finish shows it (' + M.place(lib[0]) + '), a practice says so with its laps, an unknown result says Race', mr[0].textContent.indexOf(M.place(lib[0])) > 0 && mr[1].textContent.indexOf(F.sessionName(lib[1].type)) > 0 && mr[1].textContent.indexOf(lib[1].laps + ' laps') > 0 && /Race$/.test(mr[2].textContent.trim()), mr.map(r => r.textContent).join(' | '));
+      ok('1. MY RACES rows are 36 px (track) and 24 px (date and result)', getComputedStyle(mr[0].querySelector('.s')).fontSize === '36px' && getComputedStyle(mr[0].querySelector('.d')).fontSize === '24px');
+      ok('1. LAST RACE is a 64 px button, not gold, and opens REVIEW', vis(q('.last')) && q('.last').offsetHeight === 64 && getComputedStyle(q('.last')).backgroundColor !== GOLD && (q('.last').click(), window.__go.join() === 'review'), q('.last').offsetHeight + ' ' + window.__go.join());
+      ok('1. the one button is 240 x 96 or wider, gold', one().offsetHeight === 96 && one().offsetWidth >= 240 && getComputedStyle(one()).backgroundColor === GOLD, one().offsetWidth + 'x' + one().offsetHeight);
     }
-    $pbs = 0; $fresh = 0
-    foreach ($k in $best.Keys) { if (([DateTime]::new([long]$best[$k].t, 'Utc')).ToLocalTime() -ge $wk) { if ($before[$k]) { $pbs++ } else { $fresh++ } } }
-    return @{ sessions = $inc.Count; laps = ($inc | Measure-Object laps -Sum).Sum; hours = ($inc | Measure-Object secs -Sum).Sum / 3600; lastTrack = $newest.f[7]; lastCar = $newest.f[6];
-              weekSessions = $inWeek.Count; weekLaps = ($inWeek | Measure-Object laps -Sum).Sum; weekHours = ($inWeek | Measure-Object secs -Sum).Sum / 3600; weekPbs = $pbs; weekFresh = $fresh }
-  }
-  function Sess($res, $file) { @($res.sessions.sessions | Where-Object { $_.file -eq $file }) | Select-Object -First 1 }
-  $yA = Yaml-Of (Join-Path $tele $A.file); $numA = Yaml-Me $yA 'CarNumber'; $carA = Yaml-Me $yA 'CarScreenName'
-  $r1 = Run-Home $runCovers; $e1 = Expect $false
-  Check "the idle session ($($B.file): 120 s, no lap, never left pit road, the newest) is not the last session, not the car on HOME: last = $($A.file)" ($r1.home.last.file -eq $A.file -and $r1.home.me.file -eq $A.file) "last=$($r1.home.last.file) me=$($r1.home.me.file)"
-  Check "HOME's car is that last real session's: $carA, and the number box is the number in that same session's text ($numA)" ($r1.home.me.car -eq $carA -and $r1.home.num -eq $numA -and $r1.home.me.num -eq $numA -and $numA) "car=$($r1.home.me.car) num=$($r1.home.num) me.num=$($r1.home.me.num) yaml=$carA/$numA"
-  Check "the session a test started (3 laps, newest, in a 'Test Car') is not the last session either: the test run covers its start" ($r1.home.last.car -ne 'Test Car')
-  $sa = Sess $r1 $A.file; $sb = Sess $r1 $B.file; $sc = Sess $r1 'pl1-test-run.ibt'
-  Check 'the sessions list marks the idle one and the test-started one as short runs, and the real one is not' ($sb.short -eq $true -and $sc.short -eq $true -and $sa.short -eq $false) "A=$($sa.short) B=$($sb.short) C=$($sc.short)"
-  Check "no outing: the last outing is $($e1.lastCar) at $($e1.lastTrack) (the newest session that counts), not the idle car" ($r1.career.lastCar -eq $e1.lastCar -and $r1.career.lastTrack -eq $e1.lastTrack) "got '$($r1.career.lastCar)' at '$($r1.career.lastTrack)'"
-  Check "no seat time: $($e1.sessions) sessions, $($e1.laps) laps, $([math]::Round($e1.hours, 1)) h in the career - the idle 2 minutes and the test's 5 are not in them" ($r1.career.sessions -eq $e1.sessions -and $r1.career.laps -eq $e1.laps -and [math]::Abs($r1.career.hours - $e1.hours) -lt 0.06) "got $($r1.career.sessions) / $($r1.career.laps) / $($r1.career.hours)"
-  Check "THIS WEEK leaves them out too: $($e1.weekSessions) sessions, $($e1.weekLaps) laps" ($r1.career.week.sessions -eq $e1.weekSessions -and $r1.career.week.laps -eq $e1.weekLaps) "got $($r1.career.week.sessions) / $($r1.career.week.laps)"
-  # P0-04: /home carries THIS WEEK (the same numbers /career serves) and LAST OUTING, worked by hand from the pretend cache
-  Check "THIS WEEK on /home is the hand calculation: $($e1.weekSessions) sessions, $($e1.weekLaps) laps, $([math]::Round($e1.weekHours, 1)) h, $($e1.weekPbs) PB" ($r1.home.week.sessions -eq $e1.weekSessions -and $r1.home.week.laps -eq $e1.weekLaps -and [math]::Abs($r1.home.week.hours - $e1.weekHours) -lt 0.06 -and $r1.home.week.pbs -eq $e1.weekPbs) "got $($r1.home.week.sessions) / $($r1.home.week.laps) / $($r1.home.week.hours) / $($r1.home.week.pbs)"
-  Check "THIS WEEK on /home equals the week /career serves" ($r1.home.week.hours -eq $r1.career.week.hours -and $r1.home.week.laps -eq $r1.career.week.laps -and $r1.home.week.pbs -eq $r1.career.week.pbs) "home $($r1.home.week.hours)/$($r1.home.week.laps)/$($r1.home.week.pbs) vs career $($r1.career.week.hours)/$($r1.career.week.laps)/$($r1.career.week.pbs)"
-  Check "LAST OUTING selects the newest non-short outing with laps; zero-lap drives are not outings" ($r1.home.lastOuting.file -eq $A.file -and $r1.home.lastOuting.laps -gt 0) "got $($r1.home.lastOuting.file) / $($r1.home.lastOuting.laps) laps"
-  $expectedType = if ($A.f[19]) { $A.f[19] } else { $A.f[8] }
-  $outingFields = @($r1.home.lastOuting.PSObject.Properties | ForEach-Object { $_.Name })
-  Check "LAST OUTING date and type match the selected cache row; finish is unknown and incidents are omitted" ($r1.home.lastOuting.date -eq ([DateTime]::new([long]$A.start, 'Utc')).ToLocalTime().ToString('yyyy-MM-dd HH:mm', $inv) -and $r1.home.lastOuting.type -eq $expectedType -and $outingFields -contains 'finish' -and $null -eq $r1.home.lastOuting.finish -and $outingFields -notcontains 'incidents') "date=$($r1.home.lastOuting.date) type=$($r1.home.lastOuting.type) wanted=$expectedType fields=$($outingFields -join ',')"
-  $r2 = Run-Home $runElsewhere; $e2 = Expect $true; $sc2 = Sess $r2 'pl1-test-run.ibt'
-  Check 'without a test run, its session counts and is last; the zero-lap record remains excluded from LAST OUTING' ($r2.home.last.file -eq 'pl1-test-run.ibt' -and $r2.home.lastOuting.file -eq 'pl1-test-run.ibt' -and $r2.home.last.car -eq 'Test Car' -and $sc2.short -eq $false) "last=$($r2.home.last.file) lastOuting=$($r2.home.lastOuting.file)"
-  Check "... and it adds its seat time and laps ($($e2.sessions) sessions, $($e2.laps) laps), the idle one still does not" ($r2.career.sessions -eq $e2.sessions -and $r2.career.laps -eq $e2.laps -and (Sess $r2 $B.file).short -eq $true) "got $($r2.career.sessions) / $($r2.career.laps)"
-  $r3 = Run-Home $runOpen
-  Check 'a test run that has not closed yet (irdash was stopped mid-run) still covers the session, for up to 3 hours' ($r3.home.last.file -eq $A.file -and (Sess $r3 'pl1-test-run.ibt').short -eq $true)
-  $r4 = Run-Home $runStale
-  Check 'a run left open for 4 hours does not cover it (it cannot hide his real sessions for ever)' ($r4.home.last.file -eq 'pl1-test-run.ibt' -and (Sess $r4 'pl1-test-run.ibt').short -eq $false)
-  Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
-
-  Section '1. /home from real data'
-  # PL-1: the background scan reads, two minutes after irdash starts, whether the car ever left pit road in every session that has no lap
-  # The file itself is read here by separate code (one sample a second, the car in the world and off pit road for 3 in a row = it left pit road): every
-  # session that has no lap and never moved must be a short run exactly when the car never left pit road (a Test Drive that sat in the box).
-  Add-Type -TypeDefinition @'
-using System; using System.IO; using System.Collections.Generic; using System.Text;
-public static class PitProbe {
-  public static bool LeftPit(string path) {
-    using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
-      byte[] h = new byte[144]; fs.Read(h, 0, 144);
-      int numVars = BitConverter.ToInt32(h, 24), varOff = BitConverter.ToInt32(h, 28), bufLen = BitConverter.ToInt32(h, 36), dataOff = BitConverter.ToInt32(h, 52), step = BitConverter.ToInt32(h, 8);
-      if (step <= 0) step = 60;
-      long records = (fs.Length - dataOff) / bufLen;
-      byte[] vh = new byte[numVars * 144]; fs.Position = varOff; fs.Read(vh, 0, vh.Length);
-      Dictionary<string, int[]> vars = new Dictionary<string, int[]>();
-      for (int i = 0; i < numVars; i++) { int b = i * 144; int len = Array.IndexOf(vh, (byte)0, b + 16, 32) - (b + 16); if (len < 0) len = 32; vars[Encoding.ASCII.GetString(vh, b + 16, len)] = new int[] { BitConverter.ToInt32(vh, b), BitConverter.ToInt32(vh, b + 4) }; }
-      int[] on, pit, surf; vars.TryGetValue("IsOnTrack", out on); vars.TryGetValue("OnPitRoad", out pit); vars.TryGetValue("PlayerTrackSurface", out surf);
-      if (on == null || pit == null) return true;
-      byte[] buf = new byte[bufLen]; int run = 0;
-      for (long r = 0; r < records; r += step) {
-        fs.Position = dataOff + r * bufLen; if (fs.Read(buf, 0, bufLen) < bufLen) break;
-        if (buf[on[1]] == 0) continue;
-        bool off = buf[pit[1]] == 0 && (surf == null || BitConverter.ToInt32(buf, surf[1]) >= 0);
-        if (off) { if (++run >= 3) return true; } else run = 0;
-      }
-      return false;
+    if (st === 'rig-off') ok('1. rig off: RIG ON, a red dot, and the line points at it', /^Rig on/.test(one().textContent) && /RIG ON/.test(txt('.rig .line')) && q('.rig .dot').className === 'dot bad', one().textContent + ' / ' + txt('.rig .line'));
+    if (st === 'race-soon') {
+      const nt = Date.parse(window.__fx.official.next.t), s = lastSet();
+      ok('1. race within 30 min: the ring closes (754 s left = 0.581) and the centre readout counts', s && Math.abs(s.ring - (1 - 754 / 1800)) < 0.002 && s.readout === M.countdown(nt, window.__now).readout, JSON.stringify(s));
+      ok('1. race within 30 min: the countdown shows once (centre); the left row keeps the start time', txt('.now .nx.big .t') === M.localTime(nt) && !/\bin \d|\d:\d\d:\d\d/.test(txt('.now')), txt('.now .nx.big .t'));
+      window.__now += 4000; await sleep(1100);
+      ok('1. a second later the readout moves with the clock', lastSet().readout === M.countdown(nt, window.__now).readout, JSON.stringify(lastSet()));
+      window.__now += 760000; await sleep(1100);
+      const up = allRows().filter(r => r.his && Date.parse(r.t) > window.__now).sort((a, b) => Date.parse(a.t) - Date.parse(b.t))[0];
+      ok('1. once it has started its row fades and the next of his races takes over (row, readout)', q('.now .nx[data-t="' + nt + '"]').classList.contains('past') && txt('.now .nx.big .s') === up.series && lastSet().readout === M.countdown(Date.parse(up.t), window.__now).readout, txt('.now .nx.big') + ' ' + JSON.stringify(lastSet()));
+    }
+    if (st === 'session-garage') {
+      ok('1. session loaded: NOW with the session type, the track and his car', txt('.now .lbl') === 'Now' && txt('.now .nx .t') === F.sessionName('Race') && /Road Atlanta/.test(txt('.now')) && /Toyota GR86/.test(txt('.now')), txt('.now'));
+      ok('1. session loaded: the series only because one of his races (the GR Cup) starts at this track within the hour', /Toyota GR Cup/.test(txt('.now')), txt('.now'));
+      ok('1. session loaded: "loaded at" the moment the session was loaded (14:00 UTC, local ' + M.localTime(Date.parse('2026-11-14T14:00:00Z')) + ')', txt('.now .since').indexOf(M.localTime(Date.parse('2026-11-14T14:00:00Z'))) > 0, txt('.now .since'));
+      ok('1. session loaded: no NEXT GREEN FLAG and no ring on the clock', lastSet() && lastSet().readout === null && lastSet().ring === null, JSON.stringify(lastSet()));
+      ok('1. session loaded: the button is DRIVE', /^Drive/.test(one().textContent) && !one().disabled, one().textContent);
+      const was = txt('.now .since'); window.__now += 120000; push({ rig: true, session: true }); await sleep(100);
+      ok('1. "loaded at" does not move with the next state push', txt('.now .since') === was, txt('.now .since'));
+    }
+    if (st === 'offline') {
+      ok('1. offline: RIG ON, flat grey, not pressable, saying "Paddock is not running"', /^Rig on/.test(one().textContent) && one().disabled && one().classList.contains('off') && /Paddock is not running/.test(one().textContent) && getComputedStyle(one()).opacity === '1', one().textContent);
+      window.__req.length = 0; one().click(); await sleep(50);
+      ok('1. offline: pressing it sends nothing', sends().length === 0);
+      window.data.online = true; window.__emit('online', true); await sleep(1000);
+      one().style.transition = 'none';      // the press flash fades over 0.7 s; the end colour is what counts
+      ok('1. back online: the gold button is back and pressable', !one().disabled && !one().classList.contains('off') && getComputedStyle(one()).backgroundColor === GOLD, one().className + ' ' + one().disabled + ' ' + getComputedStyle(one()).backgroundColor + ' vs ' + GOLD);
+    }
+    if (st === 'kids') {
+      ok('1. kids mode: the button is grey, not pressable, says "Kids mode is on"', one().disabled && one().classList.contains('off') && /Kids mode is on/.test(one().textContent));
+      window.__req.length = 0; one().click(); await sleep(50);
+      ok('1. kids mode: pressing it sends nothing', sends().length === 0);
+    }
+    if (st === 'after-drive') {
+      const a = window.__fx.library.races[0];
+      ok('1. after a drive: "Your race: ' + M.place(a, true) + '" with REVIEW', vis(q('.after')) && txt('.after .s') === 'Your race: ' + M.place(a, true) && /review/i.test(txt('.after button')), txt('.after'));
+      ok('1. after a drive: LAST RACE steps aside; MY RACES does not repeat the card\'s race (two rows, the older ones)', !vis(q('.last')) && [...document.querySelectorAll('#page .mine .mr')].map(r => r.dataset.id).join() === window.__fx.library.races.slice(1, 3).map(r => r.id).join());
+      q('.after button').click();
+      ok('1. REVIEW opens REVIEW', window.__go.join() === 'review', window.__go.join());
+      ok('1. the card\'s start is kept in sessionStorage (the drive appeared now)', mem().newestId === a.id && mem().newestAt === window.__now, JSON.stringify(mem()));
+      window.__unmount(); M.Mem.reset(); window.__mount(); await sleep(300);
+      ok('1. a reload (unmount, mount from sessionStorage) keeps the card', vis(q('.after')));
+      window.__now += 11 * 60000; await sleep(1100);
+      ok('1. ten minutes later the card goes by itself', !vis(q('.after')) && vis(q('.last')));
+    }
+    if (st === 'after-practice') { const a = window.__fx.library.races[0]; ok('1. after a practice: "Your practice: 14 laps, best ' + F.lap(a.best) + '"', txt('.after .s') === 'Your practice: ' + a.laps + ' laps, best ' + F.lap(a.best), txt('.after .s')); }
+    if (st === 'rig-problem') {
+      ok('1. a rig problem: the doctor\'s sentence, a red dot and FIX IT (outlined, not gold)', txt('.rig .line') === window.data.state.doctor.items.find(i => i.state === 'bad').detail && q('.rig .dot').className === 'dot bad' && vis(q('.rig .fix')) && getComputedStyle(q('.rig .fix')).backgroundColor !== GOLD, txt('.rig .line'));
+      window.__req.length = 0; q('.rig .fix').click(); await sleep(50); q('.rig .fix').click(); await sleep(50);
+      ok('1. FIX IT asks the doctor once, the way that does not put the old list on screen (doctorcheck)', sends().join(' ') === '/api/do?c=doctorcheck', sends().join(' '));
+      window.data.state.doctor.running = true; push({ doctor: true }); await sleep(50);
+      ok('1. while the doctor runs: "Checking the rig", FIX IT shown but not pressable', /^Checking the rig/.test(txt('.rig .line')) && vis(q('.rig .fix')) && q('.rig .fix').disabled, txt('.rig .line'));
+      window.data.state.doctor.running = false; window.data.state.doctor.items = window.data.state.doctor.items.filter(i => i.state !== 'bad');
+      window.data.state.health.apps.find(a => a.id === 'overlays').state = 'ok'; window.data.state.doctor.ask = 'Overlays would not start: ask Claude'; push({ doctor: true, health: true }); await sleep(50);
+      ok('1. something only he can do (the doctor\'s ask): the sentence, and no FIX IT', txt('.rig .line') === window.data.state.doctor.ask && !vis(q('.rig .fix')), txt('.rig .line'));
     }
   }
-}
+
+  // ---------------- 2. countdown maths ----------------
+  const T0 = Date.parse('2026-11-14T12:00:00Z');
+  ok('2. 24 h ahead exactly: the readout shows (NEXT GREEN FLAG 24:00:00), no ring', M.countdown(T0 + 86400000, T0).readout === 'NEXT GREEN FLAG 24:00:00' && M.countdown(T0 + 86400000, T0).ring === null, JSON.stringify(M.countdown(T0 + 86400000, T0)));
+  ok('2. one second more than 24 h: nothing', M.countdown(T0 + 86401000, T0).readout === null);
+  ok('2. 1:42:09 ahead: "NEXT GREEN FLAG 1:42:09"', M.countdown(T0 + 6129000, T0).readout === 'NEXT GREEN FLAG 1:42:09');
+  ok('2. the ring: 30:01 null, 30:00 = 0, 15:00 = 0.5, 0:01 near 1', M.countdown(T0 + 1801000, T0).ring === null && M.countdown(T0 + 1800000, T0).ring === 0 && M.countdown(T0 + 900000, T0).ring === 0.5 && M.countdown(T0 + 1000, T0).ring > 0.999);
+  ok('2. started or past: no readout, no ring', M.countdown(T0, T0).readout === null && M.countdown(T0 - 5000, T0).ring === null);
+  ok('2. a part second rounds down (12:34.9 = 0:12:34)', M.countdown(T0 + 754900, T0).readout === 'NEXT GREEN FLAG 0:12:34');
+  const d = new Date(T0 + 4500000);
+  ok('2. local time: 13:15 UTC shows as this PC\'s own clock (' + M.localTime(T0 + 4500000) + ')', M.localTime(T0 + 4500000) === String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+  ok('2. local days: Today / Tomorrow / Yesterday / a date', M.localDay(T0, T0) === 'Today' && M.localDay(T0 + 86400000, T0) === 'Tomorrow' && M.localDay(T0 - 86400000, T0) === 'Yesterday' && /^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}$/.test(M.localDay(T0 + 4 * 86400000, T0)), M.localDay(T0 + 4 * 86400000, T0));
+  ok('2. place: P4 of 19, P3 from P9, unknown says nothing, no grid = P5 of 20', M.place({ finish: 4, field: 19, start: 7 }) === 'P4 of 19' && M.place({ finish: 3, start: 9, field: 19 }, true) === 'P3 from P9' && M.place({ finish: 0, start: 9 }) === '' && M.place({ finish: 5, start: 0, field: 20 }, true) === 'P5 of 20');
+  ok('2. sameTrack as officialcore: Road Atlanta = Michelin Raceway Road Atlanta, not Road America', M.sameTrack('Road Atlanta - Full Course', 'Michelin Raceway Road Atlanta') && !M.sameTrack('Road America', 'Road Atlanta'));
+
+  // ---------------- 3. the one button ----------------
+  await use('rig-off'); window.__req.length = 0; one().click(); await sleep(50); one().click(); await sleep(50);
+  ok('3. RIG ON sends key rig-on once (a second press while busy is ignored) and says what it is doing', sends().join(' ') === '/api/do?c=key&a=rig-on' && /Turning on/.test(one().textContent) && one().disabled, sends().join(' ') + ' / ' + one().textContent);
+  await use('session-garage'); window.__req.length = 0; one().click(); await sleep(50);
+  ok('3. DRIVE in a session sends key go (the deck\'s GO)', sends().join(' ') === '/api/do?c=key&a=go' && /Getting in/.test(one().textContent), sends().join(' '));
+  await use('rig-on-idle', fx => { fx.home = { last: null }; });
+  ok('3. rig on, no last drive: START (test drive the last one)', /^Start/.test(one().textContent), one().textContent);
+  window.__req.length = 0; one().click(); await sleep(50);
+  ok('3. START sends key test-drive-last', sends().join(' ') === '/api/do?c=key&a=test-drive-last', sends().join(' '));
+
+  // DRIVE his last car: choose, check it is chosen, then start; MY DRIVE's own failure sentence lands on the button
+  await use('rig-on-idle');
+  let n = 0; const want = { choice: { has: true, car: 'Toyota GR86', track: 'Road Atlanta' } };
+  window.__mydrive = () => { n++; return n === 1 ? { choice: { has: false } } : n === 2 ? want : n === 3 ? { choice: want.choice, phase: 'idle' } : n === 4 ? { choice: want.choice, busy: 'start', phase: 'setup' } : { choice: want.choice, phase: 'failed', msg: "iRacing's list has no Road Atlanta - Full Course" }; };
+  window.__req.length = 0; one().click(); await sleep(100);
+  ok('3. DRIVE (last car): while busy it says what it is doing and cannot be pressed twice', /Choosing car and track/.test(one().textContent) && one().disabled, one().textContent);
+  await sleep(4000);
+  const seq = sends().join(' ');
+  ok('3. DRIVE (last car): the requests in order: mdpick (his car and track), MY DRIVE until chosen, one more look, mdstart, MY DRIVE until it answers', seq === '/api/do?c=mdpick&a=' + window.__rid + ' /mydrive /mydrive /mydrive /api/do?c=mdstart /mydrive /mydrive', seq);
+  ok('3. DRIVE (last car): MY DRIVE\'s failure sentence is on the button', one().textContent.indexOf("iRacing's list has no Road Atlanta - Full Course") > 0 && !one().disabled, one().textContent);
+  ok('3. the failure stays 12 s, then the button is DRIVE again', (await sleep(12500), /^Drive/.test(one().textContent) && one().textContent.indexOf('iRacing') < 0), one().textContent);
+  await use('rig-on-idle'); window.__mydrive = () => ({ choice: { has: false } }); window.__req.length = 0; one().click(); await sleep(7000);
+  ok('3. DRIVE (last car) when MY DRIVE never has it chosen: 24 looks, no mdstart, and the sentence that says what to do', sends().filter(u => u === '/mydrive').length === 24 && sends().indexOf('/api/do?c=mdstart') < 0 && /Couldn't pick that car and track\. Pick it in MY DRIVE\./.test(one().textContent), sends().length + ' / ' + one().textContent);
+  window.__mydrive = () => ({ choice: { has: false }, phase: '' });
+
+  // ---------------- 4. the card's ten minutes, the session edge, requests, clean-up ----------------
+  await use('rig-on-idle');
+  const newRace = r => Object.assign({}, window.__fx.library.races[0], { id: r, startMs: window.__now - 1800000, finish: 6, start: 0, field: 22 });
+  window.data.state.rig.driving = true; push(); window.data.state.rig.driving = false; push();
+  ok('4. the drive ending is remembered (driving -> not driving at ' + M.localTime(window.__now) + ')', mem().driveEnd === window.__now, JSON.stringify(mem()));
+  window.__now += 15 * 60000; window.__fx.library.races.unshift(newRace('late-1')); window.__emit('list:races'); await sleep(200);
+  ok('4. a race that reaches the library 15 minutes after the drive still gets its card ("P6 of 22": no grid known)', vis(q('.after')) && txt('.after .s') === 'Your race: P6 of 22', txt('.after'));
+  window.__now += 9 * 60000; await sleep(1100);
+  ok('4. its ten minutes run from when it appeared (still there 9 minutes later)', vis(q('.after')));
+  window.__now += 2 * 60000; await sleep(1100);
+  ok('4. and end 10 minutes after it appeared', !vis(q('.after')));
+  window.__fx.library.races.unshift(newRace('late-2')); window.__emit('list:races'); await sleep(200);
+  window.data.state.rig.driving = true; push(); await sleep(50);
+  ok('4. a new drive starting puts the old card away', !vis(q('.after')) && mem().newestAt === 0, JSON.stringify(mem()));
+  window.data.state.rig.driving = false; push();
+  await use('rig-on-idle');
+  window.data.state.rig.sessionOn = true; window.data.state.health.apps.find(a => a.id === 'sim').state = 'live';
+  window.data.state.session = { WeekendInfo: { TrackDisplayName: 'Snetterton Circuit', EventType: 'Practice' }, DriverInfo: { DriverCarIdx: '2', Drivers: [{ CarIdx: '2', CarScreenName: 'BMW M4 GT4' }] } };
+  push({ rig: true, session: true, health: true }); await sleep(50);
+  const t1 = window.__now;
+  ok('4. a session loading while HOME is up: NOW "loaded at" that moment, no series (none of his races there), no readout', txt('.now .since').indexOf(M.localTime(t1)) > 0 && !/Cup/.test(txt('.now')) && /Snetterton/.test(txt('.now')) && lastSet().readout === null, txt('.now') + ' ' + JSON.stringify(lastSet()));
+  window.__now += 5 * 60000; push({ rig: true, session: true }); await sleep(50);
+  ok('4. it stays "loaded at" the first moment', txt('.now .since').indexOf(M.localTime(t1)) > 0, txt('.now .since'));
+  await use('rig-on-idle', fx => { fx.state.rig.sessionOn = true; fx.state.session = { WeekendInfo: { TrackDisplayName: 'Road Atlanta', EventType: 'Race' }, DriverInfo: {} }; });
+  ok('4. a page opened in the middle of a session does not make up when it was loaded', txt('.now .lbl') === 'Now' && !q('.now .since'), txt('.now'));
+
+  await use('rig-on-idle'); window.__unmount(); window.__req.length = 0; window.__mount(); await sleep(10000);
+  const idle = window.__req.slice();
+  ok('4. idle for 10 s: ' + idle.length + ' requests (' + (idle.length / 10).toFixed(1) + '/s, budget 2/s): /official, /api/library, /home once each', idle.length <= 20 && idle.slice().sort().join(' ') === '/api/library /home /official', idle.join(' '));
+  ok('4. it never asks for the real-world calendar, the phone, the career or the TV pages', !idle.some(u => /realworld|phone|career|watch/.test(u)));
+  window.__req.length = 0; window.__emit('list:races'); await sleep(100);
+  ok('4. the races list changed (onList): /api/library once', window.__req.join(' ') === '/api/library', window.__req.join(' '));
+  window.__req.length = 0; window.data.state.health.apps[0].state = 'down'; push({ health: true }); await sleep(50);
+  ok('4. a state push redraws without asking anything (Stream Deck off: its name, "is off", FIX IT)', window.__req.length === 0 && /^Stream Deck is off/.test(txt('.rig .line')) && vis(q('.rig .fix')), txt('.rig .line'));
+  window.__unmount();
+  const left = Object.keys(window.__ls).filter(k => k !== 'state').reduce((s, k) => s + window.__ls[k].length, 0);
+  ok('4. unmount: no listeners left (online, onList; one state watcher stays for the drive edge), the second timer stopped, the clock unmounted', left === 0 && (window.__ls.state || []).length <= 2 && H.tick === 0 && window.__clockCalls().slice(-1)[0][0] === 'unmount', left + ' ' + (window.__ls.state || []).length + ' ' + H.tick);
+  window.__req.length = 0; await sleep(3000);
+  ok('4. after unmount nothing runs (no requests in 3 s)', window.__req.length === 0);
+
+  out.push('DONE');
+  const o = document.getElementById('out'); o.textContent = out.join('\n'); o.hidden = false;
+};
+</script>
 '@
-  $tele1 = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'iRacing\telemetry'
-  $until = (Get-Date).AddMinutes(6)
-  do {
-    $s = (J "$api/sessions").sessions; $box = @($s | Where-Object { $_.laps -eq 0 -and $_.secs -ge 30 -and [double]$_.km -lt 0.05 -and -not $_.gone })
-    $wrong = @(); $nBox = 0; $nTrack = 0
-    foreach ($b in $box) { $left = [PitProbe]::LeftPit((Join-Path $tele1 $b.file)); if ($left) { $nTrack++ } else { $nBox++ }; if ($b.short -eq $left) { $wrong += "$($b.file) (short=$($b.short), left pit road=$left)" } }
-    if ($wrong.Count -eq 0) { break }; Start-Sleep -Seconds 10
-  } while ((Get-Date) -lt $until)
-  Check "the $($box.Count) sessions with no lap that never moved: the $nBox that sat in the pit box are short runs, the $nTrack that sat on the track (off pit road) are not - by the file itself" ($wrong.Count -eq 0 -and $nBox -ge 1) ($wrong -join '; ')
-  $h = J "$api/home"; $s = (J "$api/sessions").sessions; $c = J "$api/career"
-  $of = J "$api/official"; $rw = J "$api/realworld"
-  $mineRows = @($of.deck | Where-Object { $_.mine -and $_.ownedCar -and $_.ownedTrack } | Sort-Object { [DateTimeOffset]::Parse($_.t).UtcDateTime })
-  $firstTime = if ($mineRows.Count) { [DateTimeOffset]::Parse($mineRows[0].t).UtcDateTime } else { [DateTime]::MaxValue }
-  $earliestRows = @($mineRows | Where-Object { [DateTimeOffset]::Parse($_.t).UtcDateTime -eq $firstTime })
-  Check 'NEXT RACE has an earliest eligible owned series with absolute local and UTC starts' ($h.nextRace -and $earliestRows.Count -gt 0 -and @($earliestRows | Where-Object { $_.series -eq $h.nextRace.series -and $_.car -eq $h.nextRace.car -and $_.track -eq $h.nextRace.track }).Count -gt 0 -and $h.nextRace.localStart -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$' -and $h.nextRace.utcStart -match 'Z$' -and $h.nextRace.countdownSeconds -ge 0 -and $h.nextRace.ownedCar -and $h.nextRace.ownedTrack) "home=$($h.nextRace | ConvertTo-Json -Compress)"
-  $barcelona = @($rw.events | Where-Object { $_.event -eq '6 Hours of Barcelona' -and $_.source -like '*fiawec.com*' -and ($_.localStart -or ($_.eventDate -eq '2026-10-16' -and $_.tbc)) })
-  $timedReal = @($rw.events | Where-Object { $_.session -and $_.session -ne 'Event' })
-  # the count shrinks as the weekend's sessions pass (15 on Friday, 12 on Sunday), so check for timed rows, not a number
-  Check "real-world cache is fresh and has timed sessions ($($timedReal.Count))" ($rw.fresh -and $rw.asOf -and $timedReal.Count -ge 1) "asOf=$($rw.asOf) sessions=$($timedReal.Count)"
-  $notShort = @($s | Where-Object { -not $_.short } | Sort-Object { [long]$_.ts } -Descending)
-  Check "the last outing on the idle screen is the newest session that counts ($($notShort[0].car) at $($notShort[0].track)), not a session that sat in the box" ($c.lastTrack -eq $notShort[0].track -and $c.lastCar -eq $notShort[0].car) "career says '$($c.lastCar)' at '$($c.lastTrack)'"
-  $wk = (Get-Date).Date.AddDays(-(([int](Get-Date).DayOfWeek + 6) % 7)); $weekS = @($notShort | Where-Object { [DateTimeOffset]::FromUnixTimeMilliseconds([long]$_.ts).LocalDateTime -ge $wk })
-  $weekLapTotal = if ($weekS.Count) { [int](($weekS | Measure-Object laps -Sum).Sum) } else { 0 }
-  Check "THIS WEEK counts only sessions that count: $($weekS.Count) sessions, $weekLapTotal laps" ($c.week.sessions -eq $weekS.Count -and $c.week.laps -eq $weekLapTotal) "career week $($c.week.sessions) / $($c.week.laps)"
-  # P0-04: /home carries THIS WEEK and LAST OUTING from the same career cache (short runs left out)
-  Check "THIS WEEK on /home equals the week /career serves ($($c.week.hours) h, $($c.week.laps) laps, $($c.week.pbs) PB)" ($h.week.hours -eq $c.week.hours -and $h.week.laps -eq $c.week.laps -and $h.week.pbs -eq $c.week.pbs) "home $($h.week.hours)/$($h.week.laps)/$($h.week.pbs) vs career $($c.week.hours)/$($c.week.laps)/$($c.week.pbs)"
-  $newestLaps = $s | Where-Object { -not $_.short -and $_.laps -gt 0 } | Sort-Object { [long]$_.ts } -Descending | Select-Object -First 1
-  Check "LAST OUTING on /home is the newest non-short session with laps ($($newestLaps.car) at $($newestLaps.track)); zero-lap records are excluded" ($h.lastOuting.file -eq $newestLaps.file -and $h.lastOuting.car -eq $newestLaps.car -and $h.lastOuting.track -eq $newestLaps.track) "home '$($h.lastOuting.file)' vs '$($newestLaps.file)'"
-  Check 'name and number' ($h.name -and $h.num) "name='$($h.name)' num='$($h.num)'"
-  Check 'personal bests present' ($h.pbs.Count -gt 0 -and $h.pbCount -ge $h.pbs.Count) "pbs=$($h.pbs.Count)"
-  $bad = @()
-  foreach ($p in $h.pbs) {
-    $mine = @($s | Where-Object { $_.track -eq $p.track -and $_.config -eq $p.config -and $_.best -gt 0 } | ForEach-Object { [double]$_.best })
-    $min = if ($mine.Count) { ($mine | Measure-Object -Minimum).Minimum } else { -1 }
-    if ([math]::Abs($min - [double]$p.best) -gt 0.0005) { $bad += "$($p.track): home $($p.best) vs sessions $min" }
-    if (-not ($p.best -gt 0)) { $bad += "$($p.track): no time" }
-  }
-  Check 'every PB equals the quickest official session best of that track' ($bad.Count -eq 0) ($bad -join '; ')
-  $newest = $s | Where-Object { $_.laps -gt 0 -and -not $_.short } | Sort-Object { [long]$_.ts } -Descending | Select-Object -First 1
-  Check 'last session = the newest session with laps (a short run never is)' ($h.last -and $newest -and $h.last.file -eq $newest.file) "home '$($h.last.file)' vs '$($newest.file)'"
-  Check 'last session carries car, track, laps, when' ($h.last.car -and $h.last.track -and $h.last.laps -gt 0 -and $h.last.ago)
-  Check 'career numbers come from /career' ($c.hours -gt 0 -and $c.laps -gt 0 -and $c.sessions -gt 0)
-  Check 'hero picture named' ($h.hero.src -and $h.hero.kind -ne 'none') "kind=$($h.hero.kind)"
-  $img = Invoke-WebRequest -UseBasicParsing "$api/home/hero" -TimeoutSec 30
-  Check '/home/hero is a picture' ($img.StatusCode -eq 200 -and $img.Headers['Content-Type'] -like 'image/*' -and $img.Content.Length -gt 50000) "$($img.Headers['Content-Type']) $($img.Content.Length) bytes"
-  Check 'a stand-in picture carries its credit' ($h.hero.kind -ne 'standin' -or $h.hero.credit -like 'Photo:*') "credit='$($h.hero.credit)'"
-  Check 'phone state is there' ($null -ne $h.phone.allowed -and $h.phone.how -like '*phone-allow.cmd')
-  # P4: his car in his own colours, from the session text at the top of his newest telemetry file (the YAML is read here with no code from irdash)
-  $meOk = $false; $meDet = 'no "me" in /home'; $yDz = ''; $yPath = ''; $yCar = ''
-  if ($h.me -and $h.me.file) {
-    $mePath = Join-Path ([Environment]::GetFolderPath('MyDocuments')) ('iRacing\telemetry\' + $h.me.file)
-    if (Test-Path -LiteralPath $mePath) {
-      $y = Yaml-Of $mePath; $idx = [regex]::Match($y, '(?m)^\s*DriverCarIdx:\s*(\d+)').Groups[1].Value
-      $blk = [regex]::Match($y, "(?s)- CarIdx: $idx\s*\r?\n(.*?)(?=\r?\n\s*- CarIdx:|\r?\n\S|$)").Groups[1].Value
-      $yDz = [regex]::Match($blk, '(?m)^\s*CarDesignStr:\s*(.*?)\s*$').Groups[1].Value.ToLowerInvariant(); $yPath = [regex]::Match($blk, '(?m)^\s*CarPath:\s*(.*?)\s*$').Groups[1].Value; $yCar = [regex]::Match($blk, '(?m)^\s*CarScreenName:\s*(.*?)\s*$').Groups[1].Value
-      $meOk = ($h.me.dz -ceq $yDz -and $h.me.path -ceq $yPath -and $h.me.car -ceq $yCar -and $yDz -match '^\d+,[0-9a-f]{6}'); $meDet = "me=$($h.me.car) '$($h.me.dz)' vs yaml '$yCar' '$yDz'"
-    } else { $meDet = "the file $($h.me.file) is not there" }
-  }
-  Check "/home carries his own car as his newest session's text has it: $($h.me.car), CarPath $($h.me.path), livery $($h.me.dz)" $meOk $meDet
-  Check 'that session is one of the sessions /sessions lists' (@($s | Where-Object { $_.file -eq $h.me.file }).Count -eq 1) "file=$($h.me.file)"
-  # PL-1: the car on HOME is the car of his last REAL session, and the number box is the number in that same session's text
-  $yNum = if ($h.me -and $h.me.file -and (Test-Path -LiteralPath $mePath)) { Yaml-Me $y 'CarNumber' } else { '' }
-  Check "the car on HOME is the last real session's ($($h.last.file)) and the number box is that session's number ($yNum)" ($yNum -and $h.num -eq $yNum -and $h.me.num -eq $yNum -and $h.me.file -eq $h.last.file) "num=$($h.num) me.num=$($h.me.num) yaml=$yNum me=$($h.me.file) last=$($h.last.file)"
+$run = $run.Replace('window.__rid', "'$rid'")
 
-  Section '2. the page in headless Chrome (1920x1080): HOME v3 - live data, his car, the one button, READY, the states'
-  # The layout itself (grid, type sizes, overlaps, eight states) is measured offline by tests\home-v3-test.ps1. Here: the
-  # real page against the real irdash - the numbers on screen equal the endpoints, and every control does what it says.
-  Add-Type -AssemblyName System.Drawing
-  Cdp-Open "$api/v2/"
-  $drawn = Wait-Until "!!document.querySelector('#homeWeek b') && !!document.querySelector('#homeLast .val') && !!document.querySelector('#homeRace .lbl') && !!document.querySelector('#homeWeekend .lbl') && !!document.querySelector('#idleRig .head') && !document.getElementById('homeNext').hidden" 20
-  Check 'HOME drew its three bands (button, READY, next race, last outing, this week, watch)' $drawn
-  $null = Cdp-Eval "window.__homeTick = Home.tick; clearInterval(Home.tickTimer); clearInterval(Home.nextTimer); clearInterval(Home.phoneTimer); Home.tick = async function(){ return true; }; true"
-  Start-Sleep -Seconds 2
-  Check 'the overlay (HOME) is shown while no session runs' ((Cdp-Eval "document.getElementById('overlay').classList.contains('show')") -eq $true)
-  $dom = Cdp-Json "({ name: (document.querySelector('#homeDriver .name') || document.querySelector('#homeCar .big') || {}).textContent || '', num: (document.querySelector('#homeDriver .num') || document.querySelector('#homeCar .big i') || {}).textContent || '', week: Array.from(document.querySelectorAll('#homeWeek b')).map(e => e.firstChild.textContent.trim()), weekLabel: (document.querySelector('#homeWeek .lbl') || {}).textContent || '', lastLabel: (document.querySelector('#homeLast > .lbl') || {}).textContent || '', lastDet: (document.querySelector('#homeLast .det') || {}).textContent || '', lastBest: ((document.querySelector('#homeLast .val b') || {}).firstChild || {}).textContent || '', review: !!document.getElementById('homeReview'), head: (document.querySelector('#idleRig .head b') || {}).textContent || '', rows: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.querySelector('.k').textContent + '=' + r.querySelector('.v').textContent), clock: document.getElementById('idleClock').textContent })"
-  Check 'driver name on screen equals /home' ($dom.name -match [regex]::Escape($h.name)) "'$($dom.name)'"
-  Check 'number on screen equals /home and the car shown (me.num)' ($dom.num -eq $h.num -and $dom.num -eq $h.me.num) "'$($dom.num)' vs '$($h.num)' / '$($h.me.num)'"
-  Check "the clock is New York time, 12-hour, marked ET ('$($dom.clock)')" ($dom.clock -match '^\d{1,2}:\d{2} (AM|PM) ET$')
-  Check "READY says one word and lists Recording and Phone ('$($dom.head)': $($dom.rows -join ', '))" ($dom.head.Length -gt 0 -and @($dom.rows | Where-Object { $_ -like 'Recording=*' }).Count -eq 1 -and @($dom.rows | Where-Object { $_ -like 'Phone=*' }).Count -eq 1)
-  $rec = J "$api/vault/recorder"
-  $recRow = @($dom.rows | Where-Object { $_ -like 'Recording=*' })[0]
-  Check "the Recording row follows irdash's capture verdict ($($rec.capture.state), $([math]::Round([double]$rec.freeGb)) GB free): '$recRow'" ((-not $rec.enabled -and $recRow -match 'Off') -or ($rec.capture.state -eq 'recording' -and $recRow -match '^Recording=On ') -or ($rec.capture.state -in @('idle', 'starting') -and $recRow -match ('^Recording=(Ready|Disk low)'))) "row='$recRow'"
+Section '1-4. the page'
+$url = Page 't' '' $run
+$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=240000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
+$dom = Get-Content "$tmp\out.txt" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+$m = [regex]::Match([string]$dom, '(?s)<pre id="out"[^>]*>(.*?)</pre>')
+$text = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+$lines = @($text -split [char]10 | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -match '^(ok|FAIL) ' })
+$lines | ForEach-Object { '  ' + $_ }
+$pass += @($lines | Where-Object { $_ -match '^ok' }).Count; $fail += @($lines | Where-Object { $_ -match '^FAIL' }).Count
+if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++; Get-Content "$tmp\err.txt" -ErrorAction SilentlyContinue | Select-Object -Last 5 }
 
-  Section '2a. his car: iRacing''s own picture at native size, or his name in clean type - never a drawing'
-  $cardFixture = @'
-(() => {
-  const original = Home.home, oldPic = window.PCarPic;
-  window.__picCalls = 0; window.__picWidth = 0;
-  window.PCarPic = { known: () => ({ corvettez06rgt3: 1 }), key: p => p, html: o => { window.__picCalls++; window.__picWidth = o.w; return '<div class="cpic" data-fixture="official"></div>'; }, refresh: () => {}, ready: () => Promise.resolve() };
-  Home.home = Object.assign({}, original, { name: 'Peter Fixture', num: '4', me: { name: 'Peter Fixture', num: '4', car: 'Corvette Fixture', path: 'corvettez06rgt3' } });
-  Home.draw();
-  const read = () => ({ row: document.getElementById('homeDriver').innerText.replace(/\s+/g, ' ').trim(), frame: !!document.querySelector('#homeCar .cpic'), big: (document.querySelector('#homeCar .big') || {}).textContent || '', calls: window.__picCalls, width: window.__picWidth, svg: document.querySelectorAll('#homeCar svg, svg.pcar').length });
-  const cached = read();
-  Home.home = Object.assign({}, original, { me: { name: 'Peter Fixture', num: '4', car: 'Corvette Fixture', path: 'unavailable' } });
-  window.PCarPic = { known: () => ({}), key: p => p, html: () => { window.__picCalls++; return ''; }, refresh: () => {}, ready: () => Promise.resolve() };
-  Home.draw(); const absent = read();
-  Home.home = Object.assign({}, original, { me: null });
-  Home.draw(); const empty = read();
-  Home.home = original; window.PCarPic = oldPic; Home.draw();
-  return { cached, absent, empty };
-})()
-'@
-  $fixture = Cdp-Json $cardFixture
-  Check 'with a picture: the official picture is asked for at its native 480 px, and the name row sits under the button' ($fixture.cached.frame -and $fixture.cached.calls -eq 1 -and $fixture.cached.width -eq 480 -and $fixture.cached.row -match 'Peter Fixture') ($fixture.cached | ConvertTo-Json -Compress)
-  Check 'no picture for that car: his number and name take the car slot in clean type, no frame, no drawing' (-not $fixture.absent.frame -and $fixture.absent.big -match '4' -and $fixture.absent.big -match 'Peter Fixture' -and $fixture.absent.svg -eq 0) ($fixture.absent | ConvertTo-Json -Compress)
-  Check 'no identity at all: nothing is invented (no name, number or picture)' (-not $fixture.empty.frame -and -not $fixture.empty.big -and -not $fixture.empty.row) ($fixture.empty | ConvertTo-Json -Compress)
-  $nocar = Cdp-Json "({ pcars: document.querySelectorAll('svg.pcar').length, api: typeof window.PCars, hero: !!document.getElementById('heroImg') })"
-  Check "no DRAWN car and no stock photo on HOME (svg.pcar $($nocar.pcars), window.PCars $($nocar.api), hero photo element present: $($nocar.hero))" ($nocar.pcars -eq 0 -and $nocar.api -eq 'undefined' -and -not $nocar.hero)
+Section '5. source'
+function Src($what, $cond) { if ($cond) { $script:pass++; "  ok    5. $what" } else { $script:fail++; "  FAIL  5. $what" } }
+$js = [IO.File]::ReadAllText((Join-Path $app 'pages\home.js'))
+$ir = [IO.File]::ReadAllText((Join-Path $root 'dash\src\irdash.cs'))
+$ov = [IO.File]::ReadAllText((Join-Path $root 'dash\src\overlays.cs'))
+$v2 = [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\home.js'))
+Src 'home.js is a page module (export default with mount, unmount, onState)' ($js -match 'export default \{' -and $js -match 'mount\(el, ctx\)' -and $js -match 'unmount\(\)' -and $js -match 'onState\(state, changed\)')
+Src 'home.js has no real-world block, no phone pairing, no New York clock, no statistics tiles' ($js -notmatch '(?i)realworld|/phone|America/New_York|/career' -and $js -notmatch "'starting'")
+Src 'home.js never calls ctx.banner (the shell owns the offline and kids banners)' ($js -notmatch 'banner\(')
+Src 'home.js trusts only the server''s "his" flag for his series (not "mine", the car-familiarity flag)' ($js -match 'r\.his' -and $js -notmatch 'r\.mine\b')
+Src 'home.js has one timer (the second of the countdown), asks nothing on it and uses only data.json / onList / on / fetch' (([regex]::Matches($js, 'setInterval\(')).Count -eq 1 -and $js -notmatch 'EventSource')
+Src 'FIX IT is doctorcheck: Doctor.Run(false), which does not put the old list on screen' ($js.Contains("'doctorcheck'") -and $ov.Contains('case "doctorcheck": Doctor.Run(false)'))
+Src 'irdash no longer routes /realworld or starts the real-world fetch; the old HOME (v2) no longer asks for it' (-not $ir.Contains('path == "/realworld"') -and -not $ir.Contains('RealWorld.Init(') -and $v2 -notmatch 'realworld|drawWatch')
+Src 'the one button keeps the old HOME''s commands: key rig-on / go / test-drive-last, mdpick, mdstart' ($js.Contains("'rig-on'") -and $js.Contains("'go'") -and $js.Contains("'test-drive-last'") -and $js.Contains("'mdpick'") -and $js.Contains("'mdstart'"))
 
-  Section '2b. the numbers on screen equal the endpoints'
-  $sched = Cdp-Json "({ race: document.getElementById('homeRace').innerText, weekend: document.getElementById('homeWeekend').innerText })"
-  if ($h.nextRace) { Check "NEXT RACE shows the published series and track ($($h.nextRace.series), $($h.nextRace.track))" ($sched.race -match [regex]::Escape($h.nextRace.series) -and $sched.race -match [regex]::Escape($h.nextRace.track)) ($sched.race -replace '\s+', ' ') }
-  else { Check 'no next race: says so, invents nothing' ($sched.race -match 'No race published') }
-  # the first session still to come: HOME no longer lists what has finished (a 6 AM race at 5 PM)
-  $firstReal = @($timedReal | Where-Object { $_.localStart -and ([DateTimeOffset]::Parse($_.localStart)).AddHours(3) -gt [DateTimeOffset]::Now } | Sort-Object localStart | Select-Object -First 1)[0]
-  Check "WATCH shows the published schedule ($($firstReal.series) first), New York times, never the word Live" ($sched.weekend -match [regex]::Escape($firstReal.series) -and $sched.weekend -match '\d{1,2}:\d{2} (AM|PM)' -and $sched.weekend -notmatch '\bLive\b') ($sched.weekend -replace '\s+', ' ')
-  Check "THIS WEEK on screen equals /home week: $($dom.week -join ' ') (hours, laps, PBs)" (@($dom.week).Count -ge 3 -and $dom.week[0] -eq ([double]$h.week.hours).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) -and ($dom.week[1] -replace ',', '') -eq "$($h.week.laps)" -and ($dom.week[2] -replace ',', '') -eq "$($h.week.pbs)") "week='$($dom.week -join ' ')' vs $($h.week.hours)/$($h.week.laps)/$($h.week.pbs)"
-  Check "the THIS WEEK heading is there ('$($dom.weekLabel)')" ($dom.weekLabel -eq 'This week')
-  Check "LAST OUTING on screen equals /home lastOuting: '$($dom.lastDet)' ($($dom.lastBest))" ($dom.lastLabel -like 'Last outing*' -and $dom.lastDet -like "$($h.lastOuting.track)*" -and (-not $h.lastOuting.best -or $dom.lastBest -eq (Lap $h.lastOuting.best)) -and $dom.review) "label='$($dom.lastLabel)' det='$($dom.lastDet)' best='$($dom.lastBest)'"
-  # 2026-10-11: an invisible full-screen layer swallowed every click on HOME. Every visible control must receive a click at its centre.
-  $clk = Cdp-Json "(function(){var bad=[],n=0;[].forEach.call(document.querySelectorAll('#overlay button, #overlay a, #overlay .idle-link, #overlay [data-act]'),function(el){var r=el.getBoundingClientRect();if(r.width<4||r.height<4||getComputedStyle(el).visibility==='hidden')return;n++;var t=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);if(!(t===el||el.contains(t)))bad.push((el.id||el.className||el.tagName)+' under '+(t?(t.id||t.className||t.tagName):'nothing'))});return {n:n,bad:bad}})()"
-  Check "every visible HOME control receives a click at its centre ($($clk.n) controls)" ($clk.n -ge 3 -and @($clk.bad).Count -eq 0) (@($clk.bad) -join '; ')
-  Check "no broken image on HOME" ((Cdp-Eval "[].filter.call(document.querySelectorAll('#overlay img'),function(i){return i.complete&&i.naturalWidth===0}).length") -eq 0)
-  $lay = Cdp-Json "(function(){var ov=document.getElementById('overlay'),out=[],small=[],w=document.createTreeWalker(ov,NodeFilter.SHOW_TEXT);while(w.nextNode()){var n=w.currentNode,s=n.textContent.trim();if(!s)continue;var p=n.parentElement;if(p.closest('#homeHost, [hidden], .idle-foot'))continue;var cs=getComputedStyle(p);if(cs.display==='none'||cs.visibility==='hidden')continue;var rg=document.createRange();rg.selectNodeContents(n);var r=rg.getBoundingClientRect();if(r.width<1)continue;if(r.left<-0.5||r.top<-0.5||r.right>1920.5||r.bottom>1080.5)out.push(s.slice(0,24));if(parseFloat(cs.fontSize)<20&&!p.closest('.tiny'))small.push(cs.fontSize+' '+s.slice(0,20));}var t=ov.cloneNode(true);[].forEach.call(t.querySelectorAll('.ser, .ev .n, #homeHost'),function(e){e.remove();});return {out:out,small:small,text:t.innerText};})()"
-  Check "nothing is outside 1920 x 1080 ($(@($lay.out) -join '; '))" (@($lay.out).Count -eq 0)
-  Check "no text under 20 px except the source line ($(@($lay.small) -join '; '))" (@($lay.small).Count -eq 0)
-  # COPY-RULES; series and event names are iRacing's / the organisers' own words (e.g. "SENSIT!") and are left out of this check
-  $banned = @('\b(you|your|yours|you''re|you''ve|you''ll)\b', 'good (morning|afternoon|evening)', 'ready when', 'when you are', 'welcome', '\b(just|simply|quietly|automatically|insight|journey|story)\b', 'by itself', 'let''s', 'here''s', '!', '\s–\s', '\w - \w', 'outline from', 'from your own', 'sampled', 'explains', 'is the mean', 'worked out from', 'last time here')
-  $hitW = @($banned | Where-Object { ([string]$lay.text) -match "(?i)$_" })
-  Check "no banned words or punctuation on HOME (COPY-RULES, $($banned.Count) patterns)" ($hitW.Count -eq 0) "found: $($hitW -join ' | ') in: $(([string]$lay.text) -replace '\s+', ' ')"
-  Check 'REVIEW is a big enough target (44 px tall or more)' ((Cdp-Eval "document.getElementById('homeReview').getBoundingClientRect().height") -ge 44)
-  Cdp-Shot (Join-Path $shots 'home-v3-live-idle.png')
-
-  Section '2c. the one button does exactly what it says (dry run: recorded, never sent)'
-  $btn = Cdp-Json "(function(){var b=document.getElementById('homeNext'),r=b.getBoundingClientRect();return {label:b.querySelector('b').textContent,sub:(b.querySelector('span')||{}).innerText||'',car:b.getAttribute('data-car'),track:b.getAttribute('data-track'),w:r.width,h:r.height}})()"
-  $shortCar = ([string]$h.last.car -replace '^Chevrolet ', '')
-  Check "the button says LAST DRIVE and names his last car and track on its face ('$($btn.sub -replace '\s+', ' ')')" ($btn.label -eq 'Last drive' -and $btn.car -ceq $h.last.car -and $btn.track -ceq $h.last.track -and $btn.sub -match [regex]::Escape($shortCar) -and $btn.sub -match [regex]::Escape($h.last.track)) "label='$($btn.label)' car='$($btn.car)' track='$($btn.track)'"
-  Check "the button is a big target: $([math]::Round($btn.w)) x $([math]::Round($btn.h)) px" ($btn.w -ge 700 -and $btn.h -ge 200)
-  function Fnv($kind, $text) { [uint32]$x = 2166136261; foreach ($ch in $text.ToLowerInvariant().ToCharArray()) { $x = [uint32](([uint64]($x -bxor [uint32][char]$ch) * 16777619) % 4294967296) }; return $kind + $x.ToString('x8') }
-  $null = Cdp-Eval "Home.dry = true; Home.sent = []; Home.busyUntil = 0; true"
-  $null = Cdp-Eval "document.getElementById('homeNext').click(); true"
-  Start-Sleep -Milliseconds 700
-  $sent = Cdp-Json "Home.sent"
-  $idWant = Fnv 'r' ("$($btn.car)|$($btn.track)")
-  $my = J "$api/mydrive"; $row = @($my.all | Where-Object { $_.id -eq $sent[0].a }) | Select-Object -First 1
-  Check "the click (dry run) sends exactly: mdpick $idWant, then mdstart - nothing else" (@($sent).Count -eq 2 -and $sent[0].c -eq 'mdpick' -and $sent[0].a -eq $idWant -and $sent[1].c -eq 'mdstart') ($sent | ConvertTo-Json -Compress)
-  Check "that id is the drive MY DRIVE lists as '$($row.car)' at '$($row.track)'" ($row -and $row.car -ceq $btn.car -and $row.track -ceq $btn.track) "all[] has no entry $($sent[0].a)"
-  Check 'the button shows STARTING while it works (and presses are ignored then)' ((Cdp-Eval "(function(){ var t = document.querySelector('#homeNext b').textContent; document.getElementById('homeNext').click(); return t + '|' + Home.sent.length; })()") -eq 'Starting|2')
-  $null = Cdp-Eval "Home.busyUntil = 0; Home.next(); true"
-  $null = Cdp-Eval "(function(){ if (!window.__realFetch) { window.__realFetch = window.fetch; window.__fake = {}; window.fetch = function(u, o) { var k = String(u).split('?')[0]; if (window.__fake[k]) return Promise.resolve({ ok: true, json: function () { return Promise.resolve(window.__fake[k]); } }); return window.__realFetch.call(window, u, o); }; } return true; })()"
-  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', name: 'iRacing UI', state: 'off' }, { id: 'sim', state: 'off' }] }; Home.next().then(function(){ return true; })"
-  $bn = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: (document.querySelector('#homeNext span') || {}).textContent || '', head: (document.querySelector('#idleRig .head b') || {}).textContent || '' })"
-  $null = Cdp-Eval "Home.sent = []; Home.busyUntil = 0; document.getElementById('homeNext').click(); true"; Start-Sleep -Milliseconds 400
-  $ss = Cdp-Json "Home.sent"
-  Check "iRacing not started: the button says RIG ON ('$($bn.sub)'), READY names it ('$($bn.head)'), and the press sends the deck key rig-on" ($bn.label -eq 'Rig on' -and $bn.sub -eq 'iRacing UI off' -and $bn.head -match 'off' -and @($ss).Count -eq 1 -and $ss[0].c -eq 'key' -and $ss[0].a -eq 'rig-on') ($ss | ConvertTo-Json -Compress)
-  Cdp-Shot (Join-Path $shots 'home-v3-live-rigon.png')
-  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'ok' }, { id: 'sim', state: 'live' }] }; Home.busyUntil = 0; Home.next().then(function(){ return true; })"
-  $bg = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, head: (document.querySelector('#idleRig .head b') || {}).textContent || '' })"
-  Check "a session is open: the button says GET IN and READY says LIVE ('$($bg.head)')" ($bg.label -eq 'Get in' -and $bg.head -eq 'Live')
-  $null = Cdp-Eval "window.__fake['/health'] = { apps: [{ id: 'ui', state: 'ok' }, { id: 'sim', state: 'off' }] }; var keepLast = Home.home.last; Home.home.last = null; Home.busyUntil = 0; (async function(){ await Home.next(); return true; })()"
-  $bs = Cdp-Json "({ label: document.querySelector('#homeNext b').textContent, sub: !!document.querySelector('#homeNext span'), car: document.getElementById('homeNext').getAttribute('data-car'), key: Home.act.key, buttonKey: document.getElementById('homeNext').homeAct.key })"
-  $null = Cdp-Eval "Home.sent = []; Home.busyUntil = 0; document.getElementById('homeNext').click(); true"; Start-Sleep -Milliseconds 400
-  $s3 = Cdp-Json "Home.sent"
-  Check 'no last session: START keeps its own command and sends only test-drive-last' ($bs.label -eq 'Start' -and -not $bs.sub -and -not $bs.car -and $bs.key -eq 'test-drive-last' -and $bs.buttonKey -eq 'test-drive-last' -and @($s3).Count -eq 1 -and $s3[0].c -eq 'key' -and $s3[0].a -eq 'test-drive-last') ("state=$($bs | ConvertTo-Json -Compress) sent=$($s3 | ConvertTo-Json -Compress)")
-  $null = Cdp-Eval "Home.home.last = keepLast; Home.dry = false; Home.busyUntil = 0; delete window.__fake['/health']; Home.next().then(function(){ return true; })"
-
-  Section '2d. the phone: the pairing square only while no phone is paired, otherwise one row in READY'
-  $qr = J "$api/phone/qr"
-  if ($qr.rows -and @($qr.rows).Count) {
-    $qr.paired = 0; $qr.allowed = $true; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
-    $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-    $p1 = Cdp-Json "({ qr: !!document.querySelector('#homePhone canvas') && !document.getElementById('homePhone').hidden, txt: document.getElementById('homePhone').innerText, car: !document.getElementById('homeCar').hidden, row: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|') })"
-    Check "no phone paired: the pairing square and its code take the car slot ('$($p1.txt -replace '\s+', ' ')')" ($p1.qr -and -not $p1.car -and $p1.txt -match [regex]::Escape(($qr.code.Substring(0, 3) + ' ' + $qr.code.Substring(3))) -and $p1.row -match 'not paired')
-    Cdp-Shot (Join-Path $shots 'home-v3-live-pair.png')
-    $qr.paired = 1; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
-    $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-    $p2 = Cdp-Json "({ qr: !document.getElementById('homePhone').hidden, row: Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|') })"
-    Check 'a phone is paired: no square, READY says Phone paired' (-not $p2.qr -and $p2.row -match 'Phone\s+paired')
-  } else { '  info  no home network address: the pairing square cannot be shown here (skipped)' }
-  $qr.allowed = $false; $qrJson = $qr | ConvertTo-Json -Depth 6 -Compress
-  $null = Cdp-Eval "window.__fake['/phone/qr'] = $qrJson; Home.phone().then(function(){ return true; })"
-  $p3 = Cdp-Json "Array.from(document.querySelectorAll('#idleRig .row')).map(r => r.innerText).join('|')"
-  Check "the phone is not allowed yet: READY names the one file to run ('$p3')" ($p3 -match 'phone-allow\.cmd')
-  $null = Cdp-Eval "delete window.__fake['/phone/qr']; Home.phone().then(function(){ return true; })"
-  $null = Cdp-Eval "Home.tick = window.__homeTick; true"
-  Check 'no JS errors on HOME through the states' ($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
-  # the REVIEW button opens the Session Review over HOME, with a back bar
-  $null = Cdp-Eval "document.getElementById('homeReview').click(); true"
-  $hostOk = Wait-Until "(() => { const h = document.getElementById('homeHost'); return !h.hidden && !!h.querySelector('iframe') && h.querySelector('iframe').src.indexOf('coach.html') > 0; })()" 8
-  Check 'REVIEW opens the session coach over HOME (all laps and data are one press away inside it)' $hostOk
-  Start-Sleep -Seconds 4
-  Cdp-Shot (Join-Path $shots 'home-review.png')
-  $null = Cdp-Eval "document.querySelector('#homeHost .bar button').click(); true"
-  Start-Sleep -Milliseconds 900
-  Check 'HOME comes back after the back bar' ((Cdp-Eval "document.getElementById('homeHost').hidden") -eq $true)
-
-  Section '3. hidden while driving (pretend session through the test hook)'
-  $tsFile = Join-Path $root 'dash\test-sessions.txt'; $markFile = Join-Path $root 'dash\start-mark.txt'
-  $tsBefore = if (Test-Path $tsFile) { [IO.File]::ReadAllText($tsFile) } else { $null }
-  Set-Content $lock 'home-test' -Encoding ASCII
-  New-Item -ItemType File -Force $hook | Out-Null
-  $r = Invoke-WebRequest -UseBasicParsing "$api/api/test/frame?IsOnTrack=1&Speed=42&SessionNum=0&Lap=2&SessionTime=120&FuelLevel=30" -TimeoutSec 20
-  Check 'test hook accepted the pretend session' ($r.StatusCode -eq 200)
-  $hidden = Wait-Until "!document.getElementById('overlay').classList.contains('show') && getComputedStyle(document.getElementById('overlay')).display === 'none'" 12
-  Check 'HOME (#overlay) is gone the moment the session is live' $hidden
-  Check 'the server says driving' ((J "$api/phone/state").driving -eq $true)
-  Check 'HOME stops asking for data while driving' ((Cdp-Eval "Home.shown()") -eq $false)
-  Cdp-Shot (Join-Path $shots 'home-driving.png')
-  $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 20
-  Remove-Item $hook -Force -ErrorAction SilentlyContinue
-  $back = Wait-Until "document.getElementById('overlay').classList.contains('show')" 15
-  Check 'HOME is back after the session' $back
-  Check 'no JS errors through the whole run' ($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
-  $tsAfter = if (Test-Path $tsFile) { [IO.File]::ReadAllText($tsFile) } else { $null }
-  Check 'a session with no TEST mark (like his own START) is not written to dash\test-sessions.txt' ($tsAfter -eq $tsBefore)
-
-  Section '4. a session a test started is logged (pretend session with a TEST mark), and irdeck writes that mark'
-  # irdeck writes "<ticks> TEST" into dash\start-mark.txt when the test that pressed START set RIG_TEST_OWNS_SIM; irdash logs the run while it lasts
-  $markBefore = if (Test-Path $markFile) { [IO.File]::ReadAllText($markFile) } else { $null }
-  [IO.File]::WriteAllText($markFile, ([DateTime]::UtcNow.AddSeconds(-20).Ticks.ToString() + "`tTEST"))
-  Set-Content $lock 'home-test' -Encoding ASCII
-  New-Item -ItemType File -Force $hook | Out-Null
-  $t0 = [DateTime]::UtcNow.Ticks
-  $r = Invoke-WebRequest -UseBasicParsing "$api/api/test/frame?IsOnTrack=1&Speed=42&SessionNum=0&Lap=2&SessionTime=120&FuelLevel=30" -TimeoutSec 20
-  Check 'test hook accepted the pretend session (a TEST mark does not make the rig busy)' ($r.StatusCode -eq 200)
-  Start-Sleep -Seconds 2
-  $lines = @(if (Test-Path $tsFile) { [IO.File]::ReadAllLines($tsFile) } else { @() }); $last = if ($lines.Count) { $lines[-1].Split("`t") } else { @() }
-  Check 'irdash opened a line for it: the start moment, no end yet' ($last.Count -ge 2 -and [long]$last[0] -ge $t0 - 60 * 10000000L -and [long]$last[0] -le [DateTime]::UtcNow.Ticks -and $last[1].Trim() -eq '') "line='$($lines[-1])'"
-  $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 20
-  Remove-Item $hook -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 2
-  $lines = @(if (Test-Path $tsFile) { [IO.File]::ReadAllLines($tsFile) } else { @() }); $last = if ($lines.Count) { $lines[-1].Split("`t") } else { @() }
-  Check 'and closed it when the session ended: end after start, both just now' ($last.Count -ge 2 -and $last[1].Trim() -ne '' -and [long]$last[1] -ge [long]$last[0] -and [long]$last[1] -le [DateTime]::UtcNow.Ticks -and [long]$last[1] -ge $t0) "line='$($lines[-1])'"
-  # put dash\test-sessions.txt and the mark back as they were
-  if ($null -eq $tsBefore) { Remove-Item $tsFile -Force -ErrorAction SilentlyContinue } else { [IO.File]::WriteAllText($tsFile, $tsBefore) }
-  if ($null -eq $markBefore) { Remove-Item $markFile -Force -ErrorAction SilentlyContinue } else { [IO.File]::WriteAllText($markFile, $markBefore) }
-  $ov = [IO.File]::ReadAllText((Join-Path $root 'src\overlays.cs')); $md = [IO.File]::ReadAllText((Join-Path $root 'src\mydrive.cs'))
-  Check 'irdeck: both START marks go through MarkLabel, which says TEST when RIG_TEST_OWNS_SIM is set' ($ov -match 'static string MarkLabel' -and $ov -match 'RIG_TEST_OWNS_SIM' -and $ov -match 'MarkLabel\(what\)' -and $md -match 'MarkLabel\("mydrive start"\)')
-  $exeBytes = [IO.File]::ReadAllBytes((Join-Path $root 'irdeck-cli.exe')); $needle = [Text.Encoding]::Unicode.GetBytes('RIG_TEST_OWNS_SIM'); $found = $false
-  for ($i = 0; $i -le $exeBytes.Length - $needle.Length -and -not $found; $i++) { if ($exeBytes[$i] -eq $needle[0]) { $m = $true; for ($j = 1; $j -lt $needle.Length; $j++) { if ($exeBytes[$i + $j] -ne $needle[$j]) { $m = $false; break } }; if ($m) { $found = $true } } }
-  Check 'the built irdeck-cli.exe really contains the RIG_TEST_OWNS_SIM check (it was rebuilt after the change)' $found
-  # the tests that start the real sim set the variable BEFORE pressing START
-  $rf = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'recorder-fps.ps1')); $rp = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'replay-test.ps1'))
-  Check 'recorder-fps.ps1 and replay-test.ps1 set RIG_TEST_OWNS_SIM before their startlast' ($rf.IndexOf('RIG_TEST_OWNS_SIM') -ge 0 -and $rf.IndexOf('RIG_TEST_OWNS_SIM') -lt $rf.IndexOf('startlast') -and $rp.IndexOf("`$env:RIG_TEST_OWNS_SIM = '1'") -lt $rp.IndexOf('Ir startlast ai'))
+# ---------------- one picture per state ----------------
+Section 'pictures'
+foreach ($s in 'rig-off', 'rig-on-idle', 'race-soon', 'session-garage', 'offline', 'kids', 'after-drive', 'after-practice', 'rig-problem') {
+  $png = Join-Path $shots "home-$s.png"; Remove-Item $png -ErrorAction SilentlyContinue
+  $u = Page "s-$s" $s ''
+  $p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=3000', "--screenshot=$png", $u)) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\err-$s.txt" -RedirectStandardOutput "$tmp\so-$s.txt"
+  if (Test-Path $png) { $pass++; "  ok    picture: $png" } else { $fail++; "  FAIL  no picture for $s" }
 }
-catch { Write-Output "  FAIL  $($_.Exception.Message)"; $script:fail++ }
-finally {
-  try { Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 8 | Out-Null } catch { }
-  Remove-Item $hook -Force -ErrorAction SilentlyContinue
-  Remove-Item $lock -Force -ErrorAction SilentlyContinue
-  Exit-TestLock
-  Cdp-Close
-}
-Write-Output ''
-Write-Output "$($script:ok) passed, $($script:fail) failed"
-if ($script:fail -gt 0) { exit 1 }
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+"$pass passed, $fail failed."
+if ($fail -gt 0 -or $pass -eq 0) { exit 1 }
