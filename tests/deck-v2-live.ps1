@@ -2,9 +2,9 @@
 # press), in real sessions. After each press: the sim's telemetry (irdeck-cli sess), what irdeck logged for that press, and the
 # message the top screen shows (GET /keymsg), plus a picture of the real top screen (tests\shots\v2-*.png).
 #   Test Drive (LAST DRIVE): GET OUT, GET IN from the replay screen, RESTART (back in the pits), kids lock / blocked key /
-#     allowed key / KIDS then HOME, MUTE SPOTTER twice, NEXT SESSION (ends the test drive)
-#   AI race (AI RACE): RESTART in qualify, NEXT SESSION to the race, GET IN, QUIT TO MENU (LEAVE page)
-#   AI race again: RACE NOW from qualify, QUIT TO MENU (the second LEAVE cell)
+#     allowed key / KIDS then HOME, SPOTTER twice, TO THE RACE refusing in a Test Drive, QUIT TO MENU
+#   AI race (the AI RACE screen's START, W3-4): RESTART in the first session, TO THE RACE to the race and in the car, QUIT TO MENU (LEAVE page)
+#   AI race again with a skill range: START, QUIT TO MENU
 # Not covered: GET OUT while the car rolls (a test cannot drive the car; the wait is in tests\deck-behaviour-test.ps1).
 # Starts the real sim, so it needs 10 minutes with nobody at the keyboard (tests\guard.ps1 -NeedAway).
 #   powershell -ExecutionPolicy Bypass -File tests\deck-v2-live.ps1
@@ -72,6 +72,17 @@ function Press($key, $secs = 300) {
   return $r
 }
 function Said($r, $text) { $r.msgKey -eq $r.key -and $r.msg -eq $text }
+# the AI RACE screen's START (W3-4): the add-on sends /api/do?c=ailevel&a=start; irdash runs irdeck airace start. Returns what irdeck logged.
+function StartAi($secs = 400) {
+  $start = if (Test-Path $log) { (Get-Item $log).Length } else { 0 }
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  try { $null = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8199/api/do?c=ailevel&a=start' -Headers @{ 'X-Paddock' = '1' } -TimeoutSec 5 } catch { "  (irdash did not take START: $($_.Exception.Message))" | Out-Host }
+  $null = WaitSess { param($x) $x.live -and $x.onTrack } $secs
+  Touch
+  $fs = [IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'); $fs.Seek($start, 'Begin') | Out-Null
+  $text = (New-Object IO.StreamReader($fs)).ReadToEnd(); $fs.Dispose()
+  [pscustomobject]@{ key = 'ailevel'; rc = 0; secs = [int]$sw.Elapsed.TotalSeconds; log = $text; msgKey = ''; msg = '' }
+}
 
 'Deck v2 live keys'
 if ((Ir state).out -match 'telemetry=on') { 'iRacing is in a session - run this when nobody is in the car.'; exit 1 }
@@ -106,7 +117,7 @@ try {
   Check "RESTART in a test drive ends in the car on pit road ($($r.secs) s)" ($s.onTrack -and $s.onPit)
   Check "the top screen says 'Back in the pits, in the car'" (Said $r 'Back in the pits, in the car')
 
-  Section '3b. the practice loop (Test Drive): SAVE SPOT, BACK TO SPOT, GHOST, PAUSE'
+  Section '3b. the practice loop (Test Drive): SAVE SPOT, BACK TO SPOT, BEST LAP CAR, PAUSE'
   $r = Press 'spot-save' 60
   Check 'SAVE SPOT saves the spot (the dashboard finds the track corner it times to)' ($r.log -match 'spot: ok - Spot saved')
   Check "the top screen says 'Spot saved - tries are timed ...'" ($r.msgKey -eq 'spot-save' -and $r.msg -like 'Spot saved*')
@@ -116,8 +127,8 @@ try {
   Check 'BACK TO SPOT puts the car back (the dashboard saw the reset and started a try)' ($r.log -match 'spot: ok - back at the spot' -and (Sess).onTrack)
   Check "the top screen says 'Back at the spot - timing ...'" ($r.msgKey -eq 'spot-back' -and $r.msg -like 'Back at the spot*')
   Shot-Sim 'spot-back'
-  $r = Press 'ghost' 30
-  Check 'GHOST sends iRacing''s reference-car key' ($r.log -match 'key ctrl\+c sent')
+  $r = Press 'best-lap-car' 30
+  Check 'BEST LAP CAR sends iRacing''s reference-car key' ($r.log -match 'key ctrl\+c sent')
   Shot-Sim 'ghost-on'
   $t0 = (Sess).time
   $r = Press 'pause' 30
@@ -131,7 +142,7 @@ try {
   $a = (Sess).time; Start-Sleep -Milliseconds 1500; $b = (Sess).time
   Check "PAUSE again carries on ($a -> $b)" ($r.log -match 'pause: ok - Running again' -and $b -gt $a)
   Check "the top screen says 'Running again'" (Said $r 'Running again')
-  $null = Press 'ghost' 30      # back to how it was
+  $null = Press 'best-lap-car' 30      # back to how it was
 
   Section '4. kids mode while in the car'
   $r = Press 'kids' 30
@@ -156,11 +167,11 @@ try {
   Start-Sleep -Seconds 1
   Check 'the hook process is gone' (-not (Get-CimInstance Win32_Process -Filter "Name='irdeck.exe' or Name='kids.exe' or Name='kids-leave.exe'" | Where-Object { $_.CommandLine -match 'kids hook' }))
 
-  Section '5. MUTE SPOTTER twice (CrewChief''s own mixer entry)'
+  Section '5. SPOTTER twice (spotter-tap: CrewChief''s own mixer entry)'
   if (Get-Process CrewChiefV4 -ErrorAction SilentlyContinue) {
-    $r1 = Press 'mute-spotter' 20
+    $r1 = Press 'spotter-tap' 20
     Start-Sleep -Milliseconds 900
-    $r2 = Press 'mute-spotter' 20
+    $r2 = Press 'spotter-tap' 20
     $quiet = $r1.log -match 'not making sound'
     if ($quiet) { Check 'CrewChief is not making sound right now: the key says so' ((Said $r1 'No game sound right now') -and (Said $r2 'No game sound right now')) }
     else {
@@ -168,20 +179,22 @@ try {
       Check 'the second press toggles it back' (($r1.log -match 'muted \(' -and $r2.log -match 'sound back on') -or ($r1.log -match 'sound back on' -and $r2.log -match 'muted \('))
       Check 'the top screen says Spotter muted / Spotter on' (((Said $r1 'Spotter muted') -and (Said $r2 'Spotter on')) -or ((Said $r1 'Spotter on') -and (Said $r2 'Spotter muted')))
     }
-  } else { '  info  CrewChief is not running: MUTE SPOTTER skipped' }
+  } else { '  info  CrewChief is not running: SPOTTER skipped' }
 
-  Section '6. NEXT SESSION in a Test Drive ends it (back at the menu)'
-  $r = Press 'skip-session' 120
-  Check "the test drive ended ($($r.secs) s)" (-not (Sess).live)
+  Section '6. TO THE RACE in a Test Drive refuses (no race; one green press must not quit), QUIT TO MENU ends it'
+  $r = Press 'to-the-race' 30
+  Check 'TO THE RACE in a Test Drive: rc 3, says so, the drive goes on' ($r.rc -eq 3 -and $r.log -match 'a Test Drive has no race' -and (Sess).live -and (Said $r 'A Test Drive has no race. QUIT TO MENU is on LEAVE.'))
+  $r = Press 'quit-main' 120
+  Check "QUIT TO MENU ended the test drive ($($r.secs) s)" (-not (Sess).live)
   Check 'the iRacing UI is on Home' (UiHome)
   Check "the top screen says 'Back at the menu'" (Said $r 'Back at the menu')
 
-  Section '7. AI RACE with an AI level chosen (adaptive HIGH), RESTART in the first session'
+  Section '7. AI RACE (the screen''s START) with an AI level chosen (adaptive HIGH), RESTART in the first session'
   $aiFile = Join-Path $root 'ai\level.json'; $aiHad = Test-Path $aiFile; $aiSave = if ($aiHad) { Get-Content $aiFile -Raw } else { $null }
   New-Item -ItemType Directory -Force (Split-Path $aiFile) | Out-Null
   [IO.File]::WriteAllText($aiFile, '{"mode":"adaptive","level":"high","min":25,"max":50}', (New-Object Text.UTF8Encoding $false))
-  $r = Press 'ai-race' 400
-  Check 'AI RACE set the AI level from the AI LEVEL screen (adaptive AI, high) and read it back from the wizard' ($r.log -match 'airace level: set \(adaptive AI, high challenge\); the step now shows Adaptive AI, High')
+  $r = StartAi 400
+  Check 'START set the AI level chosen on the AI RACE screen (adaptive AI, high) and read it back from the wizard' ($r.log -match 'airace level: set \(adaptive AI, high challenge\); the step now shows Adaptive AI, High')
   $s = WaitSess { param($x) $x.live } 60
   $null = WaitSess { param($x) $x.onTrack } 30
   $s = Sess
@@ -202,33 +215,26 @@ try {
   Check "RESTART starts the session over and ends in the car ($($r.secs) s)" ($s.live -and $s.num -eq $s0.num -and $s.time -lt $s0.time -and $s.onTrack)
   Check "the top screen says 'Race restarted'" (Said $r 'Race restarted')
 
-  Section '8. NEXT SESSION to the race, GET IN, QUIT TO MENU from LEAVE'
-  $r = Press 'skip-session' 180
-  $s = Sess
-  Check "NEXT SESSION moves on from $firstType ($($r.secs) s, now $($s.type))" ($s.live -and $s.num -gt 0)
-  Check 'the top screen names the next session' ($r.msgKey -eq 'skip-session' -and $r.msg -like 'Next session:*')
-  TopShot 'next-session'
-  $r = Press 'smart' 120
-  Check "GET IN gets in for the next session ($($r.secs) s)" ((WaitSess { param($x) $x.onTrack } 10).onTrack)
+  Section '8. TO THE RACE: from the first session to the race, in the car; QUIT TO MENU from LEAVE'
+  $r = Press 'to-the-race' 300
+  $s = WaitSess { param($x) $x.onTrack } 10
+  Check "TO THE RACE ends in the race session, in the car, from $firstType ($($r.secs) s, now $($s.type))" ($s.live -and $s.type -match 'Race' -and $s.onTrack)
+  Check "the top screen says 'Race starting'" ($r.msg -eq 'Race starting')
+  TopShot 'to-the-race'
   $r = Press 'quit-main' 180
   Check "QUIT TO MENU (LEAVE page) leaves the race ($($r.secs) s)" (-not (Sess).live)
   Check 'the iRacing UI is on Home' (UiHome)
   Check "the top screen says 'Back at the menu'" (Said $r 'Back at the menu')
 
-  Section '9. AI RACE again with a skill range (30 to 60), RACE NOW from the first session, QUIT (second LEAVE cell)'
+  Section '9. AI RACE again with a skill range (30 to 60): START, QUIT TO MENU'
   [IO.File]::WriteAllText($aiFile, '{"mode":"range","level":"low","min":30,"max":60}', (New-Object Text.UTF8Encoding $false))
-  $r = Press 'ai-race' 400
-  Check 'AI RACE set the skill range 30% to 60% and read it back' ($r.log -match 'airace level: set \(skill range 30% to 60%\); the step now shows Fixed Skill Range, skill 30% to 60%')
+  $r = StartAi 400
+  Check 'START set the skill range 30% to 60% and read it back' ($r.log -match 'airace level: set \(skill range 30% to 60%\); the step now shows Fixed Skill Range, skill 30% to 60%')
   $null = WaitSess { param($x) $x.live -and $x.onTrack } 60
   $s0 = Sess
   Check "a fresh AI event, first session ($($s0.type))" ($s0.live -and $s0.ai -and $s0.num -eq 0)
-  $r = Press 'race-now' 300
-  $s = Sess
-  Check "RACE NOW ends in the race session, in the car ($($r.secs) s, $($s.type))" ($s.live -and $s.type -match 'Race' -and $s.onTrack)
-  Check "the top screen says 'Race starting'" (Said $r 'Race starting')
-  TopShot 'race-now'
-  $r = Press 'quit-main2' 180
-  Check "QUIT TO MENU from the second LEAVE cell ($($r.secs) s)" (-not (Sess).live)
+  $r = Press 'quit-main' 180
+  Check "QUIT TO MENU ($($r.secs) s)" (-not (Sess).live)
   Check 'the iRacing UI is on Home' (UiHome)
 }
 finally {
