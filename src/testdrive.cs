@@ -685,8 +685,10 @@ namespace IRDeck
                         {
                             modal = AiModal(window); if (modal == null) { closed = true; return true; }
                             List<UEl> els2 = AiElements(modal);
-                            next = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && (Same(u.Name, "Continue") || Same(u.Name, "Next")) && u.E.Current.IsEnabled; } catch { return false; } });
-                            if (next == null) update = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Update") && u.E.Current.IsEnabled; } catch { return false; } });
+                            // Update first: every step is already set (car, track, AI), and the last step's Next reports enabled but does nothing
+                            // (deck-v2-live 3rd run 14:49: twelve Next presses in 10 s, the sim never started)
+                            update = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Update") && u.E.Current.IsEnabled; } catch { return false; } });
+                            if (update == null) next = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && (Same(u.Name, "Continue") || Same(u.Name, "Next")) && u.E.Current.IsEnabled; } catch { return false; } });
                             return next != null || update != null;
                         }
                         catch { return false; }
