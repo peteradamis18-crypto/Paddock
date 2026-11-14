@@ -1,0 +1,40 @@
+/* Progress inside REVIEW (W4-6). One band under the card screen's plan line. Colours and sizes come from design.css only;
+   nothing is under 24 px and nothing here is a gold fill (the dots are small marks, the latest one is the bright one). */
+.rprog { padding: 20px 0 0; border-top: 2px solid var(--line); }
+.rprog .rp-title { margin: 0 0 8px; font-size: var(--t-body); line-height: 1.2; font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); }
+.rprog .rp-empty { margin: 0; font-size: var(--t-read); line-height: 1.25; color: var(--muted); }
+.rprog .rp-first { margin: 16px 0 0; font-size: var(--t-read); color: var(--muted); }
+.rprog .rp-first .v { color: var(--ink); }
+.rprog .rp-grid { display: grid; grid-template-columns: 880px 1fr; gap: 40px; align-items: start; }
+.rprog .dots { display: block; }
+.rprog .grid { stroke: var(--line); stroke-width: 2; }
+.rprog .ylab, .rprog .xlab { font-size: var(--t-body); fill: var(--muted); font-family: var(--font); }
+.rprog .join { fill: none; stroke-width: 3; stroke-linejoin: round; }
+.rprog .join.best { stroke: var(--gold-dim); }
+.rprog .join.avg { stroke: var(--dim); }
+.rprog .dot { stroke: none; }
+.rprog .dot.best { fill: var(--gold-dim); }
+.rprog .dot.avg { fill: var(--dim); }
+.rprog .dot.best.latest { fill: var(--gold); }
+.rprog .dot.avg.latest { fill: var(--ink); }
+.rprog .rp-key { margin: 4px 0 0; font-size: var(--t-body); color: var(--muted); display: flex; align-items: center; gap: 12px; }
+.rprog .rp-key .sw { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin-left: 24px; }
+.rprog .rp-key .sw:first-child { margin-left: 0; }
+.rprog .sw.best { background: var(--gold); }
+.rprog .sw.avg { background: var(--ink); }
+.rprog .rp-sum { margin: 0 0 12px; font-size: var(--t-read); line-height: 1.2; }
+.rprog .chg.gain, .rprog .trend.gain { color: var(--gain); }
+.rprog .chg.loss, .rprog .trend.loss { color: var(--loss); }
+.rprog .chg.flat, .rprog .trend.flat { color: var(--ink); }
+.rprog .rp-side { display: flex; flex-direction: column; }
+.rprog .trend { margin: 0 0 6px; font-size: var(--t-body); line-height: 1.35; white-space: nowrap; }
+.rprog .irating { display: flex; align-items: center; gap: 24px; margin-top: 12px; }
+.rprog .irtext { font-size: var(--t-read); line-height: 1.25; }
+.rprog .irtext .k { color: var(--muted); font-size: var(--t-body); }
+.rprog .irtext .v { color: var(--ink); }
+.rprog .join.ir { stroke: var(--dim); }
+.rprog .join.ir.gain { stroke: var(--gain); }
+.rprog .join.ir.loss { stroke: var(--loss); }
+.rprog .dot.ir { fill: var(--muted); }
+.rprog .dot.ir.latest { fill: var(--ink); }
+.rprog .rp-side .rp-empty { font-size: var(--t-body); }
