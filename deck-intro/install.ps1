@@ -4,7 +4,8 @@
 # overlays screen (RigOverlays profile, opened by the OVERLAYS key), the My Drive screen (RigMyDrive
 # profile, opened by the MY DRIVE action - now the RACE SETUP screen), the REPLAY screen
 # (RigReplay profile, opened by the REPLAY key on the MAIN page), the ANALYSIS screen (RigAnalysis, the ANALYSIS key on MAIN)
-# the SOUND screen (RigSound, the SOUND key on the MORE page), the AC screen (RigAC, the AC key on MORE) and the AI LEVEL screen (RigAiLevel, the AI LEVEL key on MAIN).
+# the SOUND screen (RigSound), the AC screen (RigAC) and the RIG door key. W3-4: AI LEVEL is part of the AI RACE screen (RigMyDrive, the AI RACE key
+# on MAIN); every key picture comes from deck\keyart.js and the deck's words from deck\layout.json, both packaged next to plugin.html.
 # Builds the plugin folder (manifest, page, icons, and the bundled one-page RigIntro profile whose 32 keys
 # are the animation tiles), copies it into Stream Deck's Plugins folder, and restarts Stream Deck so it
 # loads. Refuses while you are driving. Re-run after editing plugin.html.
@@ -25,6 +26,10 @@ Add-Type -AssemblyName System.Drawing, System.IO.Compression, System.IO.Compress
 if (Test-Path $build) { Remove-Item -LiteralPath $build -Recurse -Force }
 New-Item -ItemType Directory -Force "$build\img" | Out-Null
 Copy-Item (Join-Path $here 'plugin.html') "$build\plugin.html"
+# W3-4: the one key drawing (deck\keyart.js) and the deck layout (deck\layout.json, as layout.js) sit next to the page, which loads both
+$deckSrc = Join-Path (Split-Path -Parent $here) 'deck'
+Copy-Item (Join-Path $deckSrc 'keyart.js') "$build\keyart.js"
+[IO.File]::WriteAllText("$build\layout.js", ('window.DECK_LAYOUT = ' + [IO.File]::ReadAllText((Join-Path $deckSrc 'layout.json'), [Text.Encoding]::UTF8) + ';'), (New-Object Text.UTF8Encoding($false)))
 # W0-2: the add-on's own secret, so irdash can tell it from any web page with an opaque origin ("null"). The value in force
 # (dash\deck-secret.txt) is reused; the first time a new one goes to dash\deck-secret-new.txt and irdash takes it over when the
 # installed add-on first sends it (so today's add-on keeps working until Peter clicks Install). Never in git (*.txt is ignored).
@@ -67,7 +72,6 @@ $manifest = [ordered]@{
                @{ Name = 'RigAnalysis'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigSound'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigAC'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
-               @{ Name = 'RigAiLevel'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigRaces'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigConfirm'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true })
   Actions = @(@{ UUID = "$uuid.tile"; Name = 'Tile'; Icon = 'img/tile'; Tooltip = 'Part of the intro, friends, overlays, race setup, replay, analysis, sound or AC screen'
@@ -88,9 +92,9 @@ $manifest = [ordered]@{
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.ac"; Name = 'AC'; Icon = 'img/plugin'; Tooltip = 'Opens the AC screen: power, temperature, mode, fan, presets and auto-cool for the rig room AC'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
-              @{ UUID = "$uuid.ailevel"; Name = 'AI Level'; Icon = 'img/plugin'; Tooltip = 'Opens the AI Level screen: how hard the AI is for the next AI race (adaptive low / medium / high, or a fixed skill range)'
-                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.races"; Name = 'Races'; Icon = 'img/plugin'; Tooltip = 'Opens the Races screen: every whole-race video, watch, YouTube, keep, delete'
+                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
+              @{ UUID = "$uuid.rig"; Name = 'Rig'; Icon = 'img/plugin'; Tooltip = 'Opens the RIG page on the top screen; the dot is the last rig check'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.confirm"; Name = 'Confirm'; Icon = 'img/plugin'; Tooltip = 'SHUT DOWN PC or SLEEP PC (the key settings say which): opens a screen with one YES key that must be pressed within 5 seconds'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') })
@@ -127,7 +131,6 @@ Build-Profile 'RigReplay' 'replay'
 Build-Profile 'RigAnalysis' 'analysis'
 Build-Profile 'RigSound' 'sound'
 Build-Profile 'RigAC' 'ac'
-Build-Profile 'RigAiLevel' 'ailevel'
 Build-Profile 'RigRaces' 'races'
 Build-Profile 'RigConfirm' 'confirm'
 

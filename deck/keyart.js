@@ -13,7 +13,8 @@ var KEYART = (function () {
   // the colour tokens (C) - nothing else in the deck code names a colour
   var C = {
     black: '#000000', key: '#0b0b0b', tile: '#1b1b1b', dark: '#101010', grey: '#2a2a2a', edge: '#3a3a3a', sheet: '#262626',
-    ink: '#f4f1ea', white: '#ffffff', muted: '#8d8a82', faint: '#6d6a63', fainter: '#55524c', stone: '#8a867d',
+    ink: '#f4f1ea', white: '#ffffff', muted: '#8d8a82', soft: '#a8a59d', faint: '#6d6a63', fainter: '#55524c', stone: '#8a867d',
+    card: '#141414', goldTick: '#2a2208',
     gold: '#c9a24b', goldDeep: '#8a6d17', goldDark: '#3a2f08', goldDarker: '#1e1904', goldInk: '#111111',
     green: '#1fbf5f', greenBright: '#4be38a', greenInk: '#03140a', greenNight: '#04150a', greenDot: '#2fe07a',
     red: '#c62f2f', redText: '#e0493f', redSoft: '#ff6b6b', redDot: '#ff4d4d',
@@ -137,6 +138,37 @@ var KEYART = (function () {
     if (cur) out.push(cur);
     return out.length ? out : [''];
   }
+  // Words on a tile of several keys: the picture of each key is cut out of one sheet and the bezel hides the gap between keys, so a word
+  // drawn across a gap loses letters ("NA|ME"). The text is split into short runs, one run per key, each centred in its own key (W1-5).
+  function splitRuns(text, n, maxc) {
+    var words = String(text == null ? '' : text).replace(/\s*·\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    for (var m = maxc || 9; ; m++) {
+      var out = [], cur = '';
+      for (var i = 0; i < words.length; i++) { var w = words[i]; if (cur && (cur + ' ' + w).length > m) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+      out.push(cur);
+      if (out.length <= n || m > 40) { out.length = Math.min(out.length, n); return out; }
+    }
+  }
+  // a paint hook for a tile w x h keys (pitch = one key with its gap): parts = { main: [one run per key], sub: [...] }, centred as a group
+  function span(parts, w, h, size, pitch) {
+    return function (g, px, py, pw, ph, bg, fg) {
+      var cell = pitch - 6, rowMain = h < 3 ? 0 : 1;
+      var row = function (arr, rw, weight, sz, alpha, dy) {
+        var off = Math.floor((w - arr.length) / 2);
+        g.globalAlpha = alpha; g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+        arr.forEach(function (t, i) {
+          var s = sz; do { g.font = weight + ' ' + s + 'px ' + FONT; s--; } while (g.measureText(t).width > cell - 12 && s > 10);
+          g.fillText(t, px + (off + i) * pitch + cell / 2, py + rw * pitch + cell / 2 + dy);
+        });
+        g.globalAlpha = 1;
+      };
+      var sub = parts.sub || [];
+      if (h === 1) { row(parts.main, 0, '600', Math.min(size || 24, 24), 1, sub.length ? -11 : 0); if (sub.length) row(sub, 0, '400', 14, .85, 15); }
+      else { row(parts.main, rowMain, '600', Math.min(size || 28, 28), 1, 0); if (sub.length) row(sub, rowMain + 1, '400', 18, .85, 0); }
+    };
+  }
+
   // r = { c, r, w, h, text, sub, style, wrap, single, size, strip, paint, key }; px..ph = its rectangle on the screen's canvas
   function drawRegion(x, r, px, py, pw, ph, pressed) {
     var col = STYLE[r.style] || STYLE[''], bg = col[0], fg = col[1];
@@ -145,6 +177,12 @@ var KEYART = (function () {
     if (r.style === 'label') { x.fillStyle = C.gold; x.fillRect(px, py + ph - 4, pw, 2); }
     if (r.strip) { x.fillStyle = r.strip; x.fillRect(px, py, 6, ph); }
     if (r.paint) { r.paint(x, px, py, pw, ph, bg, fg); return; }                   // the screen draws this one itself
+    if (r.w > 1) {
+      // several keys wide: one run of words per key, never across a gap (W3-4: every screen, not only RACES)
+      var mt = String(r.text == null ? '' : r.text).toUpperCase(), st = r.sub ? String(r.sub) : '';
+      span({ main: splitRuns(mt, r.w), sub: splitRuns(st, r.w, 6) }, r.w, r.h, r.size, (pw + 6) / r.w)(x, px, py, pw, ph, bg, fg);
+      return;
+    }
     x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
     var big = r.w * r.h > 1, cx = px + pw / 2, cy = py + ph / 2, main = String(r.text == null ? '' : r.text).toUpperCase(), sub = r.sub ? String(r.sub) : '';
     var lh, sh, y, i, lines, subLines;
@@ -186,5 +224,5 @@ var KEYART = (function () {
   var EXIT = { label: ['EXIT'], glyph: 'exit', role: 'red', inset: 3 };
 
   return { FONT: FONT, C: C, STYLE: STYLE, ROLE: ROLE, DOT: DOT, GLYPHS: GLYPHS, glyphNames: glyphNames, drawGlyph: drawGlyph, drawKey: drawKey, keyPng: keyPng,
-           drawRegion: drawRegion, textLines: textLines, openerSpec: openerSpec, exitAt: exitAt, EXIT: EXIT };
+           drawRegion: drawRegion, textLines: textLines, splitRuns: splitRuns, span: span, openerSpec: openerSpec, exitAt: exitAt, EXIT: EXIT };
 })();
