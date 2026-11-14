@@ -400,8 +400,11 @@ namespace IRDash
             if (words > 14) return "14 words at most";
             if (card)
             {
-                if (!Corner.IsMatch(t)) return "a corner on every card";
-                if (!Regex.IsMatch(Corner.Replace(t, ""), @"\d")) return "a number on every card";
+                // the corner: "T5" / "Turn 5", or a named corner as the card's label ("The Esses: ...")
+                Match named = Regex.Match(t, @"^([A-Z][A-Za-z' .-]{1,30}):\s");
+                if (!Corner.IsMatch(t) && !named.Success) return "a corner on every card";
+                string rest = Corner.Replace(named.Success ? t.Substring(named.Length) : t, "");
+                if (!Regex.IsMatch(rest, @"\d")) return "a number on every card";
             }
             return null;
         }
@@ -562,7 +565,7 @@ namespace IRDash
                 case "pickup": return "Back on the throttle earlier";
                 case "exit": return "Carry more speed onto the exit";
             }
-            return "Watch both laps side by side: the line may differ";
+            return "Watch both laps side by side";
         }
 
         static bool Detected(CornerSet cs, int n)
@@ -797,8 +800,10 @@ namespace IRDash
             if (habits && cards.Count > 0)
             {
                 RvCard c = cards[0];
-                plan = "Next time: " + Spoken(c.Row.M, Detected(cs, c.Row.M.N)) + ", " + Lower1(c.Try) + (c.Check.Length > 0 ? ", check the " + c.Check : "");
-                if (Review.Lint(plan) != null) plan = "Next time: " + Spoken(c.Row.M, Detected(cs, c.Row.M.N)) + ", " + Lower1(c.Try);
+                // one line, a corner and a number: the board when the brake is the cause, else what the corner is worth
+                string head = "Next time: " + Spoken(c.Row.M, Detected(cs, c.Row.M.N)) + ", " + Lower1(c.Try) + (Regex.IsMatch(c.Try, @"\d") ? "" : ", worth " + F(c.Lost, "0.00") + " s");
+                plan = head + (c.Check.Length > 0 ? ", check the " + c.Check : "");
+                if (Review.Lint(plan) != null) plan = head;
             }
             sb.Append(Json_.S(plan));
 

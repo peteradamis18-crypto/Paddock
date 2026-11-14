@@ -600,10 +600,10 @@ namespace IRDash
 
         static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa) { return MeasureOne(lap, t, prevPa, -1); }
 
-        // prevP1: where the previous corner ends (lap fraction; < 0 = unknown). W4-1 / W4-6's raw read of 12 Nov lap 9: T7's "brake point"
-        // was the previous corner's press 266 m before T7's apex, so a card could name the wrong corner. The search for a corner's braking
-        // point now starts at the previous corner's exit when that lies inside the 250 m before the apex; a press still on there belongs to
-        // the previous corner and is not this corner's braking point.
+        // prevP1 >= 0: keep to this corner's own braking. W4-1 / W4-6's raw read of 12 Nov lap 9: T7's "brake point" was T6's press 266 m
+        // before T7's apex (its own press is at 2044 m), so a card could name the wrong corner. The search now starts at the previous corner's
+        // apex when that lies inside the 250 m before this apex, and a press still on there is the previous corner's. (Lovely's T6 ends at
+        // 2049 m, after T7's own press begins: the previous corner's exit is too late a cut; its apex holds. Now T7 = 2044 m, T6 = 1861 m.)
         static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa, double prevP1)
         {
             double L = lap.LengthM;
@@ -637,7 +637,7 @@ namespace IRDash
             int minStep = 0;
             if (prevP1 >= 0)
             {
-                double back = DeltaM(da, DistNorm(prevP1 * L, L), L);       // metres from the previous corner's exit to this apex
+                double back = DeltaM(da, DistNorm(prevPa * L, L), L);       // metres from the previous corner's apex to this apex
                 if (back > 0 && back < 250) minStep = 250 - (int)Math.Floor(back);
             }
             bool found = false; double brakeAt = 0, bestArea = 0, area = 0, curStart = 0; bool inApp = false;
