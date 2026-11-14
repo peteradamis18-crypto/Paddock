@@ -85,7 +85,7 @@ function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false
     $passes = foreach ($k in 1..8) { '{"t":' + (100 + $k * 60) + ',"lap":' + [math]::Min(6, $k) + ',"by":' + $(if ($k % 2) { 7 } else { 6 + $k }) + ',"over":' + $(if ($k % 2) { 8 + $k } else { 7 }) + ',"pct":0.5,"where":"after T' + $k + '"}' }
     $corners = 1..$nc | ForEach-Object { '{"n":' + $_ + ',"lab":"T' + $_ + '","p0":' + (($_ - 1) / $nc).ToString('0.000', $inv) + ',"p1":' + ($_ / $nc).ToString('0.000', $inv) + '}' }
     $sum = '{"race":true,"focus":"c1","maxLap":6,"prec":{"hz":10,"cornerS":0.05,"lapS":0.02,"gapS":0.02,"pitS":0.1},"ahead":6,"behind":8,"leader":0,"classes":[{"id":"c1","name":"GR86","col":"#d8d4ca","cars":' + $N + '}],"tower":[' + ($tower -join ',') + '],"posMismatch":0,"trace":[' + ($trace -join ',') + '],"cm":[' + ($cm -join ',') + '],"passes":[' + ($passes -join ',') + '],"pits":[]}'
-    W 'analysis_race.json' ('{"ok":true,"complete":true,"me":7,"cars":[' + ($cars -join ',') + '],"corners":[' + ($corners -join ',') + '],"summary":' + $sum + '}')
+    W 'analysis_race.json' ('{"ok":true,"complete":true,"t0":0,"greenT":0,"me":7,"cars":[' + ($cars -join ',') + '],"corners":[' + ($corners -join ',') + '],"summary":' + $sum + '}')
   }
   W 'vault.json' ('{"enabled":true,"cosworth":{"installed":' + $Pi.ToString().ToLower() + ',"exe":"C:\\Pi\\toolbox.exe"}}')
   W 'vault_tools.json' ('{"pi":{"installed":' + $Pi.ToString().ToLower() + '},"delta":{"installed":' + $Delta.ToString().ToLower() + '}}')

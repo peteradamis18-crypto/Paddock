@@ -180,8 +180,9 @@ Chart.prototype.drawStatic = function () {
   var g = this.cs, s = RS.sm, G = this.geom(), self = this, ro = roles(), n = s.maxLap, p = this.pad; this.clear(g); this.tbS = [];
   g.lineWidth = 1; g.strokeStyle = C.line; g.fillStyle = C.mute;
   // grid and the numbers on the left
-  if (this.k === 'trace') for (var v = 0; v <= G.ymax + 1e-9; v += G.step) { var y = Math.round(G.Y(v)) + 0.5; g.beginPath(); g.moveTo(G.l, y); g.lineTo(G.l + G.W, y); g.stroke(); this.text(g, this.tbS, String(v), G.l - 8, y + 5, 14, C.mute, 'right'); }
-  else for (var q = 1; q <= G.cars; q++) if (G.cars <= 8 || q === 1 || q % 5 === 0 || (q === G.cars && G.cars % 5 > 2)) { var y2 = Math.round(G.Y(q)) + 0.5; g.beginPath(); g.moveTo(G.l, y2); g.lineTo(G.l + G.W, y2); g.stroke(); this.text(g, this.tbS, 'P' + q, G.l - 8, y2 + 5, 14, C.mute, 'right'); }
+  if (this.k === 'trace') for (var v = 0, lastT = -1e9; v <= G.ymax + 1e-9; v += G.step) { var y = Math.round(G.Y(v)) + 0.5; g.beginPath(); g.moveTo(G.l, y); g.lineTo(G.l + G.W, y); g.stroke(); if (y - lastT >= 22) { lastT = y; this.text(g, this.tbS, String(v), G.l - 8, y + 5, 14, C.mute, 'right'); } }
+  else for (var q = 1, lastY = -1e9; q <= G.cars; q++) if (G.cars <= 8 || q === 1 || q % 5 === 0 || (q === G.cars && G.cars % 5 > 2)) { var y2 = Math.round(G.Y(q)) + 0.5; if (y2 - lastY < 22) continue; lastY = y2; g.beginPath();   // 22 px apart at least: a full field in a short chart put P20 on P24 (20 px text)
+    g.moveTo(G.l, y2); g.lineTo(G.l + G.W, y2); g.stroke(); this.text(g, this.tbS, 'P' + q, G.l - 8, y2 + 5, 14, C.mute, 'right'); }
   var stride = Math.max(1, Math.ceil(n / 14));
   for (var lap = 1; lap <= n; lap++) { var x = Math.round(G.X(lap)) + 0.5; g.strokeStyle = '#17171a'; g.beginPath(); g.moveTo(x, G.t); g.lineTo(x, G.t + G.H); g.stroke(); if ((lap - 1) % stride === 0 || lap === n) this.text(g, this.tbS, String(lap), x, G.t + G.H + 20, 14, C.mute, 'center'); }
   // the lines: everyone in thin grey, then the cars he looks at, Peter last
