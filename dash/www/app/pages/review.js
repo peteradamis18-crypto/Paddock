@@ -103,7 +103,7 @@ const R = {
     el.innerHTML = '<div class="rv"></div>';
     const d = ctx.data;
     R.offs.push(d.onList('review', () => { if (!R.j || R.j.state !== 'ready') R.load(); }));
-    R.offs.push(d.on('online', on => { if (on && (R.stale || !R.j)) R.load(); else if (!on) R.draw(); }));
+    R.offs.push(d.on('online', on => { if (on && (R.stale || !R.j)) R.load(); else if (!on) { R.stale = true; R.draw(); } }));     // off: what is on screen greys, nothing more is asked
     if (d.online === false) { R.stale = true; R.draw(); }     // nothing to ask: the answer comes when Paddock is back
     else R.load();
   },
@@ -119,11 +119,10 @@ const R = {
     document.body.classList.remove('page-bar');
   },
 
-  // the deck's REVIEW arrows reach screen 2 (W4-4) and 3 (W4-5) through the "workbench" part of the state push
+  // screens 2 and 3 get the state pushes (they read the deck's REVIEW arrows from the "workbench" part themselves: one path only)
   onState(st, ch) {
     const s = R.sub; if (!s || !st) return;
     if (s.onState) { try { s.onState(st, ch); } catch (e) { console.error(e); } }
-    if (ch && ch.workbench && st.workbench && s.onDeck) { try { s.onDeck(st.workbench); } catch (e) { console.error(e); } }
   },
 
   async load() {
@@ -191,7 +190,7 @@ const R = {
   },
   cardsHtml(cards, note) {
     return (note ? '<p class="note">' + esc(note) + '</p>' : '') +
-      (cards.length ? '<div class="cards">' + cards.map(c => R.card(c)).join('') + '</div>' : '<p class="note">No corner lost time against that lap.</p>');
+      (cards.length ? '<div class="cards">' + cards.map(c => R.card(c)).join('') + '</div>' : note ? '' : '<p class="note">No corner lost time against that lap.</p>');
   },
   noLap(j) {
     return '<div class="nolap"><p class="big">' + esc(j.note || 'No full lap yet') + '</p>' +
@@ -228,7 +227,7 @@ const R = {
 
   showMe(n) {
     const s = R.j && R.j.session; if (!s || R.stale) return;
-    R.ctx.go('review', { screen: 'laps', corner: n, id: s.id, at: s.id });      // at: the shell mounts REVIEW again with these opts
+    R.ctx.go('review', { screen: 'laps', corner: n, id: s.id, at: s.id });      // at: the session, so screen 2 opens this drive
   },
 
   // ---- the map (W4-2's lib/map.js): coloured by where time went, the corners of the cards marked 1, 2, 3 ----
@@ -263,8 +262,8 @@ const R = {
     if (gen !== R.gen || !band || !P || !P.mount) return;
     try {
       band.hidden = false; R.$('.rv').classList.add('has-prog');      // the cards close up so all three still fit above the plan
-      const s = j.session, ids = { car: s.carId != null ? s.carId : s.car, track: s.trackId != null ? s.trackId : j.map && j.map.id != null ? j.map.id : s.track };
-      // W4-6 asks /api/review/progress by car and track id (the map's id is the track's); the names are for its words
+      const s = j.session, ids = { car: s.carId != null ? s.carId : s.car, track: s.track };
+      // the engine matches the corner trend and the iRating line by the track's NAME (review.cs Progress)
       P.mount(band, R.ctx, { id: s.id, car: ids.car, track: ids.track, carName: s.car, trackName: s.track, config: s.config, corners: cards.map(c => c.corner.n) });
       R.prog = P;
     } catch (e) { console.error(e); band.hidden = true; R.$('.rv').classList.remove('has-prog'); }
@@ -283,11 +282,12 @@ const R = {
     catch (e) { console.error(e); host.innerHTML = R.line('This screen could not open. Press REVIEW.'); }
   },
 
-  // ---- WATCH: his own video of that corner (/api/rec/session-video, as the coach page plays it), 10 s from the corner ----
+  // ---- WATCH: his own video of that corner, 10 s from the corner. clip.id is the recorder's one-lap clip (served by /vault/video),
+  //      clip.at counts from the start of that clip; a clip that will not play says so in one line ----
   watch(b) {
     if (!b || b.disabled || !b.dataset.clip || !R.el) return;
     R.closeWatch();
-    const at = +b.dataset.at || 0, src = '/api/rec/session-video?id=' + encodeURIComponent(b.dataset.clip) + '#t=' + at.toFixed(2);
+    const at = +b.dataset.at || 0, src = '/vault/video?id=' + encodeURIComponent(b.dataset.clip) + '#t=' + at.toFixed(2);
     const w = document.createElement('div'); w.className = 'rv-watch';
     w.innerHTML = '<div class="w-cap">' + esc(b.dataset.what || '') + '</div><video muted playsinline preload="auto"></video>' +
       '<div class="w-acts"><button type="button" class="btn replay">Replay</button><button type="button" class="btn close">Close</button></div>';
@@ -297,6 +297,7 @@ const R = {
     // the clip ends by itself after CLIP_SECONDS (the video's own clock, no timer)
     v.addEventListener('timeupdate', () => { if (v.currentTime >= at + CLIP_SECONDS) v.pause(); });
     v.addEventListener('loadedmetadata', play, { once: true });
+    v.addEventListener('error', () => { const n = document.createElement('p'); n.className = 'w-none'; n.textContent = 'No video of this corner'; v.replaceWith(n); w.querySelector('.replay').disabled = true; }, { once: true });
     w.querySelector('.replay').addEventListener('click', play);
     w.querySelector('.close').addEventListener('click', () => R.closeWatch());
     v.src = src;

@@ -122,7 +122,7 @@ window.__run = async () => {
   ok('1. the map is the left half, the cards the right half', box('.rv-map').r <= 960 + 1 && box('.rv-right').l >= 960 - 1, JSON.stringify([box('.rv-map'), box('.rv-right')]));
   ok('1. SHOW ME and WATCH are 64 px buttons; WATCH (card 1 has a clip) is pressable, outlined', q('.show').offsetHeight >= 64 && q('.watch').offsetHeight >= 64 && !q('.watch').disabled && getComputedStyle(q('.watch')).backgroundColor !== GOLD);
   ok('1. two requests at mount: the review and the map\'s outline (' + window.__req.join(' ') + ')', window.__req.length === 2 && window.__req[0] === '/api/review?id=last' && /^\/trackmap\?key=roadatlanta-full&id=127$/.test(window.__req[1]), window.__req.join(' '));
-  ok('1. progress (W4-6) mounted in its band under the plan, told the car and track (names; the map\'s track id) and the three corners', (() => { const m = sub().find(x => x[0] === 'review-progress.js' && x[1] === 'mount'); if (!m) return false; const o = JSON.parse(m[2]); return o.carName === 'Toyota GR86' && o.trackName === 'Road Atlanta' && o.track === 127 && o.corners.join() === '5,1,12' && box('.rv-progress').t >= box('.rv-bottom').b - 1; })(), JSON.stringify(sub()));
+  ok('1. progress (W4-6) mounted in its band under the plan, told the car and the track by name (the engine matches the trend by name) and the three corners', (() => { const m = sub().find(x => x[0] === 'review-progress.js' && x[1] === 'mount'); if (!m) return false; const o = JSON.parse(m[2]); return o.carName === 'Toyota GR86' && o.trackName === 'Road Atlanta' && o.track === 'Road Atlanta' && o.corners.join() === '5,1,12' && box('.rv-progress').t >= box('.rv-bottom').b - 1; })(), JSON.stringify(sub()));
   // with a progress band of 160 px the three cards still fit
   await use('card-practice-8', {}, () => { window.__progH = 160; });
   ok('1. with a 160 px progress band the three cards still fit their half and nothing spills', spill().length === 0 && qa('.card').every(c => c.getBoundingClientRect().bottom <= box('.rv-right').b + 1) && box('.rv-progress').b <= 1080 + 1, JSON.stringify([box('.rv-right'), box('.rv-progress'), spill()]));
@@ -150,8 +150,10 @@ window.__run = async () => {
   ok('2. race story: one corner card, marked "clean-air lap", no rank number', qa('.card').length === 1 && txt('.card .c-tag') === 'clean-air lap' && !vis(q('.card .mk')) && txt('.card .c-what') === j.race.cleanAir.happened, txt('.card'));
   window.__req.length = 0;
   crs[1].querySelector('.cr-watch').click(); await sleep(100);
-  const v = q('.rv-watch video'), want = '/api/rec/session-video?id=' + encodeURIComponent(j.race.corners[1].clip.id) + '#t=' + j.race.corners[1].clip.at.toFixed(2);
-  ok('2. WATCH on Turn 5 opens the clip: the clip route at its moment (' + want + ')', !!v && decodeURIComponent(v.getAttribute('src') || v.src).endsWith(decodeURIComponent(want)) && txt('.rv-watch .w-cap') === 'Turn 5 · 0.41 s', v && (v.getAttribute('src') || v.src));
+  const vsrc = () => (M.Review.vid || {}).src || '', want = '/vault/video?id=' + encodeURIComponent(j.race.corners[1].clip.id) + '#t=' + j.race.corners[1].clip.at.toFixed(2);
+  ok('2. WATCH on Turn 5 opens the one-lap clip (/vault/video) at its second in that clip (' + want + ')', !!q('.rv-watch') && vsrc() === want && txt('.rv-watch .w-cap') === 'Turn 5 · 0.41 s', vsrc());
+  await until(() => q('.rv-watch .w-none'), 2000);
+  ok('2. a clip that will not play (none here: file://) says "No video of this corner" in one line, REPLAY greyed', txt('.rv-watch .w-none') === 'No video of this corner' && !q('.rv-watch video') && q('.rv-watch .replay').disabled, txt('.rv-watch'));
   const wg = golds().filter(e => e.closest('.rv-watch')), wb = box('.rv-watch');
   ok('2. the clip covers the page (SHOW ME under it), REPLAY and CLOSE, nothing gold on it', vis(q('.rv-watch .replay')) && vis(q('.rv-watch .close')) && wg.length === 0 && wb.t <= 88 + 1 && wb.b >= 1080 - 1 && wb.l <= 1 && wb.r >= 1919 &&
     document.elementFromPoint((box('.show').l + box('.show').r) / 2, (box('.show').t + box('.show').b) / 2).closest('.rv-watch') !== null, JSON.stringify(wb));
@@ -163,7 +165,7 @@ window.__run = async () => {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   ok('3. the next Esc goes HOME (the shell)', window.__go.length === goN + 1 && window.__go[goN][0] === 'home', JSON.stringify(window.__go));
   q('.watch').click(); await sleep(50);
-  ok('2. race: the bottom WATCH plays the clean-air card\'s clip', !!q('.rv-watch video') && /rec-20261113-202708#t=1131\.50$/.test(decodeURIComponent(q('.rv-watch video').getAttribute('src'))), q('.rv-watch video') && q('.rv-watch video').getAttribute('src'));
+  ok('2. race: the bottom WATCH plays the clean-air card\'s clip', !!q('.rv-watch') && vsrc() === '/vault/video?id=clip-20261113-202708-lap12#t=5.50', vsrc());
   q('.rv-watch .close').click(); await sleep(20);
   ok('2. CLOSE puts the clip away', !q('.rv-watch'));
   q('.show').click();
@@ -213,6 +215,12 @@ window.__run = async () => {
   window.__fail = false; window.__req.length = 0; window.__emit('list:review'); await sleep(300);
   ok('1. ... and the review list changing asks again', qa('.card').length === 3 && window.__req[0] === '/api/review?id=last', window.__req.join(' '));
 
+  await use('card-practice-8'); window.__req.length = 0; window.__subLog.length = 0;
+  window.__offline(true); await sleep(200);
+  ok('1. online at mount, then Paddock goes: the card on screen greys, nothing pressable, nothing asked', q('.rv').classList.contains('stale') && qa('.card').length === 3 && qa('.rv button').every(b => b.disabled) && window.__req.filter(u => u.indexOf('/api/') === 0).length === 0 && !sub().some(x => x[0] === 'review-progress.js' && x[1] === 'mount'), q('.rv').className + ' ' + window.__req.join(' '));
+  window.__offline(false); await sleep(300);
+  ok('1. ... and back: asked again, no longer grey', !q('.rv').classList.contains('stale') && window.__req.indexOf('/api/review?id=last') >= 0, window.__req.join(' '));
+
   // ---------------- 3. the presses ----------------
   await use('card-practice-8'); j = FX['card-practice-8'];
   q('.show').click();
@@ -220,12 +228,12 @@ window.__run = async () => {
   qa('.card')[1].click();
   ok('3. a press on card 2: screen 2 at its corner (Turn 1)', window.__go.slice(-1)[0][1].screen === 'laps' && window.__go.slice(-1)[0][1].corner === 1, JSON.stringify(window.__go.slice(-1)[0]));
   q('.watch').click(); await sleep(50);
-  ok('3. WATCH: card 1\'s clip', !!q('.rv-watch video') && /rec-20261112-092807#t=412\.40$/.test(decodeURIComponent(q('.rv-watch video').getAttribute('src'))));
+  ok('3. WATCH: card 1\'s clip', !!q('.rv-watch') && (M.Review.vid || {}).src === '/vault/video?id=clip-20261112-092807-lap6#t=31.40', (M.Review.vid || {}).src);
   window.__unmount();
   ok('3. unmount stops the clip and takes it away', !document.querySelector('.rv-watch'));
   await use('card-practice-8', {}, () => { window.__fx['card-practice-8'] = JSON.parse(JSON.stringify(FX['card-practice-8'])); window.__fx['card-practice-8'].cards[0].clip = null; });
   ok('3. WATCH without a clip: greyed, "no clip", and a press does nothing', q('.watch').disabled && /no clip/.test(txt('.watch')) && (q('.watch').click(), !q('.rv-watch')), txt('.watch'));
-  window.__fx['card-practice-8'].cards[0].clip = { id: 'rec-20261112-092807', at: 412.4 };
+  window.__fx['card-practice-8'].cards[0].clip = { id: 'clip-20261112-092807-lap6', at: 31.4 };
   ok('3. no timer started by the page in any of this', window.__timers.length === 0, window.__timers.join());
 
   // which drive
@@ -241,7 +249,7 @@ window.__run = async () => {
   const lm = sub().find(x => x[0] === 'review-laps.js' && x[1] === 'mount');
   ok('3. opts.screen laps: review-laps.js (W4-4) mounted with the same opts, nothing asked by this page', !!lm && JSON.parse(lm[2]).corner === 5 && JSON.parse(lm[2]).id === 'x.ibt' && window.__req.length === 0 && !q('.rv'), JSON.stringify(sub()) + ' ' + window.__req.join(' '));
   window.__emit('state', { workbench: { cmd: 'wb-next', seq: 3 } }, { workbench: true }); await sleep(20);
-  ok('3. the deck\'s REVIEW arrows (the workbench state part) reach screen 2\'s onDeck', sub().some(x => x[0] === 'review-laps.js' && x[1] === 'deck' && /wb-next/.test(x[2])), JSON.stringify(sub()));
+  ok('3. the deck\'s REVIEW arrows are screen 2\'s own business (it reads the workbench part itself): the card never calls its onDeck', !sub().some(x => x[1] === 'deck'), JSON.stringify(sub()));
   window.__unmount();
   ok('3. unmount unmounts screen 2', sub().some(x => x[0] === 'review-laps.js' && x[1] === 'unmount'));
   await use('card-practice-8', { screen: 'more' }); await until(() => q('.rv-sub') && q('.rv-sub').children.length);
@@ -293,7 +301,7 @@ Src 'no timers in review.js (setInterval, setTimeout), no EventSource, no own fe
 Src 'no banner calls (the shell owns the offline banner)' ($code -notmatch 'banner\(')
 Src 'no colour literal in review.js or review.css' (($js + $cs) -notmatch '(?i)#[0-9a-f]{3,8}\b(?![\w-])\s*[;,)]|\brgba?\(|\bhsla?\(')
 Src 'the screens by name: review-laps.js, review-more.js, review-progress.js; the map from lib/map.js' ($js.Contains("'./review-laps.js'") -and $js.Contains("'./review-more.js'") -and $js.Contains("'./review-progress.js'") -and $js.Contains("'../lib/map.js'"))
-Src 'WATCH uses the recorder''s clip route (/api/rec/session-video)' ($js.Contains('/api/rec/session-video?id='))
+Src 'WATCH uses the recorder''s one-lap clip route (/vault/video), not the whole-session one' ($js.Contains("'/vault/video?id='") -and -not $js.Contains('/api/rec/session-video?id='))
 
 # ---------------- 5. with the real W4-4 and W4-6 modules (when they are in the tree): the hand-over and the progress band's fit ----------------
 Section '5. the real screen 2 and progress band'

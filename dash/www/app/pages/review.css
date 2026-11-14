@@ -91,6 +91,7 @@
 .rv-watch { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; background: var(--bg); }
 .rv-watch video { width: 1440px; height: 810px; max-height: calc(100% - 200px); background: var(--panel); }
 .rv-watch .w-cap { font-size: var(--t-read); }
+.rv-watch .w-none { margin: 0; font-size: var(--t-read); color: var(--muted); }
 .rv-watch .w-acts { display: flex; gap: 16px; }
 
 /* screens 2 and 3 (W4-4, W4-5) mount in here */

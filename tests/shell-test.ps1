@@ -171,6 +171,14 @@ try {
   ok "the next Esc goes HOME ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home'" 3)
   $null = Cdp-Eval '(() => { Shell.go("races", { from: "press" }); Shell.go("review", { from: "press" }); Shell.go("rig", { from: "press" }); return 1; })()'
   ok 'three doors pressed in a row: only the last is mounted, one page' (Wait-Until "Shell.cur === 'rig' && $one && !document.querySelector('#page .rc')" 5)
+  # the same page with other options mounts again (REVIEW's SHOW ME -> screen 2; the REVIEW door back to the card); the same options do not
+  $null = Cdp-Eval '(() => { window.__mounts = 0; if (!Shell.__countMount) { const m = Shell.mount; Shell.mount = function () { window.__mounts++; return m.apply(this, arguments); }; Shell.__countMount = 1; } Shell.go("review", { from: "press", screen: "laps", corner: 5 }); return 1; })()'
+  $null = Wait-Until "Shell.cur === 'review' && !document.querySelector('#page .rv')" 5
+  $null = Cdp-Eval '(() => { Shell.go("review", { from: "press" }); return 1; })()'
+  ok "REVIEW on screen 2, then go('review') with no options: the card is mounted again" (Wait-Until "Shell.cur === 'review' && !!document.querySelector('#page .rv') && window.__mounts === 2" 5) "(mounts: $(Cdp-Eval 'window.__mounts'))"
+  $null = Cdp-Eval '(() => { window.__mounts = 0; Shell.go("home", { from: "press" }); Shell.go("home", { from: "press", why: "again" }); return 1; })()'
+  Start-Sleep -Milliseconds 300
+  ok "go('home') twice: one mount ($(Cdp-Eval 'window.__mounts'))" ((Cdp-Eval "Shell.cur === 'home' && window.__mounts === 1") -eq $true)
   Door 'home'
   ok "no page error so far ($(Cdp-Eval '__errs.join(" | ")'))" ((Cdp-Eval '__errs.length') -eq 0)
 

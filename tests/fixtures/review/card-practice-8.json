@@ -5,10 +5,10 @@
  "cards":[
   {"rank":1,"corner":{"n":5,"label":"T5","name":"","detected":false,"p0":0.31,"pa":0.33,"p1":0.35},"lost":0.31,
    "happened":"You braked 14 m earlier than your best lap","tryThis":"Brake at the 100 m board","sample":"in 6 of 8 clean laps",
-   "phase":"brake","clip":{"id":"rec-20261112-092807","at":412.4}},
+   "phase":"brake","clip":{"id":"clip-20261112-092807-lap6","at":31.4}},
   {"rank":2,"corner":{"n":1,"label":"T1","name":"","detected":false,"p0":0.03,"pa":0.05,"p1":0.07},"lost":0.22,
    "happened":"Your slowest point was 4 mph under your best lap","tryThis":"Ease off the brake earlier into the turn","sample":"in 5 of 8 clean laps",
-   "phase":"min","clip":{"id":"rec-20261112-092807","at":503.1}},
+   "phase":"min","clip":{"id":"clip-20261112-092807-lap4","at":6.1}},
   {"rank":3,"corner":{"n":12,"label":"T12","name":"","detected":true,"p0":0.91,"pa":0.93,"p1":0.96},"lost":0.14,
    "happened":"Full throttle came 9 m later than your best lap","tryThis":"Full throttle once the car points straight","sample":"in 4 of 8 clean laps",
    "phase":"pickup","clip":null}],
