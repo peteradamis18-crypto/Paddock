@@ -804,7 +804,7 @@ namespace IRDash
             StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
             StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
-            StateBuilder.Add("race", 250, 250, StateBuilder.RacePart);      // W2-1: the race screen (null out of a session)
+            StateBuilder.Add("race", 2000, 250, StateBuilder.RacePart);     // W2-1: the race screen (null unless he drives; every 2 s then)
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
@@ -868,9 +868,9 @@ namespace IRDash
                 long wait = interval - (sw.ElapsedMilliseconds - lastSend);
                 if (wait > 0) { Thread.Sleep((int)wait); f = Sdk.Latest; }
                 // W2-1: keep the beat (Sleep wakes up to 15 ms late, which made 15 Hz into 13): the next wait is shorter by the lateness.
-                // After a pause (no frames) the beat starts again from now.
+                // After a pause (no frames) the beat starts again from now, with one frame of catch-up, never a burst.
                 long sent = sw.ElapsedMilliseconds;
-                lastSend = sent - lastSend < 2 * interval ? lastSend + interval : sent; lastWrite = sent;
+                lastSend = Math.Max(lastSend + interval, sent - interval); lastWrite = sent;      // at most one frame of catch-up
                 lastSeq = f.Seq;
                 if (!f.Connected)
                 {

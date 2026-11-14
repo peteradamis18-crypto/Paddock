@@ -27,39 +27,52 @@ namespace IRDash
         public static bool Fresh { get { lock (gate) return DateTime.UtcNow - lastFrameAt <= TimeSpan.FromSeconds(2); } }
         public static bool FreshDeck { get { lock (gate) return DateTime.UtcNow - lastFrameAt <= TimeSpan.FromSeconds(1); } }
 
-        static void Publish(Frame f)
+        static void Publish(Frame f) { Publish(f, false); }
+        // fake: a frame of the pretend session's pump. Once FakeEnd has run it is dropped (a pump frame that was on its way must not
+        // bring the pretend session, and its parsed Session, back after the end). false = dropped.
+        static bool Publish(Frame f, bool fake)
         {
-            ParseSession(f);        // before the frame is out: whoever sees this SessionVersion finds its parsed session ready
-            lock (gate) { f.Seq = ++seq; latest = f; lastFrameAt = DateTime.UtcNow; Monitor.PulseAll(gate); }
+            lock (gate) { if (fake && !fakeUp) return false; f.Seq = ++seq; latest = f; lastFrameAt = DateTime.UtcNow; Monitor.PulseAll(gate); }
             RigState.Feed(f.Connected, f.Connected && f.Num("IsOnTrack") != 0, fakeUp);     // the one "is he busy" answer (rigstate.cs)
+            // W2-1: after the frame is out, so a new YAML never holds a frame back; Sdk.Session follows one frame late at a version change
+            ParseSession(f);
             FeedFuel(f);
+            return true;
         }
 
-        // ---- W2-1: the session YAML, parsed once per SessionVersion on this (the reader's) thread ----
-        static volatile SdkSession session;
+        // ---- W2-1: the session YAML, parsed once per SessionVersion on the publishing (reader's) thread ----
+        static readonly object sessGate = new object();
+        static SdkSession session;
         static int parsedVer = int.MinValue; static string parsedYaml;
         static int parses;
-        public static SdkSession Session { get { return session; } }
-        public static int SessionParses { get { return parses; } }       // the tests count them
+        public static SdkSession Session { get { lock (sessGate) return session; } }
+        public static int SessionParses { get { lock (sessGate) return parses; } }       // the tests count them
+        // internal for the tests: the FakeEnd race (a pump frame after the end)
+        internal static bool PublishPumpFrame(Frame f) { return Publish(f, true); }
         static void ParseSession(Frame f)
         {
-            if (!f.Connected) { session = null; parsedVer = int.MinValue; parsedYaml = null; return; }
-            // the version and the very same string: a pretend session and a real one can both be at version 2
-            if (f.SessionVersion == parsedVer && ReferenceEquals(f.SessionYaml, parsedYaml)) return;
-            parsedVer = f.SessionVersion; parsedYaml = f.SessionYaml;
-            Interlocked.Increment(ref parses);
-            SdkSession s = null;
-            try { s = SdkSession.Parse(f.SessionYaml, f.SessionVersion); }
-            catch (Exception ex) { RigState.LogOnce("sdk session", "sdk: session yaml: " + ex.Message); }
-            session = s;
+            lock (sessGate)
+            {
+                if (f.Seq < Latest.Seq) return;          // a newer frame is already out: its own call parses (or clears)
+                if (!f.Connected) { session = null; parsedVer = int.MinValue; parsedYaml = null; return; }
+                // the version and the very same string: a pretend session and a real one can both be at version 2
+                if (f.SessionVersion == parsedVer && ReferenceEquals(f.SessionYaml, parsedYaml)) return;
+                parsedVer = f.SessionVersion; parsedYaml = f.SessionYaml;
+                parses++;
+                SdkSession s = null;
+                try { s = SdkSession.Parse(f.SessionYaml, f.SessionVersion); }
+                catch (Exception ex) { RigState.LogOnce("sdk session", "sdk: session yaml: " + ex.Message); }
+                session = s;
+            }
         }
 
-        // ---- W2-1: the race screen's one channel set (PLAN 4.2, zones A-E): /stream?set=race sends exactly these, at 15 Hz ----
+        // ---- W2-1: the race screen's one channel set (PLAN 4.2, zones A-E, + 4 from the race page review = 28): /stream?set=race sends exactly these, at 15 Hz ----
         public static readonly string[] RaceSet = {
             "CarIdxPosition", "CarIdxClassPosition", "CarIdxF2Time", "CarIdxLapDistPct", "CarIdxEstTime", "CarIdxOnPitRoad", "CarIdxClass",
             "CarIdxLap", "Lap", "LapCompleted", "SessionLapsRemainEx", "SessionTimeRemain", "SessionTime", "PlayerCarMyIncidentCount",
             "SessionFlags", "FuelLevel", "FuelUsePerHour", "LapLastLapTime", "LapBestLapTime", "LapDeltaToBestLap", "LapDeltaToBestLap_OK",
-            "OnPitRoad", "PlayerCarIdx", "IsOnTrack" };
+            "OnPitRoad", "PlayerCarIdx", "IsOnTrack",
+            "IsReplayPlaying", "SessionNum", "DisplayUnits", "EngineWarnings" };      // the race page review: replay gate, session, units, pit limiter
         // the names a stream asked for: ?set=race wins over ?vars= (exactly the 24, nothing else); null = unknown set
         public static string[] SetNames(string set) { return set == "race" ? RaceSet : null; }
 
@@ -91,7 +104,7 @@ namespace IRDash
                 SdkSession ss = session;
                 FuelSample s = new FuelSample();
                 s.Time = f.Num("SessionTime"); s.SessionNum = (int)f.Num("SessionNum"); s.Lap = (int)f.Num("Lap");
-                s.Level = f.Num("FuelLevel"); s.Flags = unchecked((uint)(long)f.Num("SessionFlags"));
+                s.Pct = f.Num("LapDistPct"); s.Level = f.Num("FuelLevel"); s.Flags = unchecked((uint)(long)f.Num("SessionFlags"));
                 s.OnPitRoad = f.Num("OnPitRoad") != 0; s.OnTrack = f.Num("IsOnTrack") != 0;
                 s.Surface = Has(f, "PlayerTrackSurface") ? (int)f.Num("PlayerTrackSurface") : 3;
                 s.Incidents = (int)f.Num("PlayerCarMyIncidentCount");
@@ -205,7 +218,7 @@ namespace IRDash
                             f.Vars[kv.Key] = d; i++;
                         }
                     }
-                    Publish(f);
+                    if (!Publish(f, true)) break;      // FakeEnd ran while this frame was being made
                     Timings.OnFrame(f);
                     Thread.Sleep(FakePumpMs);
                 }
@@ -219,7 +232,8 @@ namespace IRDash
         public static void FakeEnd()
         {
             if (!fakeUp) return;
-            fakeUp = false; fakeYaml = "";
+            lock (gate) fakeUp = false;          // under the publish lock: no pump frame gets out after this
+            fakeYaml = "";
             lock (fakeVals) fakeVals.Clear();
             Thread.Sleep(80);
             Publish(new Frame());

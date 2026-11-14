@@ -11,6 +11,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $tmp = Join-Path $env:TEMP "fuel-test-$PID"; New-Item -ItemType Directory -Force $tmp | Out-Null
 $race = 'C:\Users\peter\OneDrive\Documents\iRacing\telemetry\toyotagr86_roadatlanta full 2026-11-12 09-28-07.ibt'
+# a real lap-limited session (13 Nov Lone Qualify, 2 laps): what SessionLapsRemainEx counts. Both 13 Nov races were 15-minute timed races.
+$lapSession = 'C:\Users\peter\OneDrive\Documents\iRacing\telemetry\toyotagr86_roadatlanta full 2026-11-13 16-19-00.ibt'
 $pass = 0; $fail = 0
 function Check($what, $ok) { if ($ok) { $script:pass++; "  ok    $what" } else { $script:fail++; "  FAIL  $what" } }
 try {
@@ -21,7 +23,7 @@ try {
   if (Test-Path "$tmp\fuel-main.exe") {
     Assert-RigFree -Where 'fuel rules'
     $p = New-Object Diagnostics.ProcessStartInfo "$tmp\fuel-main.exe"
-    $p.Arguments = '"' + $race + '"'; $p.UseShellExecute = $false; $p.RedirectStandardOutput = $true; $p.CreateNoWindow = $true
+    $p.Arguments = '"' + $race + '" "' + $lapSession + '"'; $p.UseShellExecute = $false; $p.RedirectStandardOutput = $true; $p.CreateNoWindow = $true
     $pr = [Diagnostics.Process]::Start($p); try { $pr.PriorityClass = 'BelowNormal'; $pr.ProcessorAffinity = [IntPtr]3 } catch { }
     $lines = $pr.StandardOutput.ReadToEnd() -split "`r?`n"; $pr.WaitForExit()
     foreach ($l in $lines) {

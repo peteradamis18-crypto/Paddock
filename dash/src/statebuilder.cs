@@ -327,17 +327,31 @@ namespace IRDash
 
         // ---- the session: iRacing's YAML parsed once here, only the fields the pages read, under the same names ----
         // ---- W2-1: the race screen's part (PLAN 4.2; the card's JSON is the contract docs/rework/cards/W2-1.md item 4) ----
-        // Made on this thread's 4 Hz tick from the latest frame, the parsed session and the fuel tracker; "null" out of a session.
+        // Made on this thread's 4 Hz tick from the latest frame, the parsed session and the fuel tracker; "null" unless he drives (RigState.Driving:
+        // a fresh frame with IsOnTrack), so the garage, spectating and an in-sim replay give null (and the part is looked at every 2 s then).
         // Standings order is not here: the page sorts the stream's CarIdxClassPosition and takes the names from the session part.
-        // The card's JSON names "lap" twice (the lap number, then the lap times object): both are written in that order, so JSON.parse
-        // keeps the object; the number is also "lapNum".
+        // The lap number is "lapNum" and "lap" is the lap times object (the lead's call on the card's double "lap", 2026-11-14).
         static string R(double v, string fmt) { return double.IsNaN(v) || double.IsInfinity(v) ? "null" : v.ToString(fmt, CultureInfo.InvariantCulture); }
         static string Pos(double v) { return v >= 1 ? ((int)v).ToString(CultureInfo.InvariantCulture) : "null"; }
+        // the cars in the world (a position, or somewhere on the lap), not every DriverInfo row (a car that left stays in the YAML);
+        // per class for classOf. A frame without those channels counts every racing row.
+        public static int InWorld(SdkSession s, Frame f, int classId)
+        {
+            if (!Sdk.Has(f, "CarIdxPosition") && !Sdk.Has(f, "CarIdxLapDistPct")) return s.Field(classId);
+            int n = 0;
+            for (int i = 0; i < s.Drivers.Length && i < 64; i++)
+            {
+                SdkDriver d = s.Drivers[i];
+                if (d == null || d.IsPaceCar || d.IsSpectator || (classId >= 0 && d.ClassId != classId)) continue;
+                if (Sdk.NumAt(f, "CarIdxPosition", i) > 0 || Sdk.NumAt(f, "CarIdxLapDistPct", i) >= 0) n++;
+            }
+            return n;
+        }
         public static string RacePart()
         {
             Frame f = Sdk.Latest;
             SdkSession s = Sdk.Session;
-            if (f == null || !f.Connected || s == null) return "null";
+            if (f == null || !f.Connected || s == null || !Driving() || f.Num("IsReplayPlaying") != 0) return "null";      // a replay is not driving
             int me = Sdk.Has(f, "PlayerCarIdx") ? (int)f.Num("PlayerCarIdx") : s.PlayerIdx;
             SdkDriver d = s.Driver(me);
             int sessNum = (int)f.Num("SessionNum");
@@ -357,15 +371,17 @@ namespace IRDash
             sb.Append("{\"on\":true,\"type\":").Append(IRDash.Json.Str(type)).Append(",\"multiclass\":").Append(s.Multiclass ? "true" : "false");
             sb.Append(",\"me\":{\"idx\":").Append(me).Append(",\"num\":").Append(IRDash.Json.Str(d == null ? "" : d.Num)).Append(",\"name\":").Append(IRDash.Json.Str(d == null ? "" : d.ShortName))
               .Append(",\"classId\":").Append(d == null ? 0 : d.ClassId).Append(",\"classColor\":").Append(IRDash.Json.Str(d == null ? "" : d.ClassColor)).Append('}');
-            sb.Append(",\"pos\":").Append(Pos(Sdk.NumAt(f, "CarIdxPosition", me))).Append(",\"of\":").Append(s.Field(-1))
-              .Append(",\"classPos\":").Append(Pos(Sdk.NumAt(f, "CarIdxClassPosition", me))).Append(",\"classOf\":").Append(s.Field(d == null ? -1 : d.ClassId));
-            sb.Append(",\"lap\":").Append(lapNo).Append(",\"lapNum\":").Append(lapNo).Append(",\"laps\":").Append(lapRace ? laps.ToString(CultureInfo.InvariantCulture) : "null")
+            sb.Append(",\"pos\":").Append(Pos(Sdk.NumAt(f, "CarIdxPosition", me))).Append(",\"of\":").Append(InWorld(s, f, -1))
+              .Append(",\"classPos\":").Append(Pos(Sdk.NumAt(f, "CarIdxClassPosition", me))).Append(",\"classOf\":").Append(InWorld(s, f, d == null ? -1 : d.ClassId));
+            sb.Append(",\"lapNum\":").Append(lapNo).Append(",\"laps\":").Append(lapRace ? laps.ToString(CultureInfo.InvariantCulture) : "null")
               .Append(",\"toGo\":").Append(fv.ToGo.HasValue ? fv.ToGo.Value.ToString(CultureInfo.InvariantCulture) : "null")
               .Append(",\"timeLeft\":").Append(!lapRace && remain >= 0 && remain <= 86400 ? R(remain, "0.0") : "null")
               .Append(",\"clock\":").Append(R(f.Num("SessionTime"), "0.0"));
             sb.Append(",\"inc\":{\"n\":").Append((int)f.Num("PlayerCarMyIncidentCount")).Append(",\"limit\":").Append(s.IncidentLimit > 0 ? s.IncidentLimit.ToString(CultureInfo.InvariantCulture) : "null").Append('}');
             sb.Append(",\"flags\":{\"caution\":").Append(caution ? "true" : "false").Append(",\"green\":").Append(green ? "true" : "false").Append(",\"raw\":").Append(raw).Append('}');
-            sb.Append(",\"pit\":{\"onRoad\":").Append(f.Num("OnPitRoad") != 0 ? "true" : "false").Append(",\"loss\":").Append(loss).Append(",\"rejoin\":null}");
+            sb.Append(",\"pit\":{\"onRoad\":").Append(f.Num("OnPitRoad") != 0 ? "true" : "false").Append(",\"limiter\":").Append(((long)f.Num("EngineWarnings") & 0x10) != 0 ? "true" : "false")
+              .Append(",\"loss\":").Append(loss).Append(",\"rejoin\":null}");
+            sb.Append(",\"units\":").Append(!Sdk.Has(f, "DisplayUnits") || f.Num("DisplayUnits") != 0 ? "\"metric\"" : "\"imperial\"");      // iRacing: 1 = metric (a file without it: litres as they are); the page converts
             sb.Append(",\"fuel\":").Append(fv.Json());
             sb.Append(",\"lap\":{\"last\":").Append(last > 0 ? R(last, "0.000") : "null").Append(",\"best\":").Append(best > 0 ? R(best, "0.000") : "null")
               .Append(",\"lastIsBest\":").Append(last > 0 && best > 0 && Math.Abs(last - best) < 0.0005 ? "true" : "false")
@@ -379,9 +395,11 @@ namespace IRDash
         {
             if (!connected) { sessVer = int.MinValue; sessJson = "null"; return sessJson; }
             if (ver == sessVer) return sessJson;
-            sessVer = ver;
             SdkSession s = Sdk.Session;
-            sessJson = s != null && s.Ver == ver && ReferenceEquals(s.Yaml, yaml) ? s.Json : SessionJson(yaml, ver);
+            if (s != null && s.Ver >= ver) { sessVer = s.Ver; sessJson = s.Json; return sessJson; }      // the reader's parse (maybe a version ahead)
+            if (s != null) return sessJson;          // the reader parses this version right after the frame: take it on the next tick
+            sessVer = ver;                           // no reader parse (a test calling this alone): parse here
+            sessJson = SessionJson(yaml, ver);
             return sessJson;
         }
 

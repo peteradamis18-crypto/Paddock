@@ -38,9 +38,10 @@ try {
   ok 'the Sdk class left irdash.cs and lives in sdkreader.cs' ($ird -notmatch 'static class Sdk\b' -and $sdk -match 'static class Sdk\b')
   ok 'irdash.cs keeps the "iRacing SDK reader" marker right after IbtReplay (tools-test and blackbox-test cut IbtReplay up to it)' ($ird.IndexOf('    // ---------------- iRacing SDK reader') -gt $ird.IndexOf('    // ---------------- Telemetry replay'))
   ok 'ReadYaml runs only when iRacing''s SessionInfoUpdate moves' ($sdk -match 'if \(upd != lastUpd\) \{ yaml = ReadYaml\(va\); lastUpd = upd; sessVer\+\+; \}')
-  ok 'the session is parsed in Publish, before the frame is out' ($sdk -match '(?s)static void Publish\(Frame f\)\s*\{\s*ParseSession\(f\);')
+  ok 'the session is parsed in Publish right AFTER the frame is out (a new YAML never holds a frame back)' ($sdk -match '(?s)static bool Publish\(Frame f, bool fake\)\s*\{\s*lock \(gate\) \{ if \(fake && !fakeUp\) return false;.*?\}\s*RigState\.Feed\([^\n]*\n[^\n]*\n\s*ParseSession\(f\);')
   ok '/stream takes ?set= (Sdk.SetNames) and sends every key of a set' ($ird -match 'Sdk\.SetNames\(setName\)' -and $ird -match 'Sdk\.FrameJson\(f, names, setNames != null\)')
-  ok 'the race part is made on the state builder''s tick (StateBuilder.Add("race", 250, 250, ...)); no new poller' ($ird -match 'StateBuilder\.Add\("race", 250, 250, StateBuilder\.RacePart\);')
+  ok 'the stream keeps its beat with at most one frame of catch-up (lastSend = Math.Max(lastSend + interval, sent - interval))' ($ird -match 'lastSend = Math\.Max\(lastSend \+ interval, sent - interval\);')
+  ok 'the race part is made on the state builder''s tick, every 250 ms while he drives and every 2 s when it is null; no new poller' ($ird -match 'StateBuilder\.Add\("race", 2000, 250, StateBuilder\.RacePart\);')
   ok 'sdkreader.cs stays C# 5 (no $", ?., nameof, out var)' (-not ($sdk -match '(^|[\s(=,+])\$"|\?\.[A-Za-z]|nameof\(|out var '))
 
   if ((Test-Path $exe) -and (Test-Path $race)) {
