@@ -11,7 +11,7 @@
 var C = { gold: '#C9A24B', ref: '#cfd8e3', gain: '#3ccf7e', loss: '#e5534b', mute: '#8b877d', dim: '#5d5a54', line: '#26262a', abs: '#ff9f43',
   purple: '#b46cff', ink: '#ece8df', band: '#131316', bandOn: 'rgba(201, 162, 75,.07)', rear: '#e8a94a', wf: '#9b87d6' };
 var FONT = 'Bahnschrift, "Segoe UI", sans-serif';
-var GRAV = 9.81, PH = 20;                                   // PH: the display title line above every canvas
+// BOT: the lowest pixel a page may use. The page is designed for 1920x1080; inside the REVIEW door the frame is shorter (the shell's header takes 88 px) and the links of #tools\r\n// (72 px) sit at its foot, so the tall boxes give up SQ pixels (48 at a full 1080, 136 in the shell). Tests with ?data= keep the 1080 design.\r\nvar BOT = Math.min(1056, window.innerHeight - 72), SQ = 1056 - BOT;\r\nvar GRAV = 9.81, PH = 20;                                   // PH: the display title line above every canvas
 var CHANS = ['Speed', 'Throttle', 'Brake', 'BrakeABSactive', 'SteeringWheelAngle', 'SteeringWheelPctTorque', 'Gear', 'RPM', 'LatAccel', 'LongAccel',
   'VelocityX', 'VelocityY', 'YawRate', 'Lat', 'Lon', 'LFspeed', 'RFspeed', 'LRspeed', 'RRspeed', 'dcBrakeBias',
   'LFrideHeight', 'RFrideHeight', 'LRrideHeight', 'RRrideHeight', 'LFshockDefl', 'RFshockDefl', 'LRshockDefl', 'RRshockDefl', 'LFshockVel', 'RFshockVel', 'LRshockVel', 'RRshockVel'];
@@ -262,6 +262,7 @@ Display.prototype.canvas = function () { var dpr = window.devicePixelRatio || 1,
 Display.prototype.clear = function (g) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.restore(); };
 // canvas text that also records its box (page coordinates) so the test can prove nothing overlaps
 Display.prototype.text = function (g, list, s, x, y, size, color, align) {
+  size = Math.max(20, size);                                  // W4-5: nothing under 20 px (the lean-in floor)
   g.font = size + 'px ' + FONT; g.fillStyle = color; g.textAlign = align || 'left'; g.textBaseline = 'alphabetic'; g.fillText(s, x, y);
   var w = g.measureText(s).width, bx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
   var b = { x: this.box.x + bx, y: this.box.y + this.oy + y - size * 0.78, w: w, h: size * 0.9, s: s }; list.push(b); return b;
@@ -274,7 +275,7 @@ function Traces(box, title, rows) {
   Display.call(this, box, title); this.rows = rows; this.top = 22; this.kind = 'traces';
   if (!title) { this.ph.style.display = 'none'; this.oy = 0; }
   // the label column is as wide as the longest row name, so a name never runs into its trace
-  var g = this.cs, wmax = 60; g.font = '14px ' + FONT; rows.forEach(function (r) { wmax = Math.max(wmax, g.measureText(r.k).width + 10); });
+  var g = this.cs, wmax = 60; g.font = '20px ' + FONT; rows.forEach(function (r) { wmax = Math.max(wmax, g.measureText(r.k).width + 10); });
   this.X0 = Math.round(wmax); this.W = box.w - this.X0;
   var self = this, drag = null;
   this.stage.addEventListener('mousemove', function (e) { var p = self.local(e); if (drag) { var di = self.idxAt(drag[0]) - self.idxAt(p[0]); setZoom(drag[1] + di, drag[2] + di); return; } if (p[0] >= self.X0 && !S.playing) setCursor(self.idxAt(p[0]), true); });
@@ -319,7 +320,7 @@ Traces.prototype.drawStatic = function () {
   D.corners.forEach(function (c) {
     var a = self.xOf(c.i0), b = self.xOf(c.i1); if (b < X0 || a > w) return;
     g.fillStyle = c === worst ? C.bandOn : C.band; g.fillRect(a, 16, Math.max(1, b - a), total);
-    g.font = '14px ' + FONT; var tw = g.measureText(c.label).width, cx = (a + b) / 2;
+    g.font = '20px ' + FONT; var tw = g.measureText(c.label).width, cx = (a + b) / 2;
     if (cx - tw / 2 > lastRight + 6 && cx - tw / 2 >= X0 && cx + tw / 2 < w) { self.text(g, self.tbS, c.label, cx, 12, 14, c === worst ? C.gold : C.mute, 'center'); lastRight = cx + tw / 2; }
   });
   g.restore();
@@ -369,7 +370,7 @@ Traces.prototype.drawStatic = function () {
   var v0 = Math.ceil((S.axis === 'time' ? axStart : axStart * D.step) / stepTick) * stepTick, vEnd = S.axis === 'time' ? axEnd : axEnd * D.step, k = 0, lastX = -1e9;
   for (var v = v0; v <= vEnd + 1e-6 && k < 60; v += stepTick, k++) {
     var fi = S.axis === 'time' ? idxOf(A.t, v) : v / D.step, xx = this.xOf(fi), lab = (unit === 'km' ? v / 1000 : v) + (k === 0 ? ' ' + unit : '');
-    g.font = '14px ' + FONT; var tw = g.measureText(lab).width;
+    g.font = '20px ' + FONT; var tw = g.measureText(lab).width;
     if (xx - tw / 2 > lastX + 8 && xx + tw / 2 <= w) { this.text(g, this.tbS, lab, xx, y + 2, 14, C.dim, 'center'); lastX = xx + tw / 2; }
   }
   this.bottom = y - 12;
@@ -702,7 +703,7 @@ SplitNumbers.prototype = Object.create(Display.prototype);
 
 // ---------- trace rows he adds with the picker ----------
 // The main trace stack of a page holds its own rows plus these; every row is squeezed (never below 44 px) so they all fit.
-var STACKS = { driver: { h: 726, base: 7 }, braking: { h: 440, base: 3 } };
+var STACKS = { driver: { h: 726 - SQ, base: 7 }, braking: { h: 440, base: 3 } };
 function stackCap(page) { var s = STACKS[page]; return s ? Math.max(0, Math.floor((s.h - 30) / 60) - s.base) : 0; }   // how many extra rows fit at 44 px + 16 px spacing
 function scaleRows(rows, boxH) {
   var n = rows.length, sum = 0; rows.forEach(function (r) { sum += r.h; });
@@ -852,7 +853,7 @@ function buildPage() {
     new Traces({ x: 1124, y: 126, w: 764, h: 440 }, 'Brake · steering · speed · zoomed on the corner · both laps', scaleRows([
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 120, lo: 0, hi: 100 }, { k: 'STEERING °', key: 'steerDeg', h: 96, lo: -90, hi: 90 }, { k: 'SPEED ' + SPD_U.toUpperCase(), key: 'kmh', h: 96, lo: SPD_LO, hi: SPD_HI }].concat(xr), 440));
     var cy = Math.max(bt.el.getBoundingClientRect().bottom, 126 + 20 + 440) + 16;
-    new BrakeCells({ x: 32, y: cy, w: 1856, h: 1056 - (cy + 20) });
+    new BrakeCells({ x: 32, y: cy, w: 1856, h: BOT - (cy + 20) });
   } else if (S.page === 'splits') {
     var stb = new SplitsTable({ x: 32, y: 126, w: 1340, h: 0 });
     new SplitNumbers({ x: 1404, y: 126, w: 484, h: 0 }, stb.d);
@@ -862,15 +863,15 @@ function buildPage() {
     var map = new MapView({ x: 32, y: 126, w: 540, h: 330 }, mapTitle()); map.mapTitle = mapTitle;
     new Readouts({ x: 32, y: 478, w: 540, h: 0 }, ['kmh', 'Gear', 'RPM', 'thrPct', 'brkPct', 'steerDeg', 'latG', 'longG', 'beta', 'wfPct']);
     new Pedals({ x: 32, y: 884, w: 540, h: 48 });
-    new Traces({ x: 600, y: 126, w: 1288, h: 726 }, '', scaleRows([
+    new Traces({ x: 600, y: 126, w: 1288, h: 726 - SQ }, '', scaleRows([
       { k: 'GAP s', kind: 'gap', h: 84, lo: -0.6, hi: 0.6 },
       { k: 'SPEED', key: 'kmh', h: 156, lo: SPD_LO, hi: SPD_HI },
       { k: 'THROTTLE %', key: 'thrPct', h: 62, lo: 0, hi: 100 },
       { k: 'BRAKE % · ABS', key: 'brkPct', kind: 'brakeabs', h: 76, lo: 0, hi: 100 },
       { k: 'STEERING °', key: 'steerDeg', h: 84, lo: -90, hi: 90 },
       { k: 'WHEEL FORCE %', key: 'wfPct', h: 54, lo: 0, hi: 100, ref: false, col: C.wf },
-      { k: 'GEAR', key: 'Gear', h: 62, lo: 0.5, hi: 6.5 }].concat(xr), 726));
-    new EventList({ x: 600, y: 866, w: 1288, h: 0 }, 4);
+      { k: 'GEAR', key: 'Gear', h: 62, lo: 0.5, hi: 6.5 }].concat(xr), 726 - SQ));
+    new EventList({ x: 600, y: 866 - SQ, w: 1288, h: 0 }, 4);
   }
   if (!R && !X.pages[S.page]) document.getElementById('page').appendChild(el('div', 'keys', 'No reference lap')).style.cssText = 'position:absolute;left:600px;top:106px';
   need.s = true; need.o = true;
@@ -1079,7 +1080,7 @@ document.addEventListener('keydown', function (e) {
     case 't': case 'T': WB.cmd('tile'); break;
     case 'z': case 'Z': WB.cmd('zoom-in'); break;
     case 'Backspace': WB.cmd('zoom-out'); break;
-    case 'Escape': if (pickerOpen()) closePicker(); else WB.cmd('zoom-reset'); break;     // Esc closes the channel box first, wherever the focus is
+    case 'Escape': if (pickerOpen()) closePicker(); else if (zoomed()) WB.cmd('zoom-reset'); else handled = false; break;     // Esc closes the channel box first, wherever the focus is
     case 'r': case 'R': WB.cmd('ref-cursor'); break;
     case 'o': case 'O': WB.cmd('offset'); break;
     case 'a': case 'A': WB.cmd('offset-auto'); break;
@@ -1190,34 +1191,51 @@ X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: c
   // for workbench-pro.js: the channel list and picker, loading any channel, the binary reply reader, a page rebuild
   catalog: catalog, search: searchChannels, meta: function (k) { catalog(); return xmeta[k] || null; }, fetchChannel: fetchExtra, openPicker: openPicker, closePicker: closePicker,
   addCatalog: addCatalog, dropCatalog: dropCatalog, readReply: readReply, fetchBuf: fetchBuf, rebuild: function () { buildPage(); } };
-// W-18: OPEN IN COSWORTH on the top bar, only when Pi Toolbox is installed (the flag comes from /vault). One press opens the
-// lap's telemetry file in Pi (irdash opens Pi's workbook first when Pi is cold, then forwards this file into it).
-function addCosworth() {
-  var id = P.get('id'); if (!id) return;
-  var top = document.querySelector('.top'); if (!top) return;
-  fetch('/vault', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
-    if (!(j && j.cosworth && j.cosworth.installed) || !top.isConnected) return;
-    var b = el('div', 'addch', 'OPEN IN COSWORTH'); b.id = 'cwbtn'; b.title = 'Open this lap in Cosworth Pi Toolbox';
+// W4-5: the three links at the foot of the page (#tools). Which programs exist is asked once, at load (GET /api/review/tools, dash\src\vault.cs):
+//   OPEN IN PI TOOLBOX  only when Pi Toolbox is installed (one press opens the lap's file in Pi; irdash opens Pi's workbook first when Pi is cold)
+//   OPEN DELTA          only when Coach Dave Delta is installed
+//   EXPORT CSV          the lap and its reference, every metre, through /analysis/pro/export (the server's default channel list)
+function addTools() {
+  var id = P.get('id'), box = document.getElementById('tools'); if (!box || !LIVE || !id) return;
+  function chip(idv, label, note, run) {
+    var w = el('div', 'tool'), b = el('div', 'addch', label); b.id = idv; w.appendChild(b); if (note) w.appendChild(el('small', '', note));
     b.addEventListener('click', function () {
-      if (b._busy) return;     // a second press while Pi is opening does nothing
-      b._busy = true; b.textContent = 'OPENING';
-      // say what happened (it used to put the label back at once, so a refusal looked like nothing happened)
-      var say = function (t, ms) { b.textContent = t; setTimeout(function () { b.textContent = 'OPEN IN COSWORTH'; b._busy = false; }, ms); };
-      fetch('/vault/open?how=cosworth&id=' + encodeURIComponent(id), { cache: 'no-store' }).then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (j) {
-          if (r.status === 409) say('NOT WHILE DRIVING', 4000);
-          else if (r.status === 404) say('FILE IS GONE', 4000);
-          else if (!r.ok) say('COULD NOT OPEN', 4000);
-          else if (j && j.action === 'folder') say('PI NOT FOUND', 4000);
-          else say(j && j.action === 'busy' ? 'ALREADY OPENING' : 'OPENING IN PI', 4000);
-        });
+      if (b._busy) return; b._busy = true;                                   // a second press while it works does nothing
+      var say = function (txt, ms) { b.textContent = txt; setTimeout(function () { b.textContent = label; b._busy = false; }, ms); };
+      run(say, b);
+    });
+    box.appendChild(w); return b;
+  }
+  function getJson(u) { return fetch(u, { cache: 'no-store' }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, ok: r.ok, j: j || {} }; }); }); }
+  chip('csvbtn', 'EXPORT CSV', 'the lap and the reference, every metre', function (say) {
+    say('MAKING THE FILE', 20000);
+    fetch('/analysis/pro/export?id=' + encodeURIComponent(id) + '&lap=' + encodeURIComponent(P.get('lap') || '') + '&ref=' + encodeURIComponent(P.get('ref') || 'pb') + '&fmt=csv&which=both', { cache: 'no-store' }).then(function (r) {
+      if (r.status !== 200) { say(r.status === 503 ? 'NOT WHILE DRIVING' : 'COULD NOT MAKE IT', 4000); return; }
+      var cd = r.headers.get('Content-Disposition') || '', m = /filename="([^"]+)"/.exec(cd), name = m ? m[1] : 'paddock.csv';
+      return r.blob().then(function (b) {
+        if (!P.get('nodl')) { var u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(u); a.remove(); }, 4000); }
+        WB.exported = { name: name, size: b.size };
+        say('SAVED · Downloads', 4000);
+      });
+    }).catch(function () { say('COULD NOT MAKE IT', 4000); });
+  });
+  getJson('/api/review/tools').then(function (r) {
+    var t = r.j || {}; if (!box.isConnected) return;
+    if (t.pi && t.pi.installed) chip('cwbtn', 'OPEN IN PI TOOLBOX', 'opens the whole file in Cosworth\'s standard layout', function (say) {
+      say('OPENING', 30000);
+      getJson('/vault/open?how=cosworth&id=' + encodeURIComponent(id)).then(function (x) {
+        if (x.status === 409) say('NOT WHILE DRIVING', 4000);
+        else if (x.status === 404) say('FILE IS GONE', 4000);
+        else if (!x.ok) say('COULD NOT OPEN', 4000);
+        else if (x.j.action === 'folder') say('PI NOT FOUND', 4000);
+        else say(x.j.action === 'busy' ? 'ALREADY OPENING' : 'OPENING IN PI', 4000);
       }).catch(function () { say('COULD NOT OPEN', 4000); });
     });
-    var ref = document.getElementById('sharebtn') || document.getElementById('pipbtn') || document.getElementById('addch');
-    if (ref && ref.parentNode) ref.parentNode.insertBefore(b, ref); else top.appendChild(b);
+    if (t.delta && t.delta.installed) chip('dlbtn', 'OPEN DELTA', 'Coach Dave Delta, the other lap coach', function (say) {
+      getJson('/api/review/tools?open=delta').then(function (x) { say(x.status === 409 ? 'NOT WHILE DRIVING' : x.ok ? 'OPENING DELTA' : 'COULD NOT OPEN', 4000); }).catch(function () { say('COULD NOT OPEN', 4000); });
+    });
   }).catch(function () { });
 }
-addCosworth();
-requestAnimationFrame(frame);
+addTools();requestAnimationFrame(frame);
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load); else load();      // after workbench-video.js has registered
 })();
