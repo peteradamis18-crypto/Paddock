@@ -1,0 +1,15 @@
+{"units":"mph",
+ "defs":{"brakeM":"brake over 10 %","pickupM":"throttle over 90 % after the apex","minSpeed":"the slowest point","time":"turn-in to exit"},
+ "rows":[
+  {"n":1,"label":"T1","detected":false,"lap":{"brakeM":196,"minSpeed":71.4,"pickupM":331,"time":4.212},"ref":{"brakeM":201,"minSpeed":72.0,"pickupM":326,"time":4.170}},
+  {"n":2,"label":"T2","detected":false,"lap":{"brakeM":null,"minSpeed":96.1,"pickupM":560,"time":2.811},"ref":{"brakeM":null,"minSpeed":96.0,"pickupM":561,"time":2.814}},
+  {"n":3,"label":"T3","detected":false,"lap":{"brakeM":640,"minSpeed":82.3,"pickupM":731,"time":3.301},"ref":{"brakeM":641,"minSpeed":82.9,"pickupM":729,"time":3.282}},
+  {"n":4,"label":"T4","detected":false,"lap":{"brakeM":null,"minSpeed":101.7,"pickupM":925,"time":2.402},"ref":{"brakeM":null,"minSpeed":101.5,"pickupM":926,"time":2.410}},
+  {"n":5,"label":"T5","detected":false,"lap":{"brakeM":1044,"minSpeed":66.8,"pickupM":1190,"time":4.918},"ref":{"brakeM":1058,"minSpeed":69.9,"pickupM":1178,"time":4.608}},
+  {"n":6,"label":"T6","detected":false,"lap":{"brakeM":1381,"minSpeed":74.2,"pickupM":1510,"time":3.977},"ref":{"brakeM":1380,"minSpeed":74.0,"pickupM":1511,"time":3.990}},
+  {"n":7,"label":"T7","detected":false,"lap":{"brakeM":1781,"minSpeed":51.6,"pickupM":1925,"time":5.640},"ref":{"brakeM":1788,"minSpeed":52.4,"pickupM":1919,"time":5.571}},
+  {"n":8,"label":"T8","detected":true,"lap":{"brakeM":null,"minSpeed":118.2,"pickupM":2170,"time":1.902},"ref":{"brakeM":null,"minSpeed":118.0,"pickupM":2171,"time":1.905}},
+  {"n":9,"label":"T9","detected":true,"lap":{"brakeM":null,"minSpeed":126.4,"pickupM":2540,"time":1.744},"ref":{"brakeM":null,"minSpeed":126.5,"pickupM":2540,"time":1.744}},
+  {"n":10,"label":"T10A","detected":false,"lap":{"brakeM":3281,"minSpeed":49.0,"pickupM":3440,"time":4.502},"ref":{"brakeM":3290,"minSpeed":49.8,"pickupM":3433,"time":4.420}},
+  {"n":11,"label":"T10B","detected":false,"lap":{"brakeM":3511,"minSpeed":63.9,"pickupM":3552,"time":2.801},"ref":{"brakeM":3510,"minSpeed":64.2,"pickupM":3550,"time":2.788}},
+  {"n":12,"label":"T12","detected":false,"lap":{"brakeM":3851,"minSpeed":76.5,"pickupM":3960,"time":4.105},"ref":{"brakeM":3853,"minSpeed":76.9,"pickupM":3958,"time":4.080}}]}

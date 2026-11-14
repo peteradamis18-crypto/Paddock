@@ -1,0 +1,268 @@
+﻿# review-laps-test.ps1 - offline (W4-4): REVIEW screen 2, the laps (dash\www\app\pages\review-laps.js + review-laps.css).
+# The page runs in headless Chrome inside a fixture shell (tests\fixtures\review\laps\shell.html: the real shell's header and page box,
+# the W3-1 ctx, a stand-in for data.js) with a pretend irdash behind fetch: /api/review from tests\fixtures\review\laps\review-*.json
+# (the W4-1 contract), /api/review/traces as a hand-made PWB1 reply (make-pwb.js: two laps of a 4088 m Road Atlanta and its corner
+# set, written byte for byte as dash\src\workbench.cs does) and /api/review/corners (corners.json). W4-2's Chart and Map are stand-ins
+# with the same API (chart-stub.js, map-stub.js) that record their calls; the pictures use the real app\lib\chart.js and map.js once
+# they exist. Nothing reaches the real irdash.
+#   1. the five states (two laps, this lap only, no full lap, working, offline); the chips (counted bright, the best purple, the
+#      reason on dim chips, YOUR BEST HERE); a chip press loads the two routes and the stack redraws; the readout column in 36 px
+#   2. the corner table (rows, this / reference / difference coloured) and the four definitions once; a row press zooms the chart
+#      to that corner and moves the map dot; the theoretical best with its date spread
+#   3. the deck (onDeck and the "workbench" state part) moves the cursor and zooms; opts.corner zooms at mount; no timer, no POST
+#   4. design-lint (the page's files are on its seat list)
+# Pictures: tests\shots\rework\review-laps-<state>.png (look at every one).
+#   powershell -ExecutionPolicy Bypass -File tests\review-laps-test.ps1
+. (Join-Path $PSScriptRoot 'guard.ps1')
+Assert-RigFree
+try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
+$root = Split-Path -Parent $PSScriptRoot
+$app = Join-Path $root 'dash\www\app'
+$fix = Join-Path $root 'tests\fixtures\review\laps'
+$shots = Join-Path $root 'tests\shots\rework'; New-Item -ItemType Directory -Force $shots | Out-Null
+$chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $chrome) { '  FAIL  Chrome not found'; exit 1 }
+'REVIEW: the laps test (W4-4)'
+$pass = 0; $fail = 0
+function Section($t) { Assert-RigFree -Where $t; $t }
+
+$tmp = Join-Path $env:TEMP ('review-laps-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Force $tmp | Out-Null
+$utf8 = New-Object Text.UTF8Encoding($false)
+$read = { param($n) [IO.File]::ReadAllText((Join-Path $fix $n), [Text.Encoding]::UTF8).Trim() }
+$fx = 'two: ' + (& $read 'review-two.json') + ', one: ' + (& $read 'review-one.json') + ', ever: ' + (& $read 'review-ever.json') +
+  ', nolap: ' + (& $read 'review-nolap.json') + ', working: ' + (& $read 'review-working.json') + ', corners: ' + (& $read 'corners.json')
+$shellSrc = & $read 'shell.html'
+# two copies of the page: "stub" always with the stand-ins (the checks read their call logs), "real" with W4-2's libraries when present
+function Stage([string]$dir, [bool]$real) {
+  Copy-Item -Recurse $app "$dir\app"
+  Copy-Item (Join-Path $fix 'make-pwb.js') "$dir\app\make-pwb.js"
+  if (-not ($real -and (Test-Path "$app\lib\chart.js"))) { Copy-Item -Force (Join-Path $fix 'chart-stub.js') "$dir\app\lib\chart.js" }
+  if (-not ($real -and (Test-Path "$app\lib\map.js"))) { Copy-Item -Force (Join-Path $fix 'map-stub.js') "$dir\app\lib\map.js" }
+}
+New-Item -ItemType Directory -Force "$tmp\stub", "$tmp\real" | Out-Null
+Stage "$tmp\stub" $false; Stage "$tmp\real" $true
+$common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--force-device-scale-factor=1')
+function Page([string]$dir, [string]$name, [string]$setup, [string]$run) {
+  $h = $shellSrc.Replace('/*FX*/', $fx).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
+  [IO.File]::WriteAllText("$dir\app\$name.html", $h, $utf8)
+  return 'file:///' + ("$dir\app\$name.html" -replace '\\', '/')
+}
+
+# ---------------- the behaviour test (one page; every state is a fresh mount, as REVIEW's card screen does it) ----------------
+$run = @'
+<script>
+window.__run = async () => {
+  const out = [], ok = (what, cond, why) => out.push((cond ? 'ok ' : 'FAIL ') + what + (cond || why == null ? '' : ' -> ' + why));
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const M = window.__M, P = M.Laps, F = window.Fmt, C = window.__chart, Mp = window.__map;
+  const q = s => document.querySelector('#page ' + s), qa = s => [...document.querySelectorAll('#page ' + s)];
+  const txt = s => { const e = q(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+  const vis = e => !!e && !e.closest('[hidden]') && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const tok = n => { const p = document.createElement('div'); p.style.color = 'var(--' + n + ')'; document.body.appendChild(p); const c = getComputedStyle(p).color; p.remove(); return c; };
+  const small = () => qa('*').filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 24).map(e => (e.className || e.tagName) + ' ' + getComputedStyle(e).fontSize);
+  const box = s => { const r = q(s).getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom) }; };
+  const meet = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const last = (log, name) => { for (let i = log.length - 1; i >= 0; i--) if (log[i][0] === name) return log[i]; return null; };
+  const msgText = () => vis(q('.rl-msg')) ? qa('.rl-msg p').map(p => p.textContent).join(' ') : '';
+  const use = async (state, opts, offline) => {
+    window.__unmount(); window.__state = state; window.__opts = opts || {}; window.__offline = !!offline;
+    window.__req.length = 0; C.calls.length = 0; Mp.calls.length = 0; window.__mount(); await sleep(500);
+  };
+  const tr = (lap, ref) => '/api/review/traces?id=' + encodeURIComponent(window.__fx[window.__state].session.id) + '&lap=' + lap + (ref ? '&ref=' + ref : '');
+  const GOLD = tok('gold'), PURPLE = tok('purple'), GAIN = tok('gain'), LOSS = tok('loss'), INK = tok('ink');
+
+  // ---------------- 1. the states ----------------
+  await use('two');
+  const S = window.__fx.two.session;
+  ok('1. two laps: three requests at mount, in order (the review, the traces of lap 8 against lap 9, the corners)',
+    window.__req.length === 3 && window.__req[0] === '/api/review?id=last' && window.__req.includes(tr(8, 9)) && window.__req.some(u => u.indexOf('/api/review/corners?') === 0 && /lap=8&ref=9/.test(u)), window.__req.join(' | '));
+  const lapChips = qa('.rl-pick .row:nth-child(1) .chip'), refChips = qa('.rl-pick .row:nth-child(2) .chip');
+  ok('1. THIS LAP: one chip per lap (10), with the lap and its time', lapChips.length === 10 && lapChips[8].textContent.indexOf('Lap 9') >= 0 && lapChips[8].textContent.indexOf(F.lap(93.832)) > 0, lapChips.map(c => c.textContent).join('|'));
+  ok('1. counted laps are bright, the others dim with their reason (out lap, off track, in lap)',
+    lapChips.filter(c => c.classList.contains('counted')).length === 7 && ['out lap', 'off track', 'in lap'].every((w, i) => lapChips[[0, 3, 9][i]].classList.contains('dim') && lapChips[[0, 3, 9][i]].textContent.indexOf(w) > 0) &&
+    getComputedStyle(lapChips[0].querySelector('.c-t')).color !== getComputedStyle(lapChips[1].querySelector('.c-t')).color, lapChips.map(c => c.className + ':' + c.textContent).join('|'));
+  ok('1. the best lap (9) is purple', getComputedStyle(lapChips[8].querySelector('.c-t')).color === PURPLE && lapChips.filter(c => c.classList.contains('best')).length === 1);
+  ok('1. this lap = the newest counted lap that is not the reference (8); the reference = the session best (9); the same lap cannot be both',
+    lapChips[7].classList.contains('on') && refChips[8].classList.contains('on') && refChips[7].disabled && refChips.length === 10, lapChips.findIndex(c => c.classList.contains('on')) + ' ' + refChips.findIndex(c => c.classList.contains('on')));
+  const mnt = last(C.calls, 'mount');
+  ok('1. the stack: one Chart with the rows delta, speed, throttle + brake, steering, gear on one 4088 m axis, the delta gold, the 12 corners',
+    mnt && mnt[1].rows.join() === 'delta,speed,pedals,steer,gear' && mnt[1].len === 4088 && mnt[1].corners === 12 && mnt[1].series[0].join() === 'gold' && mnt[1].series[1].join() === 'gold,ink', JSON.stringify(mnt && mnt[1]));
+  ok('1. the readout column is the page\'s .rl-readout, on the right of the stack, always visible, at 36 px (--t-read)',
+    mnt && mnt[1].readout === q('.rl-readout') && vis(q('.rl-readout')) && box('.rl-readout').l > 1400 && getComputedStyle(q('.rl-readout')).fontSize === '36px', mnt && box('.rl-readout').l);
+  P.cursor(1165); await sleep(50);
+  const A = window.__pwbLap(94.020, (94.020 - 93.832) * 9), R = window.__pwbLap(93.832, 0);
+  const sp = (a, i) => String(Math.round(a.Speed[i] * 2.2369363));
+  const spRow = q('.rl-readout [data-key="speed"]');
+  ok('1. at the cursor (1165 m, T5) the readout shows both laps\' speed in mph (' + sp(A, 1165) + ', ' + sp(R, 1165) + ') and the delta',
+    spRow && spRow.textContent.indexOf('mph') > 0 && [...spRow.querySelectorAll('.ro-v')].map(e => e.textContent).join() === sp(A, 1165) + ',' + sp(R, 1165) &&
+    /^[+−]\d\.\d{3}$/.test(q('.rl-readout [data-key="delta"] .ro-v').textContent), spRow && spRow.textContent);
+  ok('1. the line above the stack: "Lap 8 1:34.020 against lap 9 1:33.832 · +0.188 s" with the difference red',
+    txt('.rl-vs') === 'Lap 8 ' + F.lap(94.02) + ' against lap 9 ' + F.lap(93.832) + ' · +0.188 s' && getComputedStyle(q('.rl-vs b')).color === LOSS, txt('.rl-vs'));
+  ok('1. theoretical best with its laps and the date spread: "Theoretical best 1:33.412 from laps 3, 7, 9 (6 Nov – 13 Nov)"',
+    txt('.rl-opt') === 'Theoretical best ' + F.lap(93.412) + ' from laps 3, 7, 9 (6 Nov – 13 Nov)', txt('.rl-opt'));
+  ok('1. the map: mounted once with the review\'s key and id, coloured by this lap against the reference (100 parts)',
+    Mp.calls.filter(c => c[0] === 'mount').length === 1 && last(Mp.calls, 'mount')[1].key === 'roadatlanta-full' && last(Mp.calls, 'mount')[1].id === 127 && last(Mp.calls, 'colour')[1] === 100);
+  const g = P.gain(); const t5 = g.slice(26, 31).reduce((a, b) => a + b, 0);
+  ok('1. the map colour: the lap loses time at T5 (the parts 26-30 sum ' + t5.toFixed(3) + ' s < 0); the whole lap sums to ref - lap (' + (93.832 - 94.02).toFixed(3) + ')',
+    t5 < -0.05 && Math.abs(g.reduce((a, b) => a + b, 0) - (93.832 - 94.02)) < 0.002, t5 + ' ' + g.reduce((a, b) => a + b, 0));
+  let sm = small(); ok('1. two laps: no text under 24 px', sm.length === 0, sm.join('; '));
+  const Z = { map: box('.rl-map'), top: box('.rl-top'), stack: box('.rl-stack'), corners: box('.rl-corners') }, zn = Object.keys(Z), hits = [];
+  for (let i = 0; i < zn.length; i++) for (let j = i + 1; j < zn.length; j++) if (meet(Z[zn[i]], Z[zn[j]])) hits.push(zn[i] + '/' + zn[j]);
+  ok('1. the map is top-left, the zones do not overlap and all sit under the header inside 1920 x 1080',
+    hits.length === 0 && Z.map.l === 48 && Z.map.t >= 88 && Z.map.l < Z.top.l && Object.values(Z).every(z => z.l >= 0 && z.r <= 1920 && z.b <= 1080), JSON.stringify(Z) + ' ' + hits.join());
+  const chipsRight = Math.max(...qa('.chip').map(c => c.getBoundingClientRect().right));
+  ok('1. the chips stay inside the screen (ten laps fit)', chipsRight <= 1872 && qa('.rl-pick .row:nth-child(1) .chip').every(vis), chipsRight);
+  // a chip press
+  window.__req.length = 0; const nm = C.calls.length;
+  lapChips[6].click(); await sleep(300);
+  ok('1. pressing THIS LAP 7 asks for lap 7 against 9 (traces + corners, nothing else) and the stack redraws with it',
+    window.__req.length === 2 && window.__req.includes(tr(7, 9)) && /lap=7&ref=9/.test(window.__req.find(u => u.indexOf('/corners') > 0) || '') && C.calls.slice(nm).some(c => c[0] === 'update' || c[0] === 'mount') && txt('.rl-vs').indexOf('Lap 7') === 0, window.__req.join(' | '));
+  ok('1. lap 7 is now the chosen chip; REFERENCE 7 is greyed', q('.rl-pick .row:nth-child(1) .chip:nth-child(7)').classList.contains('on') && q('.rl-pick .row:nth-child(2) .chip:nth-child(7)').disabled);
+  window.__req.length = 0; q('.rl-pick .row:nth-child(2) .chip:nth-child(3)').click(); await sleep(300);
+  ok('1. pressing REFERENCE 3 asks for lap 7 against 3', window.__req.includes(tr(7, 3)) && txt('.rl-vs').indexOf('against lap 3') > 0, window.__req.join(' | '));
+  window.__req.length = 0; q('.rl-pick .row:nth-child(1) .chip:nth-child(3)').click(); await sleep(300);
+  ok('1. pressing THIS LAP 3 while 3 is the reference drops the reference (no lap against itself)', window.__req.includes(tr(3, null)) && vis(q('.rl-noref')), window.__req.join(' | '));
+
+  await use('one');
+  ok('1. this lap only: lap 2 with no reference (traces asked without ref)', window.__req.includes(tr(2, null)) && !window.__req.some(u => /ref=/.test(u)), window.__req.join(' | '));
+  const m1 = last(C.calls, 'mount');
+  ok('1. this lap only: the delta row is empty and says "no reference lap"; the other rows have this lap alone',
+    m1 && m1[1].series[0].length === 0 && m1[1].series[1].join() === 'gold' && vis(q('.rl-noref')) && txt('.rl-noref') === 'Delta: no reference lap' && txt('.rl-vs') === 'Lap 2 ' + F.lap(94.611) + ' · no reference lap' &&
+    /no reference lap/.test(txt('.rl-readout [data-key="delta"]')), JSON.stringify(m1 && m1[1].series) + ' ' + txt('.rl-vs'));
+  ok('1. this lap only: the out lap is dim ("out lap"), lap 2 bright; no theoretical best without one', qa('.rl-pick .row:nth-child(1) .chip')[0].textContent.indexOf('out lap') > 0 && txt('.rl-opt') === '');
+  { const d0 = qa('.rl-pick .chip.dim')[0], cs = getComputedStyle(d0);
+    ok('1. a dim chip has no edge (only the chosen chip is outlined, in gold)', cs.borderTopColor === 'rgba(0, 0, 0, 0)' && qa('.chip.on').every(c => getComputedStyle(c).borderTopColor === GOLD),
+      cs.borderTopColor + ' hover=' + d0.matches(':hover') + ' focus=' + d0.matches(':focus') + ' cls=' + d0.className); }
+  ok('1. this lap only: the corner table has one column per measure (no reference, no difference)', qa('.rl-tbl tbody tr:first-child td').length === 5 && qa('.rl-tbl thead tr:nth-child(2) th').length === 4);
+  sm = small(); ok('1. this lap only: no text under 24 px', sm.length === 0, sm.join('; '));
+
+  await use('ever');
+  const er = qa('.rl-pick .row:nth-child(2) .chip'), ev = er[er.length - 1];
+  ok('1. under 3 clean laps: REFERENCE ends with YOUR BEST HERE (1:33.832), chosen, and the traces ask for ref=ever',
+    ev.classList.contains('ever') && /Your best here/i.test(ev.textContent) && ev.textContent.indexOf(F.lap(93.832)) > 0 && ev.classList.contains('on') && window.__req.includes(tr(3, 'ever')), ev.textContent + ' ' + window.__req.join(' | '));
+  ok('1. under 3 clean laps: "against your best here (6 Nov)"; speeds in km/h (Peter\'s setting from the session)',
+    txt('.rl-vs').indexOf('against your best here (6 Nov) ' + F.lap(93.832)) > 0 && /km\/h/.test(txt('.rl-readout [data-key="speed"]')) && /km\/h/.test(txt('.rl-tbl thead')), txt('.rl-vs') + ' / ' + txt('.rl-readout [data-key="speed"]'));
+
+  await use('nolap');
+  ok('1. no complete lap: "No full lap yet" and what to do; no chips; no traces asked', msgText() === 'No full lap yet Drive one full lap and the traces show here.' && qa('.chip').length === 0 && window.__req.length === 1, msgText() + ' ' + window.__req.join(' | '));
+  sm = small(); ok('1. no complete lap: no text under 24 px', sm.length === 0, sm.join('; '));
+
+  await use('working');
+  ok('1. working: one line "Reading your laps…", nothing else asked', msgText() === 'Reading your laps…' && window.__req.length === 1 && qa('.chip').length === 0, msgText());
+  window.__state = 'two'; window.__req.length = 0; window.__emit('list:review'); await sleep(400);
+  ok('1. working: when irdash says the review list changed, it asks again and the laps show', window.__req[0] === '/api/review?id=last' && qa('.chip').length === 20 && !vis(q('.rl-msg')), window.__req.join(' | '));
+
+  await use('two', {}, true);
+  ok('1. offline: one sentence (the shell banner says what to press); no chips', msgText() === 'Your laps show here when Paddock is back.' && qa('.chip').length === 0, msgText());
+  sm = small(); ok('1. offline: no text under 24 px', sm.length === 0, sm.join('; '));
+  window.__offline = false; window.__req.length = 0; window.__emit('online', true); await sleep(400);
+  ok('1. offline: back online it loads by itself', qa('.chip').length === 20 && window.__req.length === 3, window.__req.join(' | '));
+
+  // ---------------- 2. the corner table ----------------
+  await use('two');
+  const rows = qa('.rl-tbl tbody tr');
+  ok('2. one row per corner (12), each with the corner and three columns (this, reference, difference) per measure',
+    rows.length === 12 && rows.every(r => r.querySelectorAll('td').length === 13) && rows[4].querySelector('.cn').textContent === 'T5', rows.length + ' ' + (rows[0] && rows[0].querySelectorAll('td').length));
+  ok('2. the headings: Brake point (m), Minimum speed (mph), Throttle-on (m), Time', qa('.rl-tbl th.grp').map(e => e.textContent).join('|') === 'Brake point (m)|Minimum speed (mph)|Throttle-on (m)|Time', qa('.rl-tbl th.grp').map(e => e.textContent).join('|'));
+  const t5c = [...rows[4].querySelectorAll('td')].map(td => td.textContent);
+  ok('2. T5: brake 1044 vs 1058 (−14 m, red: earlier), minimum 67 vs 70 (−3, red), throttle-on 1190 vs 1178 (+12 m, red: later), time 4.918 vs 4.608 (+0.310, red)',
+    t5c.slice(1).join('|') === '1044|1058|−14 m|67|70|−3|1190|1178|+12 m|4.918|4.608|+0.310' && [...rows[4].querySelectorAll('td.d')].every(td => getComputedStyle(td).color === LOSS), t5c.join('|'));
+  const t6d = [...rows[5].querySelectorAll('td.d')];
+  ok('2. T6 is quicker: its time difference (−0.013) is green; a corner with no braking shows the dash', getComputedStyle(t6d[3]).color === GAIN && t6d[3].textContent === '−0.013' && rows[1].querySelectorAll('td')[1].textContent === F.none, t6d.map(t => t.textContent).join('|'));
+  ok('2. a corner not on Lovely\'s list says "detected"', rows[7].querySelector('.det') && rows[7].querySelector('.det').textContent === 'detected' && !rows[4].querySelector('.det'));
+  const page = document.getElementById('page').textContent, defs = ['Brake point = brake over 10 %', 'Throttle-on = throttle over 90 % after the apex', 'Minimum speed = the slowest point', 'Time = turn-in to exit'];
+  const cnt = s => page.split(s).length - 1;
+  ok('2. the four definitions, each exactly once, under the table', defs.every(d => cnt(d) === 1) && box('.rl-defs').t >= box('.rl-tblbox').b - 1, defs.map(cnt).join(','));
+  ok('2. at least four corner rows show without scrolling', rows.filter(r => { const b = r.getBoundingClientRect(), z = q('.rl-tblbox').getBoundingClientRect(); return b.top >= z.top - 1 && b.bottom <= z.bottom + 1; }).length >= 4, rows.map(r => Math.round(r.getBoundingClientRect().top) + '-' + Math.round(r.getBoundingClientRect().bottom)).slice(0, 6).join(',') + ' win ' + innerWidth + 'x' + innerHeight + ' box ' + JSON.stringify(q('.rl-tblbox').getBoundingClientRect()));
+  C.calls.length = 0; Mp.calls.length = 0;
+  rows[6].click(); await sleep(100);
+  const T = window.__track.corners[6];
+  ok('2. a press on T7 zooms the chart to it, puts the cursor on its apex and the map dot there; the row is lit',
+    last(C.calls, 'zoomCorner') && last(C.calls, 'zoomCorner')[1] === 7 && Math.abs(last(C.calls, 'setCursor')[1] - T.pa * 4088) < 0.01 && Math.abs(last(Mp.calls, 'cursor')[1] - T.pa) < 1e-6 && rows[6].classList.contains('on') && qa('.rl-tbl tr.on').length === 1,
+    JSON.stringify(C.calls) + ' ' + JSON.stringify(Mp.calls));
+  sm = small(); ok('2. the table has no text under 24 px', sm.length === 0, sm.join('; '));
+
+  // ---------------- 3. the deck, opts.corner, no timer ----------------
+  C.calls.length = 0;
+  ok('3. onDeck("wb-next-corner") from T7 goes to T8', M.onDeck('wb-next-corner') === true && last(C.calls, 'zoomCorner')[1] === 8 && q('.rl-tbl tr.on').dataset.n === '8');
+  ok('3. onDeck("prev-corner") goes back to T7', M.onDeck('prev-corner') === true && last(C.calls, 'zoomCorner')[1] === 7);
+  const c0 = P.cursorM; M.onDeck('wb-step', '50');
+  ok('3. onDeck("wb-step", 50) moves the cursor 50 m and the map dot with it', Math.abs(last(C.calls, 'setCursor')[1] - (c0 + 50)) < 0.01 && Math.abs(last(Mp.calls, 'cursor')[1] - (c0 + 50) / 4088) < 1e-6);
+  M.onDeck('zoom-reset');
+  ok('3. onDeck("zoom-reset") shows the whole lap', last(C.calls, 'zoomLap') !== null && P.range === null);
+  M.onDeck('zoom-in');
+  const zr = last(C.calls, 'setRange');
+  ok('3. onDeck("zoom-in") halves the view around the cursor', zr && Math.abs((zr[2] - zr[1]) - 2044) < 1 && zr[1] <= P.cursorM && zr[2] >= P.cursorM, JSON.stringify(zr));
+  window.__req.length = 0; M.onDeck('lap-prev'); await sleep(300);
+  ok('3. onDeck("lap-prev") picks the lap before (7) and loads it', window.__req.includes(tr(7, 9)), window.__req.join(' | '));
+  // the "workbench" state part: a new seq runs once, the same seq again does nothing
+  C.calls.length = 0;
+  const wb = { cmd: 'next-corner', arg: '', seq: 41, driving: false };
+  window.data.state.workbench = wb; window.__emit('state', window.data.state, { workbench: true });
+  const z1 = C.calls.filter(c => c[0] === 'zoomCorner').length;
+  window.__emit('state', window.data.state, { workbench: true, rig: true });
+  ok('3. the deck\'s command pushed as the "workbench" part (seq 41) runs once; the same seq again does nothing', z1 === 1 && C.calls.filter(c => c[0] === 'zoomCorner').length === 1, z1);
+  window.data.state.workbench = { cmd: 'zoom-reset', arg: '', seq: 42, driving: false }; window.__emit('state', window.data.state, { workbench: true });
+  ok('3. the next seq (42, zoom-reset) runs', last(C.calls, 'zoomLap') !== null);
+  window.data.state.workbench = { cmd: 'next-corner', arg: '', seq: 40, driving: false };
+  await use('two', { corner: 5 });
+  ok('3. opts.corner = 5 (SHOW ME on the card): the chart zooms to T5 at mount with the cursor and the map dot on its apex; T5 lit',
+    last(C.calls, 'zoomCorner') && last(C.calls, 'zoomCorner')[1] === 5 && Math.abs(last(Mp.calls, 'cursor')[1] - 0.285) < 1e-6 && q('.rl-tbl tr.on').dataset.n === '5', JSON.stringify(C.calls.filter(c => c[0] !== 'setCursor')));
+  ok('3. a command already waiting when the page opens (seq 40) is not replayed', C.calls.filter(c => c[0] === 'zoomCorner').length === 1);
+  window.__req.length = 0; await sleep(3000);
+  ok('3. nothing asked while the page sits (3 s), no POST, no data.fetch', window.__req.length === 0 && !window.__posts, window.__req.join(' | '));
+  window.__unmount();
+  const left = Object.keys(window.__ls).reduce((s, k) => s + window.__ls[k].length, 0);
+  ok('3. unmount: no listeners left, the chart and the map unmounted, the page empty', left === 0 && last(C.calls, 'unmount') && last(Mp.calls, 'unmount') && document.getElementById('page').children.length === 0, left);
+  // pure helpers
+  ok('3. cornerRows reads the three answer shapes alike', ['brakeM', 'time'].every(k =>
+    M.cornerRows({ rows: [{ n: 1, label: 'T1', lap: { brakeM: 5, time: 2 }, ref: { brakeM: 6, time: 3 } }] })[0].ref[k] === M.cornerRows({ lap: [{ n: 1, brakeM: 5, time: 2 }], ref: [{ n: 1, brakeM: 6, time: 3 }] })[0].ref[k] &&
+    M.cornerRows({ lap: [{ n: 1, brakeM: 5, time: 2 }], ref: [{ n: 1, brakeM: 6, time: 3 }] })[0].ref[k] === M.cornerRows({ rows: [{ n: 1, brakeM: { lap: 5, ref: 6 }, time: { lap: 2, ref: 3 } }] })[0].ref[k]));
+  ok('3. optimalLine: one day once, one lap singular', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }) === 'Theoretical best ' + F.lap(93.4) + ' from lap 9 (13 Nov)', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }));
+
+  out.push('DONE');
+  const o = document.getElementById('out'); o.textContent = out.join('\n'); o.hidden = false;
+};
+</script>
+'@
+
+Section '1-3. the page'
+$url = Page "$tmp\stub" 't' '' $run
+$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=120000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
+$dom = Get-Content "$tmp\out.txt" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+$m = [regex]::Match([string]$dom, '(?s)<pre id="out"[^>]*>(.*?)</pre>')
+$text = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
+$lines = @($text -split [char]10 | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -match '^(ok|FAIL) ' })
+$lines | ForEach-Object { '  ' + $_ }
+$pass += @($lines | Where-Object { $_ -match '^ok' }).Count; $fail += @($lines | Where-Object { $_ -match '^FAIL' }).Count
+if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++; Get-Content "$tmp\err.txt" -ErrorAction SilentlyContinue | Select-Object -Last 8 }
+
+Section '3. source'
+function Src($what, $cond) { if ($cond) { $script:pass++; "  ok    3. $what" } else { $script:fail++; "  FAIL  3. $what" } }
+$js = [IO.File]::ReadAllText((Join-Path $app 'pages\review-laps.js'))
+Src 'review-laps.js exports mount(el, ctx, opts), unmount() and onDeck(cmd) by name (REVIEW''s card screen imports them)' ($js -match 'export function mount\(el, ctx, opts\)' -and $js -match 'export function unmount\(\)' -and $js -match 'export function onDeck\(cmd')
+Src 'no timer, no poller, no POST: no setInterval / setTimeout, no /workbench/cmd, no data.fetch, no method' ($js -notmatch 'setInterval|setTimeout|/workbench/cmd|data\.fetch|method:')
+Src 'no typing anywhere: no input, textarea, select or contenteditable' ($js -notmatch '<input|<textarea|<select|contenteditable')
+Src 'no mouse-only tooltips: no title= or :hover-only text' ($js -notmatch 'title=' )
+
+Section '4. design-lint'
+$lint = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'design-lint-test.ps1') 2>&1 | Out-String
+$mine = @($lint -split "`r?`n" | Where-Object { $_ -match 'review-laps' -and $_ -match 'FAIL' })
+$seatListed = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'design-lint-test.ps1')) -match 'review-laps\.css'
+if ($mine.Count -eq 0 -and $seatListed -and $lint -match 'passed') { $pass++; '  ok    4. design-lint: review-laps.js / .css are on the seat list and break no rule' } else { $fail++; '  FAIL  4. design-lint: ' + ($mine -join ' / ') + $(if (-not $seatListed) { ' (not on the seat list)' }) }
+
+# ---------------- one picture per state ----------------
+Section 'pictures'
+$states = [ordered]@{ 'two-laps' = "window.__state = 'two';"; 'this-lap-only' = "window.__state = 'one';"; 'no-full-lap' = "window.__state = 'nolap';";
+  'working' = "window.__state = 'working';"; 'offline' = "window.__state = 'two'; window.__offline = true;"; 'show-me-t5' = "window.__state = 'two'; window.__opts = { corner: 5 };";
+  'best-here' = "window.__state = 'ever';" }
+foreach ($s in $states.Keys) {
+  $png = Join-Path $shots "review-laps-$s.png"; Remove-Item $png -ErrorAction SilentlyContinue
+  $u = Page "$tmp\real" "s-$s" $states[$s] ''
+  $p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=4000', "--screenshot=$png", $u)) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\err-$s.txt" -RedirectStandardOutput "$tmp\so-$s.txt"
+  if (Test-Path $png) { $pass++; "  ok    picture: $png" } else { $fail++; "  FAIL  no picture for $s" }
+}
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+"$pass passed, $fail failed."
+if ($fail -gt 0 -or $pass -eq 0) { exit 1 }
