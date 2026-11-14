@@ -474,16 +474,19 @@ $spec = @(
 Drive-Laps $spec
 $null = Wait-For { $q = St; $q.pendingCuts -eq 0 -and $q.probing -eq 0 -and $q.busy -eq 0 -and @($q.clipList).Count -ge 2 } 40
 $s = St; $lg = Log-Since $l0
-$ids = @($s.clipList | Sort-Object { $_.lap } | ForEach-Object { $_.lap })
+# The sandbox clipList is never cleared between sections, and since W1-10 the pretend laps count, so sections 4 and 5
+# leave clips (laps 2, 3, 6, 7, 32) behind. Only look at clips whose lap started after this section began.
+$cl4b = @($s.clipList | Where-Object { [double]$_.lapStartMs -ge ($base4b - 1000) })
+$ids = @($cl4b | Sort-Object { $_.lap } | ForEach-Object { $_.lap })
 Check "clips exist for exactly laps 2 and 6 (got: $($ids -join ', '))" (($ids -join ',') -eq '2,6')
 Check 'lap 2 (the hitch before the line) was decided: clean, the session''s best, cut' (@($lg | Where-Object { $_ -match 'recorder: lap 2 8\.000 .* counted - the session''s best so far, cutting its clip' }).Count -eq 1)
-$cl2 = @($s.clipList | Where-Object { $_.lap -eq 2 })[0]
+$cl2 = @($cl4b | Where-Object { $_.lap -eq 2 })[0]
 Check 'its clip starts at the line the test sent, within 150 ms, and the offsets are in the sidecar' ($cl2 -and (Near $cl2.lapStartMs $script:lineAt[2] 150) -and $cl2.lapStartOffset -ge 0.9 -and (Near ($cl2.lapEndMs - $cl2.lapStartMs) 8000 250))
 $sy = if ($cl2) { Sync-Check $cl2 $cl2.lapStartOffset $cl2.lapStartMs $base4b } else { @{ ok = $false; best = 999; mapErr = 999 } }
 Check "and the frame at its lapStartOffset shows the lap start (nearest frame $([math]::Round($sy.best, 1)) ms away)" $sy.ok
 Check 'the lap counter jumping from 3 to 5 is reported ("dropped"), not swallowed' (@($lg | Where-Object { $_ -match 'recorder: lap 3 dropped \(the lap counter went from 3 to 5' }).Count -eq 1)
 Check 'a tow forward is not a fair lap: lap 5 is reported as reset or tow' (@($lg | Where-Object { $_ -match 'recorder: lap 5 .* not counted \(reset or tow\)' }).Count -eq 1)
-Check 'lap 6 is cut' (@($s.clipList | Where-Object { $_.lap -eq 6 }).Count -eq 1)
+Check 'lap 6 is cut' (@($cl4b | Where-Object { $_.lap -eq 6 }).Count -eq 1)
 Fake @{ IsOnTrack = 0 }
 $null = Wait-For { -not (St).running } 15
 $null = J '/vault/test/rec?cmd=off'
@@ -868,6 +871,8 @@ $null = J '/vault/test/rec?cmd=off'
 # =====================================================================================================
 if (Want 14) {
 Section '14. retention: keep the last 3, budgets, SAVED FULL, and a full disk pauses recording'
+# Since W1-1 the count/budget retention runs only while the sandbox is on (recorder.cs: if (testOn)).
+$null = J '/vault/test/rec?cmd=on&keep=120&seg=5&grace=2&minlap=3'
 # Remove only this section's fixtures; a session may still be finishing in the shared sandbox.
 New-Item -ItemType Directory -Force $sessDir,$savedDir | Out-Null
 $fixtureIds = @('sess-a','sess-b','sess-c','sess-d','sess-saved','sess-overflow')
