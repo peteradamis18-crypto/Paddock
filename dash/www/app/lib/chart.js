@@ -2,7 +2,7 @@
    in gold (it tells Peter where to look), then speed, pedals, steering, gear; corner bands and names along the top; one cursor line
    across every row; a readout column that always shows the cursor's values in big type (no mouse-only tooltips, he reads from the seat).
      Chart.mount(el, { x: { len, unit: 'm' }, rows: [{ key, label, unit, kind: 'line'|'step', min?, max?, weight?,
-                     series: [{ label, color: 'gold'|'ink'|'gain'|'loss'|..., data: Float32Array, alpha?, dash? }] }],
+                     series: [{ label, color: 'gold'|'ink'|'gain'|'loss'|..., data: Float32Array, alpha?, width? }] }],
                      corners: [{ n, label, p0, pa, p1 }], readout: el2 })      p0/pa/p1 are lap fractions (as /analysis/channels sends them)
      Chart.setCursor(m)  Chart.setRange(a, b)  Chart.zoomCorner(n)  Chart.zoomLap()  Chart.onCursor(fn)  Chart.update(rows)  Chart.unmount()
      Chart.fromPwb(arrayBuffer, { units: 'mph'|'km/h' }) -> rows (rows.x, rows.corners, rows.head ride along)
@@ -51,15 +51,29 @@ function fmt(row, v) {
 }
 
 // ---------- layout ----------
+// readout lines: two values a line (this lap, reference); a row is never shorter than its values side by side with its name
+const VAL_H = 42, LAB_H = 30;
+function valLines(r) { return Math.ceil(Math.max(1, r.series.length) / 2); }
 function layout() {
   const w = st.cv.clientWidth, h = st.cv.clientHeight;
   st.w = w; st.h = h;
   st.x0 = PAD_X; st.x1 = Math.max(PAD_X + 10, w - PAD_X);
   const top = BAND_H, bottom = h - AXIS_H, n = st.rows.length;
   const avail = Math.max(10, bottom - top - GAP * Math.max(0, n - 1));
-  const ws = st.rows.map(r => r.weight || WEIGHT[r.key] || 1), sum = ws.reduce((a, b) => a + b, 0) || 1;
+  const ws = st.rows.map(r => r.weight || WEIGHT[r.key] || 1), hs = ws.map(() => 0), fixed = ws.map(() => false);
+  for (let pass = 0; pass <= n; pass++) {
+    let free = avail, wsum = 0, changed = false;
+    st.rows.forEach((r, i) => { if (fixed[i]) free -= hs[i]; else wsum += ws[i]; });
+    st.rows.forEach((r, i) => {
+      if (fixed[i]) return;
+      hs[i] = Math.max(0, free) * ws[i] / (wsum || 1);
+      const need = valLines(r) * VAL_H + 4;
+      if (hs[i] < need) { hs[i] = need; fixed[i] = true; changed = true; }
+    });
+    if (!changed) break;
+  }
   let y = top;
-  st.box = st.rows.map((r, i) => { const hh = avail * ws[i] / sum, b = { key: r.key, y0: y, y1: y + hh }; y += hh + GAP; return b; });
+  st.box = st.rows.map((r, i) => { const b = { key: r.key, y0: y, y1: y + hs[i], tall: hs[i] >= LAB_H + valLines(r) * VAL_H }; y += hs[i] + GAP; return b; });
   placeReadout();
 }
 
@@ -123,52 +137,58 @@ function renderLayer() {
     // the row's floor, and zero where zero means something (delta, steering)
     g.globalAlpha = 1; g.fillStyle = st.col.line; g.fillRect(st.x0, Math.round(b.y1) - 1, st.x1 - st.x0, 1);
     if (yr[0] < 0 && yr[1] > 0) { g.fillStyle = st.col.dim; g.fillRect(st.x0, Math.round(yOf(0)), st.x1 - st.x0, 1); }
-    if (r.key === 'delta' && r.series[0]) shadeDelta(g, r.series[0].data, i0, i1, yOf);
+    if (r.key === 'delta' && r.series[0]) { columns(r.series[0].data, r.kind); shadeDelta(g, yOf); }
     r.series.forEach((s, j) => {
       if (!s.data) return;
       g.globalAlpha = s.alpha != null ? s.alpha : 1;
-      g.strokeStyle = colourOf(s.color || (j ? 'ink' : 'gold'));
-      g.lineWidth = s.width || (r.key === 'delta' ? 3.5 : j % 2 ? 2 : 2.5);
-      g.setLineDash(s.dash ? [8, 6] : []);
-      g.lineJoin = 'round';
-      g.beginPath();
-      if (r.kind === 'step') pathStep(g, s.data, i0, i1, yOf); else pathLine(g, s.data, i0, i1, yOf);
-      g.stroke();
+      const col = colourOf(s.color || (j ? 'ink' : 'gold')), wid = s.width || (r.key === 'delta' ? 4 : j % 2 ? 2.2 : 2.8);
+      if (r.kind === 'step') { g.strokeStyle = col; g.lineWidth = wid; g.lineJoin = 'miter'; g.beginPath(); pathStep(g, s.data, i0, i1, yOf); g.stroke(); return; }
+      columns(s.data, r.kind);
+      g.fillStyle = col; ribbon(g, yOf, wid / 2); g.fill();
     });
-    g.setLineDash([]); g.restore();
+    g.restore();
   });
   g.globalAlpha = 1;
   st.layerDirty = false; st.layers++;
   st.layerMs = performance.now() - t0;
 }
 
-// many samples per pixel: one min-max column per pixel (exact peaks, a few thousand path points at most)
-function pathLine(g, d, i0, i1, yOf) {
-  const perPx = (i1 - i0) / Math.max(1, xOf(i1 * st.step) - xOf(i0 * st.step));
-  let pen = false;
-  if (perPx <= 2) {
-    for (let i = i0; i <= i1; i++) {
-      const v = d[i]; if (!fin(v)) { pen = false; continue; }
-      const x = xOf(i * st.step), y = yOf(v);
-      if (pen) g.lineTo(x, y); else { g.moveTo(x, y); pen = true; }
-    }
-    return;
+// A trace is drawn as a ribbon, one filled shape per lap: for every pixel column the lowest and highest value the lap takes in it
+// (interpolated at the column's two edges plus every sample between), widened by half the line width. Exact peaks at any zoom, and
+// one fill instead of thousands of stroked joins: a stroked 4000-point lap with sensor noise cost 9 ms a frame here, the ribbon a
+// fraction of that. A NaN (a part lap that was not driven there) leaves a gap.
+function columns(d, kind) {
+  const W = Math.max(1, Math.ceil(st.x1 - st.x0));
+  if (!st.cLo || st.cLo.length < W) { st.cLo = new Float32Array(W); st.cHi = new Float32Array(W); }
+  const lo = st.cLo, hi = st.cHi, mpp = (st.b - st.a) / (st.x1 - st.x0), n = d.length;
+  const at = f => { if (f <= 0) return d[0]; if (f >= n - 1) return d[n - 1]; const i = Math.floor(f), a = d[i]; return a + (d[i + 1] - a) * (f - i); };
+  let fA = st.a / st.step, vA = at(fA);
+  for (let c = 0; c < W; c++) {
+    const fB = (st.a + (c + 1) * mpp) / st.step, vB = at(fB);
+    let l = vA < vB ? vA : vB, h = vA < vB ? vB : vA;
+    for (let i = Math.max(0, Math.ceil(fA)), e = Math.min(n - 1, Math.floor(fB)); i <= e; i++) { const v = d[i]; if (v < l) l = v; else if (v > h) h = v; else if (v !== v) l = NaN; }
+    if (vA !== vA || vB !== vB) l = NaN;
+    lo[c] = l; hi[c] = h; fA = fB; vA = vB;
   }
-  let col = Math.floor(xOf(i0 * st.step)), lo = Infinity, hi = -Infinity, first = NaN, last = NaN;
-  const flushCol = () => {
-    if (lo === Infinity) { pen = false; return; }
-    if (pen) g.lineTo(col, yOf(first)); else { g.moveTo(col, yOf(first)); pen = true; }
-    g.lineTo(col, yOf(lo)); g.lineTo(col, yOf(hi)); g.lineTo(col, yOf(last));
-  };
-  for (let i = i0; i <= i1; i++) {
-    const c = Math.floor(xOf(i * st.step));
-    if (c !== col) { flushCol(); col = c; lo = Infinity; hi = -Infinity; first = NaN; }
-    const v = d[i]; if (!fin(v)) continue;
-    if (lo === Infinity) first = v;
-    if (v < lo) lo = v; if (v > hi) hi = v; last = v;
-  }
-  flushCol();
+  st.cW = W;
 }
+function ribbon(g, yOf, half) {
+  const lo = st.cLo, hi = st.cHi, W = st.cW, x0 = st.x0;
+  g.beginPath();
+  let c = 0;
+  while (c < W) {
+    while (c < W && lo[c] !== lo[c]) c++;
+    if (c >= W) break;
+    let e = c; while (e + 1 < W && lo[e + 1] === lo[e + 1]) e++;
+    g.moveTo(x0 + c, yOf(hi[c]) - half);
+    for (let k = c; k <= e; k++) g.lineTo(x0 + k + 0.5, yOf(hi[k]) - half);
+    g.lineTo(x0 + e + 1, yOf(hi[e]) - half); g.lineTo(x0 + e + 1, yOf(lo[e]) + half);
+    for (let k = e; k >= c; k--) g.lineTo(x0 + k + 0.5, yOf(lo[k]) + half);
+    g.lineTo(x0 + c, yOf(lo[c]) + half); g.closePath();
+    c = e + 1;
+  }
+}
+
 function pathStep(g, d, i0, i1, yOf) {
   let prev = NaN, pen = false;
   for (let i = i0; i <= i1; i++) {
@@ -179,17 +199,20 @@ function pathStep(g, d, i0, i1, yOf) {
     prev = v;
   }
 }
-// where this lap is behind (delta up) the band under the line is loss red, where it is ahead gain green
-function shadeDelta(g, d, i0, i1, yOf) {
-  const z = yOf(0);
-  for (const [sign, col] of [[1, st.col.loss], [-1, st.col.gain]]) {
-    g.save(); g.beginPath();
-    if (sign > 0) g.rect(st.x0, 0, st.x1 - st.x0, z); else g.rect(st.x0, z, st.x1 - st.x0, st.h);
-    g.clip();
-    g.beginPath(); g.moveTo(xOf(i0 * st.step), z); pathLine(g, d, i0, i1, yOf); g.lineTo(xOf(i1 * st.step), z); g.closePath();
-    g.globalAlpha = 0.28; g.fillStyle = col; g.fill();
-    g.restore();
+// where this lap is behind (delta above zero) the band down to zero is loss red, where it is ahead gain green (from columns())
+function shadeDelta(g, yOf) {
+  const lo = st.cLo, hi = st.cHi, W = st.cW, x0 = st.x0, z = yOf(0);
+  g.globalAlpha = 0.28;
+  for (const [loss, col] of [[true, st.col.loss], [false, st.col.gain]]) {
+    g.beginPath(); g.moveTo(x0, z);
+    for (let c = 0; c < W; c++) {
+      const v = (lo[c] + hi[c]) / 2, y = v === v ? yOf(v) : z;
+      g.lineTo(x0 + c + 0.5, loss ? Math.min(y, z) : Math.max(y, z));
+    }
+    g.lineTo(x0 + W, z); g.closePath();
+    g.fillStyle = col; g.fill();
   }
+  g.globalAlpha = 1;
 }
 
 // ---------- each frame: the layer plus the cursor ----------
@@ -223,42 +246,54 @@ function compose() {
 
 // ---------- the readout column ----------
 const CSS = '.chro{position:relative;font-family:var(--font);font-variant-numeric:tabular-nums}' +
-  '.chro-top,.chro-row{position:absolute;left:0;right:0;display:flex;flex-wrap:wrap;align-items:baseline;align-content:center;column-gap:20px;overflow:hidden}' +
-  '.chro-top{top:0}.chro-m{font-size:var(--t-read);color:var(--ink)}.chro-c{font-size:var(--t-body);color:var(--muted);letter-spacing:var(--track)}' +
-  '.chro-l{font-size:var(--t-body);color:var(--muted);letter-spacing:var(--track);text-transform:uppercase;font-weight:600;flex:0 0 100%;line-height:1.15}' +
+  '.chro-top,.chro-row,.chro-key{position:absolute;left:0;right:0;display:flex;overflow:hidden}' +
+  '.chro-top{top:0;align-items:center;column-gap:20px}.chro-m{font-size:var(--t-read);color:var(--ink)}' +
+  '.chro-c{font-size:var(--t-body);color:var(--muted);letter-spacing:var(--track)}' +
+  '.chro-row{flex-direction:column;justify-content:center}' +
+  '.chro-row.flat{flex-direction:row;align-items:center;justify-content:space-between;column-gap:16px}' +
+  '.chro-l{font-size:var(--t-body);color:var(--muted);letter-spacing:var(--track);text-transform:uppercase;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
   '.chro-l i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim);margin-left:8px}' +
-  '.chro-row.flat .chro-l{flex:0 0 150px}' +
-  '.chro-v{font-size:var(--t-read);line-height:1.1;min-width:3.2em;text-align:right}';
+  '.chro-vals{display:grid;grid-template-columns:repeat(2,2.8em);column-gap:20px;justify-content:end;font-size:var(--t-read);flex:none}' +
+  '.chro-v{font-size:var(--t-read);line-height:1.15;text-align:right;white-space:nowrap}.chro-v.wide{grid-column:span 2}' +
+  '.chro-key{bottom:0;align-items:center;justify-content:flex-end}' +
+  '.chro-k{font-size:var(--t-body);text-align:right;letter-spacing:var(--track);text-transform:uppercase;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+function tokName(c) { return String(c || 'ink').replace(/^var\(--|\)$/g, '').replace(/^--/, ''); }
 function placeReadout() {
   const ro = st.readout; if (!ro) return;
   if (!st.roBuilt) {
     if (!document.getElementById('chro-css')) { const s = document.createElement('style'); s.id = 'chro-css'; s.textContent = CSS; document.head.appendChild(s); }
+    const mk = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; if (text != null) e.textContent = text; return e; };
     ro.classList.add('chro'); ro.textContent = '';
-    st.ro = { top: document.createElement('div'), rows: [] };
-    st.ro.top.className = 'chro-top';
-    st.ro.m = document.createElement('span'); st.ro.m.className = 'chro-m';
-    st.ro.c = document.createElement('span'); st.ro.c.className = 'chro-c';
+    st.ro = { top: mk('div', 'chro-top'), m: mk('span', 'chro-m'), c: mk('span', 'chro-c'), rows: [], key: null };
     st.ro.top.append(st.ro.m, st.ro.c); ro.appendChild(st.ro.top);
     st.rows.forEach(r => {
-      const d = document.createElement('div'); d.className = 'chro-row'; d.dataset.key = r.key;
-      const l = document.createElement('span'); l.className = 'chro-l'; l.textContent = r.label || r.key.toUpperCase();
-      if (r.unit) { const u = document.createElement('i'); u.textContent = r.unit; l.appendChild(u); }
-      d.appendChild(l);
+      const d = mk('div', 'chro-row'); d.dataset.key = r.key;
+      const l = mk('span', 'chro-l', r.label || r.key.toUpperCase());
+      if (r.unit) l.appendChild(mk('i', '', r.unit));
+      const box = mk('div', 'chro-vals');
       const vals = r.series.map((s, j) => {
-        const v = document.createElement('span'); v.className = 'chro-v'; v.dataset.series = String(j);
-        v.style.color = 'var(--' + String(s.color || (j ? 'ink' : 'gold')).replace(/^var\(--|\)$/g, '').replace(/^--/, '') + ')';
+        const v = mk('span', 'chro-v' + (r.series.length === 1 ? ' wide' : '')); v.dataset.series = String(j);
+        v.style.color = 'var(--' + tokName(s.color || (j ? 'ink' : 'gold')) + ')';
         if (s.alpha != null && s.alpha < 1) v.style.opacity = String(Math.max(0.6, s.alpha));
-        d.appendChild(v); return v;
+        box.appendChild(v); return v;
       });
-      ro.appendChild(d); st.ro.rows.push({ el: d, vals });
+      d.append(l, box); ro.appendChild(d); st.ro.rows.push({ el: d, vals });
     });
+    // which column is which lap, once, under the values (from the first row that has both laps)
+    const pair = st.rows.find(r => r.key !== 'delta' && r.series.length === 2);
+    if (pair) {
+      const key = mk('div', 'chro-key'), box = mk('div', 'chro-vals');
+      pair.series.forEach((s, j) => { const k = mk('span', 'chro-k', s.label || ''); k.style.color = 'var(--' + tokName(s.color || (j ? 'ink' : 'gold')) + ')'; box.appendChild(k); });
+      key.appendChild(box); ro.appendChild(key); st.ro.key = key;
+    }
     st.roBuilt = true;
   }
   ro.style.height = st.h + 'px';
   st.ro.top.style.height = BAND_H + 'px';
+  if (st.ro.key) st.ro.key.style.height = AXIS_H + 'px';
   st.box.forEach((b, k) => {
     const e = st.ro.rows[k].el; e.style.top = b.y0 + 'px'; e.style.height = (b.y1 - b.y0) + 'px';
-    e.classList.toggle('flat', b.y1 - b.y0 < 74);     // too short for two lines: the name goes beside the values
+    e.classList.toggle('flat', !b.tall);     // too short for the name over the values: the name goes beside them
   });
 }
 function writeReadout() {
@@ -404,7 +439,7 @@ export const Chart = {
     const lapLabel = (info, word) => word + (info && info.n != null ? ' ' + info.n : '');
     const two = (k, f, extra) => {
       const s = [{ label: lapLabel(head.lap, 'Lap'), color: 'gold', data: map(A(k), f) }];
-      if (has) s.push({ label: lapLabel(head.ref, 'Reference'), color: 'ink', data: map(R(k), f) });
+      if (has) s.push({ label: lapLabel(head.ref, 'Lap'), color: 'ink', data: map(R(k), f) });
       return s.map(x => Object.assign(x, extra || {}));
     };
     const rows = [];
@@ -416,8 +451,8 @@ export const Chart = {
     if (ok('Speed')) rows.push({ key: 'speed', label: 'SPEED', unit: mph ? 'mph' : 'km/h', kind: 'line', series: two('Speed', mph ? 2.236936 : 3.6) });
     if (ok('Throttle') || ok('Brake')) {
       const s = [];
-      if (ok('Throttle')) { s.push({ label: 'throttle', color: 'gain', data: map(A('Throttle'), 100) }); if (has) s.push({ label: 'throttle, reference', color: 'gain', alpha: 0.45, dash: true, data: map(R('Throttle'), 100) }); }
-      if (ok('Brake')) { s.push({ label: 'brake', color: 'loss', data: map(A('Brake'), 100) }); if (has) s.push({ label: 'brake, reference', color: 'loss', alpha: 0.45, dash: true, data: map(R('Brake'), 100) }); }
+      if (ok('Throttle')) { s.push({ label: 'throttle', color: 'gain', data: map(A('Throttle'), 100) }); if (has) s.push({ label: 'throttle, reference', color: 'gain', alpha: 0.5, data: map(R('Throttle'), 100) }); }
+      if (ok('Brake')) { s.push({ label: 'brake', color: 'loss', data: map(A('Brake'), 100) }); if (has) s.push({ label: 'brake, reference', color: 'loss', alpha: 0.5, data: map(R('Brake'), 100) }); }
       rows.push({ key: 'pedals', label: 'PEDALS', unit: '%', kind: 'line', min: 0, max: 100, series: s });
     }
     if (ok('SteeringWheelAngle')) rows.push({ key: 'steer', label: 'STEERING', unit: 'deg', kind: 'line', series: two('SteeringWheelAngle', 57.29578) });
