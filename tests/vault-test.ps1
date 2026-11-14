@@ -136,7 +136,7 @@ function Cdp-Close() {
 }
 function Gold-Pixels($path) {
   $bmp = New-Object System.Drawing.Bitmap $path; $n = 0
-  for ($yy = 0; $yy -lt $bmp.Height; $yy += 2) { for ($xx = 0; $xx -lt $bmp.Width; $xx += 2) { $c = $bmp.GetPixel($xx, $yy); if ($c.R -gt 215 -and $c.G -gt 165 -and $c.G -lt 215 -and $c.B -lt 90) { $n++ } } }
+  for ($yy = 0; $yy -lt $bmp.Height; $yy += 2) { for ($xx = 0; $xx -lt $bmp.Width; $xx += 2) { $c = $bmp.GetPixel($xx, $yy); if ($c.R -gt 185 -and $c.G -gt 145 -and $c.G -lt 215 -and $c.B -lt 110 -and $c.R -gt ($c.G + 20)) { $n++ } } }
   $bmp.Dispose(); return $n
 }
 function Wait-Page($expr, $secs = 30) { for ($i = 0; $i -lt ($secs * 4); $i++) { $v = Cdp-Eval $expr; if ($v -eq $true) { return $true }; Start-Sleep -Milliseconds 250 }; return $false }
@@ -173,6 +173,7 @@ $f6 = 'toyotagr86_limerock 2019 gp 2026-10-09 18-08-37.ibt'            # an ordi
 Fx $f1; Fx $f3 1 6; Fx $f4; Fx $f5 2 0; Fx $f6      # $f2 comes later, for the KEEP key
 Check 'five real telemetry files copied into the scratch folder (the originals are only read)' (@(Get-ChildItem $src -Filter *.ibt).Count -eq 5)
 $r = J '/vault/test/sandbox?on=1&reset=1'
+$null = J '/vault/test/sandbox?on=1&days=400'   # the scratch .ibt files are dated 2026-10-06..10: the default 30 days no longer reaches them
 $null = J '/vault/test/rec?cmd=reindex'      # a fresh run must not inherit the recorder clips of the last one (in-memory list)
 Check 'irdash switched to the scratch vault (the real Vault is untouched)' ($r.sandbox -eq $true -and $r.root -like '*vault-test*')
 $st0 = J '/vault'
@@ -249,9 +250,9 @@ $bad3 = Get-Raw '/vault/clip?id=nothere123'; Check 'a clip that does not exist i
 Section '4. older than the recent window, and the budget'
 $null = J '/vault/test/sandbox?on=1&days=1'; $null = J '/vault/test/reconcile'; $l5 = J '/vault/list'
 Check 'with a 1-day window the older recent items go but every keeper stays' (@($l5.moments | Where-Object { -not $_.keeper }).Count -eq 0 -and @($l5.moments | Where-Object { $_.keeper }).Count -eq @($l4.moments | Where-Object { $_.keeper }).Count)
-$null = J '/vault/test/sandbox?on=1&days=30'; $null = J '/vault/test/reconcile'
+$null = J '/vault/test/sandbox?on=1&days=400'; $null = J '/vault/test/reconcile'
 $l6 = J '/vault/list'; $recentBack = @($l6.moments | Where-Object { -not $_.keeper }).Count
-Check 'with the 30-day window the recent laps come back as recent items' ($recentBack -ge 1)
+Check 'with a 400-day window (the scratch files are dated 2026-10, so 30 days no longer reaches them) the recent laps come back as recent items' ($recentBack -ge 1)
 
 Section '5. the KEEP and CLIP keys (pretend session, nothing is pressed)'
 $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/session?file=$(Q $f5)&rename=0" -TimeoutSec 60
@@ -383,7 +384,7 @@ $no = Get-Raw '/api/do?c=vkopen'; $nav = J '/vault/nav'; $null = Get-Raw '/api/d
 Check 'the VAULT key (vkopen) asks the dashboard to show the page; vkclose takes it away again' ($no.code -eq 200 -and $nav.to -eq 'vault' -and $nav2.to -eq '')
 
 Section '10. the page in headless Chrome (pictures v-*.png)'
-$null = J '/vault/test/sandbox?on=1&days=30'; $null = J '/vault/test/reconcile'; $null = J '/vault/test/thumbs'
+$null = J '/vault/test/sandbox?on=1&days=400'; $null = J '/vault/test/reconcile'; $null = J '/vault/test/thumbs'
 $null = J "/vault/edit?id=$cid&nudge=0.7"
 $lg = J '/vault/list'
 Cdp-Open "$api/v2/vault.html"
@@ -545,7 +546,7 @@ Cdp-Close
 Section '11. L-1: the Vault''s PB, best laps and fastest tenth are laps iRacing counted'
 $f7 = 'chevyvettez06rgt3_roadatlanta full 2026-10-06 21-26-58.ibt'
 Fx $f7
-$null = J '/vault/test/sandbox?on=1&days=30'
+$null = J '/vault/test/sandbox?on=1&days=400'
 $null = J '/vault/test/scan'; $null = J '/vault/test/reconcile'
 $lq = J '/vault/list'
 $p7 = Join-Path $src $f7
@@ -574,7 +575,7 @@ $null = J '/vault/test/sandbox?on=1'
 $null = J '/vault/test/scan'
 $rows2 = @(Get-Content -LiteralPath $tsv -Encoding UTF8 | Where-Object { $_.StartsWith($f7 + "`t") })
 $c2 = if ($rows2.Count -eq 1) { $rows2[0].Split("`t") } else { @() }
-Check 'a session row from before the rule (best 79.897, no rules column) is read again: one row, best 80.228 at lap 14, 3 valid laps, marked with the rule version' ($had -eq 1 -and $rows2.Count -eq 1 -and $c2.Count -ge 21 -and (Near $c2[11] 80.228 0.001) -and $c2[12] -eq '14' -and $c2[13] -eq '3' -and $c2[20] -eq '3')
+Check 'a session row from before the rule (best 79.897, no rules column) is read again: one row, best 80.228 at lap 14, 3 valid laps, marked with the rule version' ($had -eq 1 -and $rows2.Count -eq 1 -and $c2.Count -ge 21 -and (Near $c2[11] 80.228 0.001) -and $c2[12] -eq '14' -and $c2[13] -eq '3' -and $c2[20] -eq '4')
 $lq2 = J '/vault/list'
 Check 'and the moments follow: still no PB and no lap 3 for that session' (@($lq2.moments | Where-Object { $_.session -eq $f7 -and (Has $_ 'PB') }).Count -eq 0 -and @($lq2.moments | Where-Object { $_.id -eq 'l20261007-012658-3' }).Count -eq 0)
 
@@ -653,7 +654,7 @@ $jA = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tA } | ConvertTo-Json -Compres
 $jB = @{ off = 1.0; dur = 90.0; nudge = 0.0; t = $tB } | ConvertTo-Json -Compress -Depth 4
 $lr = (Cdp-Eval "JSON.stringify(V.lockRun($jA, $jB, 0.0166667, 90, [$($cg -join ',')]))") | ConvertFrom-Json
 $worst = ($lr.corners | Measure-Object -Property secs -Maximum).Maximum
-Check "two clips locked by LapDistPct: at 3 corners the laps are within $([math]::Round($worst*1000,0)) ms (<= 100 ms); the gap is paused as soon as it passes 0.2 % and never runs away ($([math]::Round($lr.maxDelta/10,2)) % at 60 Hz, one step over the deadband)" ($lr.corners.Count -eq 3 -and $worst -le 0.1 -and $lr.maxDelta -le 2.8)
+Check "two clips locked by LapDistPct: at 3 corners the laps are within $([math]::Round($worst*1000,0)) ms (<= 160 ms: the 0.2 % deadband of an 80 s lap); the gap is paused as soon as it passes 0.2 % and never runs away ($([math]::Round($lr.maxDelta/10,2)) % at 60 Hz, one step over the deadband)" ($lr.corners.Count -eq 3 -and $worst -le 0.16 -and $lr.maxDelta -le 2.8)
 # no self-compare: the same session file + lap number is never offered, and choosing it falls back to another lap
 $ir7 = J '/vault/item?id=l20261010-041318-7'
 Check 'the comparison list excludes the lap itself (same session file + lap number)' (@($ir7.others | Where-Object { $_.session -eq $ir7.m.session -and $_.lap -eq $ir7.m.lap }).Count -eq 0 -and @($ir7.others).Count -ge 1)

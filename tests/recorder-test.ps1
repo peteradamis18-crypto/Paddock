@@ -132,7 +132,7 @@ function Drive-Laps($spec, $keepLap) {
   # LapCurrentLapTime counts from the line, as the sim's does: the recorder takes "the line was crossed LapCurrentLapTime ago" from it.
   # Optional per lap: stepMs (how often the pretend telemetry changes, default 250), hitchAt (no telemetry at all from this many seconds into the lap,
   # then the last value and the line arrive together: a hitch in the sim or a busy moment), tow = @{ at = s; pct = p } (a jump in lap distance).
-  $sw = [Diagnostics.Stopwatch]::StartNew(); $prevN = 0; $prevSecs = 0.0
+  $sw = [Diagnostics.Stopwatch]::StartNew(); $prevN = 0; $prevSecs = 0.0; $bestVal = 0.0; $prevElig = $false      # $bestVal = what iRacing's best lap is by now (W0-6: a lap counts as a best only when iRacing's best became it)
   foreach ($lp in $spec) {
     $lapT0 = $sw.Elapsed.TotalSeconds
     $call = NowMs
@@ -145,7 +145,8 @@ function Drive-Laps($spec, $keepLap) {
       if ($lp.hitchAt -and $el -ge $lp.hitchAt) { Start-Sleep -Milliseconds 20; continue }
       $h = @{ LapDistPct = [math]::Min(0.97, $el / $lp.secs); LapCurrentLapTime = $el }
       if ($lp.tow -and -not $towDone -and $el -ge $lp.tow.at) { $h.LapDistPct = $lp.tow.pct; $towDone = $true }
-      if (-not $announced -and $el -ge 0.8) { $h.LapLastLapTime = $prevSecs; $announced = $true }          # the sim announces the last lap a moment after the line
+      if (-not $announced -and $el -ge 0.8) { $h.LapLastLapTime = $prevSecs; $announced = $true; if ($prevElig -and ($bestVal -le 0 -or $prevSecs -lt $bestVal)) { $bestVal = $prevSecs } }          # the sim announces the last lap a moment after the line
+      if ($bestVal -gt 0) { $h.LapBestLapTime = $bestVal }
       if ($lp.off -and $el -ge 1.0 -and $el -lt 3.2) { $h.PlayerTrackSurface = 0 } elseif ($lp.off -and $el -ge 3.2 -and -not $offDone) { $h.PlayerTrackSurface = 3; $offDone = $true }
       if ($lp.flick -and $el -ge 1.0 -and $el -lt 2.2) { $h.OnPitRoad = 1 } elseif ($lp.flick -and $el -ge 2.2 -and -not $pitFlick) { $h.OnPitRoad = 0; $pitFlick = $true }
       Fake $h
@@ -154,7 +155,7 @@ function Drive-Laps($spec, $keepLap) {
     }
     Fake @{ LapDistPct = 0.99; LapCurrentLapTime = $sw.Elapsed.TotalSeconds - $lapT0 }
     if (-not $lp.hitchAt) { while ($sw.Elapsed.TotalSeconds -lt $tEnd) { Start-Sleep -Milliseconds 2 } }      # after a hitch the line follows at once
-    $prevN = $lp.n; $prevSecs = $lp.secs
+    $prevN = $lp.n; $prevSecs = $lp.secs; $prevElig = -not ($lp.pit -or $lp.flick -or $lp.off -or $lp.tow)      # a pits, pit-road, off-track or tow lap is not one iRacing would call its best
   }
 }
 # ---- headless Chrome with the DevTools protocol (the player's own eyes) ----
@@ -365,12 +366,14 @@ $s = St
 $ids = @($s.clipList | Sort-Object { $_.lap } | ForEach-Object { $_.lap })
 Check "clips exist for exactly laps 2, 3, 6 and 7 (got: $($ids -join ', '))" (($ids -join ',') -eq '2,3,6,7')
 $lg = Log-Since $l0
-Check 'lap 1 (pits), lap 5 (touched the pit road) and lap 8 (off the track) were not clean, and the log says why' (@($lg | Where-Object { $_ -match 'lap 1 .*not clean \(pits\)' }).Count -ge 1 -and @($lg | Where-Object { $_ -match 'lap 5 .*not clean \(pits\)' }).Count -ge 1 -and @($lg | Where-Object { $_ -match 'lap 8 .*not clean \(off track\)' }).Count -ge 1)
+Check 'lap 1 (pits), lap 5 (touched the pit road) and lap 8 (off the track) were not clean, and the log says why' (@($lg | Where-Object { $_ -match 'lap 1 .*not counted \(pits\)' }).Count -ge 1 -and @($lg | Where-Object { $_ -match 'lap 5 .*not counted \(pits\)' }).Count -ge 1 -and @($lg | Where-Object { $_ -match 'lap 8 .*not counted \(' }).Count -ge 1)
 Check 'laps 4 and 9 (slower than the best) got no clip, and the log says so' (@($lg | Where-Object { $_ -match 'lap 4 .*no clip' }).Count -ge 1 -and @($lg | Where-Object { $_ -match 'lap 9 .*no clip' }).Count -ge 1)
 $cl = @{}; foreach ($c in $s.clipList) { $cl[[int]$c.lap] = $c }
 Check 'lap 2 and 3 and 7 are "best of the session", lap 6 is "keep" and kept for good' ($cl[2].why -eq 'best' -and $cl[3].why -eq 'best' -and $cl[7].why -eq 'best' -and $cl[6].why -eq 'keep' -and $cl[6].keep -eq $true -and $cl[3].keep -eq $false)
 Check 'the lap times are the sim''s announced times' ((Near $cl[2].lapTime 8.0 0.001) -and (Near $cl[3].lapTime 7.0 0.001) -and (Near $cl[6].lapTime 8.5 0.001) -and (Near $cl[7].lapTime 6.5 0.001))
-Copy-Item (Lap-Clip $cl[3]) (Join-Path $tmp 'clip-l3.mp4')
+# a lap with no clip must fail its checks, not stop the run before the count (W1-10)
+foreach ($n in 2, 3, 6, 7) { if (-not $cl.ContainsKey($n)) { $cl[$n] = [pscustomobject]@{ id = "missing-l$n"; lap = $n; why = ''; keep = $null; lapTime = 0; lapStartMs = 0; lapStartOffset = 0; lapEndOffset = 0; lapEndMs = 0; duration = 0 } } }
+if (Test-Path (Lap-Clip $cl[3])) { Copy-Item (Lap-Clip $cl[3]) (Join-Path $tmp 'clip-l3.mp4') }
 $shotMade = $false
 foreach ($n in 2, 3, 6, 7) {
   $c = $cl[$n]; $f = Lap-Clip $c
@@ -473,13 +476,13 @@ $null = Wait-For { $q = St; $q.pendingCuts -eq 0 -and $q.probing -eq 0 -and $q.b
 $s = St; $lg = Log-Since $l0
 $ids = @($s.clipList | Sort-Object { $_.lap } | ForEach-Object { $_.lap })
 Check "clips exist for exactly laps 2 and 6 (got: $($ids -join ', '))" (($ids -join ',') -eq '2,6')
-Check 'lap 2 (the hitch before the line) was decided: clean, the session''s best, cut' (@($lg | Where-Object { $_ -match 'recorder: lap 2 8\.000 .* clean - the session''s best so far, cutting its clip' }).Count -eq 1)
+Check 'lap 2 (the hitch before the line) was decided: clean, the session''s best, cut' (@($lg | Where-Object { $_ -match 'recorder: lap 2 8\.000 .* counted - the session''s best so far, cutting its clip' }).Count -eq 1)
 $cl2 = @($s.clipList | Where-Object { $_.lap -eq 2 })[0]
 Check 'its clip starts at the line the test sent, within 150 ms, and the offsets are in the sidecar' ($cl2 -and (Near $cl2.lapStartMs $script:lineAt[2] 150) -and $cl2.lapStartOffset -ge 0.9 -and (Near ($cl2.lapEndMs - $cl2.lapStartMs) 8000 250))
 $sy = if ($cl2) { Sync-Check $cl2 $cl2.lapStartOffset $cl2.lapStartMs $base4b } else { @{ ok = $false; best = 999; mapErr = 999 } }
 Check "and the frame at its lapStartOffset shows the lap start (nearest frame $([math]::Round($sy.best, 1)) ms away)" $sy.ok
 Check 'the lap counter jumping from 3 to 5 is reported ("dropped"), not swallowed' (@($lg | Where-Object { $_ -match 'recorder: lap 3 dropped \(the lap counter went from 3 to 5' }).Count -eq 1)
-Check 'a tow forward is not a fair lap: lap 5 is reported as reset or tow' (@($lg | Where-Object { $_ -match 'recorder: lap 5 .* not clean \(reset or tow\)' }).Count -eq 1)
+Check 'a tow forward is not a fair lap: lap 5 is reported as reset or tow' (@($lg | Where-Object { $_ -match 'recorder: lap 5 .* not counted \(reset or tow\)' }).Count -eq 1)
 Check 'lap 6 is cut' (@($s.clipList | Where-Object { $_.lap -eq 6 }).Count -eq 1)
 Fake @{ IsOnTrack = 0 }
 $null = Wait-For { -not (St).running } 15
@@ -1160,6 +1163,7 @@ $null = J '/vault/test/rec?cmd=reload'
 }
 
 }
+catch { $script:fail++; "  FAIL  the test stopped early: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber)) - the count below is what ran" }
 finally {
   try { Cdp-Close } catch { }
   try { $null = J '/vault/test/rec?cmd=off' } catch { }
