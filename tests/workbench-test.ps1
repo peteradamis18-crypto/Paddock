@@ -297,6 +297,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $hdr = Cdp-Eval 'document.getElementById("vs").textContent'
   Check 'the header shows this lap 1:19.549, the reference 1:19.575 and the gap' ($hdr -like '*1:19.549*' -and $hdr -like '*1:19.575*' -and $hdr -like '*GAP*')
   Check 'the Workbench header shows the conditions from the selected lap, including wind direction' ((Cdp-Eval 'document.getElementById("mode").textContent') -match 'Air.*°C.*Track.*°C.*Wind.*(m/s|mph).*°.*(Clear|cloudy|Overcast).*(Dry|wet|Soaked)')
+  Note ('conditions line: ' + (Cdp-Eval '(function(){var m=document.getElementById("mode"),n=document.getElementById("nav"),a=m.getBoundingClientRect(),b=n.getBoundingClientRect();return "scroll "+m.scrollWidth+" client "+m.clientWidth+" bottom "+a.bottom+" nav top "+b.top+" text: "+m.textContent})()'))
   Check 'the conditions line fits above the lap navigator without clipping or overlap' (Cdp-Eval '(function(){var m=document.getElementById("mode"),n=document.getElementById("nav"),a=m.getBoundingClientRect(),b=n.getBoundingClientRect();return m.scrollWidth<=m.clientWidth&&a.bottom<=b.top})()')
   $st = Cdp-Json 'WB.state'
   Check 'the page opens on the apex of the corner that cost the most (the cursor is inside a corner)' ($st.cur -gt 0 -and (Cdp-Eval 'document.querySelector(".ph b") ? document.querySelector(".ph b").textContent : ""') -match '^T\d|Esses')
@@ -439,8 +440,8 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
     $s2 = Cdp-Json 'WB.state'; if ($s2.cur -ne $keep.cur -or $s2.z0 -ne $keep.z0 -or $s2.z1 -ne $keep.z1) { $same = $false; Note "the shared state moved on $p : cursor $($s2.cur) window $($s2.z0)..$($s2.z1)" }
   }
   Check 'cursor and zoom window are identical after going through all three pages and back' ($same -and $keep.cur -eq 3400)
-  Cdp-Key '3' 'Digit3' '3'; Start-Sleep -Milliseconds 250
-  Check 'the key 3 opens the third tab (BRAKING)' ((Cdp-Json 'WB.state').page -eq 'braking')
+  Cdp-Key '2' 'Digit2' '2'; Start-Sleep -Milliseconds 250
+  Check 'the key 2 opens the second tab (BRAKING; W4-5 left DRIVER, BRAKING, SPLITS, RACE)' ((Cdp-Json 'WB.state').page -eq 'braking')
 
   Section '4c. BRAKING'
   $null = Cdp-Eval 'WB.cmd("page","driver"); WB.cmd("zoom-reset"); WB.cmd("cursor", WB.data().worst.c.ia); WB.cmd("page","braking")'; Start-Sleep -Milliseconds 700
@@ -586,7 +587,9 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $wbSrc = Get-Content -LiteralPath (Join-Path $root 'dash\www\v2\workbench.js') -Raw
   Check 'lap 2 (timed, off-track record) is dim with the word OFF in the strip; the strip opens a lap by lapOpen (iRacing timed it), the best marker and the counts use lapCounts (iRacing counted it)' ($s2.t -match 'L2\s+1:20\.590\s+OFF$' -and $s2.c -match '\bout\b' -and $s2.c -notmatch '\bpb\b' -and $wbSrc -match "if \(lapOpen\(l\) && l\.n !== A\.lap\) d\.addEventListener\('click'" -and $wbSrc -match "laps\.filter\(lapCounts\)\.map\(function \(l\) \{ return l\.time; \}\)" -and $wbSrc -match "function lapOpen\(l\) \{ var r = sessLap\(l\); return r \? \(r\.timed != null \? !!r\.timed : !!r\.valid\)")
   $chips = @(Cdp-List '[].map.call(document.querySelectorAll("table.sp td.tm i"),function(i){var r=i.getBoundingClientRect(),c=i.parentNode.getBoundingClientRect(),n=i.parentNode.nextElementSibling.getBoundingClientRect();return {s:i.textContent,h:r.height,right:r.right,cell:c.right,nxt:n.left}})')
-  Check 'the flag chips (OUT, IN, OFF, INVALID ...) sit on one line inside the TIME cell and clear of the S1 column' (@($chips).Count -ge 4 -and (@($chips | Where-Object { $_.s -eq 'INVALID' }).Count -eq 1) -and @($chips | Where-Object { $_.h -gt 22 -or $_.right -gt $_.cell + 0.5 -or $_.right -gt $_.nxt + 0.5 }).Count -eq 0)
+  Note ('flag chips: ' + ((@($chips) | ForEach-Object { '{0} h {1:n1} right {2:n1} cell {3:n1} next {4:n1}' -f $_.s, $_.h, $_.right, $_.cell, $_.nxt }) -join '; '))
+  # W4-5: the chips are 20 px text now (24 px high on one line; two lines would be 48): one line is up to 30 px
+  Check 'the flag chips (OUT, IN, OFF, INVALID ...) sit on one line inside the TIME cell and clear of the S1 column' (@($chips).Count -ge 4 -and (@($chips | Where-Object { $_.s -eq 'INVALID' }).Count -eq 1) -and @($chips | Where-Object { $_.h -gt 30 -or $_.right -gt $_.cell + 0.5 -or $_.right -gt $_.nxt + 0.5 }).Count -eq 0)
   $nTxt = Cdp-Eval '[].map.call(document.querySelectorAll(".nt"),function(t){return t.textContent}).filter(function(s){return /^LAPS/.test(s)})[0]'
   Note "LAPS tile: $nTxt"
   Check 'the LAPS tile counts the laps that do not count by the words on the rows (OFF 1 · INVALID 1 ...) and no longer says "off track" for all of them' ($nTxt -match 'INVALID 1' -and $nTxt -notmatch 'off track')
@@ -685,24 +688,25 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Check 'a channel the car''s file lacks (dcThrottleShape) is refused in plain words and adds no row' ($note -like '*No "dcThrottleShape"*' -and [int](Cdp-Eval 'WB.state.extra.length') -eq $rowsBefore)
   Cdp-Key 'Escape' 'Escape' ''; Start-Sleep -Milliseconds 150
   Check 'Esc closes the picker' (-not (Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0'))
-  foreach ($q in 'long g', 'ride height rf') {
+  # W4-5: at a full 1080 the DRIVER stack gives 48 px to the foot links (SQ), so it takes 3 added rows, not 4 (stackCap: (678 - 30) / 60 - 7)
+  foreach ($q in @('long g')) {
     $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 120
     $null = Cdp-Eval ('(function(){var i=document.querySelector(".picker input");i.value="' + $q + '";i.dispatchEvent(new Event("input"))})()'); Start-Sleep -Milliseconds 120
     Cdp-Key 'Enter' 'Enter' ''; Start-Sleep -Milliseconds 300
   }
   $info = Cdp-Json '(function(){var t=WB.displays().filter(function(d){return d.kind==="traces"})[0];return {n:t.rows.length,min:Math.min.apply(null,t.rows.map(function(r){return r.h})),bottom:t.bottom,boxH:t.box.h,extra:WB.state.extra.length}})()'
-  Note "DRIVER with 4 added channels: $($info.n) rows, the smallest $($info.min) px, bottom at $([math]::Round($info.bottom)) of $($info.boxH)"
-  Check 'with 4 added rows (the most the page takes) all 11 rows fit: none under 44 px and the axis stays inside the box' ($info.n -eq 11 -and $info.extra -eq 4 -and $info.min -ge 44 -and $info.bottom -le $info.boxH)
-  Check-Layout 'DRIVER with 4 added channels'
+  Note "DRIVER with 3 added channels: $($info.n) rows, the smallest $($info.min) px, bottom at $([math]::Round($info.bottom)) of $($info.boxH)"
+  Check 'with 3 added rows (the most the page takes at 1080 beside the foot links) all 10 rows fit: none under 44 px and the axis stays inside the box' ($info.n -eq 10 -and $info.extra -eq 3 -and $info.min -ge 44 -and $info.bottom -le $info.boxH)
+  Check-Layout 'DRIVER with 3 added channels'
   $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 120
   $null = Cdp-Eval '(function(){var i=document.querySelector(".picker input");i.value="rake";i.dispatchEvent(new Event("input"))})()'; Start-Sleep -Milliseconds 120
   Cdp-Key 'Enter' 'Enter' ''; Start-Sleep -Milliseconds 300
-  Check 'a fifth added channel is refused ("This page is full") and a picked one can be taken off again' (((Cdp-Eval 'document.querySelector(".picker .pnote").textContent') -like '*Page full*') -and [int](Cdp-Eval 'WB.state.extra.length') -eq 4)
+  Check 'a fourth added channel is refused ("Page full") and a picked one can be taken off again' (((Cdp-Eval 'document.querySelector(".picker .pnote").textContent') -like '*Page full*') -and [int](Cdp-Eval 'WB.state.extra.length') -eq 3)
   Cdp-Key 'Escape' 'Escape' ''
   $null = Cdp-Eval 'document.getElementById("addch").click()'; Start-Sleep -Milliseconds 120
   $null = Cdp-Eval '(function(){var i=document.querySelector(".picker input");i.value="lg";i.dispatchEvent(new Event("input"))})()'; Start-Sleep -Milliseconds 120
   Cdp-Key 'Enter' 'Enter' ''; Start-Sleep -Milliseconds 300
-  Check 'picking Lateral G again takes it off (3 rows left) and the picker shows ON beside the ones that are on' ([int](Cdp-Eval 'WB.state.extra.length') -eq 3 -and -not (Cdp-Eval 'WB.state.extra.indexOf("latG")>=0'))
+  Check 'picking Lateral G again takes it off (2 rows left) and the picker shows ON beside the ones that are on' ([int](Cdp-Eval 'WB.state.extra.length') -eq 2 -and -not (Cdp-Eval 'WB.state.extra.indexOf("latG")>=0'))
   Cdp-Key '/' 'Slash' '/'; Start-Sleep -Milliseconds 200
   Check 'the key / opens the picker as well' ((Cdp-Eval 'document.querySelector(".picker.on") ? 1 : 0') -eq 1)
   Cdp-Key 'Escape' 'Escape' ''
@@ -711,7 +715,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   Cdp-Goto $url4h
   $after = Cdp-Json 'WB.state.extra'
   Note ("added rows before the reload: " + ($before -join ', ') + "; after: " + ($after -join ', '))
-  Check 'the added rows come back by themselves after the page is reloaded for another lap (the fetched channel included)' ((@($after).Count -eq 3) -and (($after -join ',') -eq ($before -join ',')) -and (Cdp-Eval '!!WB.data().A.c.Pitch'))
+  Check 'the added rows come back by themselves after the page is reloaded for another lap (the fetched channel included)' ((@($after).Count -eq 2) -and (($after -join ',') -eq ($before -join ',')) -and (Cdp-Eval '!!WB.data().A.c.Pitch'))
   $null = Cdp-Eval 'try { localStorage.removeItem("wbExtra") } catch (e) { }; WB.state.extra.length = 0; WB.cmd("page","driver")'
 
   Section '4i. no dead tabs when an engine reply is missing'
@@ -772,7 +776,7 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
   }
   $multiFrame = @{fps=0;layout=@{boxes=0;bad=@()}}
   if ($multiReady -and (Cdp-Eval '!!WB.data()') -eq $true) { $frameJson = Cdp-Eval '(function(){return new Promise(function(resolve){var n=0,t=performance.now(),f=function(){n++;WB.cmd("cursor",(n*17)%WB.data().n);if(performance.now()-t>=1000)resolve({fps:n*1000/(performance.now()-t),layout:WB.overlaps()});else requestAnimationFrame(f)};requestAnimationFrame(f)})})().then(function(x){return JSON.stringify(x)})'; $multiFrame = $frameJson | ConvertFrom-Json }
-  Note ("six-lap cursor motion: {0:N1} fps; text boxes {1}; overlaps {2}" -f $multiFrame.fps, $multiFrame.layout.boxes, $multiFrame.layout.bad.Count)
+  Note ("six-lap cursor motion: {0:N1} fps; text boxes {1}; overlaps {2} {3}" -f $multiFrame.fps, $multiFrame.layout.boxes, $multiFrame.layout.bad.Count, (@($multiFrame.layout.bad) -join ' ; '))
   Check 'headless Chrome keeps six laps by eight traces at 50 fps or better with no overlapping labels' ($multiFrame.fps -ge 50 -and $multiFrame.layout.bad.Count -eq 0)
   Cdp-Shot (Join-Path $shots 'wb-multilap.png')
   Check 'picture tests\shots\wb-multilap.png written' ((Get-Item (Join-Path $shots 'wb-multilap.png')).Length -gt 50000)

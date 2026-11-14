@@ -300,9 +300,7 @@ try {
   $pg = Pages
   Check "RACE is a tab (the log was found by the lap file's time window), the page opened on it (page=race): tabs $($pg -join ' ')" (($pg -contains 'race') -and (Cdp-Obj 'WB.state.page') -eq 'race')
   Check 'the tab row shows RACE and the deck is told about the page (WB.pages())' (([string](Cdp-Eval 'document.getElementById("tabs").innerText')) -match 'RACE')
-  Start-Sleep -Milliseconds 1200
-  $ds = Invoke-RestMethod "$api/workbench/state" -TimeoutSec 8
-  Check 'the deck gets the race page in its page list (/workbench/state)' (@($ds.pages) -contains 'race')
+  # (W4-5: the page no longer reports its pages to /workbench/cmd, so /workbench/state has no page list to check; W4-8 retires the route)
   $rc = Cdp-Obj 'WB.race()'
   $heads = @(Cdp-Obj '[].map.call(document.querySelectorAll("table.rt th"), function (c) { return c.textContent; })' | ForEach-Object { $_ })
   Check "the tower's columns: $($heads -join ' | ')" (($heads -join '|') -eq 'P|CLS|NO|DRIVER|CAR|TEAM|LAPS|TOTAL / GAP|AHEAD|BEST LAP|PITS|INC')
@@ -378,7 +376,7 @@ try {
   Check "the car ahead (#8) is cool white there, and another car is thin grey (rgb $($ptA.rgba[0..2] -join ',') / $($ptG.rgba[0..2] -join ','))" ((& $white $ptA) -and (& $grey $ptG))
   Check "Peter is gold in the positions chart too (rgb $($pp.rgba[0..2] -join ','))" (& $gold $pp)
   $trSeries = @($ep.summary.trace | Where-Object { $_.i -eq 7 })[0]; $ptY = Cdp-Obj "WB.racePoint('trace', 7, 3)"
-  $g3 = $lines.geom; $expY = 10 + [double]$trSeries.g[2] / [double]$g3.ymax * $g3.H
+  $g3 = $lines.geom; $expY = [double]$g3.t + [double]$trSeries.g[2] / [double]$g3.ymax * $g3.H      # the chart's own top (W4-5 made the pad 12 px, it was 10)
   Check "Peter's point on lap 3 is where his gap says: $([math]::Round([double]$trSeries.g[2], 3)) s -> y $([math]::Round($expY, 1)) (page $([math]::Round($ptY.y, 1)))" ([math]::Abs($ptY.y - $expY) -lt 1.0)
   # the comparison table
   $cmp = @($rc.cmp)
@@ -436,13 +434,12 @@ try {
   Cdp-Shot (Join-Path $shots 'wb-race.png')
   Check 'no JavaScript error on the page' ($script:cdp.errors.Count -eq 0)
   if ($script:cdp.errors.Count) { Note ($script:cdp.errors -join ' | ') }
-  # with a clip too there are 8 tabs (DRIVER ... VIDEO, RACE): the header must still hold the chips, the mode words and the lap times
-  $careerTab = [int]([bool](Cdp-Eval 'WB.pages().indexOf("career") >= 0'))      # W6c: the CAREER tab is there when this car and track have 2 or more sessions (the real telemetry has)
-  $careerTab += [int]([bool](Cdp-Eval 'WB.pages().indexOf("pro") >= 0'))         # P3: and the PRO tab whenever the server has the pro routes
+  # W4-5: four tabs (DRIVER, BRAKING, SPLITS, RACE; CAREER, PRO and VIDEO are gone); one made-up tab more must still leave room for the chips,
+  # the mode words and the lap times
   $null = Cdp-Eval 'WBX.add({ id: "fake8", name: "VIDEO", avail: function () { return true; }, build: function () {} }); WB.cmd("page", "race"); 1'
   Start-Sleep -Milliseconds 500
   $hd = Cdp-Obj '(function () { var q = function (s) { var e = document.querySelector(s); if (!e) return null; var r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, scroll: e.scrollWidth }; }; return { tabs: q("#tabs"), add: q("#addch"), pip: q("#pipbtn"), mode: q("#mode"), vs: q("#vs"), n: document.querySelectorAll("#tabs span").length, lead: [].reduce.call(document.querySelectorAll(".top > *"), function (m, e) { return e.id === "vs" || e.id === "mode" || getComputedStyle(e).display === "none" ? m : Math.max(m, e.getBoundingClientRect().right); }, 0), modeBelow: q("#mode").t >= q("#tabs").b - 1 }; })()'
-  Check "with $($hd.n) tabs the header still fits: the tabs end at $([math]::Round($hd.tabs.r)), the tabs and chips end at $([math]::Round($hd.lead)), the lap times start at $([math]::Round($hd.vs.l)) and end at $([math]::Round($hd.vs.r)); $([math]::Round($hd.mode.w)) px are left for the SMALL VIDEO chip (about 140) and the mode words (the chip is hidden here: no clip)" ($hd.n -eq (8 + $careerTab) -and $hd.lead -le $hd.vs.l + 1 -and $hd.vs.r -le 1889 -and $hd.mode.w -ge 240)
+  Check "with $($hd.n) tabs the header still fits: the tabs end at $([math]::Round($hd.tabs.r)), the tabs and chips end at $([math]::Round($hd.lead)), the lap times start at $([math]::Round($hd.vs.l)) and end at $([math]::Round($hd.vs.r)); $([math]::Round($hd.mode.w)) px are left for the SMALL VIDEO chip (about 140) and the mode words (the chip is hidden here: no clip)" ($hd.n -eq 5 -and $hd.lead -le $hd.vs.l + 1 -and $hd.vs.r -le 1889 -and $hd.mode.w -ge 240)
   Cdp-Shot (Join-Path $shots 'wb-race-tabs8.png')
 
   # =====================================================================================================
@@ -451,7 +448,7 @@ try {
   Open-Wb "id=$(Q $pbName)&lap=7&page=race"
   $pg2 = Pages
   Check "the session has no race log (file moved away): no RACE tab, asking for page=race stays on the page it was on ($($pg2 -join ' '))" (($pg2 -notcontains 'race') -and ([string](Cdp-Eval 'document.getElementById("tabs").innerText')) -notmatch 'RACE' -and (Cdp-Obj 'WB.state.page') -eq 'driver')
-  Check 'and the other pages are still there' (($pg2 -contains 'driver') -and ($pg2 -contains 'grip'))
+  Check 'and the other pages are still there' (($pg2 -contains 'driver') -and ($pg2 -contains 'braking') -and ($pg2 -contains 'splits'))
   Move-Item $moved (Join-Path $fieldDir "$id.json")
   Open-Wb "id=$(Q $pbName)&lap=7&page=race"
   Check 'the log is back: the RACE tab is too' ((Pages) -contains 'race')

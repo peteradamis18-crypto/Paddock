@@ -189,8 +189,11 @@ try {
   Check "opening while on track is refused with 409 (got $codeDrive)" ($codeDrive -eq 409)
 
   Section 'W-18b 3b. queued launch safety and direct Pi launch path'
-  $vaultSource = [IO.File]::ReadAllText((Join-Path $root 'dash\src\vault.cs'))
+  # line endings made LF first: git checks a file out with CRLF once a commit touches it (core.autocrlf), and W4-5's edit of
+  # vault.cs did that, so the LF-only pattern found no region and all four checks below failed on unchanged code
+  $vaultSource = [IO.File]::ReadAllText((Join-Path $root 'dash\src\vault.cs')).Replace("`r`n", "`n")
   $launchRegion = [regex]::Match($vaultSource, '(?s)static void StartCosworth\(.*?\n        \}\n\n        // Resolves an open id').Value
+  Check 'the Pi launch region of vault.cs is found (StartCosworth up to OpenTarget)' ($launchRegion.Length -gt 500)
   $driveChecks = [regex]::Matches($launchRegion, 'Program\.IsDriving').Count
   Check 'queued worker checks driving state before workbook and lap launches' ($driveChecks -ge 2)
   Check 'Pi workbook and lap launches start Pi directly with shell execution disabled' (($launchRegion -match 'Process\.Start\(new ProcessStartInfo\(cw\.Exe') -and ([regex]::Matches($launchRegion, 'UseShellExecute = false').Count -ge 2) -and ($launchRegion -notmatch 'explorer\.exe'))

@@ -394,8 +394,10 @@ Traces.prototype.drawOverlay = function () {
     }
     if (D.M.length) {
       var active = r.kind === 'gap' ? D.gap : A.c[r.key];
-      if (active) self.text(g, self.tbO, 'L' + A.info.lap + ' ' + fmt(A.info.time) + ' ' + num(active[ci], r.kind === 'gap' ? 2 : dec), self.X0 + 8, y + 15, 12, C.gold, 'left');
-      D.M.forEach(function (lap, mi) { var ar = r.kind === 'gap' ? lap.gap : lap.c[r.key]; if (ar) self.text(g, self.tbO, 'L' + lap.info.lap + ' ' + fmt(lap.info.time) + ' ' + num(ar[ci], r.kind === 'gap' ? 2 : dec), self.X0 + 158 + mi * 150, y + 15, 12, MULTI[mi], 'left'); });
+      // each lap's readout starts where the one before ends: at the 20 px floor (W4-5) "L10 1:20.078 -0.37" is wider than the old 150 px step and ran into the next
+      var rx = self.X0 + 8, put = function (s, col) { self.text(g, self.tbO, s, rx, y + 15, 12, col, 'left'); rx += g.measureText(s).width + 18; };
+      if (active) put('L' + A.info.lap + ' ' + fmt(A.info.time) + ' ' + num(active[ci], r.kind === 'gap' ? 2 : dec), C.gold); else rx = self.X0 + 158;
+      D.M.forEach(function (lap, mi) { var ar = r.kind === 'gap' ? lap.gap : lap.c[r.key]; if (ar) put('L' + lap.info.lap + ' ' + fmt(lap.info.time) + ' ' + num(ar[ci], r.kind === 'gap' ? 2 : dec), MULTI[mi]); });
     }
     y += r.h + 16;
   });
@@ -1188,7 +1190,7 @@ function load() {
   }).catch(function (e) { empty(String(e.message || e)); WB.error = String(e.message || e); });
 }
 // what workbench-race.js (and any later page file) may use; loaded right after this file, before the first reply arrives
-X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
+X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, BOT: BOT, SQ: SQ, need: need, el: el, clamp: clamp, at: at, idxOf: idxOf, fmt: fmt, sgn: sgn, num: num, dateWord: dateWord, CAT: CAT, SPD: { u: SPD_U, lo: SPD_LO, hi: SPD_HI, f: SPD_F },
   data: function () { return D; }, hook: function (f) { hooks.push(f); }, rIdx: rIdx, setCursor: setCursor, setZoom: setZoom, zoomed: zoomed, scaleRows: scaleRows, modeLine: modeLine,
   header: header, fetchJson: fetchJson, Display: Display, Traces: Traces, MapView: MapView,
   // for page files: the channel list and picker, loading any channel, the binary reply reader, a page rebuild

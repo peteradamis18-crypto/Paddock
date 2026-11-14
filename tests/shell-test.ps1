@@ -15,6 +15,8 @@
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
+# a stop before the checks' own try (the pretend irdash not built or its port taken) still ends with a count line (the 2026-11-14 suite got none)
+trap { "  FAIL  the test stopped: $($_.Exception.Message)"; "shell-test: $($script:pass) ok, $($script:fail + 1) FAIL"; exit 1 }
 $root = Split-Path -Parent $PSScriptRoot
 $tools = Join-Path $root 'tests\tools'
 . (Join-Path $tools 'cdp-lib.ps1')

@@ -643,7 +643,7 @@ namespace IRDash
                 double back = DeltaM(da, DistNorm(prevPa * L, L), L);       // metres from the previous corner's apex to this apex
                 if (back > 0 && back < 250) cutStep = 250 - (int)Math.Floor(back);
             }
-            bool found = false, foundOwn = false; double brakeAt = 0, bestArea = 0, ownAt = 0, ownArea = 0, area = 0, curStart = 0; bool inApp = false; int startStep = 0;
+            bool found = false, foundOwn = false; double brakeAt = 0, bestArea = 0, ownAt = 0, ownArea = 0, area = 0, curStart = 0, curPeak = 0; bool inApp = false; int startStep = 0;
             if (ChAt(lap, lap.Brk, da - 250) > 0.10)
             {
                 inApp = true; curStart = DistNorm(da - 250, L); startStep = 0;
@@ -659,13 +659,15 @@ namespace IRDash
                 double x = DistNorm(da - 250 + step, L);
                 double bv = step <= 250 ? ChAt(lap, lap.Brk, x) : 0;
                 bool on = bv > 0.10;
-                if (on && !inApp) { inApp = true; curStart = x; area = 0; startStep = step; }
-                if (on) area += bv;
+                if (on && !inApp) { inApp = true; curStart = x; area = 0; curPeak = 0; startStep = step; }
+                if (on) { area += bv; if (bv > curPeak) curPeak = bv; }
                 if (!on && inApp)
                 {
                     inApp = false;
                     if (area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
-                    if (cutStep > 0 && startStep > cutStep && area > ownArea) { ownArea = area; ownAt = curStart; foundOwn = true; }
+                    // its own press must be a real application (30 % pedal or more, as deepdive.cs ZoneStarts asks), not a tap on the way past:
+                    // 2026-11-14 the 10 % brush after T10a (Corvette Road Atlanta lap 7, 8 m) became T10b's braking point and the BRAKING table's row
+                    if (cutStep > 0 && startStep > cutStep && curPeak >= 0.30 && area > ownArea) { ownArea = area; ownAt = curStart; foundOwn = true; }
                 }
             }
             if (foundOwn) brakeAt = ownAt;      // this corner's own press beats one carried on from the previous corner

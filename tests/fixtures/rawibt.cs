@@ -141,8 +141,11 @@ public class RawIbt
         bool on = false; double start = 0, area = 0, peak = 0;
         for (int i = 0; i < l.D.Length; i++)
         {
-            if (l.D[i] < w0 - 80 || l.D[i] > da) continue;
-            bool b = l.Br[i] > 0.10;
+            if (l.D[i] < w0 - 80) continue;
+            if (l.D[i] > da && !on) break;
+            // a press still on at the apex ends there and counts with its part before the apex, as Paddock's window does
+            // (2026-11-14: it was dropped, so Road America lap 2 T5's 72-unit press lost to a 4-unit tap 55 m earlier)
+            bool b = l.D[i] <= da && l.Br[i] > 0.10;
             if (b && !on)
             {
                 on = true; area = 0; peak = 0;

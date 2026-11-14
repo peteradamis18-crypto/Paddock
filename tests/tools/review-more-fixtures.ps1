@@ -2,7 +2,7 @@
 # reply (PWB1: JSON header + Float32 arrays on a 1 m grid), its reference lap, and the small JSON answers the kept tabs read
 # (/analysis/deep for BRAKING, /analysis/session for SPLITS, /analysis/race for RACE, /vault and /vault/tools for the links).
 # Dot-source it, then:  New-MoreFixtures -Dir <folder> [-Pi $true] [-Delta $false] [-Race $true]
-function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false, [bool]$Race = $true, [bool]$NoLaps = $false) {
+function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false, [bool]$Race = $true, [bool]$NoLaps = $false, [bool]$FullRace = $false) {
   New-Item -ItemType Directory -Force $Dir | Out-Null
   $inv = [Globalization.CultureInfo]::InvariantCulture
   $metres = 1000; $n = $metres + 1; $L = 4000.0; $step = $L / $metres
@@ -74,6 +74,19 @@ function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false
   $trace = foreach ($ci in 0..3) { '{"i":' + $ci + ',"g":[' + ((1..6 | ForEach-Object { ($ci * 2.5 + $_ * 0.1).ToString('0.000', $inv) }) -join ',') + '],"p":[' + ((1..6 | ForEach-Object { $ci + 1 }) -join ',') + '],"pit":[]}' }
   $sum = '{"race":true,"focus":"c1","maxLap":6,"prec":{"hz":10,"cornerS":0.05,"lapS":0.02,"gapS":0.02,"pitS":0.1},"ahead":1,"behind":3,"leader":0,"classes":[{"id":"c1","name":"GR86","col":"#d8d4ca","cars":4}],"tower":[' + ($tower -join ',') + '],"posMismatch":0,"trace":[' + ($trace -join ',') + '],"cm":[],"passes":[],"pits":[]}'
   W 'analysis_race.json' $(if ($Race) { '{"ok":true,"complete":true,"me":2,"cars":[' + ($cars -join ',') + '],"corners":[],"summary":' + $sum + '}' } else { '{"error":"no field log for this session"}' })
+  if ($FullRace) {
+    # a full field the way a real race fills the page (2026-11-14: the comparison then ran into the foot links, the passes into the comparison):
+    # 24 cars (the tower's most), 14 corners, a per-corner median for every car, 8 passes of Peter's (P8, car 7), long names
+    $N = 24; $nc = 14
+    $cars = 0..($N - 1) | ForEach-Object { '{"i":' + $_ + ',"num":"' + (10 + $_) + '","name":"Alexandria Driverson' + $_ + '","car":"Toyota GR86","path":"toyotagr86","col":"#d8d4ca","cls":"c1","clsName":"GR86"}' }
+    $tower = 0..($N - 1) | ForEach-Object { '{"i":' + $_ + ',"pos":' + ($_ + 1) + ',"cpos":' + ($_ + 1) + ',"simPos":' + ($_ + 1) + ',"laps":6,"total":' + (570 + $_ * 2.5).ToString('0.000', $inv) + ',"gap":' + ($_ * 2.5).ToString('0.000', $inv) + ',"gapLaps":0,"ahead":2.5,"aheadLaps":0,"best":' + (95.2 + $_ * 0.2).ToString('0.000', $inv) + ',"bestLap":4,"bestSrc":"log","fastest":' + $(if ($_ -eq 0) { 'true' } else { 'false' }) + ',"pits":1,"pitLane":31.2,"stall":24.5,"inc":' + ($_ % 5) + ',"out":false,"reason":"","off":0}' }
+    $trace = foreach ($ci in 0..($N - 1)) { '{"i":' + $ci + ',"g":[' + ((1..6 | ForEach-Object { ($ci * 2.5 + $_ * 0.1).ToString('0.000', $inv) }) -join ',') + '],"p":[' + ((1..6 | ForEach-Object { $ci + 1 }) -join ',') + '],"pit":[]}' }
+    $cm = foreach ($ci in 0..($N - 1)) { '{"i":' + $ci + ',"n":5,"lap":' + (95.5 + $ci * 0.2).ToString('0.000', $inv) + ',"c":[' + ((1..$nc | ForEach-Object { (3 + $_ * 0.1 + $ci * 0.013).ToString('0.000', $inv) }) -join ',') + ']}' }
+    $passes = foreach ($k in 1..8) { '{"t":' + (100 + $k * 60) + ',"lap":' + [math]::Min(6, $k) + ',"by":' + $(if ($k % 2) { 7 } else { 6 + $k }) + ',"over":' + $(if ($k % 2) { 8 + $k } else { 7 }) + ',"pct":0.5,"where":"after T' + $k + '"}' }
+    $corners = 1..$nc | ForEach-Object { '{"n":' + $_ + ',"lab":"T' + $_ + '","p0":' + (($_ - 1) / $nc).ToString('0.000', $inv) + ',"p1":' + ($_ / $nc).ToString('0.000', $inv) + '}' }
+    $sum = '{"race":true,"focus":"c1","maxLap":6,"prec":{"hz":10,"cornerS":0.05,"lapS":0.02,"gapS":0.02,"pitS":0.1},"ahead":6,"behind":8,"leader":0,"classes":[{"id":"c1","name":"GR86","col":"#d8d4ca","cars":' + $N + '}],"tower":[' + ($tower -join ',') + '],"posMismatch":0,"trace":[' + ($trace -join ',') + '],"cm":[' + ($cm -join ',') + '],"passes":[' + ($passes -join ',') + '],"pits":[]}'
+    W 'analysis_race.json' ('{"ok":true,"complete":true,"t0":0,"greenT":0,"me":7,"cars":[' + ($cars -join ',') + '],"corners":[' + ($corners -join ',') + '],"summary":' + $sum + '}')
+  }
   W 'vault.json' ('{"enabled":true,"cosworth":{"installed":' + $Pi.ToString().ToLower() + ',"exe":"C:\\Pi\\toolbox.exe"}}')
   W 'vault_tools.json' ('{"pi":{"installed":' + $Pi.ToString().ToLower() + '},"delta":{"installed":' + $Delta.ToString().ToLower() + '}}')
   # the review engine's answer the module reads when MORE DATA arrives with a session and no lap (session.id = the telemetry file name)
