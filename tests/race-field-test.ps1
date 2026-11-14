@@ -376,7 +376,7 @@ try {
   Check "the car ahead (#8) is cool white there, and another car is thin grey (rgb $($ptA.rgba[0..2] -join ',') / $($ptG.rgba[0..2] -join ','))" ((& $white $ptA) -and (& $grey $ptG))
   Check "Peter is gold in the positions chart too (rgb $($pp.rgba[0..2] -join ','))" (& $gold $pp)
   $trSeries = @($ep.summary.trace | Where-Object { $_.i -eq 7 })[0]; $ptY = Cdp-Obj "WB.racePoint('trace', 7, 3)"
-  $g3 = $lines.geom; $expY = 10 + [double]$trSeries.g[2] / [double]$g3.ymax * $g3.H
+  $g3 = $lines.geom; $expY = [double]$g3.t + [double]$trSeries.g[2] / [double]$g3.ymax * $g3.H      # the chart's own top (W4-5 made the pad 12 px, it was 10)
   Check "Peter's point on lap 3 is where his gap says: $([math]::Round([double]$trSeries.g[2], 3)) s -> y $([math]::Round($expY, 1)) (page $([math]::Round($ptY.y, 1)))" ([math]::Abs($ptY.y - $expY) -lt 1.0)
   # the comparison table
   $cmp = @($rc.cmp)
