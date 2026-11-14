@@ -109,7 +109,7 @@ Facts for the builders: `docs/rework/evidence/15-wave4-facts.md`. Cards `W4-1.md
 | W4-1 Review engine | building (Opus, worktree) | /api/review cached, built as a whenFree job; one reference rule; the wording lint |
 | W4-2 chart.js + map.js | building (Opus, worktree) | one trace engine, the readout column, deck zoom; the map wrapper |
 | W4-3 Screen 1: the card | building (Opus, worktree) | three cards, the race story, the plan line |
-| W4-4 Screen 2: the laps | building (Opus, worktree) | the stack, the corner table with definitions, the theoretical best |
+| W4-4 Screen 2: the laps | merged (Chart/Map stand-ins until W4-2) | review-laps 69/0, design-lint 41/0; 7 pictures; deck wb-* commands handled once per seq: W4-3 must pass the workbench object (with seq) or not forward | the stack, the corner table with definitions, the theoretical best |
 | W4-5 Screen 3: MORE DATA | building (Sonnet, worktree) | DRIVER / RACE / BRAKING / SPLITS; PRO, CAREER, TYRES, SUSPENSION and the Vault detail view go |
 | W4-6 Progress + Pi check | merged (new files only) | review-progress 45/0, pi-check 27/0 (engine vs raw read: 14 corners within 0.013 s; the Pi Toolbox column is for the lead to fill when Pi is at hand); two engine findings sent to W4-1 (T7 brake point attributed to the previous press; apexes move without the saved map) | dots, corner trend, iRating estimate; evidence/16-pi-check.md |
 | W4-7 Pictures, contact sheet | lead | after W4-1..6 |
