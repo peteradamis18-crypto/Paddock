@@ -1467,7 +1467,7 @@ namespace IRDeck
         // "--dry" only counts what it would change (tests\keys-test.ps1).
         // MUTE SPOTTER (deck v2): one press mutes CrewChief's voice in the Windows mixer, the next press brings it back.
         // Only that program's own mixer entry is touched; the sim, music and the PC volume stay as they are.
-        static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow" };
+        static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow", "to-the-race" };
         const float SpotterMinLevel = 0.02f;   // SPOTTER - / + set the level; this only stops it being lost (Peter kept pressing - at 10% in a race, 2026-11-02)
 
         static void EnsureSpotter()

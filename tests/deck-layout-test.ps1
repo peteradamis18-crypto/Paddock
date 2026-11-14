@@ -54,7 +54,9 @@ foreach ($p in $L.pageOrder) {
 $q = @($keys | Where-Object { $_.a.exe -eq 'quit-main' })
 Check 'QUIT TO MENU is one exe over two side-by-side cells on LEAVE (no second QUIT exe)' ($q.Count -eq 2 -and @($q | Where-Object page -eq 'LEAVE').Count -eq 2 -and [Math]::Abs($q[0].c - $q[1].c) -eq 1 -and $q[0].r -eq $q[1].r -and @($keys | Where-Object { $_.a.args -eq 'quitmain' -and $_.a.exe -ne 'quit-main' }).Count -eq 0)
 $names = @{}; $clash = @(); foreach ($k in $exeKeys) { if ($names.ContainsKey($k.a.exe) -and $names[$k.a.exe] -ne $k.a.args) { $clash += $k.a.exe }; $names[$k.a.exe] = $k.a.args }
-Check 'one exe name is always the same command' ($clash.Count -eq 0) ($clash -join ', ')
+foreach ($x in @($L.phoneOnly)) { if ($names.ContainsKey($x.exe) -and $names[$x.exe] -ne $x.args) { $clash += $x.exe } }
+Check 'one exe name is always the same command (deck keys and the phone-only key exes)' ($clash.Count -eq 0) ($clash -join ', ')
+Check 'the phone-only key exes have no key on any deck page' (@($L.phoneOnly | Where-Object { $names.ContainsKey($_.exe) }).Count -eq 0)
 
 Section '3. safety: no PC-ending key without CONFIRM; EXIT at 7,3 on every screen'
 $ends = '^(power\s+(off|sleep|restart|shutdown)|shutdown|sleep)\b'
@@ -109,8 +111,9 @@ $dir = $m.Groups[1].Value
 $tsv = @(); if ($m.Success) { $tsv = @(Get-Content (Join-Path $dir 'layout.tsv') -Encoding UTF8 | ForEach-Object { $f = $_.Split("`t"); [pscustomobject]@{ page = $f[0]; c = [int]$f[1]; r = [int]$f[2]; kind = $f[5]; what = $f[6] } }) }
 Check "layout.tsv has every key of layout.json ($($tsv.Count) of $($keys.Count))" ($tsv.Count -eq $keys.Count)
 $map = if ($m.Success) { @(Get-Content (Join-Path $dir 'keys.map')) } else { @() }
-$wantMap = @($exeKeys | ForEach-Object { "$($_.a.exe)=$($_.a.args)" } | Select-Object -Unique)
-Check "keys.map is one line per key exe ($($map.Count)): to-the-race and spotter-tap in, skip / racenow / spot-up / spot-down / mute-spotter / quit-main2 out" ($map.Count -eq $wantMap.Count -and @($wantMap | Where-Object { $map -notcontains $_ }).Count -eq 0 -and ($map -contains 'to-the-race=to-the-race') -and ($map -contains 'spotter-tap=spotter-tap') -and @($map | Where-Object { $_ -match '^(skip-session|race-now|spot-up|spot-down|mute-spotter|quit-main2)=' }).Count -eq 0)
+$phoneOnly = @($L.phoneOnly | ForEach-Object { "$($_.exe)=$($_.args)" })
+$wantMap = @(@($exeKeys | ForEach-Object { "$($_.a.exe)=$($_.a.args)" }) + $phoneOnly | Select-Object -Unique)
+Check "keys.map is one line per key exe plus the $($phoneOnly.Count) the phone still offers ($($map.Count)): to-the-race and spotter-tap in, race-now / spot-up / spot-down / mute-spotter / quit-main2 out" ($map.Count -eq $wantMap.Count -and @($wantMap | Where-Object { $map -notcontains $_ }).Count -eq 0 -and ($map -contains 'to-the-race=to-the-race') -and ($map -contains 'spotter-tap=spotter-tap') -and @($map | Where-Object { $_ -match '^(race-now|spot-up|spot-down|mute-spotter|quit-main2)=' }).Count -eq 0)
 $pages = @($L.pageOrder)
 function Lands($p, $dirn) { $i = [array]::IndexOf($pages, $p); if ($dirn -eq 'next') { $i++ } else { $i-- }; if ($i -ge 0 -and $i -lt $pages.Count) { $pages[$i] } else { '(none)' } }
 $want = @{ 'MAIN|MORE' = 'MORE'; 'MAIN|LEAVE' = 'LEAVE'; 'LEAVE|BACK' = 'MAIN'; 'MORE|BACK' = 'MAIN' }

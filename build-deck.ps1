@@ -103,6 +103,8 @@ function Write-Page($name) {
   [IO.File]::WriteAllText("$dir\manifest.json", ($pm | ConvertTo-Json -Depth 30), $u8)
 }
 foreach ($p in $L.pageOrder) { Write-Page $p }
+# key exes the phone app still offers but the deck no longer has a key for (layout.json phoneOnly; the phone rework removes them)
+foreach ($x in @($L.phoneOnly)) { if ($x.exe) { $null = Lnk $x.exe $x.args } }
 if ($Preview) {
   [IO.File]::WriteAllLines((Join-Path $previewRun 'layout.tsv'), [string[]]$layout, $u8)
   [IO.File]::WriteAllLines((Join-Path $previewRun 'keys.map'), [string[]]($keyMap.Keys | ForEach-Object { "$_=$($keyMap[$_])" }), $u8)
