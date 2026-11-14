@@ -43,7 +43,7 @@ try {
   function ClearApis { $null = Invoke-DeckJs $page 'window.__apis.length = 0' }
   function Sent($re) { @(Apis | Where-Object { $_ -match '^/api/do' -and $_ -match $re }).Count }
   function Cur { Invoke-DeckJs $page '__sd.cur' }
-  function Open($which) { $null = Invoke-DeckJs $page "(async () => { __sd.pressOpener('$which'); await __sd.sleep(1150); return 1; })()" }   # the screen ignores presses for its first second
+  function Open($which) { $null = Invoke-DeckJs $page "(async () => { await __sd.sleep(900); __sd.pressOpener('$which'); await __sd.sleep(1150); return 1; })()" }   # the screen ignores presses for its first second; an opener press within 0.8 s of a page change is ignored too (W3-4)
   function Hdr($re) { @(Invoke-DeckJs $page "__sd.fetchLog.filter(f => /$re/.test(f.u)).map(f => (f.h && f.h['X-Paddock']) || '')") }
   function Press($c, $r, $wait = 300) { $null = Invoke-DeckJs $page "(async () => { __sd.pressTile($c, $r); await __sd.sleep($wait); return 1; })()" }
   function Reg($c, $r) { Invoke-DeckJs $page "(() => { const r = Confirm.regions.find(x => $c >= x.c && $c < x.c + x.w && $r >= x.r && $r < x.r + x.h); return r ? { t: String(r.text), s: String(r.sub || ''), st: r.style, a: r.act, w: r.w, h: r.h } : null; })()" }

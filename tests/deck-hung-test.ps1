@@ -94,6 +94,7 @@ try {
   foreach ($s in @(@('friends', 'Friends'), @('overlays', 'Overlays'), @('mydrive', 'MyDrive'), @('replay', 'Replay'), @('sound', 'Sound'), @('ac', 'Ac'), @('races', 'Races'))) {
     $key = $s[0]; $obj = $s[1]
     Assert-RigFree -Where "4. $key"
+    Start-Sleep -Milliseconds 900   # W3-4: an opener press within 0.8 s of a page change is the doubled press and is ignored
     $t0 = Get-Date
     if ($key -eq 'friends') { $null = Invoke-DeckJs $page 'Friends.g = null' }   # the pretend /guest is {} (not enough to draw FRIENDS); real irdash sends the full state
     $null = Invoke-DeckJs $page "(async () => { __sd.pressOpener('$key'); return 1; })()"
