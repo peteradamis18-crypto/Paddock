@@ -9,7 +9,7 @@ const STROBE_MS = { yellow: 30000, red: 5000, white: 5000, green: 5000 };   // f
 const SHOW_SPOTTER = true;      // left/right column red when a car is beside you
 const SHOW_PIT_LIMITER = true;  // blue P while the pit limiter is on
 // --------------------------------------
-// FLAG TABLE START - the same text is in dash\www\v2\ui.js
+// FLAG TABLE START - the same text is in dash\www\app\lib\flags.js
 const FLAG_MIN_MS = 3000;       // a 1 s blue is real: every flag shows at least this long
 const FLAG_ORDER = [['black', 0x30000], ['orange', 0x100000], ['warning', 0x80000], ['checkered', 0x1], ['red', 0x10], ['yellow', 0xC148], ['blue', 0x20], ['white', 0x2], ['green', 0x4]];
 // FLAG TABLE END

@@ -1,0 +1,4 @@
+{"seq":1,"rig":{"driving":false,"sessionOn":false,"simRunning":false,"online":true},
+ "health":{"apps":[{"id":"deck","name":"Stream Deck","state":"ok"},{"id":"ui","name":"iRacing UI","state":"ok"},{"id":"sim","name":"Sim","state":"off"},{"id":"cc","name":"CrewChief","state":"ok"},{"id":"overlays","name":"Overlays","state":"ok"}],"events":[]},
+ "doctor":{"ranAt":"2026-11-14T11:58:00","age":120,"ask":"","fixed":"","running":false,"show":false,"showSeq":0,"ok":13,"warn":1,"bad":0,"headline":"1 thing to look at","items":[{"id":"streamdeck","name":"Stream Deck","state":"ok","detail":"Running","fix":"","done":"","ask":""},{"id":"overlays_running","name":"Overlays running","state":"ok","detail":"Running","fix":"","done":"","ask":""},{"id":"performance","name":"Frame rate","state":"warn","detail":"2 stutters last race","fix":"Open the Performance page","done":"","ask":""}]},
+ "kids":{"on":false,"text":""},"tow":{"on":false},"lists":{"races":5,"sessions":5},"session":null}

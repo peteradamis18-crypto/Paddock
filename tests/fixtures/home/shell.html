@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- The fixture shell for tests\home-test.ps1: the W3-1 page contract in 30 lines (mount / unmount / onState, the ctx), a pretend
+     irdash behind fetch and a stand-in for data.js. The test writes /*SETUP*/ (the state) and <!--RUN--> (the checks). -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="design.css"><script src="lib/format.js"></script>
+<style>header{position:fixed;left:0;top:0;width:1920px;height:96px;display:flex;align-items:center;gap:32px;padding:0 96px;font-size:32px;color:var(--muted)}
+header b{color:var(--ink);font-weight:600;letter-spacing:.08em} header .on{color:var(--gold)} header nav{margin-left:auto;display:flex;gap:40px}
+#banner{position:fixed;left:0;top:0;width:1920px;height:96px;display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--panel);z-index:5}</style>
+<script>
+window.__now0 = window.__now = Date.parse('2026-11-14T12:30:00Z'); window.__fx = { /*FX*/ }; window.__req = []; window.__banners = []; window.__go = []; window.__ls = {};
+window.__mydrive = () => ({ choice: { has: false }, phase: '' });
+/*SETUP*/
+const mk = n => (window.__ls[n] = window.__ls[n] || []);
+window.data = { __paddock: true, state: window.__fx.state, online: window.__fx.online !== false,
+  get rig() { const r = this.state.rig || {}; return { driving: !!r.driving, sessionOn: !!r.sessionOn, simRunning: !!r.simRunning, online: this.online }; },
+  on(n, f) { mk(n).push(f); return () => { const l = mk(n), i = l.indexOf(f); if (i >= 0) l.splice(i, 1); }; },
+  onList(n, f) { return this.on('list:' + n, f); }, at() { return window.__now - 600000; },
+  json(u) { return window.fetch(u).then(r => r.json()); }, fetch(u, o) { return window.fetch(u, o); } };
+window.__emit = (n, a, b) => mk(n).slice().forEach(f => f(a, b));
+window.fetch = (u) => { u = String(u); window.__req.push(u); const j = o => Promise.resolve(new Response(JSON.stringify(o)));
+  if (u === '/official') return j(window.__fx.official); if (u === '/api/library') return j(window.__fx.library); if (u === '/home') return j(window.__fx.home);
+  if (u === '/mydrive') return j(window.__mydrive()); if (u.indexOf('/api/do?') === 0) return j({ ok: true }); return Promise.resolve(new Response('{}', { status: 404 })); };
+</script></head><body>
+<header><b>PADDOCK</b><span>Sat 14 Nov</span><nav><span class="on">HOME</span><span>RACES</span><span>REVIEW</span><span>RIG</span></nav></header>
+<div id="banner" hidden></div><main id="page"></main><pre id="out" hidden></pre>
+<script type="module">
+import home, * as M from './pages/home.js';
+const ctx = { data: window.data, Fmt: window.Fmt, go: n => window.__go.push(n), close() { }, kidsOn: () => !!(window.data.state.kids && window.data.state.kids.on),
+  driving: () => window.data.rig.driving, banner: t => { window.__banners.push(t); const b = document.getElementById('banner'); b.hidden = !t; b.textContent = t || ''; } };
+window.__mount = () => { home.mount(document.getElementById('page'), ctx); };
+window.__unmount = () => { home.unmount(); document.getElementById('page').innerHTML = ''; };
+window.data.on('state', (s, c) => home.onState(s, c));
+window.__M = M; window.__ctx = ctx; window.__mount();
+if (window.__run) window.__run();
+</script>
+<!--RUN-->
+</body></html>

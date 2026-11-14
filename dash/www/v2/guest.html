@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock Friends</title>
+<link rel="stylesheet" href="guest.css">
+<meta name="color-scheme" content="dark"><!-- the same scheme as the shell: else Chrome paints a white sheet behind a see-through frame -->
+<style>html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; color-scheme: dark; }</style>
+</head>
+<body>
+<!-- FRIENDS MODE on the top screen (W3-1): the old guest.js (setup card, drive view, celebrations, the clean-lap call) in the
+     shell's #guestHost layer, shown while a guest is on. It borrows the shell's one connection (data.js); the shell asks the
+     stream for core.js's variables while a guest is on (they are handed over below). Retires when Friends mode is rebuilt. -->
+<script src="../app/lib/data.js"></script>
+<script>var RaceSwitch = { on: true };   // core.js's reload rule reads it: this frame never reloads itself (the shell does)</script>
+<script src="core.js"></script>
+<script src="map.js"></script>
+<script>var UI = { live: function () { return L.connected && performance.now() - L.lastFrameAt < 3000; } };</script>
+<script src="guest.js"></script>
+<script>
+  (function () {
+    var host = window.parent !== window ? window.parent.ShellGuest : null;
+    Conn.start();
+    // celebrations outlive the guest's session (the podium at EXIT FRIENDS): the shell keeps the layer up that long
+    var cele = Guest.celebrate.bind(Guest);
+    Guest.celebrate = function (ev) { if (host) host.cele(ev.kind === 'podium' ? 26000 : 8000); cele(ev); };
+    // the drive view, the lap timer and the clean-lap call, 10 times a second (what v2/ui.js's loop did)
+    // (and the switch between the setup card and the drive view the moment the guest drives out or stops, not at irdash's next push)
+    setInterval(function () {
+      if (document.hidden) return;
+      try {
+        if (Guest.g.active && Guest.mode !== 'type' && (Guest.driving() ? 'drive' : 'setup') !== Guest.mode) Guest.render();
+        Guest.frame();
+      } catch (e) { console.error(e); }
+    }, 100);
+    if (host) host.ready(VARS);
+  })();
+</script>
+</body>
+</html>

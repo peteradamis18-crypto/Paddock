@@ -1,5 +1,5 @@
 ﻿# race-page-test.ps1 - offline: THE RACE SCREEN (W2-2; dash\www\v2\race.html, race.css, dash\www\app\pages\race.js) and the switch
-# that puts it over HOME (dash\www\v2\ui.js RaceSwitch). Headless Chrome only; the pretend irdash on 8311 (never 8199; 8299 is often busy with other builders' tests).
+# that puts it over every page (W3-1: the shell's driving guard, dash\www\app\shell.js; it was v2\ui.js RaceSwitch). Headless Chrome only; the pretend irdash on 8311 (never 8199; 8299 is often busy with other builders' tests).
 #   1. every state from fixtures (tests\fixtures\race\*.json, the W2-1 contract): one picture each in tests\shots\rework\race-<state>.png;
 #      nothing under 24 px on screen, the zones where PLAN 4.2 puts them, nothing outside 1920 x 1080
 #   2. no flicker: a gap or interval changes at most 4 times a second and only when its tenth changes (DOM text changes counted)
@@ -379,10 +379,10 @@ try {
     & (Join-Path $tools 'pretend-irdash.ps1') -Port 8311 -Stop | Out-Null
     $null = & (Join-Path $tools 'pretend-irdash.ps1') -Port 8311 -Ibt $race -Speed 20 -Www (Join-Path $root 'dash\www') -Loop
     $pret = $true
-    $racing = 'RaceSwitch.on && !document.getElementById("raceHost").hidden && !document.getElementById("overlay").classList.contains("show")'
-    $atHome = '!RaceSwitch.on && document.getElementById("raceHost").hidden && document.getElementById("overlay").classList.contains("show")'
-    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9393
-    ok 'HOME is up on the pretend irdash (one stream, the session from the 12 Nov file)' (Wait-Until 'typeof data !== "undefined" && data.online && S.drivers.size > 1' 15)
+    $racing = 'ShellRace.on && !document.getElementById("raceHost").hidden && Shell.cur === ""'
+    $atHome = '!ShellRace.on && document.getElementById("raceHost").hidden && Shell.cur === "home"'
+    Cdp-Open 'http://localhost:8311/app/index.html?intro=0' -Port 9393
+    ok 'the shell is up on the pretend irdash (one stream, the session from the 12 Nov file)' (Wait-Until 'window.Shell && data.online && !!data.state.session' 15)
     ok 'not driving: HOME shows, the race screen does not' ((Cdp-Eval $atHome) -eq $true)
     ok 'the race page is loaded in its frame and borrows HOME''s connection' (Wait-Until '(() => { const w = document.getElementById("raceFrame").contentWindow; return !!(w.RacePage && w.data && w.data.__borrowed); })()' 10)
     Push-Part 'rig' $driveOn
@@ -392,7 +392,6 @@ try {
     ok "6. rig.driving true with fresh frames: the race screen covers HOME ($took ms after the push)" ($on -and $took -lt 1500)
     ok "6. the one stream now asks for the race set ($(Cdp-Eval 'data.url'))" (Wait-Until '/[?&]set=race/.test(data.url) && data.set === "race"' 5)
     ok '6. the race page gets the race set''s frames through HOME (CarIdxClassPosition and SessionNum in, Speed not; the .ibt has no IsReplayPlaying)' (Wait-Until '(() => { const v = document.getElementById("raceFrame").contentWindow.RacePage.v; return !!(v && "CarIdxClassPosition" in v && "SessionNum" in v && !("Speed" in v)); })()' 6)
-    ok '6. switching to the race set is not a new session for HOME (the live log is kept)' ((Cdp-Eval 'L.sessKey.split("|")[0] !== "undefined"') -eq $true)
     Start-Sleep -Seconds 3
     $null = Cdp-Eval '(() => { const w = document.getElementById("raceFrame").contentWindow; w.__mut = {}; w.document.querySelectorAll("#race b, #race span, #race .iv, #race .g-n").forEach((el, i) => { let last = el.textContent; w.__mut[i] = []; new w.MutationObserver(() => { if (el.textContent !== last) { last = el.textContent; w.__mut[i].push(performance.now()); } }).observe(el, { childList: true, characterData: true, subtree: true }); }); return 1; })()'
     $null = Get-J 'http://localhost:8312/__reset'
@@ -410,13 +409,13 @@ try {
     ok "the replay (only his own car in the file's arrays): his position and the entry list, never 'Leading' ($($rp.pos) $($rp.of), ahead '$($rp.ahead)')" ($rp.of -eq 'of 19' -and $rp.ahead -ne 'Leading')
 
     # 1 (review): the screen needs a fresh frame, irdash answering and no replay, not only rig.driving
-    $null = Cdp-Eval 'window.__realOnFrame = onFrame; onFrame = function () { }; 1'          # frames stop reaching HOME (a hung sim)
+    $null = Cdp-Eval 'window.__realOnFrame = ShellRace.frame; ShellRace.frame = function () { }; 1'          # frames stop reaching the shell (a hung sim)
     ok '6. a stale frame (hung sim) with rig.driving still true: HOME is back (3 s stale + 5 s)' (Wait-Until $atHome 12)
-    $null = Cdp-Eval 'onFrame = window.__realOnFrame; 1'
+    $null = Cdp-Eval 'ShellRace.frame = window.__realOnFrame; 1'
     ok '6. frames again: the race screen is back' (Wait-Until $racing 5)
-    $null = Cdp-Eval 'onFrame = function (v) { window.__realOnFrame(Object.assign({}, v, { IsReplayPlaying: 1 })); }; 1'
+    $null = Cdp-Eval 'ShellRace.frame = function (v) { window.__realOnFrame.call(ShellRace, Object.assign({}, v, { IsReplayPlaying: 1 })); }; 1'
     ok '6. a replay in the sim (IsReplayPlaying): HOME is back after 5 s' (Wait-Until $atHome 9)
-    $null = Cdp-Eval 'onFrame = window.__realOnFrame; 1'
+    $null = Cdp-Eval 'ShellRace.frame = window.__realOnFrame; 1'
     ok '6. out of the replay: the race screen is back' (Wait-Until $racing 5)
     $null = Get-J 'http://localhost:8312/__fault?mode=down'
     ok '6. irdash down: HOME is back after 5 s (it can say "Paddock program not running")' (Wait-Until "$atHome && !data.online" 12)
@@ -425,18 +424,18 @@ try {
 
     Push-Part 'rig' $driveOff
     Start-Sleep -Seconds 3
-    ok '6. 3 s after driving ends: still the race screen (a tow or a reset does not flick it)' ((Cdp-Eval 'RaceSwitch.on && !document.getElementById("raceHost").hidden') -eq $true)
+    ok '6. 3 s after driving ends: still the race screen (a tow or a reset does not flick it)' ((Cdp-Eval 'ShellRace.on && !document.getElementById("raceHost").hidden') -eq $true)
     ok '6. about 5 s after it ends HOME is back' (Wait-Until $atHome 4)
-    ok "6. and the stream asks for HOME's variables again ($(Cdp-Eval 'data.set + "|" + (data.vars || []).length'))" (Wait-Until 'data.set === "" && (data.vars || []).length > 20' 5)
+    ok "6. and the stream asks for the shell's four channels again ($(Cdp-Eval 'data.set + "|" + (data.vars || []).join()'))" (Wait-Until 'data.set === "" && (data.vars || []).join() === "SessionFlags,IsReplayPlaying,IsOnTrack,SessionNum"' 5)
     Cdp-Close
     # ?race=1: straight to the race screen (tests, previews) whatever the rig says
-    Cdp-Open 'http://localhost:8311/v2/index.html?race=1' -Port 9394
-    ok '6. ?race=1 shows the race screen with rig.driving false' (Wait-Until 'RaceSwitch.on && !document.getElementById("raceHost").hidden' 8)
+    Cdp-Open 'http://localhost:8311/app/index.html?intro=0&race=1' -Port 9394
+    ok '6. ?race=1 shows the race screen with rig.driving false' (Wait-Until 'window.ShellRace && ShellRace.on && !document.getElementById("raceHost").hidden' 8)
     Cdp-Close
     # 12 (review): irdash already says driving when the page starts: idle stream, then straight to the race set (two opens, not three)
     Push-Part 'rig' $driveOn
     $null = Get-J 'http://localhost:8312/__reset'
-    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9396
+    Cdp-Open 'http://localhost:8311/app/index.html?intro=0' -Port 9396
     $null = Wait-Until $racing 10
     Start-Sleep -Seconds 3
     $s = Get-J 'http://localhost:8312/__stats'
@@ -445,9 +444,9 @@ try {
     Cdp-Close
     # a guest drive keeps Friends mode's own view
     Push-Part 'guest' '{"active":true}'
-    Cdp-Open 'http://localhost:8311/v2/index.html' -Port 9395
+    Cdp-Open 'http://localhost:8311/app/index.html?intro=0' -Port 9395
     Start-Sleep -Seconds 4
-    ok '6. Friends mode on: no race screen (the guest view is theirs)' ((Cdp-Eval '!RaceSwitch.on && data.rig.driving && !!(data.state.guest && data.state.guest.active)') -eq $true)
+    ok '6. Friends mode on: no race screen (the guest view is theirs)' ((Cdp-Eval '!ShellRace.on && data.rig.driving && !!(data.state.guest && data.state.guest.active)') -eq $true)
     Cdp-Close
   }
 } catch {

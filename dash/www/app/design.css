@@ -2,7 +2,8 @@
    Colours: bg (page), panel (cards), line (hairline on a panel), ink (text), muted/dim (ink at 55 % / 30 %),
    gold (the one accent) + gold-ink (text ON gold) + gold-dim (gold borders), gain/loss (better/worse than a
    reference), purple (session best), amber, cyan, danger (delete / cannot undo), focus (keyboard ring).
-   Flag colours are NOT here: they show only when a real flag shows (flaglow.js keeps its own).
+   Flag colours are not tokens: they show only when a real flag shows, in the edge glow at the end of this file (W3-1 moved it here
+   from v2/data.css so no other file holds a colour).
    Two golds: the default is the broadcast gold (Peter picked it, 2026-11-13); <html data-gold="bright"> brings back the old bright one for comparison.
    RULES (tests\design-lint-test.ps1 enforces them): 1. no colour literal (#hex, rgb, hsl) outside this file;
    2. seat pages never go under --t-body (24 px), lean-in pages never under --t-label (20 px). */
@@ -13,7 +14,7 @@
   --gain: #4CD07D; --loss: #FF6B5E; --purple: #B36BFF; --amber: #FFA630; --cyan: #3CCBEA;
   --danger: #FF5A4D; --focus: #FFFFFF;
 
-  --t-hero: 240px; --t-display: 96px; --t-title: 56px; --t-read: 36px; --t-body: 24px; --t-label: 20px;
+  --t-hero: 240px; --t-display: 96px; --t-title: 56px; --t-banner: 48px; --t-read: 36px; --t-body: 24px; --t-label: 20px;   /* banner: the one line (PLAN 4.1) */
   --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   --track: .08em;                              /* caps labels */
   --fast: .2s; --enter: .5s; --press: .7s;     /* state change / entrance / button press flash */
@@ -75,3 +76,27 @@ b, strong { font-weight: 600; }
 @keyframes enter { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 .enter { animation: enter var(--enter) var(--ease) both; }
 @media (prefers-reduced-motion: reduce) { .enter { animation: none; } .btn { transition: none; } }
+
+/* the flag glow (the shell's #flagGlow, the same flag as the light box and the race screen): a soft coloured edge while a session
+   is live; never takes clicks. Copied from v2/data.css (W3-1). */
+#flagGlow { position: fixed; inset: 0; z-index: 800; pointer-events: none; opacity: 0; transition: opacity .2s ease; mix-blend-mode: screen; --c: 255, 204, 0; }
+#flagGlow.on { opacity: 1; }
+#flagGlow::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 70px 2px rgba(var(--c), .40), inset 0 0 0 2px rgba(var(--c), .70); }
+#flagGlow.yellow { --c: 255, 204, 0; }
+#flagGlow.blue { --c: 60, 140, 255; }
+#flagGlow.white { --c: 225, 225, 225; } #flagGlow.white::after { box-shadow: inset 0 0 60px 0 rgba(var(--c), .26), inset 0 0 0 2px rgba(var(--c), .55); }
+#flagGlow.green { --c: 47, 224, 122; }
+#flagGlow.orange { --c: 255, 122, 26; }
+#flagGlow.red { --c: 255, 40, 40; animation: flagPulse 2.4s ease-in-out infinite; }
+#flagGlow.red::after { box-shadow: inset 0 0 90px 6px rgba(var(--c), .55), inset 0 0 0 3px rgba(var(--c), .85); }
+#flagGlow.black { --c: 235, 235, 235; animation: flagPulse 1.6s ease-in-out infinite; }
+#flagGlow.black::after { box-shadow: inset 0 0 0 5px rgba(var(--c), .85), inset 0 0 0 12px rgba(0, 0, 0, .9), inset 0 0 70px 2px rgba(var(--c), .22); }
+#flagGlow.checkered { --c: 235, 235, 235; }
+#flagGlow.checkered::after { box-shadow: inset 0 0 70px 2px rgba(var(--c), .20); }
+#flagGlow.checkered::before { content: ""; position: absolute; inset: 0; padding: 8px; box-sizing: border-box;
+  background: repeating-conic-gradient(rgba(240, 240, 240, .5) 0 25%, rgba(0, 0, 0, 0) 0 50%) 0 0 / 16px 16px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: flagSweep 14s linear infinite; }
+@keyframes flagPulse { 50% { opacity: .55; } }
+@keyframes flagSweep { to { background-position: 128px 128px; } }
+@media (prefers-reduced-motion: reduce) { #flagGlow, #flagGlow::before { animation: none !important; } }

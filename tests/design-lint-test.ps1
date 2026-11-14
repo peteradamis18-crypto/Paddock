@@ -9,9 +9,13 @@ $root = Split-Path -Parent $PSScriptRoot
 
 # ---- ADD A PAGE HERE THE DAY IT IS CONVERTED (relative to the repo root) ----
 # every file of a converted page (html, css, js); the lint holds them to rules 1-3
-$converted = @('dash/www/v2/races.html', 'dash/www/v2/races.css', 'dash/www/v2/races.js', 'dash/www/v2/race.html', 'dash/www/v2/race.css')
+# (everything under dash\www\app is checked anyway: the shell, its pages and libs, W3-1)
+$converted = @('dash/www/v2/race.html', 'dash/www/v2/race.css')
 # seat pages (read from the driver's seat, nothing under 24 px) and lean-in pages (nothing under 20 px)
-$seat = @('dash/www/v2/races.html', 'dash/www/v2/races.css', 'dash/www/v2/races.js', 'dash/www/v2/race.html', 'dash/www/v2/race.css', 'dash/www/app/pages/race.js')
+$seat = @('dash/www/v2/race.html', 'dash/www/v2/race.css', 'dash/www/app/pages/race.js',
+  'dash/www/app/index.html', 'dash/www/app/shell.css', 'dash/www/app/shell.js', 'dash/www/app/pages/races.js', 'dash/www/app/pages/races.css',
+  'dash/www/app/pages/home.js', 'dash/www/app/pages/review.js', 'dash/www/app/pages/rig.js')
+$seat += @('dash/www/app/pages/home.css')   # W3-3: HOME's files
 $leanIn = @()
 # ------------------------------------------------------------------------------
 $designCss = 'dash/www/app/design.css'

@@ -311,7 +311,64 @@ namespace IRDash
             return "not published";
         }
 
-        public sealed class SessionHint { public DateTime When; public string Car = "", Track = "", Series = ""; }
+        public sealed class SessionHint { public DateTime When; public string Car = "", Track = "", Series = ""; public bool Race; }
+
+        // W3-3: the series of his last `lastN` races, found by what he drove: the car, the track and the week. A race in a GR86 at
+        // Road Atlanta during the week the GR Cup ran there was a GR Cup race. A recording never names its series, so this is the
+        // one honest link; races that match no series week (AI races, last season) simply add nothing.
+        public static HashSet<string> SeriesOfRaces(List<OfSeries> all, IEnumerable<SessionHint> sessions, int lastN)
+        {
+            HashSet<string> k = new HashSet<string>();
+            if (all == null || sessions == null) return k;
+            List<SessionHint> races = new List<SessionHint>();
+            foreach (SessionHint h in sessions) if (h != null && h.Race && h.Car.Length > 0 && h.Track.Length > 0) races.Add(h);
+            races.Sort(delegate (SessionHint a, SessionHint b) { return b.When.CompareTo(a.When); });
+            for (int i = 0; i < races.Count && i < lastN; i++)
+            {
+                string car = Norm(races[i].Car);
+                foreach (OfSeries s in all)
+                {
+                    OfWeek w = WeekAt(s, races[i].When);
+                    if (w == null || !SameTrack(w.Track + " " + w.Layout, races[i].Track)) continue;
+                    bool carOk = false;
+                    if (s.CarsKnown) { foreach (string c in s.Cars) if (SameCar(c, races[i].Car)) { carOk = true; break; } }
+                    else carOk = car.Length >= 6 && Norm(w.Track + " " + w.Layout).Contains(car);      // "See race week for cars": the week's cell names them
+                    if (carOk) k.Add(s.Key);
+                }
+            }
+            return k;
+        }
+
+        // The session (iRacing's own name) and the PDF do not agree on track names: "Snetterton Racing Circuit" / "Snetterton Circuit",
+        // "Nordschleife Industriefahrten" / "Nurburgring Nordschleife", "WeatherTech Raceway Laguna Seca" / "... at Laguna Seca".
+        // Same track = they share a word that names the place (not circuit, raceway, the, at, international ...).
+        static readonly HashSet<string> TrackFiller = new HashSet<string> { "circuit", "circuito", "raceway", "racing", "race", "international", "speedway",
+            "motorsport", "motorsports", "motor", "park", "the", "at", "of", "de", "du", "des", "la", "le", "and", "road", "course", "full", "grand", "prix",
+            "gp", "track", "national", "ring", "autodromo", "autodrome", "oval", "layout", "config", "short", "long", "north", "south", "east", "west", "club" };
+        static HashSet<string> PlaceWords(string s)
+        {
+            HashSet<string> w = new HashSet<string>();
+            StringBuilder plain = new StringBuilder();      // "Nürburgring" = "Nurburgring": drop the accents, keep the word whole
+            foreach (char c in (s ?? "").Normalize(NormalizationForm.FormD).ToLowerInvariant())
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) plain.Append(c);
+            foreach (string t in Regex.Split(plain.ToString(), "[^a-z0-9]+"))
+                if (t.Length >= 4 && !TrackFiller.Contains(t)) w.Add(t);
+            return w;
+        }
+        public static bool SameTrack(string a, string b)
+        {
+            HashSet<string> wa = PlaceWords(a), wb = PlaceWords(b);
+            foreach (string x in wa) if (wb.Contains(x)) return true;
+            return false;
+        }
+        // "Porsche 718 Cayman GT4" in a session is the schedule's "Porsche 718 Cayman GT4 Clubsport MR": equal, or one name starts with the other
+        public static bool SameCar(string a, string b)
+        {
+            string x = Norm(a), y = Norm(b);
+            if (x.Length == 0 || y.Length == 0) return false;
+            if (x == y) return true;
+            return (x.Length >= 8 && y.StartsWith(x, StringComparison.Ordinal)) || (y.Length >= 8 && x.StartsWith(y, StringComparison.Ordinal));
+        }
 
         // Favourites union series named in the last 90 days. Car or track alone never implies a series.
         public static HashSet<string> HisSeriesKeys(IEnumerable<string> favNames, IEnumerable<SessionHint> sessions, DateTime nowUtc)

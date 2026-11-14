@@ -1,10 +1,10 @@
 # df8-flags-test.ps1 - the real tools\df8-flags.js, run in headless Edge with pretend flags (offline: touches no live app, safe while
-# Peter races). The lights must follow iRacing's bits exactly and agree with Paddock's flag panel (dash\www\v2\ui.js).
+# Peter races). The lights must follow iRacing's bits exactly and agree with Paddock's flag (dash\www\app\lib\flags.js, W3-1; it was v2\ui.js).
 #   powershell -ExecutionPolicy Bypass -File tests\df8-flags-test.ps1
 $root = Split-Path -Parent $PSScriptRoot
 $pass = 0; $fail = 0
 function Check($what, $ok, $detail = '') { if ($ok) { $script:pass++; "  ok    $what" } else { $script:fail++; "  FAIL  $what"; if ($detail) { "        $detail" } } }
-$js = [IO.File]::ReadAllText((Join-Path $root 'tools\df8-flags.js')); $ui = [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\ui.js'))
+$js = [IO.File]::ReadAllText((Join-Path $root 'tools\df8-flags.js')); $ui = [IO.File]::ReadAllText((Join-Path $root 'dash\www\app\lib\flags.js'))   # W3-1: the top screen's flag (was v2\ui.js)
 function Table($s) { $m = [regex]::Match($s, '(?s)FLAG TABLE START[^\r\n]*\r?\n(.*?)//\s*FLAG TABLE END'); (($m.Groups[1].Value -split '\r?\n') | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join "`n" }
 $a = Table $js; $b = Table $ui
 Check 'the lights and Paddock use the very same flag table' ($a.Length -gt 50 -and $a -ceq $b) "lights: $a`npaddock: $b"

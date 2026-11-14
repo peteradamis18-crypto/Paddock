@@ -188,8 +188,9 @@
   }
   addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    const host = document.querySelector('.host'); if (host) { if (host._close) host._close(); else host.remove(); return; }
-    const w = $('cWatch'); if (w && w.classList.contains('on')) { closeWatch(); return; }
+    // Esc used here is marked, so the top screen's shell does not also take it to HOME (W3-1)
+    const host = document.querySelector('.host'); if (host) { e.preventDefault(); if (host._close) host._close(); else host.remove(); return; }
+    const w = $('cWatch'); if (w && w.classList.contains('on')) { e.preventDefault(); closeWatch(); return; }
     if (parent !== window) parent.postMessage({ irdash: 'coach-close' }, location.origin);
   });
 
