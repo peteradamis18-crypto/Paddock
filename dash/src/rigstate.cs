@@ -236,7 +236,8 @@ namespace IRDash
         static readonly HashSet<string> ReadOnlyApi = new HashSet<string> {
             "/api/tow-wait", "/api/kids", "/api/rec/races", "/api/rec/sessions", "/api/rec/for", "/api/rec/session-video",
             "/api/library", "/api/library/thumb",       // W1-1: the RACES library list and its thumbnails
-            "/api/library/video", "/api/talk/state", "/api/addon" };  // W1-6: the player's video (range requests) and its once-a-second STOP question
+            "/api/library/video", "/api/talk/state", "/api/addon",
+            "/api/review", "/api/review/traces", "/api/review/corners", "/api/review/progress" };    // W4-1: the review engine only reads  // W1-6: the player's video (range requests) and its once-a-second STOP question
         public static bool ChangesState(string method, string path)
         {
             if (path == null) return false;
@@ -314,7 +315,8 @@ namespace IRDash
             "/sound", "/mydrive", "/overlays", "/replay", "/sessions", "/debrief",
             "/vault", "/vault/list", "/vault/open", "/vault/recorder", "/vault/thumb", "/vault/video",
             "/analysis/career", "/analysis/race", "/analysis/session",
-            "/share/make", "/share/status", "/share/video" };
+            "/share/make", "/share/status", "/share/video",
+            "/api/review", "/api/review/traces", "/api/review/corners", "/api/review/progress" };    // W4-1: REVIEW on the phone (read only)
         // which network adapters the phone listener uses: the default-route one or any with a gateway, never a VPN or virtual one
         // (a full-tunnel VPN takes the default route; Hyper-V, WSL, VMware and the like have private addresses nobody's phone is on)
         static readonly string[] VirtualWords = { "vpn", "virtual", "hyper-v", "vethernet", "wsl", "vmware", "virtualbox", "tap-", "tap adapter", "tunnel", "wireguard", "openvpn", "nordlynx", "tailscale", "zerotier", "wintun", "loopback", "bluetooth" };

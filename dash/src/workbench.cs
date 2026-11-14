@@ -83,6 +83,20 @@ namespace IRDash
                     return null;
                 }
             }
+            // W4-1 (/api/review/traces): a lap of ANOTHER telemetry file by its name, read on its own (the review gathers no other files)
+            if (colon > 0 && int.TryParse(spec.Substring(colon + 1), NumberStyles.Integer, Inv, out n) && spec.Substring(0, colon).EndsWith(".ibt", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(spec.Substring(0, colon), me.File, StringComparison.OrdinalIgnoreCase))
+            {
+                bool gathered = false; foreach (Sess s in sessions) if (string.Equals(s.File, spec.Substring(0, colon), StringComparison.OrdinalIgnoreCase)) gathered = true;
+                string other = gathered ? null : IbtLaps.Resolve(spec.Substring(0, colon));
+                if (other != null && File.Exists(other))
+                {
+                    kind = "lap";
+                    LapTrace hit = null;
+                    foreach (LapTrace lap in Get(other).Laps) if (lap.Lap == n && lap.Tm != null && !lap.Partial && (hit == null || Counted(lap))) hit = lap;
+                    return hit;
+                }
+            }
             LapTrace optimal;
             return FindRef(clean, me, spec, sessions, cs, out kind, out optimal);
         }

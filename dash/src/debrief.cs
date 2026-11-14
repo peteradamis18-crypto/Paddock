@@ -121,6 +121,47 @@ namespace IRDash
             return sb.ToString();
         }
 
+        // W4-1: the race story for the review engine (review.cs) from a field log reply (RaceField.LogFor): result, position by lap and
+        // pace against the field, the same numbers as /debrief, plus the field size of his class, his iRating before the race and the laps
+        // he drove in clean air (no car within 2 s ahead of him at the line where the lap began and where it ended). No clips, no files.
+        internal static string RaceStory(string raceJson)
+        {
+            try
+            {
+                RfData d = RfData.FromJson(raceJson);
+                Dictionary<string, object> sm = O(G(Obj(raceJson), "summary"));
+                if (d == null || sm == null || d.Me < 0 || d.Car(d.Me) == null) return null;
+                RfCar me = d.Car(d.Me);
+                string focus = S(G(sm, "focus"));
+                object[] tower = A(G(sm, "tower"));
+                int field = 0; foreach (object o in tower) { Dictionary<string, object> t = O(o); RfCar c = t != null ? d.Car(I(G(t, "i"))) : null; if (c != null && c.Cls == focus) field++; }
+                StringBuilder sb = new StringBuilder(4096);
+                sb.Append("{\"ok\":true");
+                Result(sb, d, me, sm, tower, focus, -1);
+                Positions(sb, d, sm);
+                Pace(sb, d, me, sm, tower, focus);
+                sb.Append(",\"field\":").Append(field).Append(",\"myIR\":").Append(me.IR).Append(",\"air\":[");
+                bool first = true;
+                foreach (RfLap l in me.Laps)
+                {
+                    if (double.IsNaN(l.S) || double.IsNaN(l.E)) continue;
+                    bool clear = true;
+                    foreach (RfCar c in d.Cars)
+                    {
+                        if (c.Idx == d.Me || !clear) continue;
+                        foreach (RfLap o in c.Laps)
+                        {
+                            if (!double.IsNaN(o.E) && ((l.S - o.E > 0 && l.S - o.E < 2.0) || (l.E - o.E > 0 && l.E - o.E < 2.0))) { clear = false; break; }
+                        }
+                    }
+                    if (!clear) continue;
+                    if (!first) sb.Append(','); first = false; sb.Append(l.N);
+                }
+                return sb.Append("]}").ToString();
+            }
+            catch (Exception ex) { Log.W("debrief: race story: " + ex.Message); return null; }
+        }
+
         static void Result(StringBuilder sb, RfData d, RfCar me, Dictionary<string, object> sm, object[] tower, string focus, int fileInc)
         {
             Dictionary<string, object> mt = null; int leadIdx = -1;

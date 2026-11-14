@@ -209,7 +209,10 @@ namespace IRDash
             new[] { "replay", "replay" }, new[] { "races", "races" }, new[] { "workbench", "deckWorkbench" }, new[] { "sound", "sound" }, new[] { "ac", "ac" } };
 
         // ---- the lists an open page shows (Sessions, Vault, My Races, Performance): a number that rises when the list may have changed ----
-        static long lSessions, lVault, lRaces, lPerf, lastBackstop;
+        static long lSessions, lVault, lRaces, lPerf, lReview, lastBackstop;
+        public static Action SessionEnded;      // W4-1: the session just ended (irdash sets Review.QueueLast: the newest review builds itself)
+        public static volatile string LiveUnits = "";    // W4-1: the units of Peter's iRacing (the live DisplayUnits): the review's words follow them
+        public static void BumpReview() { Interlocked.Increment(ref lReview); Changed("lists"); }      // W4-1: a review (or its traces) is built
         static bool wasSession; static readonly List<long> followUps = new List<long>();
         public static Func<int> PerfVersion;    // PerfStore + PerfChanges versions (set by the server; null in tests)
         public static void BumpLists(bool sessions, bool vault, bool races, bool perf)
@@ -225,7 +228,7 @@ namespace IRDash
         static void ListsTick(long now)
         {
             bool on = false; try { on = RigState.SessionOn; } catch { }
-            if (wasSession && !on) lock (followUps) { followUps.Clear(); foreach (int s in new[] { 5, 30, 120, 300 }) followUps.Add(now + s * 1000L); }
+            if (wasSession && !on) { lock (followUps) { followUps.Clear(); foreach (int s in new[] { 5, 30, 120, 300 }) followUps.Add(now + s * 1000L); } try { if (SessionEnded != null) SessionEnded(); } catch { } }
             wasSession = on;
             bool due = false;
             lock (followUps) for (int i = followUps.Count - 1; i >= 0; i--) if (now >= followUps[i]) { followUps.RemoveAt(i); due = true; }
@@ -235,7 +238,7 @@ namespace IRDash
         public static string ListsJson()
         {
             int pv = 0; try { if (PerfVersion != null) pv = PerfVersion(); } catch { }
-            return "{\"sessions\":" + Interlocked.Read(ref lSessions) + ",\"vault\":" + Interlocked.Read(ref lVault) + ",\"races\":" + Interlocked.Read(ref lRaces) + ",\"perf\":" + (Interlocked.Read(ref lPerf) + pv) + "}";
+            return "{\"sessions\":" + Interlocked.Read(ref lSessions) + ",\"vault\":" + Interlocked.Read(ref lVault) + ",\"races\":" + Interlocked.Read(ref lRaces) + ",\"perf\":" + (Interlocked.Read(ref lPerf) + pv) + ",\"review\":" + Interlocked.Read(ref lReview) + "}";
         }
 
         public static string RigJson()
@@ -381,7 +384,8 @@ namespace IRDash
             sb.Append(",\"flags\":{\"caution\":").Append(caution ? "true" : "false").Append(",\"green\":").Append(green ? "true" : "false").Append(",\"raw\":").Append(raw).Append('}');
             sb.Append(",\"pit\":{\"onRoad\":").Append(f.Num("OnPitRoad") != 0 ? "true" : "false").Append(",\"limiter\":").Append(((long)f.Num("EngineWarnings") & 0x10) != 0 ? "true" : "false")
               .Append(",\"loss\":").Append(loss).Append(",\"rejoin\":null}");
-            sb.Append(",\"units\":").Append(!Sdk.Has(f, "DisplayUnits") || f.Num("DisplayUnits") != 0 ? "\"metric\"" : "\"imperial\"");      // iRacing: 1 = metric (a file without it: litres as they are); the page converts
+            sb.Append(",\"units\":").Append(!Sdk.Has(f, "DisplayUnits") || f.Num("DisplayUnits") != 0 ? "\"metric\"" : "\"imperial\"");
+            if (Sdk.Has(f, "DisplayUnits")) LiveUnits = f.Num("DisplayUnits") != 0 ? "metric" : "imperial";      // iRacing: 1 = metric (a file without it: litres as they are); the page converts
             sb.Append(",\"fuel\":").Append(fv.Json());
             sb.Append(",\"lap\":{\"last\":").Append(last > 0 ? R(last, "0.000") : "null").Append(",\"best\":").Append(best > 0 ? R(best, "0.000") : "null")
               .Append(",\"lastIsBest\":").Append(last > 0 && best > 0 && Math.Abs(last - best) < 0.0005 ? "true" : "false")
