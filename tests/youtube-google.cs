@@ -23,7 +23,7 @@ namespace IRDash
         public sealed class Up
         {
             public string Id, Title = "", Privacy = "", Meta = ""; public long Total; public MemoryStream Data = new MemoryStream();
-            public int Chunks; public List<string> Events = new List<string>(); public long PutBytes;
+            public int Chunks; public bool Gone; public List<string> Events = new List<string>(); public long PutBytes;
         }
 
         public int Port; public string Base;
@@ -165,7 +165,8 @@ namespace IRDash
                 Up u; lock (gate) Ups.TryGetValue(path.Substring("/upload/session/".Length), out u);
                 if (u == null) { Reply(c, 404, "{}", null); return; }
                 if (!AuthOk(c)) { Reply(c, 401, "{\"error\":{\"code\":401}}", null); return; }
-                if (GoneOnce) { GoneOnce = false; lock (gate) u.Events.Add("gone"); Ups.Remove(u.Id); Reply(c, 404, "{}", null); return; }
+                if (GoneOnce) { GoneOnce = false; u.Gone = true; lock (gate) u.Events.Add("gone"); }
+                if (u.Gone) { Reply(c, 404, "{}", null); return; }      // the session ran out: Google forgets it
                 string cr = c.Request.Headers["Content-Range"] ?? "";
                 Match all = Regex.Match(cr, "^bytes \\*/(\\d+)$"), part = Regex.Match(cr, "^bytes (\\d+)-(\\d+)/(\\d+)$");
                 if (all.Success)

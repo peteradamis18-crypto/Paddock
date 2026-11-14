@@ -249,7 +249,7 @@ namespace IRDash
                 Load();
                 Rec r = Find(raceId);
                 if (r != null && (r.Kind == "shared" || r.Kind == "sharing")) { message = MsgAlready; return false; }   // never twice
-                if (r != null && (r.Kind == "queued" || r.Kind == "offline")) { message = "Already waiting to go to YouTube"; }
+                if (r != null && (r.Kind == "queued" || r.Kind == "offline")) { message = "Already waiting to go to YouTube"; r.RetryAtMs = 0; }   // a second press tries now
                 else
                 {
                     if (r == null) { r = new Rec(); r.Race = raceId; recs.Add(r); }
@@ -460,11 +460,11 @@ namespace IRDash
         // an access token good for at least another minute; force = the last one was refused (401)
         static string AccessToken(bool force)
         {
+            string id, secret;
+            if (!ReadClient(out id, out secret)) throw new Halt("setup", MsgSetup, 0);      // first: no client = no sign-in either
             Tok t; lock (gate) t = LoadToken();
             if (t == null) throw new Halt("nosignin", MsgSignIn, 0);
             if (!force && t.Access.Length > 0 && t.ExpMs - NowMs > 60000) return t.Access;
-            string id, secret;
-            if (!ReadClient(out id, out secret)) throw new Halt("setup", MsgSetup, 0);
             Resp r = Form(TokenUrl, "client_id=" + E(id) + "&client_secret=" + E(secret) + "&grant_type=refresh_token&refresh_token=" + E(t.Refresh));
             if (r.Status == 200)
             {

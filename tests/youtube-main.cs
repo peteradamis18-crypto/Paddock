@@ -245,10 +245,10 @@ namespace IRDash
             Ok("3b. ... in a second session, byte-exact", u8.Count == 2 && PretendGoogle.Hash(u8[u8.Count - 1].Data.ToArray()) == hash, u8.Count + " sessions");
 
             // ---- 2b. invalid_grant: signed out ----
-            sessionOn = true;
+            g.Revoked = true; g.InvalidGrant = true;
+            sessionOn = true; Thread.Sleep(1200);      // the job thread sees the session (it looks every 0.5 s), so both races wait together
             YouTube.Enqueue("r6", file, "race r6", "", "private", "");
             YouTube.Enqueue("r7", file, "race r7", "", "private", "");
-            g.Revoked = true; g.InvalidGrant = true;
             sessionOn = false;
             string again2 = "{\"kind\":\"signin\",\"error\":\"Sign in to YouTube again\"}";
             Ok("2. invalid_grant -> every queued race shows signin, \"Sign in to YouTube again\"", WaitFor(delegate () { return YouTube.StateJson("r6") == again2 && YouTube.StateJson("r7") == again2; }, 10000), YouTube.StateJson("r6") + " " + YouTube.StateJson("r7"));
