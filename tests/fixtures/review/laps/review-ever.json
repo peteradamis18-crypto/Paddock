@@ -1,0 +1,12 @@
+{"state":"ready",
+ "session":{"id":"toyotagr86_roadatlanta full 2026-11-14 10-05-00","track":"Michelin Raceway Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Practice",
+   "date":1794668700000,"laps":3,"clean":2,"speedUnit":"km/h",
+   "best":{"lap":3,"time":94.250},"ref":{"kind":"ever","lap":9,"time":93.832,"date":1793988000000,"conditions":"track 31°, 42 L fuel"},"result":null},
+ "cards":[],"plan":"","race":null,
+ "map":{"key":"roadatlanta-full","id":127,"gain":[],"marks":[]},
+ "laps":[
+   {"n":1,"time":103.100,"counted":false,"why":"out","sectors":[],"pb":false},
+   {"n":2,"time":94.611,"counted":true,"why":"","sectors":[],"pb":false},
+   {"n":3,"time":94.250,"counted":true,"why":"","sectors":[],"pb":false}],
+ "optimal":{"time":93.412,"from":[{"sector":1,"lap":9,"date":1793988000000},{"sector":2,"lap":3,"date":1794668700000}]},
+ "note":"Only 2 clean laps: the costliest corner, no advice"}
