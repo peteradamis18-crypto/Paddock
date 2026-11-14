@@ -57,7 +57,11 @@ namespace IRDash
             foreach (string d in new string[] { Sess, Saved, Trash, Thumbs, Videos }) { try { if (Directory.Exists(d)) Directory.Delete(d, true); } catch { } Directory.CreateDirectory(d); }
             Reload();
         }
-        static void Reload() { typeof(Recorder).GetMethod("LoadSessions", Any).Invoke(null, null); }
+        static void Reload() { typeof(Recorder).GetMethod("LoadSessions", Any).Invoke(null, null); SessionIndex.Forget(); }
+        // a new press of the same command: past the library's 2-s repeat memory
+        static string D(string c, string a, out int code) { now += 2500; return Library.Do(c, a, out code); }
+        static void Patch(string dir, string id, string from, string to) { string f = Path.Combine(dir, id + ".json"); File.WriteAllText(f, File.ReadAllText(f).Replace(from, to), new UTF8Encoding(false)); }
+        static void PeterKeeps(string dir, string id) { Patch(dir, id, "\"recovered\":", "\"keptBy\":\"peter\",\"recovered\":"); }
         static void SetOpen(RecSess s) { typeof(Recorder).GetField("openSess", Any).SetValue(null, s); }
 
         static string Lap(int n, double offset, double time, bool counted, bool pit)
@@ -114,6 +118,7 @@ namespace IRDash
                 if (want(5)) StorageMaths();
                 if (want(6)) Contract();
                 if (want(7)) Thumbnails();
+                if (want(8)) Review();
             }
             catch (Exception ex) { Ok("the harness ran without an exception", false, ex.ToString()); }
             Console.WriteLine("DONE");
@@ -129,6 +134,7 @@ namespace IRDash
             Fix(Saved, "r-race", "Race", now - 3 * 3600000, 600, (long)(1.1 * Gb), true, RaceLaps(), "{\"offset\":150.000,\"count\":2}", now - 3 * 3600000);
             Fix(Sess, "q-lone", "Lone Qualify", now - 2 * 3600000, 600, (long)(0.5 * Gb), false);
             Fix(Sess, "p-prac", "Practice", now - 1 * 3600000, 600, (long)(0.6 * Gb), false);
+            PeterKeeps(Saved, "r-race");
             Reload();
         }
 
@@ -171,7 +177,7 @@ namespace IRDash
             Three();
             string lp = Export("p-prac"), lr = Export("r-race");
             Ok("2. setup: both exported to videos\\", File.Exists(lp) && File.Exists(lr));
-            int code; string j = Library.Do("racetrash", "p-prac", out code);
+            int code; string j = D("racetrash", "p-prac", out code);
             Dictionary<string, object> d = Parse(j);
             string batch = d != null && d.ContainsKey("batch") ? (string)d["batch"] : "";
             Ok("2. racetrash answers batch, count 1, mb, \"Deleted 1 race\"", code == 200 && batch.Length > 0 && Convert.ToInt32(d["count"]) == 1 && d.ContainsKey("mb") && (string)d["say"] == "Deleted 1 race", j);
@@ -181,14 +187,14 @@ namespace IRDash
             List<RaceInfo> t = Library.TrashList();
             Ok("2. the trash lists it with daysLeft 14", t.Count == 1 && t[0].Id == "p-prac" && Library.DaysLeft(t[0]) == 14, t.Count > 0 ? Library.DaysLeft(t[0]) + "" : "empty");
             Ok("2. /api/library's trash part has it with \"daysLeft\":14", Library.Json().Contains("\"trash\":[{\"id\":\"p-prac\"") && Library.Json().Contains("\"daysLeft\":14"));
-            j = Library.Do("raceundo", batch, out code);
+            j = D("raceundo", batch, out code);
             Ok("2. undo: \"1 race is back\"", code == 200 && j.Contains("\"say\":\"1 race is back\""), j);
             Ok("2. undo: the files are back in sessions\\, the trash is empty", In(Sess, "p-prac") && !File.Exists(Path.Combine(Trash, "p-prac.mp4")) && !File.Exists(Path.Combine(Trash, "p-prac.trash")) && Library.TrashList().Count == 0);
             Ok("2. undo: re-exported (the hard link is back)", File.Exists(lp));
             Ok("2. undo: listed again", SessionIndex.Get("p-prac") != null);
-            j = Library.Do("raceundo", batch, out code);
+            j = D("raceundo", batch, out code);
             Ok("2. undo twice -> \"Nothing to undo\"", code == 409 && j.Contains("Nothing to undo"), j);
-            j = Library.Do("raceundo", "b-unknown", out code);
+            j = D("raceundo", "b-unknown", out code);
             Ok("2. undo of an unknown batch -> \"Nothing to undo\"", code == 409 && j.Contains("Nothing to undo"), j);
 
             // a Kept race can be trashed by the press; undo puts it back in saved\
@@ -206,14 +212,14 @@ namespace IRDash
 
             // refused while it is being recorded; through the old command path too
             RecSess open = new RecSess(); open.Id = "q-lone"; SetOpen(open);
-            j = Library.Do("racetrash", "q-lone", out code);
+            j = D("racetrash", "q-lone", out code);
             Ok("2. refused while that session is being recorded", code == 409 && j.Contains("still being recorded") && In(Sess, "q-lone"), j);
             SetOpen(null);
             Ok("2. the old racedelete (Vault.Do) now trashes too", Vault.Do("racedelete", "q-lone") && In(Trash, "q-lone"));
             Three();
-            j = Library.Do("racetrash", "q-lone|p-prac|../evil", out code);
+            j = D("racetrash", "q-lone|p-prac|../evil", out code);
             Ok("2. several at once: \"Deleted 2 races\", a bad id is ignored", code == 200 && j.Contains("\"count\":2") && j.Contains("Deleted 2 races") && In(Trash, "q-lone") && In(Trash, "p-prac"), j);
-            j = Library.Do("racetrash", "nope", out code);
+            j = D("racetrash", "nope", out code);
             Ok("2. an unknown id -> \"Nothing to delete\"", code == 409 && j.Contains("Nothing to delete"), j);
         }
 
@@ -271,7 +277,8 @@ namespace IRDash
             Action setup = delegate
             {
                 Clean();
-                Fix(Saved, "k0", "Race", now - 10 * Day, 1200, (long)(3 * Gb), true);
+                Fix(Saved, "k0", "Race", now - 10 * Day, 1200, (long)(3 * Gb), true); PeterKeeps(Saved, "k0");
+                Fix(Saved, "a0", "Race", now - 11 * Day, 1200, (long)(3 * Gb), true);      // kept by AutoKeep (no keptBy): may go once shared
                 Fix(Sess, "s1", "Race", now - 9 * Day, 1200, (long)(3 * Gb), false);
                 Fix(Sess, "s2", "Race", now - 8 * Day, 1200, (long)(3 * Gb), false);
                 Fix(Sess, "s3", "Race", now - 7 * Day, 1200, (long)(3 * Gb), false);
@@ -280,16 +287,16 @@ namespace IRDash
             };
             setup();
             Library.ShareState = null;
-            int code; string j = Library.Do("racefree", "", out code);
+            int code; string j = D("racefree", "", out code);
             Ok("4. no hook: nothing is deleted, and it says so", code == 409 && j.Contains("cannot tell") && In(Sess, "s1") && In(Sess, "s2") && In(Saved, "k0"), j);
 
             string lk = Export("s1");
-            shared = delegate (string id) { return id == "s1" || id == "s2" || id == "k0" ? "{\"kind\":\"shared\",\"privacy\":\"private\",\"url\":\"https://youtu.be/x\"}" : id == "s3" ? "{\"kind\":\"sharing\",\"pct\":41}" : "{\"kind\":\"none\"}"; };
+            shared = delegate (string id) { return id == "a0" || id == "s1" || id == "s2" || id == "k0" ? "{\"kind\":\"shared\",\"privacy\":\"private\",\"url\":\"https://youtu.be/x\"}" : id == "s3" ? "{\"kind\":\"sharing\",\"pct\":41}" : "{\"kind\":\"none\"}"; };
             Library.ShareState = shared;
-            j = Library.Do("racefree", "", out code);
-            Ok("4. the two shared races go, for good: \"Freed 6 GB: 2 shared races\"", code == 200 && j.Contains("Freed 6 GB: 2 shared races") && Gone("s1") && Gone("s2"), j);
+            j = D("racefree", "", out code);
+            Ok("4. oldest shared first, for good, until 15 % free: the auto-kept a0 and s1 go (\"Freed 6 GB: 2 shared races\"), s2 stays", code == 200 && j.Contains("Freed 6 GB: 2 shared races") && Gone("a0") && Gone("s1") && In(Sess, "s2"), j);
             Ok("4. not via the trash, and the Videos\\Paddock link went too", Library.TrashList().Count == 0 && !File.Exists(lk));
-            Ok("4. a Kept shared race, a sharing one and an unshared one stay", In(Saved, "k0") && In(Sess, "s3") && In(Sess, "s4"));
+            Ok("4. a shared race Peter kept by a press, a sharing one and an unshared one stay", In(Saved, "k0") && In(Sess, "s3") && In(Sess, "s4"));
 
             setup();
             Library.ShareState = delegate (string id) { return id == "s1" || id == "s2" || id == "s3" ? "{\"kind\":\"shared\"}" : "{\"kind\":\"none\"}"; };
@@ -374,9 +381,9 @@ namespace IRDash
 
             // EMPTY NOW: a job on the Jobs queue
             Three(); Library.Trash(new string[] { "p-prac", "q-lone" });
-            int code; j = Library.Do("raceempty", "", out code);
+            int code; j = D("raceempty", "", out code);
             Ok("6. raceempty: \"Emptying the trash\", then the trash is empty", code == 200 && j.Contains("Emptying the trash") && Wait(delegate { return Library.TrashList().Count == 0; }, 5000) && Gone("p-prac") && Gone("q-lone"), j);
-            j = Library.Do("raceempty", "", out code);
+            j = D("raceempty", "", out code);
             Ok("6. raceempty again: \"The trash is already empty\"", code == 409 && j.Contains("already empty"), j);
         }
 
@@ -403,6 +410,141 @@ namespace IRDash
             Ok("7. no leftover .part files", Directory.GetFiles(Thumbs, "*.part.jpg").Length == 0);
             Ok("7. a bad id is refused", Library.Thumb("..\\x", "600") == null);
             Ok("7. /api/library says thumb:true", Library.Json().Contains("\"thumb\":true"));
+        }
+
+        // the review's findings (W1-1 review, 14 items), each as behaviour
+        static void Review()
+        {
+            Console.WriteLine("-- 8. review findings");
+            int code; string j;
+
+            // 1 + 2: an unknown type, a recovered session and one being uploaded are never aged or taken by the floor
+            Clean(); DiskFrom(500, 1000, true);
+            Fix(Sess, "u15", "", now - 15 * Day, 600, (long)(1 * Gb), false);
+            Fix(Sess, "rec15", "Practice", now - 15 * Day, 600, (long)(1 * Gb), false); Patch(Sess, "rec15", "\"recovered\":false", "\"recovered\":true");
+            Fix(Sess, "sh15", "Practice", now - 15 * Day, 600, (long)(1 * Gb), false);
+            Fix(Sess, "qq15", "Qualify", now - 15 * Day, 600, (long)(1 * Gb), false);
+            Fix(Sess, "p15", "Practice", now - 15 * Day, 600, (long)(1 * Gb), false);
+            Reload();
+            Library.ShareState = delegate (string id) { return id == "sh15" ? "{\"kind\":\"sharing\",\"pct\":12}" : id == "qq15" ? "{\"kind\":\"queued\"}" : "{\"kind\":\"none\"}"; };
+            Library.Tidy();
+            Ok("8.1 a 15-day-old session of unknown type is not aged (it may be a race)", In(Sess, "u15"));
+            Ok("8.1 a 15-day-old recovered session is not aged", In(Sess, "rec15"));
+            Ok("8.2 a 15-day-old practice being uploaded (sharing) and a queued qualifying stay", In(Sess, "sh15") && In(Sess, "qq15"));
+            Ok("8.1 the plain 15-day-old practice still goes to the trash", In(Trash, "p15"));
+            Clean();
+            Fix(Sess, "u5", "", now - 9 * Day, 600, (long)(8 * Gb), false);
+            Fix(Sess, "rec5", "Practice", now - 8 * Day, 600, (long)(8 * Gb), false); Patch(Sess, "rec5", "\"recovered\":false", "\"recovered\":true");
+            Fix(Sess, "up5", "Practice", now - 7 * Day, 600, (long)(8 * Gb), false);
+            Fix(Sess, "p5", "Practice", now - 3 * Day, 600, (long)(8 * Gb), false);
+            Reload(); DiskFrom(40, 1000, false);
+            Library.ShareState = delegate (string id) { return id == "up5" ? "{\"kind\":\"sharing\"}" : "{\"kind\":\"none\"}"; };
+            Library.Tidy();
+            Ok("8.1/8.2 the floor takes the plain practice (p5) and never the unknown, recovered or uploading ones", Gone("p5") && In(Sess, "u5") && In(Sess, "rec5") && In(Sess, "up5"));
+            Library.ShareState = null; DiskFrom(500, 1000, true);
+
+            // 3: kept = Peter pressed KEEP; AutoKeep / Backfill = "auto"
+            Clean();
+            Fix(Saved, "a1", "Race", now - 2 * Day, 1200, 3000, true);
+            Fix(Sess, "n1", "Race", now - 1 * Day, 1200, 3000, false);
+            Reload();
+            Ok("8.3 a race in saved\\ without keptBy (AutoKeep) is not \"kept\"", SessionIndex.Get("a1") != null && !SessionIndex.Get("a1").Kept && SessionIndex.Get("a1").Saved);
+            string st = Recorder.Save("a1");
+            Ok("8.3 a KEEP press on it (Save(id), the recsave path) makes it Peter's: keptBy peter in the sidecar", st == "SAVED" && File.ReadAllText(Path.Combine(Saved, "a1.json")).Contains("\"keptBy\":\"peter\"") && SessionIndex.Get("a1").Kept, st);
+            st = Recorder.Save("n1", false);
+            Ok("8.3 the automatic Save(id, false) (Backfill) keeps it as \"auto\"", st == "SAVED" && In(Saved, "n1") && File.ReadAllText(Path.Combine(Saved, "n1.json")).Contains("\"keptBy\":\"auto\"") && !SessionIndex.Get("n1").Kept, st);
+            st = Recorder.Save("n1");
+            Ok("8.3 then a press makes it Peter's", st == "SAVED" && File.ReadAllText(Path.Combine(Saved, "n1.json")).Contains("\"keptBy\":\"peter\""), st);
+            Reload();
+            Ok("8.3 keptBy survives a reload", SessionIndex.Get("n1").Kept && SessionIndex.Get("a1").Kept);
+
+            // 4: the trash note cannot be written -> the files go back; an item with no note is never emptied by itself
+            Three();
+            Library.TestNoteFails = true;
+            j = D("racetrash", "p-prac", out code);
+            Library.TestNoteFails = false;
+            Ok("8.4 no trash note: refused, the files are back in sessions\\", code == 409 && j.Contains("Not deleted") && In(Sess, "p-prac") && !File.Exists(Path.Combine(Trash, "p-prac.mp4")) && !File.Exists(Path.Combine(Trash, "p-prac.json")) && SessionIndex.Get("p-prac") != null, j);
+            Clean();
+            Fix(Trash, "nn", "Practice", now - 30 * Day, 600, 1000, false, Lap(1, 5, 100, false, false), "", now - 30 * Day);
+            long fb; Library.Empty(false, out fb);
+            RaceInfo nn = null; foreach (RaceInfo x in Library.TrashList()) if (x.Id == "nn") nn = x;
+            Ok("8.4 a trash item without its note (sidecar 30 days old) is not emptied by itself, shows 14 days", In(Trash, "nn") && nn != null && nn.NoNote && Library.DaysLeft(nn) == 14);
+            Library.Empty(true, out fb);
+            Ok("8.4 EMPTY NOW does delete it", Gone("nn"));
+
+            // 5: a stale list (a session of another vault in the list) is never moved or deleted; undo across a vault switch is refused
+            Three();
+            string other = Path.Combine(Root, @"other\sessions");
+            Fix(other, "stale1", "Race", now - 20 * Day, 1200, (long)(3 * Gb), false);
+            RecSess stale = Recorder.LibRead(Path.Combine(other, "stale1.json")); Recorder.LibPut(stale); SessionIndex.Forget();
+            Library.TrashResult tr = Library.Trash(new string[] { "stale1" });
+            Ok("8.5 trash refuses a file outside the active vault", tr.Count == 0 && tr.Why == "NOT HERE" && In(other, "stale1"), tr.Why);
+            Library.ShareState = delegate (string id) { return id == "stale1" ? "{\"kind\":\"shared\"}" : "{\"kind\":\"none\"}"; };
+            DiskFrom(1, 100, true);
+            Library.FreeResult fr = Library.FreeUpSpace();
+            Ok("8.5 free up space leaves a shared race outside the active vault alone", fr.Count == 0 && In(other, "stale1"), fr.Say);
+            Library.ShareState = null; DiskFrom(500, 1000, true);
+            Reload();
+            tr = Library.Trash(new string[] { "p-prac" });
+            Vault.Root = Path.Combine(Root, "vault2");
+            int un; string uw = Library.Undo(tr.Batch, out un);
+            Vault.Root = null;
+            Ok("8.5 undo after the vault switched is refused; the race stays in its trash", un == 0 && uw == "Nothing to undo" && In(Trash, "p-prac"), uw);
+            Reload();
+
+            // 6: the same press twice: the same JSON answer (not "Nothing to delete"), also for a repeat the server's guard dropped
+            Three();
+            now += 2500;
+            int c1, c2, c3;
+            string j1 = Library.Do("racetrash", "p-prac", out c1), j2 = Library.Do("racetrash", "p-prac", out c2), j3 = Library.Recent("racetrash", "p-prac", out c3);
+            Ok("8.6 a doubled press gets the first answer again", j1 == j2 && j1 == j3 && c1 == 200 && c2 == 200 && c3 == 200 && j1.Contains("Deleted 1 race"), j2);
+            now += 2500;
+            j = Library.Do("racetrash", "p-prac", out code);
+            Ok("8.6 a new press 2.5 s later is a new press", code == 409 && j.Contains("Nothing to delete"), j);
+            Ok("8.6 irdash answers a dropped repeat with Library.Recent", File.Exists(Path.Combine(Root, "..\\..\\dash\\src\\irdash.cs")) ? File.ReadAllText(Path.Combine(Root, "..\\..\\dash\\src\\irdash.cs")).Contains("Library.Handles(dc) ? Library.Recent(dc, da, out rc)") : false);
+
+            // 7 + 8: a partial batch says what was not deleted; a file in use says "Try again in a minute"
+            Three();
+            RecSess open = new RecSess(); open.Id = "q-lone"; SetOpen(open);
+            j = D("racetrash", "q-lone|p-prac", out code);
+            SetOpen(null);
+            Ok("8.7 \"Deleted 1 race. 1 not deleted: it is still being recorded\"", code == 200 && j.Contains("Deleted 1 race. 1 not deleted: it is still being recorded"), j);
+            using (FileStream hold = new FileStream(Path.Combine(Saved, "r-race.mp4"), FileMode.Open, FileAccess.Read, FileShare.None))
+                j = D("racetrash", "r-race", out code);
+            Ok("8.8 a file held open: \"It is in use. Try again in a minute\"", code == 409 && j.Contains("it is in use. Try again in a minute") && In(Saved, "r-race"), j);
+
+            // 9: undo whose sidecar cannot move back: the video goes back into the trash too (never an orphan)
+            Three();
+            tr = Library.Trash(new string[] { "p-prac" });
+            Library.TestUndoJsonFails = true;
+            uw = Library.Undo(tr.Batch, out un);
+            Library.TestUndoJsonFails = false;
+            Ok("8.9 undo with a stuck sidecar: the video stays in the trash with it", uw == "Nothing to undo" && In(Trash, "p-prac") && !File.Exists(Path.Combine(Sess, "p-prac.mp4")) && File.Exists(Path.Combine(Trash, "p-prac.trash")), uw);
+
+            // 10: the deck's list in a session: no markers and no telemetry (light), trash from file sizes
+            Three(); SessionIndex.Forget();
+            List<RaceInfo> light = SessionIndex.All(true);
+            RaceInfo lr = null; foreach (RaceInfo x in light) if (x.Id == "r-race") lr = x;
+            Ok("8.10 the light list has no markers but the sidecar's best lap", lr != null && lr.Markers.Count == 0 && Math.Abs(lr.Best - 93.832) < 1e-6);
+            Ok("8.10 after a change the full list is rebuilt (markers back)", SessionIndex.Get("r-race").Markers.Count == 5);
+
+            // 12: under 1 GB the trash is said in MB
+            Three(); Library.Trash(new string[] { "p-prac" });
+            j = D("raceempty", "", out code);
+            Ok("8.12 \"Emptying the trash: 614 MB\"", j.Contains("Emptying the trash: 614 MB"), j);
+            Wait(delegate { return Library.TrashList().Count == 0; }, 5000);
+
+            // 14: RetainSessions outside the sandbox (testOn false) deletes nothing by count or budget
+            Clean();
+            for (int i = 0; i < 5; i++) Fix(Sess, "keep" + i, "Practice", now - (i + 1) * 3600000.0, 600, (long)(2 * Gb), false);
+            Reload();
+            FieldInfo ks = typeof(Recorder).GetField("keepSessions", Any), rb = typeof(Recorder).GetField("recentBudgetBytes", Any);
+            object ks0 = ks.GetValue(null), rb0 = rb.GetValue(null);
+            ks.SetValue(null, 1); rb.SetValue(null, 0L);
+            typeof(Recorder).GetMethod("RetainSessions", Any).Invoke(null, null);
+            ks.SetValue(null, ks0); rb.SetValue(null, rb0);
+            bool allThere = true; for (int i = 0; i < 5; i++) if (!In(Sess, "keep" + i)) allThere = false;
+            Ok("8.14 RetainSessions (not the sandbox) with keep=1 and a 0-byte budget deletes nothing", allThere && Recorder.LibFinished().Count == 5);
         }
     }
 }

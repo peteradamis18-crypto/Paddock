@@ -822,7 +822,15 @@ namespace IRDash
                         if (dg != null) { KeyMsg.Set(Regex.IsMatch(dc ?? "", "^[a-z0-9_-]{1,40}$") ? dc : "", dg, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(dg), "Access-Control-Allow-Origin: *\r\n"); return; }
                         Vault.Refused = null;
                         // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
-                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks))
+                        {
+                            Log.W("api/do: repeat press ignored: " + dc);
+                            // W1-1: a repeated library press gets the first press's JSON answer again (the page parses it)
+                            int rc = 200; string rj = Library.Handles(dc) ? Library.Recent(dc, da, out rc) : null;
+                            if (rj != null) Send(s, rc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(rj), "Access-Control-Allow-Origin: *\r\n");
+                            else Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n");
+                            return;
+                        }
                         // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with an X-Paddock header
                         // that W0-2's Gate (above, rigstate.cs) already accepted (the add-on's secret, or 1 from a local program),
                         // kids lock off, within 5 s of that arm (DeckGuard.PowerGate). irdeck then quits iRacing, sends the deck to MAIN, powers off.

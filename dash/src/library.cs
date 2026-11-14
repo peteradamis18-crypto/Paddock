@@ -21,13 +21,17 @@ namespace IRDash
     sealed class RaceInfo
     {
         public string Id = "", Track = "", Config = "", Car = "", Type = "", File = "", Sidecar = "", ExportPath = "";
-        public bool IsRace, Kept, InTrash;
+        public bool IsRace, InTrash;
+        public bool Kept;               // Peter pressed KEEP ("keptBy":"peter"); a race kept by AutoKeep is not "Kept" here
+        public bool Saved;              // in vault\saved (Peter's KEEP or AutoKeep): nothing automatic removes it
+        public bool Recovered;          // rebuilt from segments after a crash: its type may be unknown, so it is treated as a race
         public double StartMs, Sec, Best, DeletedMs, Created;
         public int Laps, Counted, BestLap;
         public long Bytes;
         public List<RaceMarker> Markers = new List<RaceMarker>();
         public string From = "";        // trash only: "sessions" or "saved", where UNDO puts it back
         public bool WasExported;        // trash only: it was in Videos\Paddock, so UNDO puts the link back
+        public bool NoNote;             // trash only: its .trash note is missing, so nobody knows when it was deleted: never emptied by itself
         public bool Busy;               // SAVE is moving it right now
         public double MB { get { return Bytes / 1048576.0; } }
     }
@@ -35,6 +39,8 @@ namespace IRDash
     static class SessionIndex
     {
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        static readonly object cacheGate = new object();
+        static List<RaceInfo> cache; static string cacheKey = ""; static bool cacheLight; static double cacheAt;
 
         // the rule used everywhere today (deck plugin.html isRace, Recorder.AutoKeep): "race" in the type, not qualifying or practice
         public static bool IsRaceType(string t)
@@ -42,39 +48,66 @@ namespace IRDash
             t = t ?? "";
             return Regex.IsMatch(t, "race", RegexOptions.IgnoreCase) && !Regex.IsMatch(t, "qual|prac", RegexOptions.IgnoreCase);
         }
-
-        // every finished session on disk, newest first (the recorder's list; the trash is Library.TrashList)
-        public static List<RaceInfo> All()
+        // what retention and the low-disk clean-up may ever take by themselves: a session that SAYS practice or qualifying. An unknown
+        // type ("", a session rebuilt after a crash) counts as a race: never aged, never taken.
+        public static bool PracticeOrQualify(string type, bool recovered)
         {
+            return !recovered && Regex.IsMatch(type ?? "", "prac|qual", RegexOptions.IgnoreCase);
+        }
+
+        // what changes the list: which sessions, where their files are, how they are kept (cheap: no file is opened)
+        static string Key(List<RecSess> all)
+        {
+            StringBuilder k = new StringBuilder(Library.Version.ToString(Inv));
+            foreach (RecSess s in all) k.Append('|').Append(s.Id).Append(s.Saved ? 'S' : 's').Append(s.PeterKept ? 'P' : 'p').Append(s.Saving ? 'B' : 'b').Append(s.Bytes).Append('/').Append(s.LapRows.Count).Append(s.File);
+            return k.ToString();
+        }
+
+        // every finished session on disk, newest first (the recorder's list; the trash is Library.TrashList).
+        // Cached until the list changes; light = no telemetry lookup and no markers (the deck's list during a session).
+        public static List<RaceInfo> All() { return All(false); }
+        public static List<RaceInfo> All(bool light)
+        {
+            List<RecSess> sess = Recorder.LibFinished();
+            string key = Key(sess);
+            lock (cacheGate)
+            {
+                // a full list goes stale only when the recorder's list changes, or after 2 minutes between sessions (a telemetry file read later can fix a best lap)
+                bool fresh = cache != null && cacheKey == key && (light || !cacheLight) && (light || Library.Now - cacheAt < 120000 || RigState.SessionOn);
+                if (fresh) return new List<RaceInfo>(cache);
+            }
             List<RaceInfo> all = new List<RaceInfo>();
-            foreach (RecSess s in Recorder.LibFinished())
+            foreach (RecSess s in sess)
             {
                 if (s.File.Length == 0 || !System.IO.File.Exists(s.File)) continue;
-                all.Add(From(s));
+                all.Add(From(s, light));
             }
             all.Sort(delegate (RaceInfo a, RaceInfo b) { return b.StartMs.CompareTo(a.StartMs); });
-            return all;
+            lock (cacheGate) { cache = all; cacheKey = key; cacheLight = light; cacheAt = Library.Now; }
+            return new List<RaceInfo>(all);
         }
+        internal static void Forget() { lock (cacheGate) cache = null; }
 
         public static RaceInfo Get(string id)
         {
-            RecSess s = Recorder.LibFind(id);
-            return s != null && s.File.Length > 0 && System.IO.File.Exists(s.File) ? From(s) : null;
+            foreach (RaceInfo r in All()) if (r.Id == id) return r;
+            return null;
         }
 
-        internal static RaceInfo From(RecSess s)
+        internal static RaceInfo From(RecSess s) { return From(s, false); }
+        internal static RaceInfo From(RecSess s, bool light)
         {
             RaceInfo r = new RaceInfo();
             r.Id = s.Id; r.Track = s.Track; r.Config = s.Config; r.Car = s.Car; r.Type = s.Type; r.IsRace = IsRaceType(s.Type);
-            r.StartMs = s.StartMs; r.Sec = s.Duration; r.Kept = s.Saved; r.Busy = s.Saving; r.Created = s.Created;
+            r.StartMs = s.StartMs; r.Sec = s.Duration; r.Kept = s.PeterKept && s.Saved; r.Saved = s.Saved; r.Recovered = s.Recovered; r.Busy = s.Saving; r.Created = s.Created;
             r.File = s.File; r.Sidecar = s.File.Length > 0 ? Path.ChangeExtension(s.File, ".json") : "";
             r.Bytes = s.Bytes;
             if (r.Bytes <= 0) { try { r.Bytes = new FileInfo(s.File).Length; } catch { } }
             try { r.ExportPath = Recorder.LibExportPath(s); } catch { }
             int laps, counted, bestN; double best;
-            Recorder.RaceLaps(s, out laps, out counted, out best, out bestN);
+            Recorder.RaceLaps(s, !light, out laps, out counted, out best, out bestN);
             r.Laps = laps; r.Counted = counted; r.Best = best; r.BestLap = bestN;
-            r.Markers = Markers(s, best, bestN);
+            if (!light) r.Markers = Markers(s, best, bestN);
             return r;
         }
 
@@ -123,6 +156,7 @@ namespace IRDash
         const double FreeShare = 0.15;              // "low space" and the target of FREE UP SPACE: 15 % of the volume free
         const double UndoMs = 60000;                // the page offers UNDO for 8 s; the server keeps the batch for 60 s (a slow press still works)
         const double DefaultRaceBytes = 1.2 * Gb;   // "about N more races" before any race was recorded
+        const double AnswerMs = 2000;               // a repeated press within 2 s gets the first press's answer again
 
         // ---- the two hooks the lead wires at merge time (W1-2, YouTube, is built in parallel) ----
         public static Func<string, string> ShareState;     // race id -> {"kind":"none|queued|sharing|shared|failed|signin|offline",...}
@@ -132,7 +166,7 @@ namespace IRDash
         public static Func<double> Clock;                   // wall ms; null = the recorder's clock
         internal static Action<string> AfterThumb;          // called after each thumbnail (test 7 starts a session mid-way)
 
-        static double Now { get { return Clock != null ? Clock() : Recorder.WallMs(); } }
+        internal static double Now { get { return Clock != null ? Clock() : Recorder.WallMs(); } }
         static string TrashDir { get { return Path.Combine(Recorder.LibVaultRoot, "trash"); } }
         static string ThumbDir { get { return Path.Combine(Recorder.LibVaultRoot, "thumbs"); } }
         public static string ThumbPath(string id, bool small) { return Path.Combine(ThumbDir, "race-" + id + (small ? "-144" : "") + ".jpg"); }
@@ -142,7 +176,14 @@ namespace IRDash
         static readonly Dictionary<string, Batch> batches = new Dictionary<string, Batch>();
         static int batchNo;
 
-        static void Changed() { try { StateBuilder.BumpLists(false, false, true, false); } catch { } }
+        // the list's version: every change here; the cached lists (SessionIndex, the trash) are rebuilt when it moves
+        static long version;
+        internal static long Version { get { return Interlocked.Read(ref version); } }
+        static void Changed()
+        {
+            Interlocked.Increment(ref version);
+            try { StateBuilder.BumpLists(false, false, true, false); } catch { }
+        }
 
         // ---------------- disk ----------------
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -156,49 +197,77 @@ namespace IRDash
         }
         static long FreeNow() { return Measure()[0]; }
 
+        static string Kind(string id)
+        {
+            Func<string, string> h = ShareState;
+            if (h == null) return "none";
+            try { Match m = Regex.Match(h(id) ?? "", "\"kind\"\\s*:\\s*\"([a-z]+)\""); return m.Success ? m.Groups[1].Value : "none"; } catch { return "none"; }
+        }
+        // an upload waiting or running holds the file: nothing automatic touches it
+        static bool Uploading(string id) { string k = Kind(id); return k == "queued" || k == "sharing"; }
+
         // ---------------- the trash ----------------
         // <id>.mp4 + <id>.json moved here, and <id>.trash: "deletedMs<TAB>sessions|saved<TAB>1 if it was in Videos\Paddock"
+        static List<RaceInfo> trashCache; static string trashKey = "";
+        static readonly HashSet<string> noNoteSaid = new HashSet<string>();
         public static List<RaceInfo> TrashList()
         {
+            string key = "";
+            try { key = Version + "|" + TrashDir + "|" + (Directory.Exists(TrashDir) ? Directory.GetLastWriteTimeUtc(TrashDir).Ticks.ToString(Inv) : "none"); } catch { }
+            lock (noNoteSaid) if (trashCache != null && key == trashKey) return new List<RaceInfo>(trashCache);
             List<RaceInfo> list = new List<RaceInfo>();
             try
             {
-                if (!Directory.Exists(TrashDir)) return list;
-                foreach (string j in Directory.GetFiles(TrashDir, "*.json"))
-                {
-                    RecSess s = Recorder.LibRead(j);
-                    if (s == null || s.Id.Length == 0) continue;
-                    RaceInfo r = new RaceInfo();
-                    r.Id = s.Id; r.Track = s.Track; r.Config = s.Config; r.Car = s.Car; r.Type = s.Type; r.IsRace = SessionIndex.IsRaceType(s.Type);
-                    r.StartMs = s.StartMs; r.Sec = s.Duration; r.Kept = s.Saved; r.InTrash = true; r.Bytes = s.Bytes;
-                    r.File = Path.ChangeExtension(j, ".mp4"); r.Sidecar = j;
-                    if (r.Bytes <= 0) { try { r.Bytes = new FileInfo(r.File).Length; } catch { } }
-                    try { r.ExportPath = Recorder.LibExportPath(s); } catch { }
-                    r.DeletedMs = 0; r.From = s.Saved ? "saved" : "sessions";
-                    string mk = Path.ChangeExtension(j, ".trash");
-                    try
+                if (Directory.Exists(TrashDir))
+                    foreach (string j in Directory.GetFiles(TrashDir, "*.json"))
                     {
-                        if (File.Exists(mk))
+                        RecSess s = Recorder.LibRead(j);
+                        if (s == null || s.Id.Length == 0) continue;
+                        RaceInfo r = new RaceInfo();
+                        r.Id = s.Id; r.Track = s.Track; r.Config = s.Config; r.Car = s.Car; r.Type = s.Type; r.IsRace = SessionIndex.IsRaceType(s.Type);
+                        r.StartMs = s.StartMs; r.Sec = s.Duration; r.Kept = s.PeterKept && s.Saved; r.Saved = s.Saved; r.Recovered = s.Recovered; r.InTrash = true; r.Bytes = s.Bytes;
+                        r.File = Path.ChangeExtension(j, ".mp4"); r.Sidecar = j;
+                        if (r.Bytes <= 0) { try { r.Bytes = new FileInfo(r.File).Length; } catch { } }
+                        try { r.ExportPath = Recorder.LibExportPath(s); } catch { }
+                        r.From = s.Saved ? "saved" : "sessions";
+                        string mk = Path.ChangeExtension(j, ".trash");
+                        try
                         {
-                            string[] p = File.ReadAllText(mk).Trim().Split('\t');
-                            double d; if (p.Length > 0 && double.TryParse(p[0], NumberStyles.Float, Inv, out d)) r.DeletedMs = d;
-                            if (p.Length > 1 && (p[1] == "saved" || p[1] == "sessions")) r.From = p[1];
-                            r.WasExported = p.Length > 2 && p[2] == "1";
+                            if (File.Exists(mk))
+                            {
+                                string[] p = File.ReadAllText(mk).Trim().Split('\t');
+                                double d; if (p.Length > 0 && double.TryParse(p[0], NumberStyles.Float, Inv, out d)) r.DeletedMs = d;
+                                if (p.Length > 1 && (p[1] == "saved" || p[1] == "sessions")) r.From = p[1];
+                                r.WasExported = p.Length > 2 && p[2] == "1";
+                            }
                         }
+                        catch { }
+                        if (r.DeletedMs <= 0)
+                        {
+                            // never guessed from the sidecar's time (that is when it was recorded): kept until Peter empties the trash himself
+                            r.NoNote = true; r.DeletedMs = Now;
+                            bool say; lock (noNoteSaid) say = noNoteSaid.Add(r.Id);
+                            if (say) Log.W("library: " + r.Id + " is in the trash without its note - it stays until EMPTY NOW");
+                        }
+                        list.Add(r);
                     }
-                    catch { }
-                    if (r.DeletedMs <= 0) { try { r.DeletedMs = (File.GetLastWriteTimeUtc(j) - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; } catch { r.DeletedMs = Now; } }
-                    list.Add(r);
-                }
             }
             catch (Exception ex) { Log.W("library: could not read the trash (" + ex.Message + ")"); }
             list.Sort(delegate (RaceInfo a, RaceInfo b) { return b.DeletedMs.CompareTo(a.DeletedMs); });
-            return list;
+            lock (noNoteSaid) { trashCache = list; trashKey = key; }
+            return new List<RaceInfo>(list);
+        }
+        // the trash's size from the file sizes alone (the deck's storage line: no sidecar is read)
+        static long TrashBytesQuick()
+        {
+            long b = 0;
+            try { if (Directory.Exists(TrashDir)) foreach (string f in Directory.GetFiles(TrashDir, "*.mp4")) b += new FileInfo(f).Length; } catch { }
+            return b;
         }
 
-        public static int DaysLeft(RaceInfo r) { return Math.Max(0, (int)Math.Ceiling(TrashDays - (Now - r.DeletedMs) / 86400000.0)); }
+        public static int DaysLeft(RaceInfo r) { return r.NoNote ? TrashDays : Math.Max(0, (int)Math.Ceiling(TrashDays - (Now - r.DeletedMs) / 86400000.0)); }
 
-        // Move one finished session into the trash. "" = done, else why not (RECORDING / BUSY / NOTHING / IN USE).
+        // Move one finished session into the trash. "" = done, else why not (RECORDING / BUSY / NOTHING / IN USE / NOT HERE / NO NOTE).
         static string MoveToTrash(string id, out RaceInfo moved)
         {
             moved = null;
@@ -206,7 +275,9 @@ namespace IRDash
             if (busy.Length > 0) return busy;
             RecSess s = Recorder.LibFind(id);
             if (s == null || s.File.Length == 0 || !File.Exists(s.File)) return "NOTHING";
-            RaceInfo r = SessionIndex.From(s);
+            // only files of the vault that is active now (2026-10-15/18: a stale list of the other vault deleted four real race videos)
+            if (!Recorder.LibInVault(s.File)) { Log.W("library: " + s.Id + " is not in the active vault - not moved"); return "NOT HERE"; }
+            RaceInfo r = SessionIndex.From(s, true);
             r.From = s.File.StartsWith(Recorder.LibSavedDir, StringComparison.OrdinalIgnoreCase) ? "saved" : "sessions";
             r.WasExported = r.ExportPath.Length > 0 && File.Exists(r.ExportPath);
             string mp4 = s.File, json = Path.ChangeExtension(mp4, ".json");
@@ -217,14 +288,22 @@ namespace IRDash
                 foreach (string old in new string[] { tMp4, tJson, tMark }) if (File.Exists(old)) File.Delete(old);
                 File.Move(mp4, tMp4);       // same folder tree, same volume: a rename, instant
             }
-            catch (Exception ex) { Log.W("library: could not move " + s.Id + " to the trash (" + ex.Message + ") - is it playing?"); return "IN USE"; }
+            catch (Exception ex) { Log.W("library: could not move " + s.Id + " to the trash (" + ex.Message + ")"); return "IN USE"; }
             try { if (File.Exists(json)) File.Move(json, tJson); }
             catch (Exception ex)
             {
                 try { File.Move(tMp4, mp4); } catch { }
                 Log.W("library: could not move the sidecar of " + s.Id + " to the trash (" + ex.Message + ")"); return "IN USE";
             }
-            try { File.WriteAllText(tMark, Now.ToString("0", Inv) + "\t" + r.From + "\t" + (r.WasExported ? "1" : "0")); } catch { }
+            // the note says when it was deleted; without it the trash could not age it, so no note = no trash (the files go back)
+            try { if (TestNoteFails) throw new IOException("test"); File.WriteAllText(tMark, Now.ToString("0", Inv) + "\t" + r.From + "\t" + (r.WasExported ? "1" : "0")); }
+            catch (Exception ex)
+            {
+                try { File.Delete(tMark); } catch { }
+                try { if (File.Exists(tJson)) File.Move(tJson, json); } catch { }
+                try { File.Move(tMp4, mp4); } catch { }
+                Log.W("library: could not write the trash note of " + s.Id + " (" + ex.Message + ") - left where it was"); return "NO NOTE";
+            }
             Recorder.LibForget(s);
             // the Videos\Paddock copy is the same file (a hard link): it goes too, or the space is never freed
             try { if (r.WasExported) File.Delete(r.ExportPath); } catch (Exception ex) { Log.W("library: could not remove the Videos\\Paddock copy of " + s.Id + " (" + ex.Message + ")"); }
@@ -232,8 +311,9 @@ namespace IRDash
             moved = r;
             return "";
         }
+        internal static bool TestNoteFails;        // test: the .trash note cannot be written
 
-        public sealed class TrashResult { public string Batch = "", Why = ""; public int Count; public long Bytes; }
+        public sealed class TrashResult { public string Batch = "", Why = ""; public int Count, Refused; public long Bytes; }
 
         // DELETE (one press, no "are you sure"): into the trash, UNDO-able for 60 s, gone for good after 14 days. A Kept race CAN be
         // trashed by this explicit press (Peter chose it); nothing automatic ever trashes one.
@@ -247,7 +327,7 @@ namespace IRDash
                 {
                     if (!IdOk(id)) continue;
                     RaceInfo r; string why = MoveToTrash(id, out r);
-                    if (why.Length > 0) { if (res.Why.Length == 0) res.Why = why; continue; }
+                    if (why.Length > 0) { if (res.Why.Length == 0) res.Why = why; res.Refused++; continue; }
                     b.Items.Add(r); res.Count++; res.Bytes += r.Bytes;
                 }
                 if (b.Items.Count > 0) { batches[b.Id] = b; res.Batch = b.Id; }
@@ -255,7 +335,7 @@ namespace IRDash
             }
             if (res.Count > 0)
             {
-                Log.W("library: " + res.Count + " race" + (res.Count == 1 ? "" : "s") + " moved to the trash (" + (res.Bytes / 1048576) + " MB, batch " + res.Batch + ")");
+                Log.W("library: " + res.Count + " race" + (res.Count == 1 ? "" : "s") + " moved to the trash (" + (res.Bytes / 1048576) + " MB, batch " + res.Batch + ")" + (res.Refused > 0 ? ", " + res.Refused + " not (" + res.Why + ")" : ""));
                 Changed();
             }
             return res;
@@ -286,18 +366,26 @@ namespace IRDash
                 if (Now - b.Ms > UndoMs) { Log.W("library: undo of " + batch + " refused - more than 60 s later"); return "Too late to undo: they stay in the trash for " + TrashDays + " days"; }
                 foreach (RaceInfo r in b.Items)
                 {
+                    // the trash it went to must be the active vault's (the vault switched to the test copy, or back, in between: leave it)
+                    if (!Recorder.LibInVault(r.File)) { Log.W("library: undo of " + r.Id + " refused - its trash is not in the active vault"); continue; }
                     string dir = r.From == "saved" ? Recorder.LibSavedDir : Recorder.LibSessDir;
                     string mp4 = Path.Combine(dir, r.Id + ".mp4"), json = Path.ChangeExtension(mp4, ".json");
-                    string tMp4 = Path.Combine(TrashDir, r.Id + ".mp4"), tJson = Path.ChangeExtension(tMp4, ".json"), tMark = Path.ChangeExtension(tMp4, ".trash");
+                    string tMp4 = r.File, tJson = Path.ChangeExtension(tMp4, ".json"), tMark = Path.ChangeExtension(tMp4, ".trash");
                     try
                     {
                         if (!File.Exists(tMp4)) continue;
                         Directory.CreateDirectory(dir);
                         File.Move(tMp4, mp4);
-                        if (File.Exists(tJson)) File.Move(tJson, json);
-                        try { File.Delete(tMark); } catch { }
                     }
                     catch (Exception ex) { Log.W("library: could not put " + r.Id + " back (" + ex.Message + ")"); continue; }
+                    try { if (TestUndoJsonFails) throw new IOException("test"); if (File.Exists(tJson)) File.Move(tJson, json); }
+                    catch (Exception ex)
+                    {
+                        // a video without its sidecar is listed nowhere: it goes back into the trash with its sidecar and note
+                        try { File.Move(mp4, tMp4); } catch { }
+                        Log.W("library: could not put the sidecar of " + r.Id + " back (" + ex.Message + ") - it stays in the trash"); continue;
+                    }
+                    try { File.Delete(tMark); } catch { }
                     RecSess s = Recorder.LibRead(json);
                     if (s == null) continue;
                     Recorder.LibPut(s);
@@ -305,10 +393,12 @@ namespace IRDash
                     count++;
                 }
             }
+            if (count == 0) return "Nothing to undo";
             Log.W("library: undo " + batch + " - " + count + " race" + (count == 1 ? "" : "s") + " back");
             Changed();
-            return count > 0 ? "" : "Nothing to undo";
+            return "";
         }
+        internal static bool TestUndoJsonFails;    // test: the sidecar cannot be moved back
 
         // for good: the video, its sidecar, the trash note and the Videos\Paddock link. true when the video is gone.
         static bool Erase(RaceInfo r)
@@ -323,6 +413,7 @@ namespace IRDash
         }
 
         // the trash: items older than 14 days (all = EMPTY NOW). Runs on the Jobs worker; stops when a session starts.
+        // An item without its note is emptied only by EMPTY NOW.
         internal static int Empty(bool all, out long bytes)
         {
             int n = 0; bytes = 0;
@@ -332,8 +423,9 @@ namespace IRDash
                 list.Sort(delegate (RaceInfo a, RaceInfo b) { return a.DeletedMs.CompareTo(b.DeletedMs); });
                 foreach (RaceInfo r in list)
                 {
-                    if (!all && Now - r.DeletedMs < TrashDays * 86400000.0) continue;
-                    if (Jobs.ShouldYield) { Jobs.Again(all ? "empty the trash" : "library tidy", delegate { long b2; Empty(all, out b2); }); break; }
+                    if (!all && (r.NoNote || Now - r.DeletedMs < TrashDays * 86400000.0)) continue;
+                    if (!Recorder.LibInVault(r.File)) continue;
+                    if (Jobs.ShouldYield) { Jobs.Again(all ? "empty the trash" : "library empty old trash", delegate { long b2; Empty(all, out b2); }); break; }
                     if (Erase(r)) { n++; bytes += r.Bytes; }
                 }
             }
@@ -343,12 +435,6 @@ namespace IRDash
         public static bool EmptyTrash() { return Jobs.Run("library empty old trash", delegate { long b; Empty(false, out b); }, true); }
         public static bool EmptyTrashNow() { return Jobs.Run("empty the trash", delegate { long b; Empty(true, out b); }, true); }
 
-        static string Kind(string id)
-        {
-            Func<string, string> h = ShareState;
-            if (h == null) return "none";
-            try { Match m = Regex.Match(h(id) ?? "", "\"kind\"\\s*:\\s*\"([a-z]+)\""); return m.Success ? m.Groups[1].Value : "none"; } catch { return "none"; }
-        }
         static string StateJson(string id)
         {
             Func<string, string> h = ShareState;
@@ -359,7 +445,8 @@ namespace IRDash
         public sealed class FreeResult { public int Count; public long Bytes; public string Say = ""; }
 
         // FREE UP SPACE: delete for good the oldest races already on YouTube ("shared"), oldest first, until 15 % of the volume is free.
-        // Never a race that is not shared (or still sharing, or failed), never a Kept one. Measured again after every file.
+        // Never a race that is not shared (or still sharing, or failed), never one Peter kept by a press. A race kept by AutoKeep may go
+        // once it is on YouTube. Measured again after every file.
         public static FreeResult FreeUpSpace()
         {
             FreeResult res = new FreeResult();
@@ -368,12 +455,13 @@ namespace IRDash
             {
                 long[] d = Measure(); long target = (long)(d[1] * FreeShare);
                 if (d[0] >= target) { res.Say = "Nothing to free: " + (d[0] / Gb).ToString("0", Inv) + " GB is free"; return res; }
-                List<RaceInfo> all = SessionIndex.All();
+                List<RaceInfo> all = SessionIndex.All(true);
                 all.Sort(delegate (RaceInfo a, RaceInfo b) { return a.StartMs.CompareTo(b.StartMs); });
                 foreach (RaceInfo r in all)
                 {
                     if (FreeNow() >= target) break;
                     if (r.Kept || r.Busy || Kind(r.Id) != "shared" || Recorder.LibBusy(r.Id).Length > 0) continue;
+                    if (!Recorder.LibInVault(r.File)) { Log.W("library: free up space - " + r.Id + " is not in the active vault, left alone"); continue; }
                     RecSess s = Recorder.LibFind(r.Id); if (s == null) continue;
                     long before = FreeNow();
                     if (!Erase(r)) break;          // a locked file: stop rather than spin
@@ -385,15 +473,16 @@ namespace IRDash
             }
             if (res.Count > 0) Changed();
             res.Say = res.Count == 0 ? "Nothing to free: no race on YouTube can go"
-                : "Freed " + (res.Bytes / Gb).ToString("0", Inv) + " GB: " + res.Count + " shared race" + (res.Count == 1 ? "" : "s");
+                : "Freed " + Size(res.Bytes) + ": " + res.Count + " shared race" + (res.Count == 1 ? "" : "s");
             return res;
         }
 
         // ---------------- retention (replaces the recorder's last-8 / 60 GB rule for finished sessions) ----------------
-        // practice and qualifying (not a race, not Kept) -> the trash after 14 days; races never go by themselves; the trash empties
-        // after 14 days. A blip (under 90 s, no lap) is deleted after 10 minutes, as before. Below the recorder's hard floor (50 GB) the
-        // trash empties early, then the oldest unkept practice/qualifying are deleted, one at a time with a re-measure (2026-10-17: measuring
-        // once before deleting picked EVERY session because the free space had not changed yet). Runs as Jobs.Routine, never in a session.
+        // practice and qualifying (by their type; not Kept or kept by AutoKeep) -> the trash after 14 days; races, and sessions of unknown
+        // type, never go by themselves; the trash empties after 14 days. A blip (under 90 s, no lap, not a recovered session) is deleted
+        // after 10 minutes, as before. Below the recorder's hard floor (50 GB) the trash empties early, then the oldest unkept
+        // practice/qualifying are deleted, one at a time with a re-measure (2026-10-17: measuring once before deleting picked EVERY
+        // session because the free space had not changed yet). Nothing being uploaded is touched. Runs as Jobs.Routine, never in a session.
         internal static void Tidy()
         {
             try
@@ -404,16 +493,16 @@ namespace IRDash
                     foreach (RecSess s in Recorder.LibFinished())
                     {
                         if (Jobs.ShouldYield) return;
-                        if (s.Saved || s.Saving || s.SaveWhenDone || !Recorder.LibInVault(s.File) || Recorder.LibBusy(s.Id).Length > 0) continue;
-                        bool blip = s.Duration > 0 && s.Duration < 90 && s.LapRows.Count == 0 && now - s.Created > 600000;
+                        if (s.Saved || s.Saving || s.SaveWhenDone || !Recorder.LibInVault(s.File) || Recorder.LibBusy(s.Id).Length > 0 || Uploading(s.Id)) continue;
+                        bool blip = !s.Recovered && s.Duration > 0 && s.Duration < 90 && s.LapRows.Count == 0 && now - s.Created > 600000;
                         if (blip)
                         {
-                            RaceInfo r = SessionIndex.From(s);
+                            RaceInfo r = SessionIndex.From(s, true);
                             if (Erase(r)) { Recorder.LibForget(s); changed = true; Log.W("library: removed the blip " + s.Id + " (" + s.Duration.ToString("0", Inv) + " s, no lap)"); }
                             continue;
                         }
-                        if (SessionIndex.IsRaceType(s.Type) || now - s.StartMs < PracticeDays * 86400000.0) continue;
-                        RaceInfo moved; if (MoveToTrash(s.Id, out moved) == "") { changed = true; Log.W("library: " + (s.Type.Length > 0 ? s.Type : "session") + " " + s.Id + " is " + PracticeDays + " days old - moved to the trash (" + TrashDays + " more days to bring it back)"); }
+                        if (!SessionIndex.PracticeOrQualify(s.Type, s.Recovered) || now - s.StartMs < PracticeDays * 86400000.0) continue;
+                        RaceInfo moved; if (MoveToTrash(s.Id, out moved) == "") { changed = true; Log.W("library: " + s.Type + " " + s.Id + " is " + PracticeDays + " days old - moved to the trash (" + TrashDays + " more days to bring it back)"); }
                     }
                 }
                 if (Jobs.ShouldYield) return;
@@ -431,25 +520,27 @@ namespace IRDash
             bool any = false;
             lock (gate)
             {
-                // 1. the trash, oldest first
+                // 1. the trash, oldest first (an item without its note too: the disk is full, and it was deleted on purpose)
                 List<RaceInfo> trash = TrashList();
                 trash.Sort(delegate (RaceInfo a, RaceInfo b) { return a.DeletedMs.CompareTo(b.DeletedMs); });
                 foreach (RaceInfo r in trash)
                 {
                     if (FreeNow() >= min || Jobs.ShouldYield) return any;
+                    if (!Recorder.LibInVault(r.File)) continue;
                     long before = FreeNow();
                     if (!Erase(r)) break;
                     any = true; Log.W("library: the disk is nearly full - emptied " + r.Id + " from the trash early");
                     if (FreeNow() - before < r.Bytes / 2) { Log.W("library: free space did not come back - stopping the clean-up"); return any; }
                 }
-                // 2. the oldest unkept practice / qualifying, one at a time (never a race, never Kept, never one written in the last 10 minutes)
+                // 2. the oldest unkept practice / qualifying, one at a time (never a race or an unknown type, never kept, never one written in
+                // the last 10 minutes, never one being uploaded)
                 for (int guard = 0; guard < 1000 && FreeNow() < min && !Jobs.ShouldYield; guard++)
                 {
                     RecSess victim = null; double now = Now;
                     foreach (RecSess s in Recorder.LibFinished())
-                        if (!s.Saved && !s.Saving && !s.SaveWhenDone && !SessionIndex.IsRaceType(s.Type) && Recorder.LibInVault(s.File) && now - s.Created > 600000 && Recorder.LibBusy(s.Id).Length == 0 && (victim == null || s.StartMs < victim.StartMs)) victim = s;
+                        if (!s.Saved && !s.Saving && !s.SaveWhenDone && SessionIndex.PracticeOrQualify(s.Type, s.Recovered) && Recorder.LibInVault(s.File) && now - s.Created > 600000 && Recorder.LibBusy(s.Id).Length == 0 && !Uploading(s.Id) && (victim == null || s.StartMs < victim.StartMs)) victim = s;
                     if (victim == null) break;
-                    RaceInfo r = SessionIndex.From(victim);
+                    RaceInfo r = SessionIndex.From(victim, true);
                     long before = FreeNow();
                     if (!Erase(r)) break;
                     Recorder.LibForget(victim); any = true;
@@ -503,6 +594,7 @@ namespace IRDash
                 string tb = Path.Combine(ThumbDir, "race-" + r.Id + ".part.jpg"), ts = Path.Combine(ThumbDir, "race-" + r.Id + "-144.part.jpg");
                 string args = "-v error -y -ss " + at.ToString("0.000", Inv) + " -i \"" + r.File + "\" -filter_complex \"[0:v]split=2[a][b];[a]scale=600:-1[o1];[b]scale=144:144:force_original_aspect_ratio=increase,crop=144:144[o2]\"" +
                               " -map \"[o1]\" -frames:v 1 -q:v 3 \"" + tb + "\" -map \"[o2]\" -frames:v 1 -q:v 3 \"" + ts + "\"";
+                LastThumbArgs = args;
                 string err; int rc = Recorder.LibFfmpeg(args, 60000, out err);
                 if (rc != 0 || !File.Exists(tb) || !File.Exists(ts))
                 {
@@ -516,6 +608,7 @@ namespace IRDash
             }
             catch (Exception ex) { Log.W("library: thumbnail of " + r.Id + ": " + ex.Message); return false; }
         }
+        internal static string LastThumbArgs = "";
 
         // GET /api/library/thumb?id=&w=600|144: the JPEG, null = not made yet (404)
         public static byte[] Thumb(string id, string w)
@@ -527,20 +620,21 @@ namespace IRDash
 
         // ---------------- storage ----------------
         public sealed class Store { public long Used, Free, Total, Trash; public int MoreRaces; public bool LowSpace; }
-        public static Store Storage() { return Storage(SessionIndex.All(), TrashList()); }
-        static Store Storage(List<RaceInfo> races, List<RaceInfo> trash)
+        public static Store Storage() { List<RaceInfo> t = TrashList(); long b = 0; foreach (RaceInfo r in t) b += r.Bytes; return Storage(SessionIndex.All(), b); }
+        static Store Storage(List<RaceInfo> races, long trashBytes)
         {
             Store st = new Store();
             long[] d = Measure(); st.Free = d[0]; st.Total = d[1];
             long raceBytes = 0; int raceCount = 0;
             foreach (RaceInfo r in races) { st.Used += r.Bytes; if (r.IsRace && r.Bytes > 0) { raceBytes += r.Bytes; raceCount++; } }
-            foreach (RaceInfo r in trash) st.Trash += r.Bytes;
+            st.Trash = trashBytes;
             double avg = raceCount > 0 ? (double)raceBytes / raceCount : DefaultRaceBytes;
             st.MoreRaces = (int)Math.Max(0, Math.Floor(st.Free / avg));
             st.LowSpace = st.Total > 0 && st.Free < st.Total * FreeShare;
             return st;
         }
         static string GbOf(long b) { return Math.Round(b / Gb, MidpointRounding.AwayFromZero).ToString("0", Inv); }   // half a GB in the trash shows as 1, not 0
+        static string Size(long b) { return b < Gb ? Math.Max(1, Math.Round(b / 1048576.0)).ToString("0", Inv) + " MB" : (b / Gb).ToString("0", Inv) + " GB"; }
         static string StoreJson(Store st)
         {
             return "{\"usedGb\":" + GbOf(st.Used) + ",\"freeGb\":" + GbOf(st.Free) + ",\"trashGb\":" + GbOf(st.Trash) +
@@ -574,7 +668,8 @@ namespace IRDash
         public static string Json()
         {
             List<RaceInfo> all = SessionIndex.All(), trash = TrashList();
-            StringBuilder sb = new StringBuilder("{\"storage\":" + StoreJson(Storage(all, trash)) + ",\"youtube\":" + YouTube() + ",\"races\":[");
+            long tb = 0; foreach (RaceInfo r in trash) tb += r.Bytes;
+            StringBuilder sb = new StringBuilder("{\"storage\":" + StoreJson(Storage(all, tb)) + ",\"youtube\":" + YouTube() + ",\"races\":[");
             bool first = true;
             foreach (RaceInfo r in Shown(all))
             {
@@ -597,18 +692,20 @@ namespace IRDash
             return sb.Append("]}").ToString();
         }
 
-        // /deck/summary's "races": the 40 newest, no markers, no trash. min, saved and freeGb stay for the old deck screen until W1-5.
+        // /deck/summary's "races" (asked every 10 s, in a session too): the 40 newest, no markers, no trash list. During a session the list is
+        // the cached one, or a light one from the sidecars (never the telemetry folder); the trash is summed from file sizes.
+        // min, saved and freeGb stay for the old deck screen until W1-5.
         public static string DeckJson()
         {
-            List<RaceInfo> all = SessionIndex.All(), trash = TrashList();
-            Store st = Storage(all, trash);
+            List<RaceInfo> all = SessionIndex.All(RigState.SessionOn);
+            Store st = Storage(all, TrashBytesQuick());
             StringBuilder sb = new StringBuilder("{\"freeGb\":" + GbOf(st.Free) + ",\"storage\":" + StoreJson(st) + ",\"races\":[");
             int n = 0;
             foreach (RaceInfo r in Shown(all))
             {
                 if (n == 40) break;
                 if (n++ > 0) sb.Append(',');
-                sb.Append('{').Append(RaceFacts(r)).Append(",\"min\":" + N(Math.Round(r.Sec / 60.0), "0") + ",\"saved\":" + B(r.Kept) + "}");
+                sb.Append('{').Append(RaceFacts(r)).Append(",\"min\":" + N(Math.Round(r.Sec / 60.0), "0") + ",\"saved\":" + B(r.Saved) + "}");
             }
             return sb.Append("]}").ToString();
         }
@@ -618,8 +715,56 @@ namespace IRDash
 
         static string Say(string json, string say) { return json.Substring(0, json.Length - 1) + (json.Length > 2 ? "," : "") + "\"say\":" + Json_.S(say) + "}"; }
         static string Plural(int n) { return n + " race" + (n == 1 ? "" : "s"); }
+        static string WhyWords(string why)
+        {
+            switch (why)
+            {
+                case "RECORDING": return "it is still being recorded";
+                case "BUSY": return "it is still being saved, try again in a minute";
+                case "IN USE": return "it is in use. Try again in a minute";
+                case "NOT HERE": return "it is not in this Paddock's video folder";
+                case "NO NOTE": return "the trash could not be written. Try again in a minute";
+            }
+            return "it was not found";
+        }
+
+        // the last answer per command + argument: a press the deck or the page sends twice gets the same answer (not "Nothing to delete")
+        sealed class Answer { public string Json; public int Code; public double At; public bool Pending; }
+        static readonly Dictionary<string, Answer> answers = new Dictionary<string, Answer>();
+        // the answer to a repeat of this press; waits up to 3 s for a first press still running; null = none
+        public static string Recent(string c, string a, out int code)
+        {
+            code = 200; string k = c + "\n" + (a ?? "");
+            for (int i = 0; i < 60; i++)
+            {
+                lock (answers)
+                {
+                    Answer x; if (!answers.TryGetValue(k, out x) || Now - x.At > AnswerMs + 3000) return null;
+                    if (!x.Pending) { code = x.Code; return x.Json; }
+                }
+                Thread.Sleep(50);
+            }
+            return null;
+        }
 
         public static string Do(string c, string a, out int code)
+        {
+            string k = c + "\n" + (a ?? "");
+            lock (answers)
+            {
+                Answer x;
+                if (answers.TryGetValue(k, out x) && !x.Pending && Now - x.At < AnswerMs) { code = x.Code; return x.Json; }
+                Answer p = new Answer(); p.Pending = true; p.At = Now; answers[k] = p;
+                List<string> old = new List<string>(); foreach (KeyValuePair<string, Answer> kv in answers) if (Now - kv.Value.At > 60000) old.Add(kv.Key);
+                foreach (string o in old) answers.Remove(o);
+            }
+            string j = "{}"; code = 500;
+            try { j = Run(c, a, out code); }
+            finally { lock (answers) { Answer done = new Answer(); done.Json = j; done.Code = code; done.At = Now; answers[k] = done; } }
+            return j;
+        }
+
+        static string Run(string c, string a, out int code)
         {
             code = 200;
             switch (c)
@@ -630,8 +775,8 @@ namespace IRDash
                         foreach (string id in (a ?? "").Split('|')) if (IdOk(id.Trim())) ids.Add(id.Trim());
                         TrashResult r = Trash(ids);
                         string j = "{\"batch\":" + Json_.S(r.Batch) + ",\"count\":" + r.Count + ",\"mb\":" + (r.Bytes / 1048576) + "}";
-                        if (r.Count == 0) { code = 409; return Say(j, r.Why == "RECORDING" ? "Not deleted: it is still being recorded" : r.Why == "BUSY" ? "Not deleted: it is still being saved, try again in a minute" : r.Why == "IN USE" ? "Not deleted: the video is open, close the player first" : "Nothing to delete"); }
-                        return Say(j, "Deleted " + Plural(r.Count));
+                        if (r.Count == 0) { code = 409; return Say(j, r.Why.Length == 0 || r.Why == "NOTHING" ? "Nothing to delete" : "Not deleted: " + WhyWords(r.Why)); }
+                        return Say(j, "Deleted " + Plural(r.Count) + (r.Refused > 0 ? ". " + r.Refused + " not deleted: " + WhyWords(r.Why) : ""));
                     }
                 case "raceundo":
                     {
@@ -644,7 +789,7 @@ namespace IRDash
                         List<RaceInfo> t = TrashList(); long b = 0; foreach (RaceInfo r in t) b += r.Bytes;
                         if (t.Count == 0) { code = 409; return Say("{\"ok\":false}", "The trash is already empty"); }
                         EmptyTrashNow();
-                        return Say("{\"ok\":true,\"count\":" + t.Count + "}", "Emptying the trash: " + (b / Gb).ToString("0", Inv) + " GB");
+                        return Say("{\"ok\":true,\"count\":" + t.Count + "}", "Emptying the trash: " + Size(b));
                     }
                 case "racefree":
                     {

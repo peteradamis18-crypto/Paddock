@@ -179,6 +179,7 @@ namespace IRDash
         public string Id = "", Track = "", Config = "", Car = "", Type = "", Encoder = "";
         public double StartMs, EndMs; public int SessionNum = -99; public double UniqueId = -1;
         public bool Open = true, SaveWhenDone, Recovered, Saved, Saving, FinishQueued; public double RetryAfterMs;
+        public bool PeterKept;      // W1-1: Peter pressed KEEP (sidecar "keptBy":"peter"); a race kept by AutoKeep is "auto" (FREE UP SPACE may take it once shared)
         public long Bytes, Created; public double Duration;
         public List<RecSeg> Segs = new List<RecSeg>();
         public List<RecLap> Laps = new List<RecLap>();               // while open: the laps seen
@@ -1389,6 +1390,7 @@ namespace IRDash
                     }
                     catch { }
                 }
+                if (wishFile != null) s.PeterKept = true;      // the .wish marker is written only by a SAVE press
                 if (wishFile != null && !s.SaveWhenDone) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " - a SAVE pressed earlier is honoured"); }
                 // W0-3 review #6: on the Jobs thread the session file never sleeps waiting for a cut, a probe or the screen recorder (every
                 // other job waited behind it, up to 3 minutes). It goes back to the recorder, whose housekeeping queues it again (QueueFinishing)
@@ -1599,6 +1601,7 @@ namespace IRDash
                    ",\"state\":" + Json_.S(s.State.Length > 0 ? s.State : s.Gaps.Count > 0 ? "partial" : "ready") + ",\"gaps\":" + gb +
                    ",\"audio\":" + Json_.S(s.Audio.Length > 0 ? s.Audio : "none") + ",\"audioSource\":" + Json_.S(s.AudioSource) +
                    ",\"saved\":" + (s.Saved ? "true" : "false") + ",\"saveWhenDone\":" + (s.SaveWhenDone && !s.Saved ? "true" : "false") + ",\"saveBlocked\":" + Json_.S(s.SaveBlocked) +
+                   ",\"keptBy\":" + Json_.S(s.PeterKept ? "peter" : "auto") +
                    ",\"recovered\":" + (s.Recovered ? "true" : "false") + ",\"created\":" + s.Created +
                    ",\"laps\":" + lb + ",\"incidents\":" + ib + "}";
         }
@@ -1667,6 +1670,7 @@ namespace IRDash
             s.UniqueId = double.IsNaN(uid) ? -1 : uid; s.SessionNum = double.IsNaN(sn) ? -99 : (int)sn;
             s.DurationSource = DS(d, "durationSource"); s.SaveBlocked = DS(d, "saveBlocked"); s.SaveWhenDone = DB(d, "saveWhenDone") && !s.Saved;
             s.Audio = DS(d, "audio"); s.AudioSource = DS(d, "audioSource");
+            s.PeterKept = DS(d, "keptBy") == "peter";      // no field (a sidecar from before W1-1) = "auto"
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
@@ -1705,7 +1709,8 @@ namespace IRDash
                                 if (File.Exists(wf))
                                 {
                                     if (!s.Saved) { s.SaveWhenDone = true; Log.W("recorder: session " + s.Id + " - a SAVE pressed before the restart is kept"); }
-                                    if (s.Saved || WriteSessJson(s)) { try { File.Delete(wf); } catch { } }   // gone only once the sidecar says so
+                                    bool wasPeter = s.PeterKept; s.PeterKept = true;      // the marker is a press
+                                    if ((s.Saved && wasPeter) || WriteSessJson(s)) { try { File.Delete(wf); } catch { } }   // gone only once the sidecar says so
                                 }
                             }
                             catch { }
@@ -1720,29 +1725,42 @@ namespace IRDash
         static long RecentBytes() { long b = 0; lock (gate) { foreach (RecSess s in sessions) if (!s.Saved) b += s.Bytes; if (openSess != null) foreach (RecSeg g in openSess.Segs) if (g.Closed) b += g.Size; } return b; }
 
         // SAVE ("" = the open session, else the newest finished one). SAVED / SAVING / SAVED FULL / NOTHING.
-        public static string Save(string id)
+        // W1-1: every caller of Save(id) is a press (recsave from the deck/top screen, /api/rec/save, db-save, the sandbox's cmd=save):
+        // it marks the session "keptBy":"peter". Backfill (automatic) calls Save(id, false); AutoKeep never comes through here.
+        public static string Save(string id) { return Save(id, true); }
+        public static string Save(string id, bool press)
         {
-            RecSess s = null;
+            RecSess s = null; bool markOnly = false;
             lock (gate)
             {
                 if (string.IsNullOrEmpty(id))
                 {
-                if (openSess != null) { openSess.SaveWhenDone = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
+                if (openSess != null) { openSess.SaveWhenDone = true; if (press) openSess.PeterKept = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
                     foreach (RecSess x in finishing) if (x.StartMs >= (s == null ? 0 : s.StartMs)) s = x;
                     foreach (RecSess x in sessions) if (x.StartMs >= (s == null ? 0 : s.StartMs)) s = x;
                     if (s == null) { recState = "NOTHING"; return "NOTHING"; }
-                    if (finishing.Contains(s)) { s.SaveWhenDone = true; WriteWish(s.Id); recState = "SAVING"; return "SAVING"; }
-                    if (s.Saved) { recState = "SAVED"; return "SAVED"; }
+                    if (finishing.Contains(s)) { s.SaveWhenDone = true; if (press) s.PeterKept = true; WriteWish(s.Id); recState = "SAVING"; return "SAVING"; }
+                    if (s.Saved) { markOnly = true; }
                 }
                 else
                 {
-                    if (openSess != null && id == openSess.Id) { openSess.SaveWhenDone = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
-                    foreach (RecSess x in finishing) if (x.Id == id) { x.SaveWhenDone = true; WriteWish(x.Id); recState = "SAVING"; return "SAVING"; }
+                    if (openSess != null && id == openSess.Id) { openSess.SaveWhenDone = true; if (press) openSess.PeterKept = true; WriteWish(openSess.Id); recState = "SAVING"; Log.W("recorder: SAVE - the open session " + openSess.Id + " is kept when it ends"); return "SAVING"; }
+                    foreach (RecSess x in finishing) if (x.Id == id) { x.SaveWhenDone = true; if (press) x.PeterKept = true; WriteWish(x.Id); recState = "SAVING"; return "SAVING"; }
                     foreach (RecSess x in sessions) if (x.Id == id) { s = x; break; }
                     if (s == null) { recState = "NOTHING"; return "NOTHING"; }
-                    if (s.Saved) { recState = "SAVED"; return "SAVED"; }
-                    if (s.Saving) { recState = "SAVING"; return "SAVING"; }
+                    if (s.Saved) markOnly = true;
+                    else if (s.Saving) { if (press) s.PeterKept = true; recState = "SAVING"; return "SAVING"; }
                 }
+                if (!markOnly && press) s.PeterKept = true;
+            }
+            if (markOnly)
+            {
+                // already kept (by AutoKeep, say): a press makes it Peter's - only the small sidecar is rewritten
+                if (press && !s.PeterKept) { s.PeterKept = true; if (!WriteSessJson(s)) Log.W("recorder: KEEP of " + s.Id + " could not be written to its sidecar"); else Log.W("recorder: session " + s.Id + " kept by Peter's press"); }
+                recState = "SAVED"; return "SAVED";
+            }
+            lock (gate)
+            {
                 // W0-2: keeping a FINISHED session moves a GB file: not while a session is on (the open session's SAVE above is only a note)
                 if (RigState.SessionOn) { RigState.Refuse("SAVE of finished session " + s.Id); recState = "SESSION"; return "SESSION"; }
                 long budget = savedBudgetBytes >= 0 ? savedBudgetBytes : (long)(SavedBudgetGb * 1024 * 1024 * 1024);
@@ -1788,7 +1806,7 @@ namespace IRDash
             int kept = 0, put = 0;
             foreach (string id in ids)
             {
-                string st = Save(id); if (st == "SAVED") kept++;
+                string st = Save(id, false); if (st == "SAVED") kept++;      // automatic: keptBy stays "auto"
                 string p; if (Export(id, out p) == "EXPORTED") put++;
             }
             Log.W("recorder: backfill - " + ids.Count + " races kept and put in Videos\\Paddock");
@@ -1873,9 +1891,11 @@ namespace IRDash
         // W0-6: the laps of a recorded session, from the lap truth. First the .ibt of the same session (LapStore: iRacing's own verdict, also for races
         // recorded before the live judge existed); else the sidecar's rows (counted by the live judge; an older sidecar's lap with an incident inside it
         // is not counted). laps = real laps (lap 0 never), best = LapStore.Best (0 = no counted lap, shown as "no clean lap").
-        internal static void RaceLaps(RecSess s, out int laps, out int counted, out double best, out int bestN)
+        internal static void RaceLaps(RecSess s, out int laps, out int counted, out double best, out int bestN) { RaceLaps(s, true, out laps, out counted, out best, out bestN); }
+        // W1-1: telemetry=false = the sidecar rows only (the deck's list during a session never looks in the telemetry folder)
+        internal static void RaceLaps(RecSess s, bool telemetry, out int laps, out int counted, out double best, out int bestN)
         {
-            FileLaps fl = TruthFor(s);
+            FileLaps fl = telemetry ? TruthFor(s) : null;
             List<LapRec> rows = new List<LapRec>();
             if (fl != null && fl.Laps.Count > 0) rows = LapStore.OfSession(fl, s.SessionNum);      // only this recording's iRacing session (a file can also hold qualifying)
             else
@@ -1942,7 +1962,7 @@ namespace IRDash
                 if (!first) sb.Append(','); first = false;
                 sb.Append("{\"id\":" + Json_.S(r.Id) + ",\"track\":" + Json_.S(r.Track) + ",\"car\":" + Json_.S(r.Car) + ",\"type\":" + Json_.S(r.Type) +
                           ",\"startMs\":" + r.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(r.Sec / 60.0).ToString("0", Inv) + ",\"laps\":" + r.Laps + ",\"counted\":" + r.Counted +
-                          ",\"best\":" + (r.Best > 0 ? r.Best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + r.BestLap + ",\"mb\":" + (r.Bytes / 1048576) + ",\"saved\":" + (r.Kept ? "true" : "false") +
+                          ",\"best\":" + (r.Best > 0 ? r.Best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + r.BestLap + ",\"mb\":" + (r.Bytes / 1048576) + ",\"saved\":" + (r.Saved ? "true" : "false") +
                           ",\"exported\":" + (r.ExportPath.Length > 0 && File.Exists(r.ExportPath) ? "true" : "false") +
                           (exportMissing.Contains(r.Id) ? ",\"exportMissing\":true,\"note\":\"export missing\"" : "") + "}");
             }
