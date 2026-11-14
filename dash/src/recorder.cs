@@ -1510,7 +1510,7 @@ namespace IRDash
                 s.Created = (long)WallMs();
                 s.LapRows = new List<double[]>();
                 // W0-6: lap 0 (formation / out lap) is no lap; [3] = counted by iRacing (the live judge), [4] = a PB among counted laps
-                foreach (RecLap l in lapSnapshot) { if (l.N < 1) continue; bool ok = l.Counted && !l.Dirty && l.Time > minLap; s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, ok ? 1 : 0, (ok && (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005))) ? 1 : 0, l.Start, 1 }); }   // [6] = 1: judged live (W0-6); [5] = wall start, so a time inside the lap maps through the same spans even over a gap
+                foreach (RecLap l in lapSnapshot) { if (l.N < 1) continue; bool ok = l.Counted && !l.Dirty && l.Time > minLap; s.LapRows.Add(new double[] { l.N, SessMatch.WallToFile(fs, fe, l.Start), l.Time, ok ? 1 : 0, (ok && (l.Why == "pb" || (l.Bar > 0 && l.Time > 0 && l.Time < l.Bar - 0.0005))) ? 1 : 0, l.Start, 1, l.Pit ? 1 : 0 }); }   // [6] = 1: judged live (W0-6); [5] = wall start, so a time inside the lap maps through the same spans even over a gap; [7] = a pit lap (W1-1 markers)
                 List<double[]> inc = new List<double[]>();
                 foreach (double[] x in incidentSnapshot) inc.Add(new double[] { SessMatch.WallToFile(fs, fe, x[0]), x[1] });
                 s.Incidents = inc;
@@ -1585,7 +1585,7 @@ namespace IRDash
         static string SessJson(RecSess s)
         {
             StringBuilder lb = new StringBuilder("[");
-            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + (r.Length > 6 && r[6] == 1 ? ",\"counted\":" + (r[3] != 0 ? "true" : "false") : "") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + "}"); }
+            for (int i = 0; i < s.LapRows.Count; i++) { double[] r = s.LapRows[i]; if (i > 0) lb.Append(','); lb.Append("{\"n\":" + ((int)r[0]) + ",\"offset\":" + Num(r[1]) + ",\"time\":" + r[2].ToString("0.000", Inv) + ",\"clean\":" + (r[3] != 0 ? "true" : "false") + (r.Length > 6 && r[6] == 1 ? ",\"counted\":" + (r[3] != 0 ? "true" : "false") : "") + ",\"pb\":" + (r[4] != 0 ? "true" : "false") + ",\"startMs\":" + (r.Length > 5 && !double.IsNaN(r[5]) ? r[5].ToString("0", Inv) : "null") + (r.Length > 7 && r[7] >= 0 ? ",\"pit\":" + (r[7] == 1 ? "true" : "false") : "") + "}"); }
             lb.Append(']');
             StringBuilder ib = new StringBuilder("[");
             for (int i = 0; i < s.Incidents.Count; i++) { double[] r = s.Incidents[i]; if (i > 0) ib.Append(','); ib.Append("{\"offset\":" + Num(r[0]) + ",\"count\":" + ((int)r[1]) + "}"); }
@@ -1670,7 +1670,7 @@ namespace IRDash
             try
             {
                 System.Collections.IList laps = d.ContainsKey("laps") ? d["laps"] as System.Collections.IList : null;
-                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs"), r.ContainsKey("counted") ? 1 : 0 }); }      // [6]: the live judge decided "counted" (a sidecar from before W0-6 has only "clean")
+                if (laps != null) foreach (object o in laps) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.LapRows.Add(new double[] { DD(r, "n"), DN(r, "offset"), DD(r, "time"), DB(r, "clean") ? 1 : 0, DB(r, "pb") ? 1 : 0, DN(r, "startMs"), r.ContainsKey("counted") ? 1 : 0, r.ContainsKey("pit") ? (DB(r, "pit") ? 1 : 0) : -1 }); }      // [6]: the live judge decided "counted" (a sidecar from before W0-6 has only "clean"); [7]: a pit lap, -1 = a sidecar from before W1-1 (not known)
                 System.Collections.IList inc = d.ContainsKey("incidents") ? d["incidents"] as System.Collections.IList : null;
                 if (inc != null) foreach (object o in inc) { Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue; s.Incidents.Add(new double[] { DN(r, "offset"), DD(r, "count") }); }
                 System.Collections.IList gaps = d.ContainsKey("gaps") ? d["gaps"] as System.Collections.IList : null;
@@ -1929,30 +1929,75 @@ namespace IRDash
             return null;
         }
 
-        // GET /api/rec/races: the finished videos, newest first, with what the deck shows on a key, and the disk space left
+        // GET /api/rec/races: the finished videos, newest first, with what the deck shows on a key, and the disk space left.
+        // W1-1: one list - this is the old deck screen's shape of SessionIndex.All() (library.cs) until W1-5 replaces that screen.
         public static string RacesJson()
         {
             try { SyncExports(); } catch (Exception ex) { Log.W("recorder: Videos\\Paddock check: " + ex.Message); }
-            List<RecSess> all;
-            lock (gate) all = new List<RecSess>(sessions);
-            all.Sort(delegate (RecSess a, RecSess b) { return b.StartMs.CompareTo(a.StartMs); });
             StringBuilder sb = new StringBuilder("{\"freeGb\":" + (FreeBytes(SessDir) / 1073741824.0).ToString("0", Inv) + ",\"races\":[");
             bool first = true;
-            foreach (RecSess s in all)
+            foreach (RaceInfo r in SessionIndex.All())
             {
-                if (s.File.Length == 0 || s.Duration < 30) continue;
-                int laps, counted; double best; int bestN;
-                RaceLaps(s, out laps, out counted, out best, out bestN);
+                if (r.Sec < 30) continue;
                 if (!first) sb.Append(','); first = false;
-                sb.Append("{\"id\":" + Json_.S(s.Id) + ",\"track\":" + Json_.S(s.Track) + ",\"car\":" + Json_.S(s.Car) + ",\"type\":" + Json_.S(s.Type) +
-                          ",\"startMs\":" + s.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(s.Duration / 60.0).ToString("0", Inv) + ",\"laps\":" + laps + ",\"counted\":" + counted +
-                          ",\"best\":" + (best > 0 ? best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + bestN + ",\"mb\":" + (s.Bytes / 1048576) + ",\"saved\":" + (s.Saved ? "true" : "false") +
-                          ",\"exported\":" + (File.Exists(Path.Combine(ExportDir, ExportName(s) + ".mp4")) ? "true" : "false") +
-                          (exportMissing.Contains(s.Id) ? ",\"exportMissing\":true,\"note\":\"export missing\"" : "") + "}");
+                sb.Append("{\"id\":" + Json_.S(r.Id) + ",\"track\":" + Json_.S(r.Track) + ",\"car\":" + Json_.S(r.Car) + ",\"type\":" + Json_.S(r.Type) +
+                          ",\"startMs\":" + r.StartMs.ToString("0", Inv) + ",\"min\":" + Math.Round(r.Sec / 60.0).ToString("0", Inv) + ",\"laps\":" + r.Laps + ",\"counted\":" + r.Counted +
+                          ",\"best\":" + (r.Best > 0 ? r.Best.ToString("0.000", Inv) : "0") + ",\"bestLap\":" + r.BestLap + ",\"mb\":" + (r.Bytes / 1048576) + ",\"saved\":" + (r.Kept ? "true" : "false") +
+                          ",\"exported\":" + (r.ExportPath.Length > 0 && File.Exists(r.ExportPath) ? "true" : "false") +
+                          (exportMissing.Contains(r.Id) ? ",\"exportMissing\":true,\"note\":\"export missing\"" : "") + "}");
             }
             sb.Append("]}");
             return sb.ToString();
         }
+
+        // ---- W1-1: what the library (library.cs) reads and does. The session list and its lock stay in the recorder. ----
+        internal static string LibVaultRoot { get { return VaultRoot; } }
+        internal static string LibSessDir { get { return SessDir; } }
+        internal static string LibSavedDir { get { return SavedDir; } }
+        internal static string LibFfmpegPath { get { return FfmpegPath; } }
+        internal static double LibMinFreeGb { get { return MinFreeGbSession; } }
+        internal static List<RecSess> LibFinished() { lock (gate) return new List<RecSess>(sessions); }
+        internal static RecSess LibFind(string id) { lock (gate) return FindDone(id); }
+        // why a finished session may not be moved now ("" = it may): the one being recorded, finished or saved (as Delete always did)
+        internal static string LibBusy(string id)
+        {
+            lock (gate)
+            {
+                if (openSess != null && openSess.Id == id) return "RECORDING";
+                foreach (RecSess x in finishing) if (x.Id == id) return "BUSY";
+                RecSess s = FindDone(id);
+                if (s == null) return "NOTHING";
+                return s.Saving ? "BUSY" : "";
+            }
+        }
+        internal static void LibForget(RecSess s)
+        {
+            lock (gate) sessions.Remove(s);
+            try { string w = WishPath(s.Id); if (File.Exists(w)) File.Delete(w); } catch { }
+        }
+        internal static void LibPut(RecSess s)
+        {
+            lock (gate)
+            {
+                sessions.RemoveAll(delegate (RecSess x) { return x.Id == s.Id; });
+                sessions.Add(s); sessions.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); });
+            }
+        }
+        internal static bool LibInVault(string file) { return InActiveVault(file); }
+        internal static string LibExportPath(RecSess s) { return Path.Combine(ExportDir, ExportName(s) + ".mp4"); }
+        // a sidecar read the way LoadSessions reads it (File = the .mp4 beside it); null = unreadable
+        internal static RecSess LibRead(string jsonPath)
+        {
+            try
+            {
+                Dictionary<string, object> d = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(File.ReadAllText(jsonPath, Encoding.UTF8)) as Dictionary<string, object>;
+                if (d == null) return null;
+                RecSess s = SessFromDict(d); s.File = Path.ChangeExtension(jsonPath, ".mp4");
+                return s;
+            }
+            catch { return null; }
+        }
+        internal static int LibFfmpeg(string args, int timeoutMs, out string err) { string o; return RunTool(FfmpegPath, args, null, timeoutMs, out o, out err); }
 
         public static string SessionsJson()
         {
@@ -2012,14 +2057,17 @@ namespace IRDash
             catch (Exception ex) { Log.W("recorder: could not re-read sessions after the vault changed (" + ex.Message + ")"); }
         }
 
-        // Retention: keep the last few unsaved sessions and inside the disk budgets; saved ones are never removed here.
+        // Retention. W1-1: for Peter's real vault the library (library.cs, Library.Tidy, once a minute between sessions) decides which
+        // finished sessions go: practice/qualifying to the trash after 14 days, races never by themselves, blips after 10 minutes, and the
+        // clean-up below the 50 GB floor. What stays here: the recording pause when the disk is nearly full, and the incident clips.
+        // The old last-8 / 60 GB rule below runs only in the recorder sandbox (testOn: tests\recorder-test.ps1 section 14 drives its knobs).
         static void RetainSessions()
         {
             try
             {
                 long recentBudget = recentBudgetBytes >= 0 ? recentBudgetBytes : (long)(RecentBudgetGb * 1024 * 1024 * 1024);
                 List<RecSess> del = new List<RecSess>();
-                lock (gate)
+                if (testOn) lock (gate)
                 {
                     List<RecSess> un = new List<RecSess>(); foreach (RecSess s in sessions) if (!s.Saved && !s.Saving && !s.SaveWhenDone && InActiveVault(s.File)) un.Add(s);
                     un.Sort(delegate (RecSess a, RecSess b) { return a.StartMs.CompareTo(b.StartMs); });
@@ -2065,7 +2113,7 @@ namespace IRDash
                         // space (a player holding the file open, or the shortage is outside the vault): never empty the vault
                         // chasing space it cannot win back. A session written in the last 10 minutes is not a candidate.
                         long shortfall = min - FreeBytes(VaultRoot), freed = 0;
-                        for (int guard = 0; guard < 1000 && freed < shortfall && FreeBytes(VaultRoot) < min && !Jobs.ShouldYield; guard++)
+                        for (int guard = 0; testOn && guard < 1000 && freed < shortfall && FreeBytes(VaultRoot) < min && !Jobs.ShouldYield; guard++)
                         {
                             RecSess victim = null;
                             lock (gate)
@@ -2408,6 +2456,14 @@ namespace IRDash
                     }
                 }
                 if (args.Contains("-f rawvideo")) { byte[] g = new byte[576 * 4]; for (int i = 0; i < g.Length; i++) g[i] = 128; using (Stream o = Console.OpenStandardOutput()) o.Write(g, 0, g.Length); return 0; }
+                if (args.Contains("-frames:v 1"))
+                {
+                    // W1-1: a race thumbnail (library.cs): a real 1-pixel JPEG for every .jpg output, so the tests have files to serve
+                    int jpgs = 0;
+                    foreach (Match q in Regex.Matches(args, "\"([^\"]*\\.jpg)\""))
+                        using (System.Drawing.Bitmap px = new System.Drawing.Bitmap(1, 1)) { px.SetPixel(0, 0, System.Drawing.Color.Gray); px.Save(q.Groups[1].Value, System.Drawing.Imaging.ImageFormat.Jpeg); jpgs++; }
+                    if (jpgs > 0) return 0;
+                }
                 string outFile = Quoted(args, true);
                 if (outFile.Length > 0) File.WriteAllText(outFile, "mock clip " + new string('x', 2040));
                 return 0;
