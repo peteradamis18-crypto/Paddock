@@ -23,7 +23,7 @@ window.fetch = (u) => { u = String(u); window.__req.push(u);
   if (window.__fail) return Promise.reject(new TypeError('Failed to fetch'));
   if (u.indexOf('/api/review?') === 0) { const j = window.__answer(u); return Promise.resolve(new Response(JSON.stringify(j), { status: j && j.state === 'working' ? 202 : 200 })); }
   if (u.indexOf('/api/review/progress?') === 0) return Promise.resolve(new Response(JSON.stringify(window.__fx.progress || {}), { status: window.__fx.progress ? 200 : 404 }));
-  if (u.indexOf('/trackmap?') === 0) return Promise.resolve(new Response('{}'));
+  if (u.indexOf('/trackmap?') === 0) return Promise.resolve(new Response(JSON.stringify(window.__fx.outline || {})));   // the real map.js draws Road Atlanta from dash\maps
   return Promise.resolve(new Response('{}', { status: 404 })); };
 // the shell's Esc: HOME unless the page used it
 addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented) window.__go.push(['home', {}]); });

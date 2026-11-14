@@ -38,11 +38,15 @@ $read = { param($n) [IO.File]::ReadAllText((Join-Path $fix $n), [Text.Encoding]:
 $states = 'card-practice-8', 'card-practice-2', 'card-race', 'card-nolap', 'card-working'
 $fx = ($states | ForEach-Object { "'$_': " + (& $read "$_.json") }) -join ",`n"
 $shellSrc = & $read 'card-shell.html'
+# the pictures (and section 5) draw with the real map (W4-2) when it is in the tree: Road Atlanta's outline as irdash sends it
+$outlineFile = Join-Path $root 'dash\maps\t127-roadatlanta-full.json'
+$fxP = $fx + $(if (Test-Path $outlineFile) { ",`n'outline': " + [IO.File]::ReadAllText($outlineFile).Trim() } else { '' })
+$realMap = Test-Path (Join-Path $app 'lib\map.js')
 $common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--force-device-scale-factor=1')
-function Page([string]$name, [string]$setup, [string]$run) {
-  $h = $shellSrc.Replace('/*FX*/', $fx).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
-  [IO.File]::WriteAllText("$tmp\app\$name.html", $h, $utf8)
-  return 'file:///' + ("$tmp\app\$name.html" -replace '\\', '/')
+function Page([string]$name, [string]$setup, [string]$run, [string]$dir = 'app', [string]$fxs = $fx) {
+  $h = $shellSrc.Replace('/*FX*/', $fxs).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
+  [IO.File]::WriteAllText("$tmp\$dir\$name.html", $h, $utf8)
+  return 'file:///' + ("$tmp\$dir\$name.html" -replace '\\', '/')
 }
 
 # ---------------- the behaviour test (one page; every state is a fresh mount, as the shell does it) ----------------
@@ -117,11 +121,11 @@ window.__run = async () => {
   ok('1. the plan line equals the fixture', txt('.plan') === j.plan, txt('.plan'));
   ok('1. the reference line: "Compared with: lap 9 of this session (1:33.832)"', txt('.ref') === 'Compared with: lap 9 of this session (1:33.832)', txt('.ref'));
   ok('1. the top line: track, config, car, Practice, the day', txt('.rv-top .trk') === 'Road Atlanta Full Course' && txt('.rv-top .sub') === 'Toyota GR86 · Practice · ' + M.day(j.session.date, true) && !q('.rv-top .res'), txt('.rv-top'));
-  ok('1. the left half: the map mounted with its key and id, coloured by the gain (100 values), the three marks', JSON.stringify(window.__mapStub.calls[0][1].key) === '"roadatlanta-full"' && window.__mapStub.calls[0][1].id === 127 && window.__mapCalls().join() === 'mount,colour,marks' && window.__mapStub.calls[2][1] === '1@0.33 2@0.05 3@0.93', JSON.stringify(window.__mapStub.calls));
+  ok('1. the left half: the map mounted with its key and id, coloured by the gain (100 values), the three marks', window.__mapStub.calls[0][1].key === 't127-roadatlanta-full' && window.__mapStub.calls[0][1].id === 127 && window.__mapCalls().join() === 'mount,colour,marks' && window.__mapStub.calls[2][1] === '1@0.33 2@0.05 3@0.93', JSON.stringify(window.__mapStub.calls));
   ok('1. the plan and its buttons are a bottom bar: the shell\'s banner sits above it (body.page-bar)', document.body.classList.contains('page-bar'));
   ok('1. the map is the left half, the cards the right half', box('.rv-map').r <= 960 + 1 && box('.rv-right').l >= 960 - 1, JSON.stringify([box('.rv-map'), box('.rv-right')]));
   ok('1. SHOW ME and WATCH are 64 px buttons; WATCH (card 1 has a clip) is pressable, outlined', q('.show').offsetHeight >= 64 && q('.watch').offsetHeight >= 64 && !q('.watch').disabled && getComputedStyle(q('.watch')).backgroundColor !== GOLD);
-  ok('1. two requests at mount: the review and the map\'s outline (' + window.__req.join(' ') + ')', window.__req.length === 2 && window.__req[0] === '/api/review?id=last' && /^\/trackmap\?key=roadatlanta-full&id=127$/.test(window.__req[1]), window.__req.join(' '));
+  ok('1. two requests at mount: the review and the map\'s outline (' + window.__req.join(' ') + ')', window.__req.length === 2 && window.__req[0] === '/api/review?id=last' && /^\/trackmap\?key=t127-roadatlanta-full&id=127$/.test(window.__req[1]), window.__req.join(' '));
   ok('1. progress (W4-6) mounted in its band under the plan, told the car and the track by name (the engine matches the trend by name) and the three corners', (() => { const m = sub().find(x => x[0] === 'review-progress.js' && x[1] === 'mount'); if (!m) return false; const o = JSON.parse(m[2]); return o.carName === 'Toyota GR86' && o.trackName === 'Road Atlanta' && o.track === 'Road Atlanta' && o.corners.join() === '5,1,12' && box('.rv-progress').t >= box('.rv-bottom').b - 1; })(), JSON.stringify(sub()));
   // with a progress band of 160 px the three cards still fit
   await use('card-practice-8', {}, () => { window.__progH = 160; });
@@ -308,8 +312,8 @@ Section '5. the real screen 2 and progress band'
 $realLaps = Test-Path (Join-Path $app 'pages\review-laps.js'); $realProg = Test-Path (Join-Path $app 'pages\review-progress.js')
 if ($realLaps -and $realProg) {
   Copy-Item -Recurse $app "$tmp\app2"
-  Copy-Item -Force (Join-Path $fix 'map-stub.js') "$tmp\app2\lib\map.js"
-  $fx2 = $fx + ",`n'progress': " + (& $read 'progress-four.json')
+  if (-not (Test-Path "$tmp\app2\lib\map.js")) { Copy-Item -Force (Join-Path $fix 'map-stub.js') "$tmp\app2\lib\map.js" }   # the real W4-2 map when it is in the tree
+  $fx2 = $fxP + ",`n'progress': " + (& $read 'progress-four.json')
   function Page2([string]$name, [string]$setup, [string]$run) {
     $h = $shellSrc.Replace('/*FX*/', $fx2).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
     [IO.File]::WriteAllText("$tmp\app2\$name.html", $h, $utf8)
@@ -324,7 +328,7 @@ window.__run = async () => {
   const band = q('.rv-progress'), R = q('.rv-right').getBoundingClientRect(), B = band.getBoundingClientRect();
   ok('5. the real progress band (W4-6) mounts under the plan and shows its section', !band.hidden && band.textContent.trim().length > 0 && B.top >= q('.rv-bottom').getBoundingClientRect().bottom - 1, band.textContent.slice(0, 80));
   ok('5. with it, the three cards still fit their half and the band ends on screen (band ' + Math.round(B.height) + ' px)', [...document.querySelectorAll('#page .card')].every(c => c.getBoundingClientRect().bottom <= R.bottom + 1 && c.getBoundingClientRect().top >= R.top - 1) && B.bottom <= 1080 + 1, JSON.stringify({ R: [R.top, R.bottom], B: [B.top, B.bottom] }));
-  ok('5. it asked /api/review/progress with the map\'s track id', window.__req.some(u => /^\/api\/review\/progress\?car=Toyota%20GR86&track=127$/.test(u)), window.__req.join(' '));
+  ok('5. it asked /api/review/progress with the track\'s name (the engine matches by name)', window.__req.some(u => /^\/api\/review\/progress\?car=Toyota%20GR86&track=Road%20Atlanta$/.test(u)), window.__req.join(' '));
   window.__unmount(); window.__mount({ screen: 'laps', corner: 5, id: 'x.ibt', at: 'x.ibt' });
   const pg = document.getElementById('page'); for (let i = 0; i < 100 && !/THIS LAP/i.test(pg.textContent); i++) await sleep(50);
   ok('5. SHOW ME\'s screen: the real review-laps.js (W4-4) takes over inside REVIEW (its lap chips)', !q('.rv') && /THIS LAP/i.test(pg.textContent) && !/Coming with the next update/.test(pg.textContent), pg.textContent.slice(0, 120));
@@ -350,6 +354,9 @@ window.__run = async () => {
 
 # ---------------- one picture per state ----------------
 Section 'pictures'
+# the pictures: the stand-ins for screen 2 and progress (progress kept out), the real map when W4-2 is in the tree
+Copy-Item -Recurse "$tmp\app" "$tmp\appP"
+if ($realMap) { Copy-Item -Force (Join-Path $app 'lib\map.js') "$tmp\appP\lib\map.js" }
 $shotsList = @(
   @('practice-8', "window.__setup = { fx: 'card-practice-8', online: true, opts: {} };"),
   @('practice-2', "window.__setup = { fx: 'card-practice-2', online: true, opts: {} };"),
@@ -362,7 +369,7 @@ $shotsList = @(
   @('no-clip', "window.__setup = { fx: 'card-practice-8', online: true, opts: {} }; window.__fx['card-practice-8'].cards[0].clip = null;"))
 foreach ($s in $shotsList) {
   $png = Join-Path $shots ('review-card-' + $s[0] + '.png'); Remove-Item $png -ErrorAction SilentlyContinue
-  $u = Page ('s-' + $s[0]) ($s[1] + ' window.__noProg = true;') ''
+  $u = Page ('s-' + $s[0]) ($s[1] + ' window.__noProg = true;') '' 'appP' $fxP
   $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=3000', "--screenshot=$png", $u)) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\err-$($s[0]).txt" -RedirectStandardOutput "$tmp\so-$($s[0]).txt"
   if (Test-Path $png) { $pass++; "  ok    picture: $png" } else { $fail++; "  FAIL  no picture for $($s[0])" }
 }
