@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- The fixture shell for tests\review-card-test.ps1: the shell's own header and page box (shell.css), the W3-1 page contract
+     (mount / unmount / onState, the ctx), a pretend irdash behind fetch and a stand-in for data.js. The test fills /*FX*/ (the
+     fixtures), /*SETUP*/ (which state) and <!--RUN--> (the checks). Nothing reaches the real irdash. -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="design.css"><link rel="stylesheet" href="shell.css"><script src="lib/format.js"></script>
+<script>
+window.__fx = { /*FX*/ };
+window.__setup = { fx: 'card-practice-8', online: true, opts: {} };
+/*SETUP*/
+window.__req = []; window.__go = []; window.__banners = []; window.__ls = {}; window.__fail = false; window.__timers = [];
+window.__answer = () => window.__fx[window.__setup.fx];
+// timers started by the page itself (the stack names pages/review.js): the card asks for nothing on a timer
+['setTimeout', 'setInterval', 'requestAnimationFrame'].forEach(k => { const f = window[k]; window[k] = function () { if (/pages\/review\.js/.test(new Error().stack || '')) window.__timers.push(k); return f.apply(window, arguments); }; });
+const mk = n => (window.__ls[n] = window.__ls[n] || []);
+window.data = { __paddock: true, state: { rig: {} }, online: window.__setup.online !== false,
+  get rig() { return { driving: false, sessionOn: false, simRunning: false, online: this.online }; },
+  on(n, f) { mk(n).push(f); return () => { const l = mk(n), i = l.indexOf(f); if (i >= 0) l.splice(i, 1); }; },
+  onList(n, f) { return this.on('list:' + n, f); },
+  json(u) { return window.fetch(u).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); },
+  fetch(u, o) { return window.fetch(u, o); } };
+window.__emit = (n, a, b) => mk(n).slice().forEach(f => f(a, b));
+window.fetch = (u) => { u = String(u); window.__req.push(u);
+  if (window.__fail) return Promise.reject(new TypeError('Failed to fetch'));
+  if (u.indexOf('/api/review?') === 0) { const j = window.__answer(u); return Promise.resolve(new Response(JSON.stringify(j), { status: j && j.state === 'working' ? 202 : 200 })); }
+  if (u.indexOf('/trackmap?') === 0) return Promise.resolve(new Response('{}'));
+  return Promise.resolve(new Response('{}', { status: 404 })); };
+// the shell's Esc: HOME unless the page used it
+addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented) window.__go.push(['home', {}]); });
+</script></head><body>
+<header class="shell-top"><span class="brand">Paddock</span><span class="dot">&middot;</span><span class="date">Sat 14 Nov</span>
+<nav class="doors"><button class="door">Home</button><button class="door">Races</button><button class="door on">Review</button><button class="door">Rig</button></nav>
+<button class="btn shell-close">Close</button></header>
+<main id="page"></main><div id="banner" class="banner shell-banner offline" hidden></div><pre id="out" hidden></pre>
+<script type="module">
+import review, * as M from './pages/review.js';
+const page = document.getElementById('page');
+const ctx = o => ({ data: window.data, Fmt: window.Fmt, opts: o || {}, go: (n, x) => window.__go.push([n, x || {}]), close() { window.__go.push(['home', {}]); },
+  kidsOn: () => false, driving: () => false, banner: t => window.__banners.push(t) });
+window.__mount = o => { review.mount(page, ctx(o === undefined ? window.__setup.opts : o)); };
+window.__unmount = () => { review.unmount(); page.innerHTML = ''; };
+window.__offline = on => { window.data.online = !on; const b = document.getElementById('banner'); b.hidden = !on; b.textContent = on ? 'Paddock is not running. Press HOME on the deck.' : ''; window.__emit('online', !on); };
+window.data.on('state', (s, c) => review.onState(s, c));
+window.__M = M; window.__review = review;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  const S = window.__setup;
+  if (S.stale) { window.__mount(); await sleep(400); window.__unmount(); window.__fail = true; }
+  if (S.online === false || S.stale) window.__offline(true);
+  window.__mount();
+  if (S.watch) { await sleep(500); const b = page.querySelector(S.watch); if (b) b.click(); }
+  if (window.__run) window.__run();
+})();
+</script>
+<!--RUN-->
+</body></html>

@@ -1,0 +1,6 @@
+{"state":"ready",
+ "session":{"id":"toyotagr86_roadatlanta full 2026-11-14 11-40-02.ibt","track":"Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Test","date":1794674402000,"laps":0,"clean":0,
+  "best":null,"ref":null,"result":{"finish":0,"start":0,"field":0,"irating":null}},
+ "cards":[],"plan":null,"race":null,
+ "map":{"key":"roadatlanta-full","id":127,"gain":[],"marks":[]},
+ "laps":[],"optimal":null,"note":"No full lap yet"}
