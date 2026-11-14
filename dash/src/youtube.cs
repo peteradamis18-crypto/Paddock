@@ -1,13 +1,16 @@
 // YOUTUBE (W1-2, docs/rework/cards/W1-2.md, evidence 14): Google sign-in once (loopback + PKCE, the token kept with DPAPI in
 // dash\yt\token.bin) and the resumable upload that survives a network drop, a session starting, an irdash or PC restart, never
 // uploads a race twice, and says what went wrong in plain words.
-//   dash\yt\client.json    Peter's Desktop-app client from Google (docs\YOUTUBE-SETUP.md). Never logged.
-//   dash\yt\token.bin      DPAPI (this Windows user) of {"refresh","access","expMs"}. Never logged.
-//   dash\yt\session.json   the one upload in flight: its session URL is saved BEFORE the first byte, so a restart resumes it
-//   dash\yt\uploads.json   per race id: the "never twice" record and what the RACES page shows
-// SignIn() opens the browser on Peter's screens: the lead lists the command (ytsignin) as GuardedDo in rigstate.cs.
+//   dash\yt\client.json           Peter's Desktop-app client from Google (docs\YOUTUBE-SETUP.md). Never logged.
+//   dash\yt\token.bin             DPAPI (this Windows user) of {"refresh","access","expMs"}. Never logged.
+//   dash\yt\session-<race>.json   one per half-sent race: its session URL is saved BEFORE the first byte, so a restart resumes it
+//   dash\yt\uploads.json          per race id: the "never twice" record and what the RACES page shows
+// SignIn() is the only thing that opens a browser (the ytsignin press; the lead lists it as GuardedDo in rigstate.cs). The upload
+// job never opens anything: a race that needs a sign-in just shows kind "signin".
 // Enqueue() only writes a small record; the upload itself is a Jobs whenFree job (never while a session is on, background
-// priority), 8 MiB per PUT, and it stops between two chunks when a session starts (Jobs.ShouldYield).
+// priority), 8 MiB per PUT, and it stops at the next step when a session starts (Jobs.ShouldYield).
+// The race is "shared" only when YouTube's own answer to the finished upload names the video and says uploaded/processed.
+// (videos.list is not allowed with the youtube.upload scope, so the insert's own answer is the read-back.)
 // The log says "youtube: signed in" and what happened to a race, never a secret, a code, a token or the session URL.
 using System;
 using System.Collections.Generic;
@@ -29,7 +32,7 @@ namespace IRDash
         public static string AuthUrl = "https://accounts.google.com/o/oauth2/v2/auth";
         public static string TokenUrl = "https://oauth2.googleapis.com/token";
         public static string UploadUrl = "https://www.googleapis.com/upload/youtube/v3";
-        public static string ApiUrl = "https://www.googleapis.com/youtube/v3";
+        public static string ApiUrl = "https://www.googleapis.com/youtube/v3";       // kept for later calls; the upload needs none
         public static string Dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "yt");            // irdash.exe lives in dash\
         public static string IniFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "irdash.ini");
         public static Action<string> OpenBrowser = DefaultOpen;
@@ -47,7 +50,9 @@ namespace IRDash
         public const string MsgQuota = "YouTube says today's upload limit is reached. I'll try again after 9 in the morning";
         public const string MsgOffline = "No internet, waiting";
         public const string MsgAlready = "Already on YouTube";
+        public const string MsgChannel = "Make a YouTube channel first: open youtube.com with your Google account";
         public const string SignedInPage = "Paddock is signed in to YouTube. You can close this tab.";
+        public const string NotSignedInPage = "Paddock was not signed in to YouTube. You can close this tab.";
         public const string EntropyText = "Paddock YouTube token";   // extra DPAPI salt: another program of Peter's cannot just call Unprotect
         const string JobName = "youtube upload";
 
@@ -72,24 +77,27 @@ namespace IRDash
             public Halt(string kind, string msg, long retryAtMs) : base(msg) { Kind = kind; Msg = msg; RetryAtMs = retryAtMs; }
         }
         sealed class Transient : Exception { public Transient(string m) : base(m) { } }
+        sealed class YieldNow : Exception { }
 
         static readonly object gate = new object();
         static List<Rec> recs;               // null = not read from disk yet
         static Tok tok; static bool tokRead;
         static Timer timer;
-        static volatile bool signingIn, wantSignIn, paused, busy;
+        static volatile bool signingIn, paused, busy;
+        static volatile string openAuthUrl;  // the sign-in page while it waits: a second press opens it again
         static bool thumbTold;
 
         static long NowMs { get { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; } }
         static DateTime LocalNow { get { return Clock != null ? Clock() : DateTime.Now; } }
         static string ClientFile { get { return Path.Combine(Dir, "client.json"); } }
         static string TokenFile { get { return Path.Combine(Dir, "token.bin"); } }
-        static string SessionFile { get { return Path.Combine(Dir, "session.json"); } }
         static string UploadsFile { get { return Path.Combine(Dir, "uploads.json"); } }
+        static string SessionFile(string race) { return Path.Combine(Dir, "session-" + Regex.Replace(race ?? "", "[^A-Za-z0-9_-]", "_") + ".json"); }
 
         // ================= start-up =================
 
-        // irdash start: anything left queued or half-sent (a restart, a PC reboot) carries on when the rig is free
+        // irdash start (after Jobs.Start): anything left queued or half-sent (a restart, a PC reboot) carries on when the rig is free.
+        // Calling it twice does no harm: the job is queued once.
         public static void Start()
         {
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { }   // TLS 1.2 for Google
@@ -112,27 +120,29 @@ namespace IRDash
             lock (gate)
             {
                 if (timer != null) { try { timer.Dispose(); } catch { } timer = null; }
-                recs = null; tok = null; tokRead = false; wantSignIn = false; thumbTold = false;
+                recs = null; tok = null; tokRead = false; thumbTold = false;
             }
             paused = false;
         }
 
-        // ================= settings (irdash.ini, section [youtube]) =================
+        // ================= settings (irdash.ini) =================
+        // Written with Config.SetKey, the one setter every irdash.ini key goes through (a flat key=value file), so the keys are
+        // youtube_privacy and youtube_template.
 
-        public static string Privacy { get { string p = IniGet("privacy", "private").ToLowerInvariant(); return p == "public" ? "public" : "private"; } }
-        public static int Template { get { int n; return int.TryParse(IniGet("template", "1"), out n) && n >= 1 && n <= 5 ? n : 1; } }
+        public static string Privacy { get { string p = IniGet("youtube_privacy", "private").ToLowerInvariant(); return p == "public" ? "public" : "private"; } }
+        public static int Template { get { int n; return int.TryParse(IniGet("youtube_template", "1"), out n) && n >= 1 && n <= 5 ? n : 1; } }
 
         public static bool SetPrivacy(string p)
         {
             p = (p ?? "").Trim().ToLowerInvariant();
             if (p != "private" && p != "public") return false;
-            IniSet("privacy", p); Log.W("youtube: new uploads are " + p); Bump();
+            Config.SetKey(IniFile, "youtube_privacy", p); Log.W("youtube: new uploads are " + p); Bump();
             return true;
         }
         public static bool SetTemplate(int n)
         {
             if (n < 1 || n > 5) return false;
-            IniSet("template", n.ToString(CultureInfo.InvariantCulture)); Bump();
+            Config.SetKey(IniFile, "youtube_template", n.ToString(CultureInfo.InvariantCulture)); Bump();
             return true;
         }
 
@@ -141,48 +151,16 @@ namespace IRDash
             try
             {
                 if (!File.Exists(IniFile)) return def;
-                bool inside = false;
                 foreach (string raw in File.ReadAllLines(IniFile))
                 {
                     string t = raw.Trim();
-                    if (t.StartsWith("[")) { inside = t.Equals("[youtube]", StringComparison.OrdinalIgnoreCase); continue; }
-                    if (!inside || t.StartsWith(";") || t.StartsWith("#")) continue;
+                    if (t.StartsWith(";") || t.StartsWith("#")) continue;
                     int e = t.IndexOf('=');
                     if (e > 0 && t.Substring(0, e).Trim().Equals(key, StringComparison.OrdinalIgnoreCase)) return t.Substring(e + 1).Trim();
                 }
             }
             catch { }
             return def;
-        }
-
-        // change one key inside [youtube]; every other line of irdash.ini stays as it is
-        static void IniSet(string key, string value)
-        {
-            try
-            {
-                List<string> o = new List<string>(File.Exists(IniFile) ? File.ReadAllLines(IniFile) : new string[0]);
-                int head = -1, end = o.Count;
-                for (int i = 0; i < o.Count; i++)
-                {
-                    string t = o[i].Trim();
-                    if (!t.StartsWith("[")) continue;
-                    if (head >= 0) { end = i; break; }
-                    if (t.Equals("[youtube]", StringComparison.OrdinalIgnoreCase)) head = i;
-                }
-                if (head < 0) { o.Add(""); o.Add("[youtube]"); o.Add(key + "=" + value); }
-                else
-                {
-                    bool done = false;
-                    for (int i = head + 1; i < end; i++)
-                    {
-                        string t = o[i].Trim(); int e = t.IndexOf('=');
-                        if (e > 0 && t.Substring(0, e).Trim().Equals(key, StringComparison.OrdinalIgnoreCase)) { o[i] = key + "=" + value; done = true; break; }
-                    }
-                    if (!done) { int at = end; while (at > head + 1 && o[at - 1].Trim().Length == 0) at--; o.Insert(at, key + "=" + value); }
-                }
-                File.WriteAllLines(IniFile, o.ToArray());
-            }
-            catch (Exception ex) { Log.W("youtube: could not save the " + key + " setting: " + ex.Message); }
         }
 
         // ================= read side (RACES page, deck) =================
@@ -253,14 +231,13 @@ namespace IRDash
                 else
                 {
                     if (r == null) { r = new Rec(); r.Race = raceId; recs.Add(r); }
-                    // a failed or signed-out race goes again; a video id it already has (sent, not yet read back) is kept: never twice
-                    r.Kind = "queued"; r.Error = ""; r.RetryAtMs = 0; r.Tries = 0; r.Restarts = 0; r.Pct = r.VideoId.Length > 0 ? 100 : 0;
+                    // a failed or signed-out race goes again (a half-sent one carries on from its session file)
+                    r.Kind = "queued"; r.Error = ""; r.RetryAtMs = 0; r.Tries = 0; r.Restarts = 0; r.Pct = 0; r.VideoId = ""; r.Url = "";
                     r.File = file; r.Title = CleanTitle(title, file); r.Desc = CleanDesc(description); r.Want = want; r.Thumb = thumbJpg ?? "";
                     Save();
                     message = "Going to YouTube when the session is over";
                     Log.W("youtube: " + raceId + " queued (" + want + ")");
                 }
-                if (LoadToken() == null) wantSignIn = true;     // the first SHARE opens Google's sign-in (docs\YOUTUBE-SETUP.md Part 5)
             }
             Bump();
             Kick(0);
@@ -282,98 +259,163 @@ namespace IRDash
 
         // ================= sign-in (loopback + PKCE) =================
 
-        // the ytsignin command: answers at once, the sign-in runs on its own thread for up to 5 minutes
+        // the ytsignin press: answers at once; the sign-in waits on its own thread for up to 5 minutes. The only browser Paddock opens.
         public static string SignIn()
         {
             string id, secret;
             if (!ReadClient(out id, out secret)) { Log.W("youtube: sign-in needs dash\\yt\\client.json (docs\\YOUTUBE-SETUP.md)"); return MsgSetup; }
-            lock (gate) { if (signingIn) return "Google sign-in is already open in the browser"; signingIn = true; }
+            lock (gate)
+            {
+                if (signingIn)
+                {
+                    string again = openAuthUrl;           // the tab was closed or lost: show the same page again
+                    if (again != null) { try { OpenBrowser(again); } catch { } }
+                    return "Google sign-in is open in the browser";
+                }
+                signingIn = true;
+            }
             Thread t = new Thread(Crash.Guard("youtube sign-in", delegate ()
             {
                 try { SignInRun(id, secret); }
-                finally { signingIn = false; Bump(); }
+                finally { openAuthUrl = null; signingIn = false; Bump(); }
             }));
             t.IsBackground = true; t.Name = "YouTube sign-in"; t.Start();
             Bump();
             return "Google sign-in opened in the browser";
         }
 
+        // A plain socket on 127.0.0.1 (no HttpListener: that needs a URL reservation without admin rights and filters on the Host
+        // header). Reads one request line, answers one small page, closes.
         static void SignInRun(string id, string secret)
         {
-            HttpListener l = null; string redirect = null;
-            for (int i = 0; i < 5 && l == null; i++)
-            {
-                int port = FreePort();
-                // Google wants 127.0.0.1; if Windows will not give this user that address, localhost works with Google too
-                foreach (string host in new[] { "127.0.0.1", "localhost" })
-                {
-                    HttpListener x = new HttpListener();
-                    try { x.Prefixes.Add("http://" + host + ":" + port + "/"); x.Start(); l = x; redirect = "http://" + host + ":" + port; break; }
-                    catch { try { x.Close(); } catch { } }
-                }
-            }
-            if (l == null) { Log.W("youtube: sign-in could not open a local port for Google's answer"); return; }
+            TcpListener l = new TcpListener(IPAddress.Loopback, 0);
+            try { l.Start(); }
+            catch (Exception ex) { Log.W("youtube: sign-in could not open a local port for Google's answer (" + ex.GetType().Name + ")"); return; }
             try
             {
+                int port = ((IPEndPoint)l.LocalEndpoint).Port;
+                string redirect = "http://127.0.0.1:" + port + "/";
                 string verifier = B64Url(RandomBytes(32));
                 string challenge;
                 using (SHA256 sha = SHA256.Create()) challenge = B64Url(sha.ComputeHash(Encoding.ASCII.GetBytes(verifier)));
                 string state = B64Url(RandomBytes(16));
                 string url = AuthUrl + "?client_id=" + E(id) + "&redirect_uri=" + E(redirect) + "&response_type=code&scope=" + E(Scope) +
                              "&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state + "&access_type=offline&prompt=consent";
+                openAuthUrl = url;
                 try { OpenBrowser(url); } catch (Exception ex) { Log.W("youtube: could not open the browser for the sign-in: " + ex.Message); return; }
                 DateTime until = DateTime.UtcNow.AddMilliseconds(SignInTimeoutMs);
                 while (true)
                 {
                     int left = (int)(until - DateTime.UtcNow).TotalMilliseconds;
-                    if (left <= 0) { Log.W("youtube: sign-in stopped - no answer from Google in " + (SignInTimeoutMs / 60000) + " minutes"); return; }
-                    IAsyncResult ar = l.BeginGetContext(null, null);
-                    if (!ar.AsyncWaitHandle.WaitOne(left)) { Log.W("youtube: sign-in stopped - no answer from Google in " + (SignInTimeoutMs / 60000) + " minutes"); return; }
-                    HttpListenerContext ctx = l.EndGetContext(ar);
-                    System.Collections.Specialized.NameValueCollection q = ctx.Request.QueryString;
-                    if (ctx.Request.Url.AbsolutePath != "/" || q["state"] != state) { Page(ctx, 404, "Not found."); continue; }   // a favicon, an old tab
-                    if (!string.IsNullOrEmpty(q["error"]))
+                    IAsyncResult ar = left > 0 ? l.BeginAcceptTcpClient(null, null) : null;
+                    if (ar == null || !ar.AsyncWaitHandle.WaitOne(left))
                     {
-                        Page(ctx, 200, "Paddock was not signed in to YouTube. You can close this tab.");
-                        Log.W("youtube: sign-in cancelled on Google's page (" + Safe(q["error"]) + ")");
+                        Log.W("youtube: sign-in stopped - no answer from Google in " + Math.Max(1, SignInTimeoutMs / 60000) + " minutes");
                         return;
                     }
-                    string code = q["code"] ?? "";
-                    string err = Exchange(id, secret, code, verifier, redirect);
-                    if (err == null)
+                    using (TcpClient c = l.EndAcceptTcpClient(ar))
                     {
-                        Page(ctx, 200, SignedInPage);
-                        Log.W("youtube: signed in");
-                        SignedIn();
+                        c.ReceiveTimeout = 5000; c.SendTimeout = 5000;
+                        NetworkStream ns = c.GetStream();
+                        string target = RequestTarget(ns);
+                        if (target == null) continue;                  // a browser's empty pre-connect, or junk
+                        int qi = target.IndexOf('?');
+                        string path = qi < 0 ? target : target.Substring(0, qi);
+                        Dictionary<string, string> q = Query(qi < 0 ? "" : target.Substring(qi + 1));
+                        string v;
+                        if (path != "/" || !q.TryGetValue("state", out v) || v != state) { Answer(ns, 404, "Not found."); continue; }   // a favicon, an old tab
+                        if (q.TryGetValue("error", out v) && v.Length > 0)
+                        {
+                            Answer(ns, 200, NotSignedInPage);
+                            Log.W("youtube: sign-in cancelled on Google's page (" + Safe(v) + ")");
+                            return;
+                        }
+                        string code; q.TryGetValue("code", out code);
+                        string err = Exchange(id, secret, code ?? "", verifier, redirect);
+                        if (err == null)
+                        {
+                            Answer(ns, 200, SignedInPage);
+                            Log.W("youtube: signed in");
+                            SignedIn();
+                        }
+                        else
+                        {
+                            Answer(ns, 200, "Paddock could not sign in to YouTube. Close this tab and press the sign-in key again.");
+                            Log.W("youtube: sign-in failed: " + err);
+                        }
+                        return;
                     }
-                    else
-                    {
-                        Page(ctx, 200, "Paddock could not sign in to YouTube. Close this tab and press the sign-in key again.");
-                        Log.W("youtube: sign-in failed: " + err);
-                    }
-                    return;
                 }
             }
-            finally { try { l.Stop(); } catch { } try { l.Close(); } catch { } }
+            catch (Exception ex) { Log.W("youtube: sign-in failed (" + ex.GetType().Name + ")"); }
+            finally { try { l.Stop(); } catch { } }
+        }
+
+        // the request line's target ("/?code=...&state=..."); reads the head only (a GET has no body)
+        static string RequestTarget(NetworkStream ns)
+        {
+            try
+            {
+                byte[] buf = new byte[16384]; int n = 0;
+                while (n < buf.Length)
+                {
+                    int k = ns.Read(buf, n, buf.Length - n);
+                    if (k <= 0) break;
+                    n += k;
+                    if (Encoding.ASCII.GetString(buf, 0, n).Contains("\r\n\r\n")) break;
+                }
+                string head = Encoding.ASCII.GetString(buf, 0, n);
+                int eol = head.IndexOf("\r\n", StringComparison.Ordinal);
+                string[] parts = (eol < 0 ? head : head.Substring(0, eol)).Split(' ');
+                if (parts.Length < 2 || parts[0] != "GET") return null;
+                return parts[1];
+            }
+            catch { return null; }
+        }
+
+        static Dictionary<string, string> Query(string qs)
+        {
+            Dictionary<string, string> d = new Dictionary<string, string>();
+            foreach (string kv in qs.Split('&'))
+            {
+                if (kv.Length == 0) continue;
+                int e = kv.IndexOf('=');
+                string k = e < 0 ? kv : kv.Substring(0, e), v = e < 0 ? "" : kv.Substring(e + 1);
+                try { d[Uri.UnescapeDataString(k.Replace('+', ' '))] = Uri.UnescapeDataString(v.Replace('+', ' ')); } catch { }
+            }
+            return d;
+        }
+
+        static void Answer(NetworkStream ns, int status, string text)
+        {
+            try
+            {
+                byte[] body = Encoding.UTF8.GetBytes("<!doctype html><meta charset=\"utf-8\"><title>Paddock</title><body style=\"background:#000;color:#e8c66a;font:28px sans-serif;padding:60px\">" +
+                                                     WebUtility.HtmlEncode(text) + "</body>");
+                string head = "HTTP/1.1 " + status + (status == 200 ? " OK" : " Not Found") + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.Length +
+                              "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+                byte[] h = Encoding.ASCII.GetBytes(head);
+                ns.Write(h, 0, h.Length); ns.Write(body, 0, body.Length); ns.Flush();
+            }
+            catch { }
         }
 
         // the code for tokens; null = done, else a plain reason (never the answer's text: it holds the tokens)
         static string Exchange(string id, string secret, string code, string verifier, string redirect)
         {
-            if (code.Length == 0) return "Google sent no code";
-            Resp r;
             try
             {
-                r = Form(TokenUrl, "code=" + E(code) + "&client_id=" + E(id) + "&client_secret=" + E(secret) + "&redirect_uri=" + E(redirect) +
-                                   "&grant_type=authorization_code&code_verifier=" + E(verifier));
+                if (code.Length == 0) return "Google sent no code";
+                Resp r = Form(TokenUrl, "code=" + E(code) + "&client_id=" + E(id) + "&client_secret=" + E(secret) + "&redirect_uri=" + E(redirect) +
+                                        "&grant_type=authorization_code&code_verifier=" + E(verifier));
+                if (r.Status != 200) return "Google answered " + r.Status + " " + Safe(Str(Parse(r.Body), "error"));
+                Dictionary<string, object> d = Parse(r.Body);
+                Tok t = new Tok(); t.Refresh = Str(d, "refresh_token"); t.Access = Str(d, "access_token"); t.ExpMs = NowMs + Num(d, "expires_in", 3600) * 1000;
+                if (t.Refresh.Length == 0) return "Google gave no lasting sign-in (no refresh token)";
+                lock (gate) SaveToken(t);
+                return null;
             }
-            catch (Exception ex) { return "could not reach Google (" + ex.Message + ")"; }
-            if (r.Status != 200) return "Google answered " + r.Status + " " + Safe(Str(Parse(r.Body), "error"));
-            Dictionary<string, object> d = Parse(r.Body);
-            Tok t = new Tok(); t.Refresh = Str(d, "refresh_token"); t.Access = Str(d, "access_token"); t.ExpMs = NowMs + Num(d, "expires_in", 3600) * 1000;
-            if (t.Refresh.Length == 0) return "Google gave no lasting sign-in (no refresh token)";
-            lock (gate) { SaveToken(t); }
-            return null;
+            catch (Exception ex) { return "could not finish (" + ex.GetType().Name + ")"; }
         }
 
         // signed in: every race waiting for it goes again
@@ -382,7 +424,7 @@ namespace IRDash
             bool any = false;
             lock (gate)
             {
-                Load(); wantSignIn = false;
+                Load();
                 foreach (Rec r in recs) if (r.Kind == "signin") { r.Kind = "queued"; r.Error = ""; r.RetryAtMs = 0; any = true; }
                 if (any) Save();
             }
@@ -390,26 +432,7 @@ namespace IRDash
             if (any) Kick(0);
         }
 
-        static void Page(HttpListenerContext ctx, int status, string text)
-        {
-            try
-            {
-                byte[] b = Encoding.UTF8.GetBytes("<!doctype html><meta charset=\"utf-8\"><title>Paddock</title><body style=\"background:#000;color:#e8c66a;font:28px sans-serif;padding:60px\">" +
-                                                  System.Net.WebUtility.HtmlEncode(text) + "</body>");
-                ctx.Response.StatusCode = status; ctx.Response.ContentType = "text/html; charset=utf-8";
-                ctx.Response.ContentLength64 = b.Length; ctx.Response.OutputStream.Write(b, 0, b.Length); ctx.Response.Close();
-            }
-            catch { }
-        }
-
         static void DefaultOpen(string url) { System.Diagnostics.Process.Start("explorer.exe", "\"" + url + "\""); }
-
-        static int FreePort()
-        {
-            TcpListener t = new TcpListener(IPAddress.Loopback, 0);
-            t.Start(); int p = ((IPEndPoint)t.LocalEndpoint).Port; t.Stop();
-            return p;
-        }
 
         // ================= tokens =================
 
@@ -465,6 +488,7 @@ namespace IRDash
             Tok t; lock (gate) t = LoadToken();
             if (t == null) throw new Halt("nosignin", MsgSignIn, 0);
             if (!force && t.Access.Length > 0 && t.ExpMs - NowMs > 60000) return t.Access;
+            YieldPoint();
             Resp r = Form(TokenUrl, "client_id=" + E(id) + "&client_secret=" + E(secret) + "&grant_type=refresh_token&refresh_token=" + E(t.Refresh));
             if (r.Status == 200)
             {
@@ -481,9 +505,12 @@ namespace IRDash
             throw new Halt("signout", MsgSignInAgain, 0);          // invalid_grant: revoked, password changed, or unused for months
         }
 
+        // inside the job: a session started, stop here (everything sent so far is in the session file)
+        static void YieldPoint() { if (Jobs.ShouldYield || paused) throw new YieldNow(); }
+
         // ================= the upload job =================
 
-        // run the job now (0) or after ms; the job always picks the race that is due first
+        // Run the job now (0) or after ms. The timer's callback only queues the job (whenFree): no file, no network on the timer thread.
         static void Kick(long ms)
         {
             if (ms <= 0) { Jobs.Run(JobName, Work, true); return; }
@@ -499,22 +526,23 @@ namespace IRDash
             return r.Kind == "queued" || r.Kind == "sharing" || r.Kind == "offline" || (r.Kind == "failed" && r.RetryAtMs > 0);
         }
 
-        // the race to work on: the one already half-sent first, then the oldest; null + wait = nothing due yet
-        static Rec NextDue(out long waitMs)
+        // The race to work on now, or null + the wait until one is due. A half-sent race goes first, and while one is half-sent no
+        // other race starts (each would otherwise hold a session on YouTube's side). Races already tried in this run are skipped.
+        static Rec NextDue(HashSet<string> tried, out long waitMs)
         {
             waitMs = -1;
             Load();
             long now = NowMs;
-            Sess s = LoadSession();
-            Rec pick = null;
-            foreach (Rec r in recs)
+            List<Rec> half = new List<Rec>(), rest = new List<Rec>();
+            foreach (Rec r in recs) if (Pending(r)) { if (File.Exists(SessionFile(r.Race))) half.Add(r); else rest.Add(r); }
+            List<Rec> pool = half.Count > 0 ? half : rest;
+            foreach (Rec r in pool)
             {
-                if (!Pending(r)) continue;
                 long w = r.RetryAtMs - now;
-                if (w > 0) { if (waitMs < 0 || w < waitMs) waitMs = w; continue; }
-                if (pick == null || (s != null && r.Race == s.Race && pick.Race != s.Race)) pick = r;
+                if (w > 0 || tried.Contains(r.Race)) { long ww = Math.Max(0, w); if (waitMs < 0 || ww < waitMs) waitMs = ww; continue; }
+                return r;
             }
-            return pick;
+            return null;
         }
 
         static void Work()
@@ -524,16 +552,19 @@ namespace IRDash
             try
             {
                 DateTime sliceEnd = DateTime.UtcNow.AddMilliseconds(SliceMs);
+                HashSet<string> tried = new HashSet<string>();
                 while (!paused)
                 {
+                    if (Jobs.ShouldYield) { Jobs.Again(JobName, Work); return; }
                     Rec r; long wait;
-                    lock (gate) r = NextDue(out wait);
-                    if (r == null) { if (wait >= 0) Kick(wait); return; }
+                    lock (gate) r = NextDue(tried, out wait);
+                    if (r == null) { if (wait >= 0) Kick(Math.Max(wait, 50)); return; }
+                    tried.Add(r.Race);
                     long o = Turn(r, sliceEnd);
                     if (o == YIELD) { Jobs.Again(JobName, Work); return; }
                     if (o == SLICE) { Jobs.Run(JobName, Work, true); return; }   // other heavy jobs get their turn, then this goes on
                     if (o == STOP) return;
-                    if (o >= 0) { lock (gate) NextDue(out wait); Kick(wait >= 0 ? Math.Min(wait, o) : o); return; }
+                    // NEXT or a wait (kept in the race's RetryAtMs): go on with the next race that is due now
                 }
             }
             finally { busy = false; }
@@ -544,26 +575,18 @@ namespace IRDash
         {
             try
             {
-                if (r.VideoId.Length == 0)
-                {
-                    long o = Send(r, sliceEnd);
-                    if (o != NEXT) return o;
-                }
-                ReadBack(r);
-                Thumbnail(r);
+                long o = Send(r, sliceEnd);
+                if (o != NEXT) return o;
+                if (r.Kind == "shared") Thumbnail(r);
                 return NEXT;
             }
+            catch (YieldNow) { Log.W("youtube: " + r.Race + " upload paused at " + r.Pct + "% - a session started"); return YIELD; }
             catch (Halt h)
             {
                 if (h.Kind == "signout") { DeleteToken(); Log.W("youtube: Google ended the sign-in - press Sign in to YouTube again"); AllPending("signin", MsgSignInAgain); return STOP; }
                 if (h.Kind == "setup") { Log.W("youtube: no usable dash\\yt\\client.json - " + MsgSetup); AllPending("signin", MsgSetup); return STOP; }
-                if (h.Kind == "nosignin")
-                {
-                    AllPending("signin", MsgSignIn);
-                    if (wantSignIn) { wantSignIn = false; SignIn(); }
-                    return STOP;
-                }
-                if (h.Kind == "signin") { Log.W("youtube: YouTube refused the sign-in twice - " + MsgSignInAgain); AllPending("signin", MsgSignInAgain); return STOP; }
+                if (h.Kind == "nosignin") { AllPending("signin", MsgSignIn); return STOP; }     // only the sign-in key opens Google's page
+                if (h.Kind == "signin") { DeleteToken(); Log.W("youtube: YouTube refused the sign-in twice - " + MsgSignInAgain); AllPending("signin", MsgSignInAgain); return STOP; }
                 lock (gate) { r.Kind = "failed"; r.Error = h.Msg; r.RetryAtMs = h.RetryAtMs; Save(); }
                 Log.W("youtube: " + r.Race + " not shared: " + h.Msg);
                 Bump();
@@ -577,6 +600,7 @@ namespace IRDash
             }
             catch (Transient ex) { return Backoff(r, ex.Message); }
             catch (IOException ex) { return Backoff(r, ex.GetType().Name); }     // the link broke while a chunk was being written
+            catch (Exception ex) { return Backoff(r, ex.GetType().Name); }       // anything else (a locked file, DPAPI): never stuck at "Sharing 41%"
         }
 
         static long Offline(Rec r)
@@ -612,16 +636,16 @@ namespace IRDash
             Bump();
         }
 
-        // the resumable upload: NEXT = the file is on YouTube (VideoId set), else YIELD / SLICE / a wait
+        // the resumable upload, from wherever it got to, to YouTube's final answer
         static long Send(Rec r, DateTime sliceEnd)
         {
             if (!File.Exists(r.File)) throw new Halt("failed", "The race video file is gone", 0);
             long size = new FileInfo(r.File).Length;
             if (size <= 0) throw new Halt("failed", "The race video file is empty", 0);
-            Sess s; lock (gate) s = LoadSession();
-            if (s != null && s.Race == r.Race && (s.Size != size || !string.Equals(s.File, r.File, StringComparison.OrdinalIgnoreCase))) { DeleteSession(); s = null; }   // the file changed: start again
-            if (s != null && s.Race != r.Race) s = null;           // another race's session stays on disk for its own turn
+            Sess s = LoadSession(r.Race);
+            if (s != null && (s.Size != size || !string.Equals(s.File, r.File, StringComparison.OrdinalIgnoreCase))) { DeleteSession(r.Race); s = null; }   // the file changed: start again
 
+            YieldPoint();
             long next = 0; Resp done = null;
             if (s == null) s = Begin(r, size);
             else
@@ -645,17 +669,17 @@ namespace IRDash
             {
                 while (done == null)
                 {
-                    if (Jobs.ShouldYield || paused) { lock (gate) { s.Sent = next; SaveSession(s); } Log.W("youtube: " + r.Race + " upload paused at " + r.Pct + "% - a session started"); return YIELD; }
+                    YieldPoint();
                     if (DateTime.UtcNow >= sliceEnd) return SLICE;
                     int len = (int)Math.Min(ChunkSize, size - next);
-                    if (buf == null || buf.Length < len) buf = new byte[Math.Max(len, Math.Min(ChunkSize, (int)Math.Min(size, int.MaxValue)))];
+                    if (buf == null || buf.Length < len) buf = new byte[len];
                     fs.Position = next;
                     int got = 0;
                     while (got < len) { int n = fs.Read(buf, got, len - got); if (n <= 0) throw new Halt("failed", "The race video file got shorter while it was being sent", 0); got += n; }
                     Resp p = Authed("PUT", s.Url, "video/mp4", buf, 0, len, "bytes " + next + "-" + (next + len - 1) + "/" + size);
                     if (p.Status == 308)
                     {
-                        next = RangeEnd(p) + 1;
+                        next = RangeEnd(p) + 1;          // Google's byte, even when it kept less than was sent
                         lock (gate) { s.Sent = next; SaveSession(s); r.Tries = 0; r.Kind = "sharing"; r.Error = ""; r.Pct = (int)Math.Min(99, next * 100 / size); Save(); }
                         Bump();
                     }
@@ -664,10 +688,40 @@ namespace IRDash
                     else Classify(p);
                 }
             }
-            string vid = Str(Parse(done.Body), "id");
-            if (vid.Length == 0) throw new Halt("failed", "YouTube took the video but did not say its address", 0);
-            lock (gate) { r.VideoId = vid; r.Pct = 100; Save(); DeleteSession(); }
-            Log.W("youtube: " + r.Race + " sent (" + Mb(size) + " MB), checking it on YouTube");
+            return Finish(r, done, size);
+        }
+
+        // YouTube's answer to the finished upload is the read-back: its id, uploadStatus and the REAL privacyStatus
+        static long Finish(Rec r, Resp done, long size)
+        {
+            Dictionary<string, object> d = Parse(done.Body);
+            string vid = Str(d, "id");
+            Dictionary<string, object> st = d != null && d.ContainsKey("status") ? d["status"] as Dictionary<string, object> : null;
+            string up = Str(st, "uploadStatus"), priv = Str(st, "privacyStatus");
+            if (vid.Length == 0)
+            {
+                DeleteSession(r.Race);
+                throw new Halt("failed", "YouTube took the video but did not say its address. Look in YouTube Studio", 0);
+            }
+            if (up != "uploaded" && up != "processed")
+            {
+                DeleteSession(r.Race);
+                string why = Str(st, up == "rejected" ? "rejectionReason" : "failureReason");
+                lock (gate) { r.StartedMs = 0; r.Pct = 0; }
+                if (up == "rejected" || up == "failed" || up == "deleted")
+                    throw new Halt("failed", "YouTube " + (up == "deleted" ? "deleted" : "rejected") + " the video" + (why.Length > 0 ? " (" + Safe(why) + ")" : ""), 0);
+                throw new Halt("failed", "YouTube took the video but did not confirm it. Look in YouTube Studio", 0);
+            }
+            bool saved;
+            lock (gate)
+            {
+                r.VideoId = vid; r.Kind = "shared"; r.Privacy = priv.Length > 0 ? priv : r.Want; r.UploadStatus = up; r.Url = "https://youtu.be/" + vid;
+                r.Pct = 100; r.Error = ""; r.RetryAtMs = 0; r.DoneMs = NowMs;
+                saved = Save();
+            }
+            // never twice: the session file goes only once the video id is on disk; else the next start asks */total and gets this answer again
+            if (saved) DeleteSession(r.Race);
+            Log.W("youtube: " + r.Race + " is on YouTube (" + r.Privacy + ", " + Mb(size) + " MB) " + r.Url);
             Bump();
             return NEXT;
         }
@@ -693,42 +747,18 @@ namespace IRDash
         // the session ran out (404/410): from zero, at most 3 times a race
         static Sess Restart(Rec r, long size)
         {
-            lock (gate) { DeleteSession(); r.Restarts++; Save(); }
+            lock (gate) { DeleteSession(r.Race); r.Restarts++; Save(); }
             if (r.Restarts > 3) throw new Halt("failed", "YouTube kept losing the upload. Press Share to try again", 0);
             Log.W("youtube: " + r.Race + " - YouTube forgot the half-sent upload, starting it again");
+            YieldPoint();
             return Begin(r, size);
-        }
-
-        // read the video back: only YouTube's own answer makes a race "shared" (W1-1's free-up-space trusts that word)
-        static void ReadBack(Rec r)
-        {
-            Resp p = Authed("GET", ApiUrl + "/videos?part=status&id=" + E(r.VideoId), null, null, 0, 0, null);
-            if (p.Status != 200) Classify(p);
-            Dictionary<string, object> d = Parse(p.Body);
-            object[] items = d != null && d.ContainsKey("items") ? d["items"] as object[] : null;
-            Dictionary<string, object> it = items != null && items.Length > 0 ? items[0] as Dictionary<string, object> : null;
-            Dictionary<string, object> st = it != null && it.ContainsKey("status") ? it["status"] as Dictionary<string, object> : null;
-            if (st == null) throw new Transient("YouTube does not show the video yet");
-            string up = Str(st, "uploadStatus"), priv = Str(st, "privacyStatus");
-            if (up == "rejected" || up == "failed" || up == "deleted")
-            {
-                string why = Str(st, up == "rejected" ? "rejectionReason" : "failureReason");
-                lock (gate) { r.VideoId = ""; r.Pct = 0; r.StartedMs = 0; }
-                throw new Halt("failed", "YouTube " + (up == "deleted" ? "deleted" : "rejected") + " the video" + (why.Length > 0 ? " (" + why + ")" : ""), 0);
-            }
-            lock (gate)
-            {
-                r.Kind = "shared"; r.Privacy = priv.Length > 0 ? priv : r.Want; r.UploadStatus = up; r.Url = "https://youtu.be/" + r.VideoId;
-                r.Pct = 100; r.Error = ""; r.RetryAtMs = 0; r.DoneMs = NowMs; Save();
-            }
-            Log.W("youtube: " + r.Race + " is on YouTube (" + r.Privacy + ") " + r.Url);
-            Bump();
         }
 
         // the race frame as the thumbnail; a refusal never spoils a shared race
         static void Thumbnail(Rec r)
         {
             if (r.Thumb.Length == 0 || !File.Exists(r.Thumb)) return;
+            if (Jobs.ShouldYield) { Log.W("youtube: thumbnail skipped - a session started"); return; }
             try
             {
                 byte[] jpg = File.ReadAllBytes(r.Thumb);
@@ -737,7 +767,6 @@ namespace IRDash
                 if (p.Status == 403) { if (!thumbTold) { thumbTold = true; Log.W("youtube: thumbnail skipped - YouTube allows custom thumbnails only on a phone-verified channel"); } return; }
                 Log.W("youtube: thumbnail not set (YouTube answered " + p.Status + ")");
             }
-            catch (Halt) { Log.W("youtube: thumbnail not set (sign-in refused)"); }
             catch (Exception ex) { Log.W("youtube: thumbnail not set (" + ex.GetType().Name + ")"); }
         }
 
@@ -747,7 +776,9 @@ namespace IRDash
             string reason = Reason(p.Body);
             if (reason == "quotaExceeded" || reason == "uploadLimitExceeded" || reason == "dailyLimitExceeded")
                 throw new Halt("failed", MsgQuota, ToMs(NextNine(LocalNow)));
-            if (p.Status >= 500 || p.Status == 429) throw new Transient("YouTube answered " + p.Status);
+            if (reason == "rateLimitExceeded" || reason == "userRateLimitExceeded" || reason == "backendError" || p.Status >= 500 || p.Status == 429)
+                throw new Transient("YouTube answered " + p.Status + (reason.Length > 0 ? " " + reason : ""));
+            if (reason == "youtubeSignupRequired") throw new Halt("failed", MsgChannel, 0);
             if (p.Status == 401) throw new Halt("signin", MsgSignInAgain, 0);
             throw new Halt("failed", "YouTube refused the upload (" + (reason.Length > 0 ? reason : p.Status.ToString(CultureInfo.InvariantCulture)) + ")", 0);
         }
@@ -767,7 +798,7 @@ namespace IRDash
 
         // ================= HTTP =================
 
-        // one call with the access token; a 401 gets one fresh token and one more try
+        // one call with the access token; a 401 gets one fresh token and one more try; a second 401 = signed out
         static Resp Authed(string method, string url, string ctype, byte[] body, int off, int len, string range) { return Authed(method, url, ctype, body, off, len, range, null); }
         static Resp Authed(string method, string url, string ctype, byte[] body, int off, int len, string range, Dictionary<string, string> extra)
         {
@@ -825,8 +856,19 @@ namespace IRDash
             try
             {
                 if (!File.Exists(UploadsFile)) return;
-                Dictionary<string, object> d = Parse(File.ReadAllText(UploadsFile, Encoding.UTF8));
-                if (d == null) return;
+                string text = File.ReadAllText(UploadsFile, Encoding.UTF8);
+                Dictionary<string, object> d = Parse(text);
+                if (d == null)
+                {
+                    // never twice: a broken file is kept aside, not overwritten by the next save
+                    if (text.Trim().Length > 0)
+                    {
+                        string aside = Path.Combine(Dir, "uploads.bad-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".json");
+                        try { File.Move(UploadsFile, aside); } catch { }
+                        Log.W("youtube: uploads.json could not be read - kept as " + Path.GetFileName(aside) + ", starting a new list");
+                    }
+                    return;
+                }
                 foreach (KeyValuePair<string, object> kv in d)
                 {
                     Dictionary<string, object> x = kv.Value as Dictionary<string, object>;
@@ -841,10 +883,11 @@ namespace IRDash
                     recs.Add(r);
                 }
             }
-            catch (Exception ex) { Log.W("youtube: uploads.json could not be read: " + ex.Message); }
+            catch (Exception ex) { Log.W("youtube: uploads.json could not be read: " + ex.GetType().Name); }
         }
 
-        static void Save()
+        // true = on disk
+        static bool Save()
         {
             StringBuilder sb = new StringBuilder("{");
             for (int i = 0; i < recs.Count; i++)
@@ -860,20 +903,21 @@ namespace IRDash
                   .Append(",\"want\":").Append(Json_.S(r.Want)).Append(",\"thumb\":").Append(Json_.S(r.Thumb)).Append('}');
             }
             sb.Append("}");
-            try { WriteAtomic(UploadsFile, Encoding.UTF8.GetBytes(sb.ToString())); }
-            catch (Exception ex) { Log.W("youtube: uploads.json could not be saved: " + ex.Message); }
+            try { WriteAtomic(UploadsFile, Encoding.UTF8.GetBytes(sb.ToString())); return true; }
+            catch (Exception ex) { Log.W("youtube: uploads.json could not be saved: " + ex.GetType().Name); return false; }
         }
 
-        static Sess LoadSession()
+        static Sess LoadSession(string race)
         {
             try
             {
-                if (!File.Exists(SessionFile)) return null;
-                Dictionary<string, object> d = Parse(File.ReadAllText(SessionFile, Encoding.UTF8));
+                string f = SessionFile(race);
+                if (!File.Exists(f)) return null;
+                Dictionary<string, object> d = Parse(File.ReadAllText(f, Encoding.UTF8));
                 if (d == null) return null;
                 Sess s = new Sess(); s.Race = Str(d, "race"); s.File = Str(d, "file"); s.Url = Str(d, "url"); s.Title = Str(d, "title"); s.Privacy = Str(d, "privacy");
                 s.Size = Num(d, "size", 0); s.Sent = Num(d, "sent", 0); s.StartedMs = Num(d, "startedMs", 0);
-                return s.Url.Length > 0 && s.Race.Length > 0 ? s : null;
+                return s.Url.Length > 0 && s.Race == race ? s : null;
             }
             catch { return null; }
         }
@@ -882,10 +926,10 @@ namespace IRDash
         {
             string j = "{\"race\":" + Json_.S(s.Race) + ",\"file\":" + Json_.S(s.File) + ",\"size\":" + s.Size + ",\"url\":" + Json_.S(s.Url) + ",\"sent\":" + s.Sent +
                        ",\"title\":" + Json_.S(s.Title) + ",\"privacy\":" + Json_.S(s.Privacy) + ",\"startedMs\":" + s.StartedMs + "}";
-            WriteAtomic(SessionFile, Encoding.UTF8.GetBytes(j));
+            WriteAtomic(SessionFile(s.Race), Encoding.UTF8.GetBytes(j));
         }
 
-        static void DeleteSession() { try { File.Delete(SessionFile); } catch { } }
+        static void DeleteSession(string race) { try { File.Delete(SessionFile(race)); } catch { } }
 
         // write beside, then swap: a crash mid-write never leaves half a file
         static void WriteAtomic(string path, byte[] data)

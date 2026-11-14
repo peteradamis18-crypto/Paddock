@@ -39,12 +39,13 @@ namespace IRDash
         public string FirstPostToken = "";
         public Dictionary<string, Up> Ups = new Dictionary<string, Up>();
         public List<string> Errors = new List<string>();
-        public int ThumbsSet, ThumbsRefused;
+        public int ThumbsSet, ThumbsRefused, Rejected401;
 
         // fault flags
         public int FirstExpiresIn = 30, ExpiresIn = 3600;    // the first token is about to run out: Paddock must refresh it before the upload
-        public bool InvalidGrant, Revoked, QuotaOnce, CutOnce, GoneOnce, ThumbForbiddenOnce;
-        public string ReadbackPrivacy = "private";
+        public bool InvalidGrant, Revoked, QuotaOnce, CutOnce, GoneOnce, ThumbForbiddenOnce, Reject401Once, DropFinalOnce, ShortRangeOnce;
+        public string FinalPrivacy;                          // null = what was asked; else what YouTube "decided"
+        public List<string> Order = new List<string>();      // "start <title>" / "done <title>" across all uploads
         public Action<Up> AfterChunk;                        // runs after a chunk's 308 has been sent
         public volatile bool StopAfterThis;
 
@@ -86,6 +87,7 @@ namespace IRDash
 
         bool AuthOk(HttpListenerContext c)
         {
+            if (Reject401Once) { Reject401Once = false; Rejected401++; CurrentAccess = "expired-on-the-server"; return false; }   // the token died early
             string h = c.Request.Headers["Authorization"] ?? "";
             return !Revoked && CurrentAccess.Length > 0 && h == "Bearer " + CurrentAccess;
         }
@@ -106,10 +108,10 @@ namespace IRDash
                 lock (gate) { AuthQuery = c.Request.Url.Query; Challenge = q["code_challenge"] ?? ""; ChallengeMethod = q["code_challenge_method"] ?? ""; }
                 if (AuthQuery.Contains(Secret)) SecretInQuery = true;
                 string redirect = q["redirect_uri"] ?? "";
-                RedirectOk = Regex.IsMatch(redirect, "^http://(127\\.0\\.0\\.1|localhost):\\d+$") && q["client_id"] == ClientId && q["response_type"] == "code" &&
+                RedirectOk = Regex.IsMatch(redirect, "^http://127\\.0\\.0\\.1:\\d+/$") && q["client_id"] == ClientId && q["response_type"] == "code" &&
                              q["scope"] == "https://www.googleapis.com/auth/youtube.upload" && q["access_type"] == "offline" && q["prompt"] == "consent";
                 c.Response.StatusCode = 302;
-                c.Response.RedirectLocation = redirect + "/?state=" + Uri.EscapeDataString(q["state"] ?? "") + "&code=" + Code + "&scope=x";
+                c.Response.RedirectLocation = redirect.TrimEnd('/') + "/?state=" + Uri.EscapeDataString(q["state"] ?? "") + "&code=" + Code + "&scope=x";
                 c.Response.Close();
                 return;
             }
@@ -155,7 +157,7 @@ namespace IRDash
                 Up u = new Up(); u.Total = total; u.Meta = meta;
                 Match t = Regex.Match(meta, "\"title\":\"([^\"]*)\""); u.Title = t.Success ? t.Groups[1].Value : "";
                 Match p = Regex.Match(meta, "\"privacyStatus\":\"([^\"]*)\""); u.Privacy = p.Success ? p.Groups[1].Value : "";
-                lock (gate) { u.Id = "s" + (Ups.Count + 1); Ups[u.Id] = u; }
+                lock (gate) { u.Id = "s" + (Ups.Count + 1); Ups[u.Id] = u; Order.Add("start " + u.Title); }
                 c.Response.StatusCode = 200; c.Response.AddHeader("Location", Base + "/upload/session/" + u.Id + "?upload_id=pretend-upload-" + u.Id);
                 c.Response.ContentLength64 = 0; c.Response.Close();
                 return;
@@ -181,23 +183,28 @@ namespace IRDash
                 long len = b - a + 1;
                 long cutAt = -1;
                 if (CutOnce && a < u.Total * 4 / 10 && b >= u.Total * 4 / 10) { CutOnce = false; cutAt = u.Total * 4 / 10; }
+                long keep = len;
+                if (ShortRangeOnce && b + 1 < u.Total) { ShortRangeOnce = false; keep = len / 2; }      // Google kept less than was sent
                 Stream s = c.Request.InputStream; byte[] buf = new byte[65536]; long read = 0;
                 long want = cutAt >= 0 ? cutAt - a : len;
-                while (read < want) { int k = s.Read(buf, 0, (int)Math.Min(buf.Length, want - read)); if (k <= 0) break; u.Data.Write(buf, 0, k); read += k; }
+                while (read < want) { int k = s.Read(buf, 0, (int)Math.Min(buf.Length, want - read)); if (k <= 0) break; long w = Math.Max(0, Math.Min(k, keep - read)); u.Data.Write(buf, 0, (int)w); read += k; }
                 lock (gate) u.PutBytes += read;
                 if (cutAt >= 0) { lock (gate) u.Events.Add("cut " + u.Data.Length); c.Response.Abort(); return; }    // the link drops at 40 %
-                lock (gate) { u.Chunks++; u.Events.Add("put " + a + "-" + b); }
-                if (u.Data.Length >= u.Total) { Done(c, u); return; }
+                lock (gate) { u.Chunks++; u.Events.Add("put " + a + "-" + b + (keep < len ? " kept " + keep : "")); }
+                if (u.Data.Length >= u.Total)
+                {
+                    if (DropFinalOnce) { DropFinalOnce = false; lock (gate) u.Events.Add("dropped final answer"); c.Response.Abort(); return; }   // irdash died before the answer
+                    Done(c, u); return;
+                }
                 Resume(c, u);
                 if (AfterChunk != null) AfterChunk(u);
                 return;
             }
             if (path == "/youtube/v3/videos" && m == "GET")
             {
-                if (!AuthOk(c)) { Reply(c, 401, "{}", null); return; }
-                string id = q["id"] ?? "";
-                if (q["part"] != "status") { Reply(c, 400, "{}", null); return; }
-                Reply(c, 200, "{\"items\":[{\"id\":\"" + id + "\",\"status\":{\"uploadStatus\":\"uploaded\",\"privacyStatus\":\"" + ReadbackPrivacy + "\"}}]}", null);
+                // videos.list needs a wider scope than youtube.upload: Paddock must not call it
+                lock (gate) Errors.Add("videos.list was called (not allowed with the youtube.upload scope)");
+                Reply(c, 403, "{\"error\":{\"code\":403,\"errors\":[{\"reason\":\"insufficientPermissions\"}]}}", null);
                 return;
             }
             if (path == "/upload/youtube/v3/thumbnails/set" && m == "POST")
@@ -219,7 +226,8 @@ namespace IRDash
 
         void Done(HttpListenerContext c, Up u)
         {
-            Reply(c, 201, "{\"kind\":\"youtube#video\",\"id\":\"vid-" + u.Id + "\",\"snippet\":{\"title\":\"" + u.Title + "\"},\"status\":{\"uploadStatus\":\"uploaded\",\"privacyStatus\":\"" + u.Privacy + "\"}}", null);
+            lock (gate) Order.Add("done " + u.Title);
+            Reply(c, 201, "{\"kind\":\"youtube#video\",\"id\":\"vid-" + u.Id + "\",\"snippet\":{\"title\":\"" + u.Title + "\"},\"status\":{\"uploadStatus\":\"uploaded\",\"privacyStatus\":\"" + (FinalPrivacy ?? u.Privacy) + "\"}}", null);
         }
 
         public static string Hash(byte[] b) { using (SHA256 s = SHA256.Create()) return Convert.ToBase64String(s.ComputeHash(b)); }

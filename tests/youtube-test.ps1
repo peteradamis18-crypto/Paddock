@@ -47,6 +47,9 @@ try {
   ok '4. the job stops between chunks when a session starts (Jobs.ShouldYield) and queues the rest (Jobs.Again)' ($yt.Contains('Jobs.ShouldYield') -and $yt.Contains('Jobs.Again(JobName, Work)'))
   ok '4. the token is kept with DPAPI for this Windows user' ($yt.Contains('ProtectedData.Protect(') -and $yt.Contains('DataProtectionScope.CurrentUser'))
   ok '4. the client secret goes only in a POST body (Form), never in a query string' ($yt -match '"&client_secret=" \+ E\(secret\)' -and -not ($yt -match '\?[^"]*client_secret'))
+  ok '4. the sign-in uses a plain TcpListener on loopback, not HttpListener (no URL reservation needed)' ($yt.Contains('new TcpListener(IPAddress.Loopback, 0)') -and -not $yt.Contains('new HttpListener'))
+  ok '4. no videos.list call (the youtube.upload scope does not allow it)' (-not ($yt -match '/videos\?part='))
+  ok '4. only SignIn opens a browser (one OpenBrowser call site besides the re-open)' (([regex]::Matches($yt, 'OpenBrowser\(')).Count -eq 2)
   ok '4. C# 5 only: no $"...", ?., nameof, out var' (-not ($yt -match '\$"|\?\.|\bnameof\(|out var '))
   $gi = Get-Content (Join-Path $root '.gitignore') -Raw
   ok '4. dash/yt/ is gitignored' ($gi -match '(?m)^dash/yt/\s*$')
