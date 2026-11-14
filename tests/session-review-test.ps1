@@ -423,7 +423,9 @@ try {
   }
   Check 'every note passes the C-30 thresholds: the corner differs by 0.05 s or more and its one cause by 5 m / 3 km/h / 10 m' $okN
   Check 'notes are sorted by the time they are about, biggest first' ((@($notes | ForEach-Object { [math]::Abs([double]$_.dTime) }) -join ',') -eq ((@($notes | ForEach-Object { [math]::Abs([double]$_.dTime) }) | Sort-Object -Descending) -join ','))
-  Check 'the PB session against its previous best has corners (14) but no note: no clear single cause, so nothing is made up' (@($mA.corners).Count -eq 14 -and @($mA.notes).Count -eq 0)
+  # W4-1 (2026-11-14): T2's apex is Lovely's 712 m; the slowest point is 79 m after it (raw records: 144.80 at 790.7 m vs 139.13 at 790.6 m on the afternoon lap 7),
+  # the way out 1.613 vs 1.699 s and the way in 1.435 vs 1.430 s, so the minimum is now the one clear cause (it was within 8 m of the old apex: no note)
+  Check 'the PB session against its previous best has corners (14) and one note: T2, the minimum speed 6 km/h higher, 0.09 s gained on the way out' (@($mA.corners).Count -eq 14 -and @($mA.notes).Count -eq 1 -and $mA.notes[0].label -eq 'T2' -and $mA.notes[0].code -eq 'min' -and $mA.notes[0].cause -eq 'Minimum speed 6 km/h higher and gained 0.09 s on the way out.')
   $codes = @($mB.corners | ForEach-Object { $_.dTime })
   Check 'every corner carries its time against the reference (the map labels use them)' (@($mB.corners).Count -eq 14 -and ($mB.corners | Where-Object { $null -eq $_.dTime }).Count -eq 0)
 
@@ -541,7 +543,7 @@ try {
   Check 'Lovely Track Data is credited under the map' ($txt -match 'Lovely Track Data')
   $ch = Cdp-Json '(function(){var s=document.querySelector("svg.chart");if(!s)return null;var t=s.textContent;return {dots:s.querySelectorAll("circle").length,pb:/PREVIOUS PB 1:19\.575/.test(t),title:/LAP TIMES/.test(t)}})()'
   Check 'the lap-time chart is there (11 laps): a dot per lap, the previous PB as a rule' ($ch -and $ch.dots -eq 11 -and $ch.pb -and $ch.title)
-  Check 'no corner is made up: there is no notes block (the C-30 engine found no single cause)' ($txt -notmatch 'Lap 7 against previous best' -and $txt -notmatch 'No corner differs')
+  Check 'the one note is on the page (T2, the minimum speed) and nothing else is made up' ($txt -match 'minimum 145 vs 139 km/h|Minimum speed 6 km/h higher' -and $txt -notmatch 'No corner differs')
   Check 'ANALYSIS is on the screen and no other button' ((Cdp-Eval 'document.querySelector("#srAnalysis") && !document.querySelector("#srAnalysis").hidden') -eq $true -and (Cdp-Eval 'document.querySelectorAll(".sr button:not([hidden])").length') -eq 1)
   $ov = Cdp-Json 'SessionReview.overlaps(document.querySelector(".sr"))'
   Note "text boxes measured: $($ov.boxes)"; if ($ov.bad.Count) { Note ('overlapping: ' + ($ov.bad -join '; ')) }

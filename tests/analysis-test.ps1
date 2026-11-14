@@ -142,7 +142,9 @@ try {
   Note "HAND CHECK lap 8 vs PB 79.549: biggest loss $($top.label), corner $($top.time) s, lost $($top.dTime) s, cause: $(if ($top.cause) { $top.cause } else { '(none)' })"
   Check 'the biggest loss is T1, 7.850 s, lost 0.236 s' ($top.label -eq 'T1' -and (Near $top.time 7.850 0.001) -and (Near $top.dTime 0.236 0.001))
   # 2026-10-18: braking point = the MAIN application (most pedal), as the deep dive reports it. The old 'last application' read a second press near the apex as the braking point: dBrake 88 m. The deep dive says T1 brakes at 284 m on lap 8 and 287 m on the PB lap = 3 m.
-  Check 'T1: brakes 3 m earlier than the PB lap (the deep dive says 284 against 287 m), throttle 41 m later, exit 9.67 km/h slower: several moved, so no single cause sentence' ($top.cause -eq '' -and $top.causeCode -eq 'ambiguous' -and (Near $top.dBrakeM -3 0.01) -and (Near $top.dPickupM 41 0.01) -and (Near $top.dExitKmh -9.67 0.01))
+  Note ("T1 as served: dBrakeM {0} dPickupM {1} dExitKmh {2} cause '{3}' ({4})" -f $top.dBrakeM, $top.dPickupM, $top.dExitKmh, $top.cause, $top.causeCode)
+  # W4-1 (2026-11-14): the apex is Lovely's lap fraction (0.1020), so the exit point (apex + 100 m) moved: raw records 172.99 vs 182.73 km/h = -9.74 (was -9.67)
+  Check 'T1: brakes 3 m earlier than the PB lap (the deep dive says 284 against 287 m), throttle 41 m later, exit 9.74 km/h slower: several moved, so no single cause sentence' ($top.cause -eq '' -and $top.causeCode -eq 'ambiguous' -and (Near $top.dBrakeM -3 0.01) -and (Near $top.dPickupM 41 0.01) -and (Near $top.dExitKmh -9.74 0.01))
   $quiet = @($a.corners | Where-Object { -not $_.cause })
   Check 'at least one corner produces no sentence' ($quiet.Count -ge 1)
   $smallTalk = @($a.corners | Where-Object { [math]::Abs([double]$_.dTime) -lt 0.05 -and $_.cause })
@@ -183,7 +185,9 @@ try {
   $short = Invoke-Analysis $shortName 1 'pb' 'short'
   $t12 = $short.corners | Where-Object { $_.label -eq 'T12' }
   Note "HAND CHECK 15-11-47 lap 1 vs PB: T12 $($t12.cause)"
-  Check 'T12 says the exit speed, and only that' ($t12.cause -eq 'Exit speed 14 km/h lower and lost 0.09 s on the way out.' -and $t12.causeCode -eq 'exit' -and (Near $t12.dTime 0.099 0.001) -and (Near $t12.dIn 0.007 0.001) -and (Near $t12.dOut 0.092 0.001) -and (Near $t12.dExitKmh -14.14 0.01) -and (Near $t12.dPickupM 0 0.01))
+  Note ("T12 as served: dTime {0} dIn {1} dOut {2} dExitKmh {3} dPickupM {4} ({5})" -f $t12.dTime, $t12.dIn, $t12.dOut, $t12.dExitKmh, $t12.dPickupM, $t12.causeCode)
+  # W4-1 (2026-11-14): apex at Lovely's 0.9795 and the exit read never past the line (471d9d3). Raw records: in 1.414 vs 1.382 s = +0.032 (out = 0.099 - 0.032), exit at the line 212.93 vs 225.71 = -12.78 km/h (was in 0.007, out 0.092, exit -14.14)
+  Check 'T12 says the exit speed, and only that' ($t12.cause -eq 'Exit speed 13 km/h lower and lost 0.07 s on the way out.' -and $t12.causeCode -eq 'exit' -and (Near $t12.dTime 0.099 0.001) -and (Near $t12.dIn 0.032 0.002) -and (Near $t12.dOut 0.067 0.002) -and (Near $t12.dExitKmh -12.78 0.02) -and (Near $t12.dPickupM 0 0.01))
   Check 'that file still has a corner with no sentence' (@($short.corners | Where-Object { -not $_.cause }).Count -ge 1)
 
   # ================= C-34 corner deep-dive engines (dash\src\deepdive.cs) =================
@@ -414,9 +418,11 @@ public static class IbtPatch {
   # lap times are iRacing's: 1 = 83.664, 2 = 80.590, 4 = 80.322 (lap 3 is off track), 8 = 79.878, 9 = 80.471, 10 = 80.078
   Check 'bias change: laps 1, 2, 4 before (best 80.322), laps 8, 9, 10 after (best 79.878), 0.444 s quicker, a pit stop in between' ((@($ch[0].before | ForEach-Object { $_.lap }) -join ',') -eq '1,2,4' -and (Near $ch[0].bestBefore 80.322 0.001) -and (@($ch[0].after | ForEach-Object { $_.lap }) -join ',') -eq '8,9,10' -and (Near $ch[0].bestAfter 79.878 0.001) -and (Near $ch[0].delta -0.444 0.001) -and $ch[0].pitBetween -eq $true)
   Check 'traction control 2 -> 3 in lap 8: laps 1, 2, 4 before, laps 9, 10 after (best 80.078), pit stop in between' ($ch[1].from -eq 2 -and $ch[1].to -eq 3 -and $ch[1].lap -eq 8 -and (@($ch[1].before | ForEach-Object { $_.lap }) -join ',') -eq '1,2,4' -and (@($ch[1].after | ForEach-Object { $_.lap }) -join ',') -eq '9,10' -and (Near $ch[1].delta -0.244 0.001) -and $ch[1].pitBetween -eq $true)
+  Note ("ABS change as served: " + ($ch[2] | ConvertTo-Json -Compress -Depth 4))
   Check 'ABS 2 -> 1 in lap 9: laps 2, 4, 8 before (best 79.878), lap 10 after (80.078, 0.199 s slower), no stop in between' ($ch[2].from -eq 2 -and $ch[2].to -eq 1 -and $ch[2].lap -eq 9 -and (@($ch[2].before | ForEach-Object { $_.lap }) -join ',') -eq '2,4,8' -and (Near $ch[2].bestBefore 79.878 0.001) -and (Near $ch[2].bestAfter 80.078 0.001) -and (Near $ch[2].delta 0.199 0.001) -and $ch[2].pitBetween -eq $false)
   Check 'a file with no setting change reports none (the unedited Corvette and the Ferrari)' (@($a.changes).Count -eq 0)
   $st = @($p.stints)
+  Note ("stints as served: " + (($st | ForEach-Object { 'laps {0}-{1} clean {2} best {3} statLap {4}' -f $_.lapFirst, $_.lapLast, $_.cleanLaps, $_.best, $_.statLap }) -join ' / '))
   Check 'the pit stop splits the file into two stints: laps 0 to 5 (3 clean, best 80.322) and laps 7 to 11 (3 clean, best 79.878)' ($st.Count -eq 2 -and $st[0].lapLast -eq 5 -and $st[0].cleanLaps -eq 3 -and (Near $st[0].best 80.322 0.001) -and $st[0].statLap -eq 4 -and $st[1].lapFirst -eq 7 -and $st[1].lapLast -eq 11 -and $st[1].cleanLaps -eq 3 -and (Near $st[1].best 79.878 0.001) -and $st[1].statLap -eq 10)
   Check 'wear at the end of each stint: left front 100 % then 97 % after the new set; right front 99.5 % (a live change in stint 1, steady in stint 2)' ((Near $st[0].tyres.LF.wear.M 100.0 0.05) -and (Near $st[1].tyres.LF.wear.M 97.0 0.05) -and $st[0].tyres.LF.wear.live -eq $false -and $st[1].tyres.LF.wear.live -eq $false -and (Near $st[0].tyres.RF.wear.M 99.5 0.05) -and $st[0].tyres.RF.wear.live -eq $true -and $st[1].tyres.RF.wear.live -eq $false)
   Check 'surface temperature comes from each stint''s own last clean lap (stint 2 left front middle 67.5 C, the lap 10 figure)' ((Near $st[1].tyres.LF.surface.M.mean 67.52 0.2) -and $st[0].tyres.LF.surface.M.mean -ne $st[1].tyres.LF.surface.M.mean)
