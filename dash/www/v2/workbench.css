@@ -19,7 +19,7 @@ html, body { width: 100%; height: 100%; min-width: 1920px; background: var(--bg)
 .sw { display: inline-block; width: 26px; border-top: 3px solid var(--gold); margin-right: 8px; vertical-align: middle; }
 .sw.r { border-top: 3px dotted var(--ref); }
 .mode { font-size: 20px; letter-spacing: .18em; color: var(--mute); flex: 1 1 0; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.top .mode { position: absolute; left: 0; right: 0; top: 46px; letter-spacing: .08em; width: auto; text-align: left; }
+.top .mode { position: absolute; left: 0; right: 0; top: 44px; height: 30px; line-height: 30px; letter-spacing: .08em; width: auto; text-align: left; }   /* 30 px: the OFFSET buttons; ends at 82, where #nav starts (it ran 2 px into it) */
 .mode b { color: var(--gold); font-weight: 500; }
 
 /* lap navigator: one block per lap of the session, width = lap time */
@@ -50,12 +50,12 @@ table.ct td { padding: 5px 3px; text-align: right; border-bottom: 1px solid #191
 table.ct tr.on td { background: rgba(201, 162, 75,.07); }
 table.ct td small { color: var(--ref); font-size: 20px; margin-left: 5px; }
 
-.ev { display: grid; grid-template-columns: 96px 70px 1fr 90px; align-items: center; font-size: 20px; padding: 5px 0; border-bottom: 1px solid #19191c; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.ev { display: grid; grid-template-columns: 140px 70px 1fr 90px; align-items: center; font-size: 20px; padding: 5px 0; border-bottom: 1px solid #19191c; cursor: pointer; white-space: nowrap; overflow: hidden; }
 .ev.on { background: rgba(201, 162, 75,.07); }
-.ev .tag { font-size: 20px; letter-spacing: .14em; padding: 3px 6px; border: 1px solid; justify-self: start; white-space: nowrap; }
+.ev .tag { font-size: 20px; letter-spacing: .06em; padding: 3px 6px;   /* 2026-11-14: at 20 px REAR SLIP ran past 96 px into the corner name */ border: 1px solid; justify-self: start; white-space: nowrap; }
 .ev .km { text-align: right; color: var(--mute); }
-.compact .ev { grid-template-columns: 58px 56px 1fr 74px; font-size: 20px; padding: 4px 0; }
-.compact .ev .tag { font-size: 20px; padding: 2px 4px; letter-spacing: .1em; }
+.compact .ev { grid-template-columns: 76px 56px 1fr 74px; font-size: 20px; padding: 4px 0; }
+.compact .ev .tag { font-size: 20px; padding: 2px 4px; letter-spacing: .04em; }
 .empty { font-size: 22px; color: var(--mute); position: absolute; left: 32px; top: 200px; line-height: 1.6; }
 
 /* C-41: + CHANNEL, the picker, and the BRAKING / TYRES & STINT / SUSPENSION / SPLITS displays */
@@ -163,8 +163,8 @@ table.rc td.gain { color: var(--gain); } table.rc td.loss { color: var(--loss); 
 .sj { display: none; font-size: 20px; letter-spacing: .12em; color: var(--gold); border: 1px solid #5a4a14; padding: 3px 7px; margin-left: 10px; cursor: pointer; white-space: nowrap; justify-self: end; }
 .sj:hover { background: rgba(201, 162, 75,.12); }
 body.canjump .sj { display: inline-block; }
-body.canjump .ev { grid-template-columns: 96px 70px 1fr 90px auto; }
-body.canjump .compact .ev { grid-template-columns: 58px 56px 1fr 74px auto; }
+body.canjump .ev { grid-template-columns: 140px 70px 1fr 90px auto; }
+body.canjump .compact .ev { grid-template-columns: 76px 56px 1fr 74px auto; }
 body.canjump .pz { grid-template-columns: 78px 140px 146px 1fr 56px auto; }
 
 
