@@ -31,7 +31,7 @@
       { "c": 4, "r": 2, "label": ["BEST LAP", "CAR"], "glyph": "watch", "role": "white", "action": { "exe": "best-lap-car", "args": "key --sim ctrl+c" } },
       { "c": 5, "r": 2, "label": ["REPLAY"], "glyph": "replay", "role": "white", "action": { "screen": "replay" } },
 
-      { "c": 0, "r": 3, "label": ["VOL âˆ’"], "glyph": "voldown", "role": "grey", "action": { "exe": "vol-down", "args": "appvol game -5" } },
+      { "c": 0, "r": 3, "label": ["VOL \u2212"], "glyph": "voldown", "role": "grey", "action": { "exe": "vol-down", "args": "appvol game -5" } },
       { "c": 1, "r": 3, "label": ["VOL +"], "glyph": "volup", "role": "grey", "action": { "exe": "vol-up", "args": "appvol game +5" } },
       { "c": 2, "r": 3, "label": ["SPOTTER"], "glyph": "headset", "role": "grey", "action": { "exe": "spotter-tap", "args": "spotter-tap" } },
       { "c": 3, "r": 3, "label": ["SOUND"], "glyph": "sliders", "role": "grey", "action": { "screen": "sound" } },
