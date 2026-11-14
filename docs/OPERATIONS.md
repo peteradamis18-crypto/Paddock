@@ -270,17 +270,19 @@ Logon already runs `irdeck.exe rigon --boot` via the task "iRacing Rig". Do not 
 
 ## 10. Stream Deck add-on and MAIN page (lead only)
 
-Agents never run these. One batch, then Peter clicks Install once.
+Agents never run these. One batch; the add-on needs no click any more (below).
 
-Add-on, after `deck-intro\plugin.html` changes. Bump `$ver` in `deck-intro\install.ps1` first (the file says why: Stream Deck treats a higher version as an update). The source is at 1.6.1.0. The script refuses when `telemetry=on`.
+Add-on, after `deck-intro\plugin.html` changes (W1-8, 2026-11-14: irdash installs it, nobody clicks Install). Bump `$ver` in `deck-intro\install.ps1` first (Stream Deck treats a higher version as an update), then, with the rig free (`irdeck-cli.exe state` shows sim=False):
 
 ```
-powershell -ExecutionPolicy Bypass -File C:\Users\peter\iRacingDeck\deck-intro\install.ps1
+powershell -ExecutionPolicy Bypass -File C:\Users\peter\iRacingDeck\tools\addon-update.ps1
 ```
 
-It opens the `.streamDeckPlugin` through Explorer. Stream Deck asks once. Peter clicks Install. Do not copy the plugin folder into `%APPDATA%\Elgato` by hand. A hand-copied folder never gets the bundled profiles.
+It stages the folder (`install.ps1 -Stage` builds `deck-intro\build\com.peter.rigintro.sdPlugin` and stops), then asks irdash (`/api/do?c=addoninstall`, header `X-Paddock: 1`). irdash, which runs outside the Claude app's AppData redirect (CLAUDE.md rule 3), swaps the folder into `%APPDATA%\Elgato\StreamDeck\Plugins` (copy to `.new`, installed to `.old`, `.new` into place, a failure puts the old one back), stops Stream Deck, sets the deck to MAIN, starts it and waits up to 30 s for the add-on to connect. The last line is `Add-on x.y.z.w installed and running` (exit 0); anything else exits 1 and says why (`copied, but it has not connected yet - look at the deck`). Same version already installed = nothing is restarted. `GET /api/addon` says `{"installed","staged","connected"}`; irdash.log has the `addon:` lines. It refuses during a session (guarded command). The deck blinks off and back on MAIN within about 20 s.
 
-**Order matters (2026-10-18):** when the add-on version changed, click Install FIRST, then run the MAIN page steps below. Stream Deck's install rewrote the MAIN profile and its key pictures went missing (112 'custom image missing' lines, blank keys) after a build-deck done before the install. Run build-deck again after the install and the deck is whole.
+The package route (`deck-intro\install.ps1` without `-Stage`, opens a `.streamDeckPlugin`, Peter clicks Install) is only for a brand-new PC: a hand-copied folder never gets the bundled profiles registered; an update over an existing install keeps them.
+
+**Order matters (2026-10-18):** when the add-on version changed, let `tools\addon-update.ps1` finish FIRST, then run the MAIN page steps below. Stream Deck's install rewrote the MAIN profile and its key pictures went missing (112 'custom image missing' lines, blank keys) after a build-deck done before the install. Run build-deck again after the install and the deck is whole.
 
 **Use `powershell -ExecutionPolicy Bypass -File tools\deck-refresh.ps1`** for the MAIN page: it closes Stream Deck, runs build-deck, starts it, and CHECKS that every page the build wrote (LEAVE, MAIN, MORE) kept one picture per key (Stream Deck sometimes dropped the MAIN page at start; it retries up to 4 times). The manual steps below are what it does.
 The likely cause of that drop (found 2026-10-23): build-deck named MAIN as the profile's Default page too, and Stream Deck logged "Failed to map default page" for it. Stream Deck's Default page must be its own hidden empty page outside the page list (every profile it makes is like that); build-deck now writes one. Current = MAIN is what opens the deck on MAIN.

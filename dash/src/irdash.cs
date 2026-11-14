@@ -848,6 +848,7 @@ namespace IRDash
                             Send(s, pk ? 200 : 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "Not done: the PC is turned off or put to sleep only from the CONFIRM screen on the deck (" + why + ")."), "Access-Control-Allow-Origin: *\r\n"); return;
                         }
                         // W1-1: the RACES library answers in JSON with the words the page shows ("say": "Deleted 3 races")
+                        if (AddOn.Handles(dc)) { int ac; string aj = AddOn.Do(dc, da, out ac); Send(s, ac, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(aj), "Access-Control-Allow-Origin: *\r\n"); return; }      // W1-8: the add-on installs itself
                         if (Library.Handles(dc)) { int lc; string lj = Library.Do(dc, da, out lc); Send(s, lc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(lj), "Access-Control-Allow-Origin: *\r\n"); return; }
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
@@ -906,6 +907,7 @@ namespace IRDash
                     }
                     if (method == "GET" && path.StartsWith("/share/", StringComparison.Ordinal) && Share.Handle(s, path, ParseQuery(query), hdr, local && !query.Contains("asphone=1"))) return;      // share studio + replay jump (share.cs, replayjump.cs); /share/open and /share/jump are for this PC only
                     // W1-1: the RACES library (library.cs), read-only, with the Vault on or off
+                    if (method == "GET" && path == "/api/addon") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AddOn.Status()), "Access-Control-Allow-Origin: *\r\n"); return; }      // W1-8
                     if (method == "GET" && path == "/api/library") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Library.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/api/library/thumb")
                     {

@@ -8,16 +8,17 @@
 # Builds the plugin folder (manifest, page, icons, and the bundled one-page RigIntro profile whose 32 keys
 # are the animation tiles), copies it into Stream Deck's Plugins folder, and restarts Stream Deck so it
 # loads. Refuses while you are driving. Re-run after editing plugin.html.
+param([switch]$Stage)   # -Stage (W1-8): build the plugin folder in deck-intro\build and stop; irdash installs it (tools\addon-update.ps1). Without -Stage: the package route, for a brand-new PC.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $uuid = 'com.peter.rigintro'
 $ver = '1.9.2.0'   # bump on every change so Stream Deck treats a re-install as an update (1.9.2: W1-5 RACES screen mirrors the library - picture cards, tick, share/delete selected with UNDO; 1.9.1: W0-5 one /deck/summary every 5 s while an opener key shows, instead of six routes every 2 s; 1.9: W0-1 deck safety - CONFIRM screen for SHUT DOWN / SLEEP, 2 s timeout on every request, DASHBOARD NOT ANSWERING for a hung irdash, grey opener keys, MY DRIVE never opens by itself, ARMED state keys gone; 1.6: REPLAY screen, name Paddock, garbled signs fixed; 1.6.1: PHOTO key dims when iRacing's screen capture is off; 1.7: ANALYSIS and SOUND screens, MY DRIVE became RACE SETUP, AI RACE tile gone; 1.7.1: ANALYSIS page row with more than 8 pages = 7 + a PAGES key and a page picker, CAREER and PRO named; 1.7.2: AU-1 words - key subtitles only where they add information, no emoji; 1.8: deck v3 - SMART key from /deck/state, ARMED 3-2-1 on QUIT/RESTART/SKIP, MY DRIVE START after a pick; 1.8.2: car/track picker - RECENT / CARS / TRACKS lists, one key per item, NO CHOICE opens it; 1.8.3: CAR TRACK key shows its own name, toggles ignore a doubled press, a screen says DASHBOARD NOT ANSWERING instead of freezing; 1.8.4: deck v2 - CAR TRACK picture at its new place 3,0; 1.8.5: AC screen (RigAC, the AC key on MORE); 1.8.6: AI LEVEL screen (RigAiLevel, the AI LEVEL key on MAIN))
 $build = Join-Path $here "build\$uuid.sdPlugin"
 $dest = Join-Path $env:APPDATA "Elgato\StreamDeck\Plugins\$uuid.sdPlugin"
 $cli = Join-Path (Split-Path -Parent $here) 'irdeck-cli.exe'
-if ((Test-Path $cli) -and ((& $cli state) -match 'telemetry=on')) { 'iRacing is in a session - run this when you are out of the car.'; exit 1 }
+if (-not $Stage -and (Test-Path $cli) -and ((& $cli state) -match 'telemetry=on')) { 'iRacing is in a session - run this when you are out of the car.'; exit 1 }
 # the same busy rule the tests and the irdash deploy use (sim running, or a START key in the last 10 minutes): installing restarts Stream Deck
 . (Join-Path (Split-Path -Parent $here) 'tests\guard.ps1')
-$busy = Get-RigBusy
+$busy = if ($Stage) { $null } else { Get-RigBusy }   # -Stage only writes inside the repo, so it is safe while he races
 if ($busy) { "Not now: $busy - run this when the rig is free."; exit 1 }
 
 Add-Type -AssemblyName System.Drawing, System.IO.Compression, System.IO.Compression.FileSystem
@@ -130,6 +131,7 @@ Build-Profile 'RigAiLevel' 'ailevel'
 Build-Profile 'RigRaces' 'races'
 Build-Profile 'RigConfirm' 'confirm'
 
+if ($Stage) { "staged $build (version $ver) - tools\addon-update.ps1 installs it"; exit 0 }
 # Package it the way Elgato distributes add-ons. Opening the package makes Stream Deck install it properly,
 # including the bundled RigIntro profile (a hand-copied plugin folder never gets its profile).
 # Stream Deck asks once: click Install.
