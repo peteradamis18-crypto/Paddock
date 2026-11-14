@@ -313,6 +313,7 @@ try {
   Cdp-Open "http://localhost:$PORT/app/index.html?intro=0&page=races" -Port ($CDP + 3)
   $null = Wait-Until "window.Shell && Shell.cur === 'races'" 10
   $g = '{"active":true,"driver":"Sam","driverId":"sam","voiceDriver":true,"car":{"name":"GR86","full":"Toyota GR86","aids":""},"track":{"name":"Road Atlanta","full":"Road Atlanta Full Course"},"wheel":"light","line":true,"lineKey":true,"coach":true,"board":true,"times":[{"name":"Alex","time":93.2},{"name":"Sam","time":94.1}]}'
+  [IO.File]::WriteAllText((Join-Path $fx 'guest.json'), $g, (New-Object Text.UTF8Encoding($false)))   # what /guest answers after a lap (guest.js asks once more)
   Push 'guest' $g
   $gq = '(() => { const f = document.getElementById("guestFrame"); const d = f && f.contentDocument; const g = d && d.getElementById("guest"); return g ? g.className : ""; })()'
   ok 'a guest is on: the Friends mode layer shows its setup card' (Wait-Until "!document.getElementById('guestHost').hidden && $gq === 'setup'" 10) (Cdp-Eval $gq)

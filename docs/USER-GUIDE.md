@@ -153,7 +153,7 @@ Four doors along the top: **HOME · RACES · REVIEW · RIG**, the same four word
 - **REVIEW** shows your sessions and laps (below), newest first. Pressing REVIEW on a race in RACES opens it here.
 - **RIG** shows how the PC ran (Performance, below).
 
-To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
+To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. (Inside a page, Esc first closes what that page has open, like a lap or a video.) A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
 
 One line at the bottom of the screen tells you the one thing you need to know, never two at once, in this order: **Paddock is not running. Press HOME on the deck.** (the screen cannot reach Paddock; the doors still work), kids mode, **Reset car · waiting for the car to stop**, and what the last deck key did (for 4 seconds).
 
@@ -169,7 +169,7 @@ The Corvette picture: until your own shot exists, Home shows a credited photo of
 
 ## The race screen
 
-The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session, a replay, or the sim or Paddock not answering), HOME comes back. You press nothing. In Friends mode the race screen does not come up.
+The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session, a replay, or the sim or Paddock not answering), HOME comes back (or the page you asked for on the deck while you were driving). You press nothing. In Friends mode your guest keeps their own screen: the setup card, then their lap timer and leaderboard while they drive.
 
 - **Top strip.** Your position (and your class position in a multiclass race), the lap and how many to go (or, in a race run on time, the time left), your incidents against the limit (the box turns amber when you are 3 or fewer from it), and the race clock. When a new flag comes out, the strip turns that flag's colour and says its name for 2 seconds. The light box and the coloured edge keep showing it after that. Under a caution the strip says **CAUTION** in amber for the whole caution.
 - **Gaps.** The car ahead and the car behind: the gap in seconds, their number and name. Green means it is going your way (closing on the car ahead, pulling away from the car behind), red means the other way. The small arrow is how much per lap, over the last 3 laps. Under a caution this becomes your gap to the leader.
