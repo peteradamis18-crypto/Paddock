@@ -2461,7 +2461,7 @@ namespace IRDash
         public static double DeckPollAge { get { lock (gate) return deckPollAt == DateTime.MinValue ? double.MaxValue : (DateTime.Now - deckPollAt).TotalSeconds; } }
 
         static DateTime introUntil = DateTime.MinValue;
-        // The intro is playing or about to (about 14 s long plus the page's polling delay); the side-screen gallery waits for it.
+        // The intro is playing or about to (about 7 s long since W3-2: five lights, then the dial; the photos follow it); the side-screen gallery waits for it.
         public static bool IntroActive
         {
             get
@@ -2474,7 +2474,7 @@ namespace IRDash
             }
         }
 
-        public static void Request() { lock (gate) if (!Program.IsDriving) { seq++; introUntil = DateTime.Now.AddSeconds(18); } StateBuilder.Changed("showcase"); }
+        public static void Request() { lock (gate) if (!Program.IsDriving) { seq++; introUntil = DateTime.Now.AddSeconds(8); } StateBuilder.Changed("showcase"); }
 
         // W0-5: the state push's copy: seq and driving only. It never plays the boot intro (only a page's or the deck's own ask does, once).
         public static string Peek() { lock (gate) return "{\"play\":false,\"seq\":" + seq + ",\"driving\":" + (Program.IsDriving ? "true" : "false") + "}"; }
@@ -2487,7 +2487,7 @@ namespace IRDash
                 if (who == "deck") deckPollAt = DateTime.Now;
                 if (who == "deck" && !deckSeen) { deckSeen = true; Log.W("showcase: Stream Deck add-on connected"); }
                 bool play = false;
-                if (!Program.IsDriving && UptimeSec < 600 && !bootPlayed.Contains(who)) { play = true; bootPlayed.Add(who); introUntil = DateTime.Now.AddSeconds(18); }
+                if (!Program.IsDriving && UptimeSec < 600 && !bootPlayed.Contains(who)) { play = true; bootPlayed.Add(who); introUntil = DateTime.Now.AddSeconds(8); }
                 return "{\"play\":" + (play ? "true" : "false") + ",\"seq\":" + seq + ",\"driving\":" + (Program.IsDriving ? "true" : "false") + "}";
             }
         }

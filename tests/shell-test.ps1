@@ -1,4 +1,4 @@
-﻿# shell-test.ps1 - offline (W3-1): the top screen's shell (dash\www\app\index.html, shell.js, shell.css, pages\*.js) in headless Chrome
+# shell-test.ps1 - offline (W3-1): the top screen's shell (dash\www\app\index.html, shell.js, shell.css, pages\*.js) in headless Chrome
 # against the pretend irdash (tests\tools\pretend-irdash.exe) on 8341 (control 8342; never 8199, and clear of the 8297-8312 other tests use):
 #   1. the four doors mount their page, one at a time; RACES shows the W1-4 grid; Esc (also inside REVIEW's and RIG's frames) and
 #      CLOSE go HOME; the deck's nav push opens a page; /api/nav?to=home is sent on close; the hash follows (and leads)
@@ -62,11 +62,12 @@ try {
   # ------------------------------------------------------------------ 1. the doors
   Section '1. the four doors, one page at a time, Esc and CLOSE, the deck, the hash'
   Cdp-Open "http://localhost:$PORT/app/index.html?intro=0" -Port $CDP
-  ok 'the shell is up on HOME (the placeholder), connected' (Wait-Until 'window.Shell && Shell.cur === "home" && data.online && /HOME is being rebuilt/.test(document.getElementById("page").textContent)' 12)
+  ok 'the shell is up on HOME (W3-3), connected, the page drawn' (Wait-Until 'window.Shell && Shell.cur === "home" && data.online && document.getElementById("page").children.length > 0' 12)
   $null = Cdp-Eval '(() => { window.__errs = []; addEventListener("error", e => __errs.push(e.message)); addEventListener("unhandledrejection", e => __errs.push(String(e.reason))); return 1; })()'
   $h = Cdp-Json '({ hash: location.hash, on: [...document.querySelectorAll(".door.on")].map(b => b.dataset.door).join(), close: getComputedStyle(document.getElementById("shellClose")).visibility, title: document.title, date: document.getElementById("shellDate").textContent, fs: getComputedStyle(document.querySelector(".door")).fontSize })'
   ok "HOME: hash #/home, the HOME door gold, no CLOSE ($($h.hash) / $($h.on) / $($h.close))" ($h.hash -eq '#/home' -and $h.on -eq 'home' -and $h.close -eq 'hidden')
   ok "the header: the local date ('$($h.date)'), the doors in the type scale ($($h.fs)), the window title irdash looks for ('$($h.title)')" ($h.date -match '^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}$' -and $h.fs -eq '36px' -and $h.title -eq 'iRacing Dash')
+  Door 'review'; $null = Wait-Until "Shell.cur === 'review'" 5; Key; $null = Wait-Until "Shell.cur === 'home' && document.getElementById('page').children.length > 0" 5; Start-Sleep -Milliseconds 300   # one HOME round trip first: W3-3's HOME keeps one listener on purpose and has first-mount-only ones
   $base = [int](Cdp-Eval $listeners)
   Cdp-Shot (Join-Path $shots 'shell-home.png')
   Door 'races'
@@ -82,6 +83,7 @@ try {
   Key
   ok 'Esc again goes HOME' (Wait-Until 'Shell.cur === "home" && location.hash === "#/home"' 3)
   ok "on close irdash is told /api/nav?to=home ($(Cdp-Eval 'Shell.told.slice(-1)[0]'))" ((Cdp-Eval 'Shell.told.slice(-1)[0]') -eq '/api/nav?to=home')
+  $null = Wait-Until "Shell.cur === 'home' && document.getElementById('page').children.length > 0" 5; Start-Sleep -Milliseconds 300
   ok "RACES left no listener behind ($(Cdp-Eval $listeners) now, $base on HOME before)" ([int](Cdp-Eval $listeners) -eq $base)
   Door 'races'; $null = Wait-Until "Shell.cur === 'races'" 3
   $null = Cdp-Eval '(() => { document.getElementById("shellClose").click(); return 1; })()'
@@ -235,7 +237,7 @@ try {
   Section '3. driving: the race screen, the page unmounted, back to HOME 5 s after'
   Door 'races'; $null = Wait-Until "Shell.cur === 'races'" 3
   $withRaces = [int](Cdp-Eval $listeners)
-  ok "RACES subscribes ($withRaces listeners, $base on HOME)" ($withRaces -gt $base)
+  ok "RACES subscribes ($withRaces listeners; HOME keeps one after unmount)" ($withRaces -ge 2)
   $frame = 'window.__fv = { SessionFlags: 0x4, IsReplayPlaying: 0, IsOnTrack: 1, SessionNum: 0 }; clearInterval(window.__fr); window.__fr = setInterval(() => data.emit("frame", Object.assign({}, window.__fv)), 66); 1'
   $null = Cdp-Eval $frame
   Start-Sleep -Milliseconds 600
@@ -244,7 +246,7 @@ try {
   $t0 = Get-Date
   $on = Wait-Until "ShellRace.on && !document.getElementById('raceHost').hidden && document.getElementById('page').children.length === 0 && Shell.cur === ''" 4
   ok "driving + a fresh frame: the race screen shows, the page is unmounted ($([math]::Round(((Get-Date) - $t0).TotalMilliseconds)) ms)" $on
-  ok "no listener left from RACES ($(Cdp-Eval $listeners), $base on HOME)" ([int](Cdp-Eval $listeners) -eq $base)
+  ok "no listener left from RACES ($(Cdp-Eval $listeners) with nothing mounted; $withRaces with RACES, $base on HOME)" ([int](Cdp-Eval $listeners) -lt $withRaces -and [int](Cdp-Eval $listeners) -le $base)
   ok "the stream asks for the race set ($(Cdp-Eval 'data.set'))" ((Cdp-Eval 'data.set') -eq 'race')
   ok "the flag glow shows the flag (green) and the race page reads it ($(Cdp-Eval 'document.getElementById("flagGlow").className'))" ((Cdp-Eval 'document.getElementById("flagGlow").className === "on green" && document.getElementById("raceFrame").contentWindow.RacePage.flag() === "green"') -eq $true)
   Start-Sleep -Milliseconds 500
