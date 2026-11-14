@@ -56,8 +56,8 @@ $chans = @('Speed', 'Throttle', 'Brake', 'SteeringWheelAngle', 'Gear', 'RPM')
 $units = @{ Speed = 'm/s'; Throttle = '%'; Brake = '%'; SteeringWheelAngle = 'rad'; Gear = ''; RPM = 'revs/min' }
 $arrays = @('lap.t') + ($chans | ForEach-Object { "lap.$_" }) + @('ref.t') + ($chans | ForEach-Object { "ref.$_" })
 $head = [ordered]@{ v = 1; n = $n; metres = $M; lengthM = 2000.0; step = 1.0; track = 'Pretend Park'; config = ''; car = 'Toyota GR86'
-  lap = [ordered]@{ n = 8; time = [double]$lapA.time; kind = 'lap' }; partial = $null; conditions = $null
-  ref = [ordered]@{ n = 9; time = [double]$lapR.time; kind = 'session' }
+  lap = [ordered]@{ lap = 8; time = [double]$lapA.time; kind = 'lap' }; partial = $null; conditions = $null
+  ref = [ordered]@{ lap = 9; time = [double]$lapR.time; kind = 'session' }
   channels = @($chans | ForEach-Object { [ordered]@{ key = $_; name = $_; unit = $units[$_]; desc = ''; ok = $true } })
   multi = @(); arrays = $arrays; laps = @()
   corners = @(for ($k = 0; $k -lt 4; $k++) { [ordered]@{ n = $k + 1; label = 'T' + ($k + 1); name = ''; official = ''; p0 = $corners[$k][0] / $M; pa = $corners[$k][1] / $M; p1 = $corners[$k][2] / $M } })
@@ -172,7 +172,7 @@ try {
   T.ok('1. pedals: throttle and brake for both laps, 0-100 %', rows[2].series.length === 4 && rows[2].min === 0 && rows[2].max === 100 && Math.max(...rows[2].series[2].data) > 84);
   T.ok('1. gear is a step row', rows[4].kind === 'step' && rows[4].series[0].data[880] === 2);
   T.ok('1. corners from the header: four, T2 apex at 0.44 of the lap', rows.corners.length === 4 && Math.abs(rows.corners[1].pa - 0.44) < 1e-6 && rows.corners[1].label === 'T2');
-  T.ok('1. the laps are labelled from the header (lap 8 against lap 9)', rows.head.lap.n === 8 && rows.head.ref.n === 9 && /Lap 8/.test(sp[0].label) && /9/.test(sp[1].label));
+  T.ok('1. the laps are labelled from the header (lap 8 against lap 9)', rows.head.lap.lap === 8 && rows.head.ref.lap === 9 && sp[0].label === 'Lap 8' && sp[1].label === 'Lap 9' && /Lap 8/.test(sp[0].label) && /9/.test(sp[1].label));
   const kmh = Chart.fromPwb(buf, { units: 'km/h' });
   T.ok('1. km/h when asked', kmh[1].unit === 'km/h' && Math.abs(kmh[1].series[0].data[880] / sp[0].data[880] - 3.6 / 2.236936) < 1e-4);
   let threw = false; try { Chart.fromPwb(new ArrayBuffer(16)); } catch (e) { threw = true; }
@@ -342,6 +342,29 @@ try {
   T.ok('9. update shows the new values (' + s0 + ' -> ' + T.ro('speed').join(',') + ')', T.ro('speed').join(',') === s0.split(',').reverse().join(','));
   T.ok('9. ... and keeps the range and the cursor', Chart.range[0] === 0 && Chart.range[1] === 2000 && Chart.cursor === 880);
   Chart.update(ROWS); Chart.flush();
+  // no reference first, then one: the delta row gets its line and the pedals four cells, with new heights
+  // (on a short stack, where the pedals' two readout lines decide the row heights)
+  document.getElementById('wrap').style.bottom = '520px'; await T.frame(); await T.frame();
+  const solo = ROWS.map(r => Object.assign({}, r, { series: r.key === 'delta' ? [] : r.key === 'pedals' ? [r.series[0], r.series[2]] : r.series.slice(0, 1) }));
+  Chart.unmount(); Chart.mount(document.getElementById('c'), { x: ROWS.x, rows: solo, corners: ROWS.corners, readout: document.getElementById('r') }); Chart.flush();
+  const h0 = Chart.rowsBox().map(b => b.y1 - b.y0);
+  Chart.update(ROWS); Chart.flush(); await T.frame();
+  const h1 = Chart.rowsBox().map(b => b.y1 - b.y0);
+  Chart.unmount(); Chart.mount(document.getElementById('c'), { x: ROWS.x, rows: ROWS, corners: ROWS.corners }); const hf = Chart.rowsBox().map(b => b.y1 - b.y0);
+  Chart.unmount(); Chart.mount(document.getElementById('c'), { x: ROWS.x, rows: solo, corners: ROWS.corners, readout: document.getElementById('r') }); Chart.update(ROWS); Chart.flush(); await T.frame();
+  T.ok('9. update from no reference to a reference: the heights of a fresh stack (pedals ' + Math.round(h0[2]) + ' -> ' + Math.round(h1[2]) + ' px) and every cell', h1.join() === hf.join() && T.ro('pedals').length === 4 && T.ro('delta').length === 1 && T.ro('speed').length === 2, h1.map(Math.round) + ' / ' + hf.map(Math.round));
+  T.ok('9. ... and the readout blocks follow the new heights', [...document.querySelectorAll('#r .chro-row')].every((e, i) => Math.abs(e.getBoundingClientRect().height - h1[i]) < 1.5));
+  document.getElementById('wrap').style.bottom = '24px'; await T.frame(); await T.frame();
+  // a stack shorter than the closest zoom (30 m)
+  const tiny = ROWS.map(r => Object.assign({}, r, { series: r.series.map(s => Object.assign({}, s, { data: s.data.slice(0, 31) })) }));
+  Chart.unmount(); Chart.mount(document.getElementById('c'), { x: { len: 30 }, rows: tiny, corners: [], readout: document.getElementById('r') });
+  Chart.setRange(5, 10);
+  T.ok('9. a 30 m stack zooms to all of it, never below 0 (' + Chart.range.join('-') + ')', Chart.range[0] === 0 && Chart.range[1] === 30);
+  // one lap shorter than the axis: a gap where it has no data, not its last value held
+  const short = ROWS.map(r => Object.assign({}, r, { series: r.series.map((s, j) => Object.assign({}, s, { data: j ? s.data.slice(0, 1500) : s.data })) }));
+  Chart.unmount(); Chart.mount(document.getElementById('c'), { x: ROWS.x, rows: short, corners: ROWS.corners, readout: document.getElementById('r') }); Chart.flush();
+  const sb = T.box('speed'), ink = T.col('ink'), refPx = T.count(Chart.xOf(1600), sb.y0, Chart.xOf(1990), sb.y1, p => T.near(p, ink, 40));
+  T.ok('9. a lap that ends at 1500 m draws nothing after it (' + refPx + ' ink pixels after 1600 m)', refPx === 0);
   Chart.unmount();
   T.ok('9. unmount takes the canvas and the readout away', !document.querySelector('#c canvas') && !document.querySelector('#r').textContent && Chart.rowsBox().length === 0);
   Chart.setCursor(5); Chart.zoomLap(); Chart.update([]);

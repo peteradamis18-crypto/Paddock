@@ -185,6 +185,11 @@ try {
   T.ok('7. unmount takes the canvas away', !document.querySelector('#m canvas') && !document.querySelector('#m .map-word'));
   TrackMap.cursor(0.3); TrackMap.colour([1]); TrackMap.marks([{ n: 1, p: 0.1 }]);
   T.ok('7. calls after unmount do nothing', !window.__errs.length);
+  __mode = 'ok';
+  TrackMap.mount(document.getElementById('m'), { key: 't127-roadatlanta-full', id: 127, size: 0 });
+  T.ok('6. size 0 means the element size (1000 px), not an invisible map', T.cv().width === 1000 && T.cv().height === 1000, T.cv().width);
+  for (let i = 0; i < 40 && TrackMap.status !== 'ready'; i++) await T.wait(50);
+  TrackMap.unmount();
   __req.length = 0; __mode = 'none'; document.getElementById('side').textContent = '';
   TrackMap.mount(document.getElementById('m'), { key: 't999-nowhere', id: 999, size: 700 });
   await T.wait(800);

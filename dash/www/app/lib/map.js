@@ -41,8 +41,8 @@ function where(p) { return toScreen(at(p)); }
 
 function size() {
   const s = st.size;
-  if (fin(s)) return [s, s];
-  if (s && fin(s.w) && fin(s.h)) return [s.w, s.h];
+  if (fin(s) && s > 0) return [s, s];                 // 0 or less (a page measured an element not laid out yet): use the element's size
+  if (s && fin(s.w) && fin(s.h) && s.w > 0 && s.h > 0) return [s.w, s.h];
   return [st.el.clientWidth || 600, st.el.clientHeight || 600];
 }
 function sc() { return Math.max(0.7, Math.min(1.9, Math.min(st.w, st.h) / 440)); }

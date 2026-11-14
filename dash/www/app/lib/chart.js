@@ -150,7 +150,8 @@ function columns(d) {
   const W = PW;
   if (!st.cLo || st.cLo.length < W) { st.cLo = new Float32Array(W); st.cHi = new Float32Array(W); }
   const lo = st.cLo, hi = st.cHi, mpp = (st.b - st.a) / W, n = d.length;
-  const at = f => { if (f <= 0) return d[0]; if (f >= n - 1) return d[n - 1]; const i = f | 0, a = d[i]; return a + (d[i + 1] - a) * (f - i); };
+  // past the end of this lap's arrays (a shorter lap than the axis) there is nothing: a gap, not the last value held
+  const at = f => { if (f < 0) f = 0; if (f > n - 1) return f - (n - 1) < 1e-6 ? d[n - 1] : NaN; const i = f | 0; if (i >= n - 1) return d[n - 1]; const a = d[i]; return a + (d[i + 1] - a) * (f - i); };
   const k = mpp / st.step;
   let fA = st.a / st.step, vA = at(fA);
   for (let c = 0; c < W; c++) {
@@ -391,7 +392,8 @@ function setRangeM(a, b) {
   if (b < a) { const t = a; a = b; b = t; }
   let span = Math.max(MIN_SPAN, Math.min(st.len, b - a));
   const mid = (a + b) / 2;
-  a = clamp(mid - span / 2, 0, st.len - span); b = a + span;
+  span = Math.min(span, st.len);                       // a stack shorter than the closest zoom shows all of it
+  a = clamp(mid - span / 2, 0, Math.max(0, st.len - span)); b = a + span;
   if (a === st.a && b === st.b) return;
   st.a = a; st.b = b; st.layerDirty = true; schedule();
 }
@@ -457,7 +459,7 @@ export const Chart = {
     st.rows = st.rows.map(r => { const f = fresh.find(x => x.key === r.key); return f ? Object.assign({}, r, { series: f.series }) : r; });
     st.rows.forEach((r, k) => { const vals = st.ro && st.ro.rows[k] && st.ro.rows[k].vals; if (vals && vals.length !== r.series.length) st.roBuilt = false; });
     st.yr = st.rows.map(yRange);
-    if (!st.roBuilt && st.readout) placeReadout();
+    layout();          // a row whose series count changed (no reference -> a reference) needs new heights and readout cells
     st.layerDirty = true; schedule();
   },
   unmount() {
@@ -491,7 +493,9 @@ export const Chart = {
     const map = (src, f) => { if (!src) return null; const d = new Float32Array(n); for (let i = 0; i < n; i++) d[i] = src[i] * f; return d; };
     const ok = k => head.channels.some(c => c.key === k && c.ok !== false);
     const has = head.ref != null, A = k => arr['lap.' + k], R = k => (has ? arr['ref.' + k] : null);
-    const lapLabel = (info, word) => word + (info && info.n != null ? ' ' + info.n : '');
+    // the header names the lap number "lap" (workbench.cs AppendLapInfo); "n" kept for older replies
+    const lapNo = info => (info ? (info.lap != null ? info.lap : info.n) : null);
+    const lapLabel = (info, word) => word + (lapNo(info) != null ? ' ' + lapNo(info) : '');
     const two = (k, f, extra) => {
       const s = [{ label: lapLabel(head.lap, 'Lap'), color: 'gold', data: map(A(k), f) }];
       if (has) s.push({ label: lapLabel(head.ref, 'Lap'), color: 'ink', data: map(R(k), f) });
