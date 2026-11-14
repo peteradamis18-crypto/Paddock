@@ -582,6 +582,13 @@ namespace IRDeck
             if (combo == null || combo.Car.Length == 0 || combo.Track.Length == 0) { AiFail("NO CHOICE", "airace start: no MY DRIVE or last driven car and track"); return 3; }
             Log("airace start" + (dry ? " --dry" : "") + ": " + combo.Car + " at " + combo.Track + (combo.Layout.Length > 0 ? " / " + combo.Layout : "")); if (!dry) Say("wait", "Starting the AI race: " + combo.Car + " at " + combo.Track);
             if (dry) return 0;
+            // W3-4 review: START on the AI RACE screen with the iRacing app closed used to stop with "UI CHANGED". Open it first, as GET IN does.
+            if (FindUiWindow() == null)
+            {
+                Log("airace start: the iRacing app is not open - opening the rig first"); Say("wait", "Opening iRacing first");
+                int orc = CmdRigOn(new string[0]);
+                if (orc != 0) { AiFail("NO APP", "airace start: the iRacing app did not come up - stopped"); return orc; }
+            }
             AutomationElement window = FindUiWindow(); if (window == null) { AiFail("UI CHANGED", "airace start: iRacing UI not found"); return 3; }
             tdUi = new IntPtr(window.Current.NativeWindowHandle);
             try

@@ -518,6 +518,8 @@ namespace IRDash
                         bool here = !asPhone;   // never from the phone or the LAN
                         if (dc == "key" && (da == "shutdown" || da == "sleep")) { Log.W("api/do: key " + da + " refused (only the CONFIRM screen ends the PC)"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Not done: SHUT DOWN and SLEEP ask on the deck first."), "Access-Control-Allow-Origin: *\r\n"); return; }
                         if (dc == "confirmarm") { bool ak = here && xpOk && PowerGate.Arm(da, DateTime.UtcNow.Ticks); Send(s, ak ? 200 : 409, "text/plain", Encoding.ASCII.GetBytes(ak ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // W3-4 review: the AI RACE screen's START and MY DRIVE's start run the iRacing UI: never while the kids lock is on
+                        if (IRDeck.DeckGuard.KidsBlocks(dc, da) && KidsLockOn()) { Log.W("api/do: " + dc + " " + da + " refused (kids mode)"); KeyMsg.Set(dc, "Kids mode is on: unlock first (KIDS, then HOME)", "no"); Send(s, 409, "text/plain", Encoding.ASCII.GetBytes("kids"), "Access-Control-Allow-Origin: *\r\n"); return; }
                         if (IRDeck.DeckGuard.IsPowerCommand(dc))
                         {
                             string why = PowerGate.Check(dc, xpOk, here, KidsLockOn(), DateTime.UtcNow.Ticks);
@@ -797,6 +799,7 @@ namespace IRDash
             StateBuilder.Add("guest", 1500, 2000, Guest.Json);
             StateBuilder.Add("mydrive", 1500, 3000, MyDrive.Json);
             StateBuilder.Add("doctor", 1500, 5000, Doctor.Json);
+            AiLevel.KidsOn = KidsLockOn;   // W3-4 review: /ailevel says when kids mode is on, so the AI RACE screen shows it and sends nothing
             StateBuilder.Add("overlays", 2000, 6000, Overlays.Json);
             StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
             StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });

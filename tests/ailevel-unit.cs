@@ -61,6 +61,18 @@ static class AiLevelUnit
         m = Regex.Match(Saved(), "\"min\":(\\d+),\"max\":(\\d+)");
         Check("MAX stops at the top of the scale (" + m.Groups[2].Value + ")", int.Parse(m.Groups[2].Value) == AiLevel.RangeHi);
         Check("a level key switches back to adaptive", AiLevel.Do("ailevel", "high") && Saved().Contains("\"mode\":\"adaptive\""));
+        // W3-4 review: the RANGE key of the AI RACE screen steps adaptive -> 25-50 -> 50-75 -> 75-100 -> adaptive
+        Check("RANGE key: adaptive -> 25-50", AiLevel.Do("ailevel", "cycle") && Saved().Contains("\"mode\":\"range\"") && Saved().Contains("\"min\":25,\"max\":50"));
+        Check("RANGE key: 25-50 -> 50-75", AiLevel.Do("ailevel", "cycle") && Saved().Contains("\"min\":50,\"max\":75"));
+        Check("RANGE key: 50-75 -> 75-100", AiLevel.Do("ailevel", "cycle") && Saved().Contains("\"min\":75,\"max\":100"));
+        Check("RANGE key: 75-100 -> back to adaptive", AiLevel.Do("ailevel", "cycle") && Saved().Contains("\"mode\":\"adaptive\""));
+        AiLevel.Do("ailevel", "range"); AiLevel.Do("ailevel", "min+");
+        Check("RANGE key from a hand-set range (not a preset) starts at 25-50", AiLevel.Do("ailevel", "cycle") && Saved().Contains("\"min\":25,\"max\":50"));
+        AiLevel.KidsOn = delegate { return true; };
+        Check("/ailevel says kids:true while the kids lock is on", Json().Contains("\"kids\":true"));
+        AiLevel.KidsOn = null;
+        Check("... and kids:false otherwise", Json().Contains("\"kids\":false"));
+        AiLevel.Do("ailevel", "high");
 
         // a damaged file never breaks the screen
         File.WriteAllText(File_(), "{\"mode\":\"range\",\"level\":\"pro\",\"min\":9,\"max\":900}");

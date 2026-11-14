@@ -79,6 +79,14 @@ namespace IRDeck
 
         public static bool IsPowerCommand(string c) { return c == "shutdown" || c == "sleep"; }
 
+        // Kids mode (W3-4 review): the deck keys a child could press that START a drive through the iRacing UI. irdash refuses them while
+        // the kids lock is on (the key exes already obey DeckRules.KidsAllows; these come through /api/do from the add-on's screens).
+        public static bool KidsBlocks(string c, string a)
+        {
+            string v = (c ?? "").ToLowerInvariant(), w = (a ?? "").Trim().ToLowerInvariant();
+            return (v == "ailevel" && w == "start") || v == "mdstart";
+        }
+
         public sealed class PowerGate
         {
             string what; long at;

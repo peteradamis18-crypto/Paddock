@@ -105,8 +105,10 @@ namespace IRDeck
         }
         // racenow = skip ahead to the race and get in the car (only an AI weekend can be skipped); skip = NEXT SESSION as before
         // (a Test Drive has no race: it ends back at the menu; an official session refuses, in plain words).
-        public static string ToTheRacePlan(bool ai, bool raceAhead)
+        // none = a Test Drive: it has no race, and one green press must not quit it to the menu (W3-4 review; QUIT TO MENU is on LEAVE).
+        public static string ToTheRacePlan(bool ai, bool raceAhead, bool testDrive)
         {
+            if (testDrive && !ai) return "none";
             return ai && raceAhead ? "racenow" : "skip";
         }
     }

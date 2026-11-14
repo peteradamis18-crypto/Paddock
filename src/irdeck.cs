@@ -1298,21 +1298,23 @@ namespace IRDeck
         // The loaded event has its race still ahead (an AI weekend): RACE NOW, which skips to it and gets in the car. Anything else:
         // NEXT SESSION as before (a Test Drive ends back at the menu; an official session refuses in plain words).
         //   to-the-race [--dry]                          --dry: say which it would do, do nothing
-        //   to-the-race --fake <num:type,...> <cur> <ai>  the decision from given facts, no sim needed (tests\deck-behaviour-test.ps1)
+        //   to-the-race --fake <num:type,...> <cur> <ai> [test 0|1]  the decision from given facts, no sim needed (tests\deck-behaviour-test.ps1)
         static int CmdToTheRace(string[] a)
         {
             int fi = Array.IndexOf(a, "--fake");
             if (fi >= 0)
             {
                 if (a.Length < fi + 4) { Log("to-the-race --fake needs <num:type,...> <current num> <ai 0|1>"); return 1; }
-                string fp = DeckRules.ToTheRacePlan(a[fi + 3] == "1", DeckRules.RaceAhead(a[fi + 1].Split(','), int.Parse(a[fi + 2], CultureInfo.InvariantCulture)));
-                Log("to-the-race (fake): " + (fp == "racenow" ? "RACE NOW" : "NEXT SESSION"));
+                string fp = DeckRules.ToTheRacePlan(a[fi + 3] == "1", DeckRules.RaceAhead(a[fi + 1].Split(','), int.Parse(a[fi + 2], CultureInfo.InvariantCulture)), a.Length > fi + 4 && a[fi + 4] == "1");
+                Log("to-the-race (fake): " + (fp == "racenow" ? "RACE NOW" : fp == "none" ? "A Test Drive has no race (refused)" : "NEXT SESSION"));
                 return 0;
             }
             bool dry = Array.IndexOf(a, "--dry") >= 0;
             if (!SessionActive()) { Log("to-the-race: no session is running"); return 3; }
             SessSnap s = Snap();
-            string plan = DeckRules.ToTheRacePlan(s.Ai, DeckRules.RaceAhead(s.Sessions.ToArray(), s.Num));
+            bool test = System.Text.RegularExpressions.Regex.IsMatch(s.Info, @"EventType:\s*Test");
+            string plan = DeckRules.ToTheRacePlan(s.Ai, DeckRules.RaceAhead(s.Sessions.ToArray(), s.Num), test);
+            if (plan == "none") { Log("to-the-race refused: a Test Drive has no race (QUIT TO MENU is on LEAVE)"); Say("no", "A Test Drive has no race. QUIT TO MENU is on LEAVE."); return 3; }
             Log("to-the-race" + (dry ? " --dry" : "") + ": " + (s.Type.Length > 0 ? s.Type : "this session") + " -> " + (plan == "racenow" ? "RACE NOW" : "NEXT SESSION"));
             if (dry) return 0;
             return plan == "racenow" ? CmdRaceNow() : CmdSkip();
@@ -1770,12 +1772,30 @@ namespace IRDeck
         // iRacing UI on the centre screen. (SimHub back 2026-11-01: it drives the two SSG DF-8 flag boxes.)
         // Also the rig launcher: the "iRacing Rig" logon task runs "rigon --boot". Order matters: Stream Deck first so
         // the keys work at once, then the dashboard, wheel and haptics apps, and the iRacing UI last.
+        // the top screen's HOME page: one short request to irdash (it says no while driving); irdash not running = nothing, no wait.
+        // IRDECK_DASH points it at a pretend dashboard in tests.
+        static bool NavHome()
+        {
+            string baseUrl = Environment.GetEnvironmentVariable("IRDECK_DASH"); if (string.IsNullOrEmpty(baseUrl)) baseUrl = "http://127.0.0.1:8199";
+            try
+            {
+                System.Net.HttpWebRequest req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(baseUrl + "/api/nav?to=home");
+                req.Proxy = null; req.Timeout = 1500; req.Headers["X-Paddock"] = "1";
+                using (System.Net.WebResponse resp = req.GetResponse()) { }
+                Log("rigon: the top screen goes HOME"); return true;
+            }
+            catch (Exception ex) { Log("rigon: top screen not told to go HOME (" + ex.Message + ")"); return false; }
+        }
+
         static int CmdRigOn(string[] a)
         {
             bool boot = Array.IndexOf(a, "--boot") >= 0;
             // The HOME key is this command. With the rig up and a session running it used to maximise the iRacing UI over the
             // sim on the middle screen and take the keyboard focus from the car. A press in a session now does nothing (short beep).
             if (!boot && SessionActive()) { Log("rigon: a session is running - not moving the iRacing UI over the sim"); return 3; }
+            // W3-4 review: HOME is also the door to the top screen's HOME page (the shell goes there on /api/nav?to=home). Never in a session (above).
+            if (!boot) NavHome();
+            if (Array.IndexOf(a, "--nav-only") >= 0) return 0;   // tests\deck-behaviour-test.ps1: only the HOME door, against a pretend dashboard
             { string pg = DeckProfile.SetCurrentToMain(DeckProfile.ProfileDir()); if (pg != "running") Log("[rigon] deck page: " + pg); }   // a Stream Deck that is not running yet opens on MAIN
             StartApp("StreamDeck", @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe", false, "--runinbk");
             // At logon the Stream Deck app took 26-28 s to bring the deck up (3 boots on 2026-10-09; 3.5 s when started alone)

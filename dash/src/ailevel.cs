@@ -19,6 +19,18 @@ namespace IRDash
     static class AiLevel
     {
         public static bool Handles(string c) { return c == "ailevel"; }
+        public static Func<bool> KidsOn;   // set by irdash (KidsLockOn): /ailevel says "kids":true so the AI RACE screen shows KIDS MODE IS ON and sends nothing
+
+        // the RANGE key of the AI RACE screen (W3-4 review): one press steps adaptive -> 25-50 -> 50-75 -> 75-100 -> adaptive
+        public static readonly int[][] RangePresets = { new[] { 25, 50 }, new[] { 50, 75 }, new[] { 75, 100 } };
+        internal static void Cycle(St s)
+        {
+            int at = -1;
+            if (s.Mode == "range") for (int i = 0; i < RangePresets.Length; i++) if (RangePresets[i][0] == s.Min && RangePresets[i][1] == s.Max) at = i;
+            if (s.Mode == "range" && at == RangePresets.Length - 1) { s.Mode = "adaptive"; return; }
+            int n = s.Mode == "range" && at >= 0 ? at + 1 : 0;
+            s.Mode = "range"; s.Min = RangePresets[n][0]; s.Max = RangePresets[n][1];
+        }
 
         // the skill scale of the Fixed Skill Range: two handles on a 0 to 125 percent slider (docs\research\ai-opponents-dump-20261023-214722.txt)
         public const int RangeLo = 0, RangeHi = 125, RangeStep = 5, RangeMinGap = 5;
@@ -28,7 +40,7 @@ namespace IRDash
         static string Path_() { return Path.Combine(Program.RootDir, @"ai\level.json"); }
 
         // Level "low" = iRacing's own start-up setting (Adaptive AI, Low): what a race gets until a key is pressed
-        sealed class St { public string Mode = "adaptive", Level = "low"; public int Min = DefMin, Max = DefMax; }
+        internal sealed class St { public string Mode = "adaptive", Level = "low"; public int Min = DefMin, Max = DefMax; }
 
         static St Load()
         {
@@ -78,6 +90,7 @@ namespace IRDash
                     case "low": case "medium": case "high": s.Mode = "adaptive"; s.Level = a; break;
                     case "adaptive": s.Mode = "adaptive"; break;
                     case "range": s.Mode = "range"; break;
+                    case "cycle": Cycle(s); break;
                     case "min-": s.Mode = "range"; s.Min -= RangeStep; break;
                     case "min+": s.Mode = "range"; s.Min += RangeStep; if (s.Max < s.Min + RangeMinGap) s.Max = s.Min + RangeMinGap; break;
                     case "max-": s.Mode = "range"; s.Max -= RangeStep; if (s.Min > s.Max - RangeMinGap) s.Min = s.Max - RangeMinGap; break;
@@ -142,7 +155,8 @@ namespace IRDash
             Reg(b, 0, 3, 1, 1, "START", "AI RACE", "ailevel", "start", "go", 2);
             Reg(b, 7, 3, 1, 1, "EXIT", "AI LEVEL", "exit", null, "stop", 2);
             b.Append(']');
-            return "{\"ready\":true,\"mode\":" + Json_.S(s.Mode) + ",\"level\":" + Json_.S(s.Level) + ",\"min\":" + s.Min + ",\"max\":" + s.Max + ",\"regions\":" + b + "}";
+            bool kids = false; try { kids = KidsOn != null && KidsOn(); } catch { }
+            return "{\"ready\":true,\"kids\":" + (kids ? "true" : "false") + ",\"mode\":" + Json_.S(s.Mode) + ",\"level\":" + Json_.S(s.Level) + ",\"min\":" + s.Min + ",\"max\":" + s.Max + ",\"regions\":" + b + "}";
         }
     }
 }

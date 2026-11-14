@@ -32,7 +32,7 @@ Check 'add-on (W3-4): the level row is on the AI RACE screen (MyDrive): it reads
 Check 'add-on (W3-4): the separate AI LEVEL screen is retired (no ailevel action, no RigAiLevel profile)' ($inst -notmatch '\$uuid\.ailevel' -and $inst -notmatch "Name = 'RigAiLevel'" -and $inst -notmatch "Build-Profile 'RigAiLevel'")
 $lay = ReadText 'deck\layout.json'
 Check 'the deck (deck\layout.json): AI RACE opens that one screen; no AI LEVEL or CAR TRACK key' ($lay -match '"label": \["AI RACE"\][^}]*"screen": "mydrive"' -and $lay -notmatch 'AI LEVEL|CAR TRACK|"ailevel"')
-Check 'the add-on version is higher than the one installed before this screen (1.8.5)' ($inst -match "\`$ver = '1\.8\.([6-9]|\d\d)\.")
+Check 'the add-on version is higher than the one installed before this screen (1.8.5)' ([version]([regex]::Match($inst, "\`$ver = '([\d.]+)'").Groups[1].Value) -gt [version]'1.8.5.0')
 
 Section '3. AI RACE applies it'
 $td = ReadText 'src\testdrive.cs'
