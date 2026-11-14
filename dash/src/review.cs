@@ -58,7 +58,7 @@ namespace IRDash
                 if (path == "/api/review") return U(MainRoute(q, out code));
                 if (path == "/api/review/traces") return TracesRoute(q, out code, out type);
                 if (path == "/api/review/corners") return U(CornersRoute(q, out code));
-                if (path == "/api/review/progress") return U(Progress(Q(q, "car"), Q(q, "track")));
+                if (path == "/api/review/progress") return U(Progress(Q(q, "car"), Q(q, "track"), Q(q, "carId"), Q(q, "trackId")));
             }
             catch (Exception ex) { Log.W("review: " + path + ": " + ex.Message); code = 500; type = "application/json; charset=utf-8"; return U(Err("could not read that session")); }
             code = 404; return U(Err("not found"));
@@ -68,7 +68,7 @@ namespace IRDash
         {
             code = 200;
             bool pending;
-            string file = FileOf(Q(q, "id"), out pending);
+            string file = FileOf(q, out pending);
             if (file == null)
             {
                 if (pending) { QueueLast(); code = 202; return WorkingJson(); }
@@ -81,11 +81,33 @@ namespace IRDash
         }
 
         // id: a telemetry file name, a Vault id, or "last" (the newest finished session the lap store knows)
-        static string FileOf(string id, out bool pending)
+        // at=<ms> (RACES opens a race by its start time): the file whose span holds that moment, else "last"
+        static string FileOf(Dictionary<string, string> q, out bool pending)
         {
             pending = false;
-            if (id.Length == 0 || id == "last") return Last(out pending);
+            string id = Q(q, "id");
+            if (id.Length == 0 || id == "last")
+            {
+                double at; string f = null;
+                if (double.TryParse(Q(q, "at"), NumberStyles.Float, Inv, out at) && at > 0) f = FileAt(at);
+                return f ?? Last(out pending);
+            }
             return Analysis.ReviewFile(id);
+        }
+
+        // the telemetry file whose span (its name's start time, 5 min of slack before, to its last write) holds the moment at (unix ms);
+        // of several, the one that started nearest to it. null = none.
+        public static string FileAt(double atMs)
+        {
+            DateTime at = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(atMs);
+            FileInfo pick = null; DateTime ps = DateTime.MinValue;
+            foreach (FileInfo fi in NewestFirst())
+            {
+                DateTime s = IbtFile.StartFromName(fi.Name);
+                if (s == DateTime.MinValue || at < s.AddMinutes(-5) || at > fi.LastWriteTimeUtc.AddMinutes(2)) continue;
+                if (pick == null || Math.Abs((at - s).TotalSeconds) < Math.Abs((at - ps).TotalSeconds)) { pick = fi; ps = s; }
+            }
+            return pick == null ? null : pick.FullName;
         }
 
         // the sim is still writing it: never reviewed (its laps are not final)
@@ -134,11 +156,19 @@ namespace IRDash
             return Path.GetFileName(file).ToLowerInvariant() + "|" + len.ToString(Inv) + "|r" + LapRules.Version + "|v" + Version;
         }
 
+        // an error, or a review made without the track's corners, is never written down: it is built again (after 10 minutes at most),
+        // so a corner file that arrives later is used
+        static bool Lasting(string json) { return json.StartsWith("{\"state\":\"ready\"", StringComparison.Ordinal) && !json.Contains("\"note\":\"No corner map for this track yet\""); }
+        static readonly Dictionary<string, KeyValuePair<DateTime, string>> memo = new Dictionary<string, KeyValuePair<DateTime, string>>();
+        static readonly Dictionary<string, KeyValuePair<DateTime, byte[]>> traceErr = new Dictionary<string, KeyValuePair<DateTime, byte[]>>();
+
         // the review as built, or null (none yet, or built for another file of that name, rules or engine version)
         public static string Cached(string file)
         {
             try
             {
+                KeyValuePair<DateTime, string> m;
+                lock (memo) if (memo.TryGetValue(Sig(file), out m)) { if ((DateTime.UtcNow - m.Key).TotalMinutes < 10) return m.Value; memo.Remove(Sig(file)); }
                 string p = CachePath(file);
                 if (!File.Exists(p)) return null;
                 string t = File.ReadAllText(p, Encoding.UTF8);
@@ -177,7 +207,8 @@ namespace IRDash
                 foreach (FileInfo fi in NewestFirst())
                 {
                     if (++looked > 8) break;
-                    if (Writing(fi) || Career.OnlineOnly(fi)) continue;
+                    if (Writing(fi)) { LookAgainLater(); continue; }
+                    if (Career.OnlineOnly(fi)) continue;
                     Check();
                     FileLaps fl = LapStore.ForFile(fi.FullName);
                     Check();
@@ -201,6 +232,28 @@ namespace IRDash
 
         static void Bump() { try { StateBuilder.BumpReview(); } catch { } }
 
+        static string Hash(string s)
+        {
+            using (System.Security.Cryptography.SHA1 h = System.Security.Cryptography.SHA1.Create())
+            {
+                byte[] b = h.ComputeHash(Encoding.UTF8.GetBytes(s)); StringBuilder x = new StringBuilder();
+                for (int i = 0; i < 5; i++) x.Append(b[i].ToString("x2"));
+                return x.ToString();
+            }
+        }
+
+        // he left the car but iRacing stays open: the newest file is skipped while it may still be written (Writing), so "review last"
+        // looks again once that 2-minute window is over, by itself (no page has to ask)
+        static System.Threading.Timer again;
+        static void LookAgainLater()
+        {
+            lock (memo)
+            {
+                if (again == null) again = new System.Threading.Timer(delegate (object o) { QueueLast(); }, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                again.Change(125000, System.Threading.Timeout.Infinite);
+            }
+        }
+
         // the build itself (the job thread; tests call it directly). Returns the review JSON it wrote.
         public static string BuildNow(string file)
         {
@@ -209,6 +262,7 @@ namespace IRDash
             catch (JobYield) { throw; }
             catch (Exception ex) { Log.W("review: " + Path.GetFileName(file) + ": " + ex.Message); json = null; }
             if (json == null) json = "{\"state\":\"error\",\"sig\":" + Json_.S(Sig(file)) + ",\"say\":\"Could not read this session\"}";
+            if (!Lasting(json)) { lock (memo) memo[Sig(file)] = new KeyValuePair<DateTime, string>(DateTime.UtcNow, json); return json; }
             if (corners != null) Save(CornersPath(file), corners);
             Save(CachePath(file), json);
             return json;
@@ -237,23 +291,26 @@ namespace IRDash
         static byte[] TracesRoute(Dictionary<string, string> q, out int code, out string type)
         {
             type = "application/json; charset=utf-8"; code = 200;
-            bool pending; string file = FileOf(Q(q, "id"), out pending);
+            bool pending; string file = FileOf(q, out pending);
             if (file == null) { if (pending) { QueueLast(); code = 202; return U(WorkingJson()); } code = 404; return U(Err("no such session")); }
             string rvText = Cached(file);
             if (rvText == null) { Queue(file); code = 202; return U(WorkingJson()); }
             int lap; string rf;
             Defaults(Obj(rvText), out lap, out rf);
             int ql; if (int.TryParse(Q(q, "lap"), NumberStyles.Integer, Inv, out ql) && ql > 0) lap = ql;
-            if (Q(q, "ref").Length > 0) rf = Q(q, "ref");
+            string qr = Q(q, "ref");
+            if (qr.Length > 0 && qr != "ever" && qr != "session") rf = qr;      // ever / session: the review's own reference (Defaults)
             if (lap <= 0) { code = 404; return U(Err("no full lap in this session")); }
             if (rf.Length > 0 && rf.IndexOf(':') < 0) rf = Path.GetFileName(file) + ":" + rf;      // ref=7: lap 7 of this session
             string key = Regex.Replace(Base(file) + "-" + lap.ToString(Inv) + "-" + rf, "[^A-Za-z0-9._-]+", "_");
-            if (key.Length > 150) key = key.Substring(0, 150);
-            string bin = TracePath(key), err = bin + ".err";
+            if (key.Length > 120) key = key.Substring(0, 120);
+            key += "-" + Hash(Sig(file) + "|" + rf);       // a new file of the same name, rules or engine version: new traces
+            string bin = TracePath(key), err = key;
             if (File.Exists(bin)) { type = "application/octet-stream"; return File.ReadAllBytes(bin); }
-            if (File.Exists(err))
+            KeyValuePair<DateTime, byte[]> te;
+            lock (traceErr) if (traceErr.TryGetValue(key, out te) && (DateTime.UtcNow - te.Key).TotalMinutes < 10)
             {
-                string t = File.ReadAllText(err, Encoding.UTF8); int c = 500; int bar = t.IndexOf('|');
+                string t = Encoding.UTF8.GetString(te.Value); int c = 500; int bar = t.IndexOf('|');
                 if (bar > 0) int.TryParse(t.Substring(0, bar), out c);
                 code = c; return U(bar > 0 ? t.Substring(bar + 1) : t);
             }
@@ -268,7 +325,7 @@ namespace IRDash
             try
             {
                 int code; byte[] b = Analysis.ReviewTraces(file, lap, rf, out code);
-                if (code == 200) SaveBytes(bin, b); else Save(err, code.ToString(Inv) + "|" + Encoding.UTF8.GetString(b));
+                if (code == 200) SaveBytes(bin, b); else lock (traceErr) traceErr[err] = new KeyValuePair<DateTime, byte[]>(DateTime.UtcNow, Encoding.UTF8.GetBytes(code.ToString(Inv) + "|" + Encoding.UTF8.GetString(b)));      // an error only for a while, never a file
                 Bump();
             }
             catch (JobYield) { string f = file, r = rf, bb = bin, ee = err; int l = lap; Jobs.Again("review traces " + Path.GetFileNameWithoutExtension(bin), delegate { TraceJob(f, l, r, bb, ee); }); }
@@ -279,7 +336,7 @@ namespace IRDash
         static string CornersRoute(Dictionary<string, string> q, out int code)
         {
             code = 200;
-            bool pending; string file = FileOf(Q(q, "id"), out pending);
+            bool pending; string file = FileOf(q, out pending);
             if (file == null) { if (pending) { QueueLast(); code = 202; return WorkingJson(); } code = 404; return Err("no such session"); }
             if (Cached(file) == null) { Queue(file); code = 202; return WorkingJson(); }
             string p = CornersPath(file);
@@ -293,7 +350,7 @@ namespace IRDash
             foreach (object o in laps) { Dictionary<string, object> x = o as Dictionary<string, object>; if (x != null && I(G(x, "n")) == lap) mine = x; }
             if (mine == null) { code = 404; return Err("no corner times for that lap"); }
             string rq = Q(q, "ref");
-            if (rq.Length == 0 || (rfo != null && rq == Convert.ToString(G(rfo, "file"), Inv) + ":" + I(G(rfo, "n")).ToString(Inv))) other = rfo;
+            if (rq.Length == 0 || rq == "ever" || rq == "session" || (rfo != null && rq == Convert.ToString(G(rfo, "file"), Inv) + ":" + I(G(rfo, "n")).ToString(Inv))) other = rfo;
             else
             {
                 int rn; string num = rq.IndexOf(':') >= 0 ? rq.Substring(rq.LastIndexOf(':') + 1) : rq;
@@ -311,17 +368,40 @@ namespace IRDash
         static double D(object o) { double v; return o != null && double.TryParse(Convert.ToString(o, Inv), NumberStyles.Float, Inv, out v) ? v : double.NaN; }
         static bool Same(string a, string b) { return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase); }
 
-        public static string Progress(string car, string track)
+        public static string Progress(string car, string track) { return Progress(car, track, "", ""); }
+
+        // the car id of a telemetry file (its YAML: DriverCarIdx's CarID), read once per file: the lap caches keep only the car's name
+        static readonly Dictionary<string, string> carIdOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        static string CarIdOfFile(string name)
         {
+            lock (carIdOf) { string v; if (carIdOf.TryGetValue(name, out v)) return v; }
+            string id = "";
+            try
+            {
+                string path = string.IsNullOrEmpty(TrackMaps.TelemetryDir) ? null : Path.Combine(TrackMaps.TelemetryDir, name);
+                if (path != null && File.Exists(path)) using (IbtFile t = IbtFile.Open(path, false)) if (t != null) id = Analysis.ReviewCarId(t.Yaml);
+            }
+            catch { }
+            lock (carIdOf) carIdOf[name] = id;
+            return id;
+        }
+
+        // carId / trackId (iRacing's ids) match when given: names mix the full and the short form. The names only for a caller with no ids.
+        public static string Progress(string car, string track, string carId, string trackId)
+        {
+            bool byCar = (carId ?? "").Length > 0, byTrack = (trackId ?? "").Length > 0;
             StringBuilder sb = new StringBuilder(4096);
-            sb.Append("{\"car\":").Append(Json_.S(car)).Append(",\"track\":").Append(Json_.S(track)).Append(",\"sessions\":[");
+            sb.Append("{\"car\":").Append(Json_.S(car)).Append(",\"track\":").Append(Json_.S(track)).Append(",\"carId\":").Append(Json_.S(carId ?? "")).Append(",\"trackId\":").Append(Json_.S(trackId ?? "")).Append(",\"sessions\":[");
             // one dot per session: the best counted lap and the average of the 5 quickest counted laps (the lap caches: LapStore.Dir)
             List<double[]> dots = new List<double[]>();
             if (Directory.Exists(LapStore.Dir))
                 foreach (string f in Directory.GetFiles(LapStore.Dir, "*.json"))
                 {
                     Dictionary<string, object> d = Obj(File.ReadAllText(f, Encoding.UTF8));
-                    if (d == null || I(G(d, "rules")) != LapRules.Version || !Same(Convert.ToString(G(d, "car"), Inv), car) || !(Same(Convert.ToString(G(d, "track"), Inv), track) || Same(Convert.ToString(G(d, "trackId"), Inv), track))) continue;
+                    if (d == null || I(G(d, "rules")) != LapRules.Version) continue;
+                    bool trackOk = byTrack ? Same(Convert.ToString(G(d, "trackId"), Inv), trackId) : (Same(Convert.ToString(G(d, "track"), Inv), track) || Same(Convert.ToString(G(d, "trackId"), Inv), track));
+                    if (!trackOk) continue;
+                    if (byCar ? CarIdOfFile(Convert.ToString(G(d, "file"), Inv)) != carId : !Same(Convert.ToString(G(d, "car"), Inv), car)) continue;
                     List<double> t = new List<double>();
                     foreach (object o in G(d, "laps") as object[] ?? new object[0])
                     {
@@ -348,7 +428,9 @@ namespace IRDash
                     if (f.EndsWith(".corners.json", StringComparison.OrdinalIgnoreCase)) continue;
                     Dictionary<string, object> d = Obj(File.ReadAllText(f, Encoding.UTF8));
                     Dictionary<string, object> s = G(d, "session") as Dictionary<string, object>;
-                    if (s == null || Convert.ToString(G(d, "state"), Inv) != "ready" || !Same(Convert.ToString(G(s, "car"), Inv), car) || !Same(Convert.ToString(G(s, "track"), Inv), track)) continue;
+                    if (s == null || Convert.ToString(G(d, "state"), Inv) != "ready") continue;
+                    if (byCar ? Convert.ToString(G(s, "carId"), Inv) != carId : !Same(Convert.ToString(G(s, "car"), Inv), car)) continue;
+                    if (byTrack ? Convert.ToString(G(s, "trackId"), Inv) != trackId : !Same(Convert.ToString(G(s, "track"), Inv), track)) continue;
                     double ms = D(G(s, "date")); if (double.IsNaN(ms)) continue;
                     foreach (object o in G(d, "cards") as object[] ?? new object[0])
                     {
@@ -413,6 +495,15 @@ namespace IRDash
     static partial class Analysis
     {
         internal static string ReviewFile(string id) { return ResolveFile(id); }
+
+        // iRacing's id of his car (the driver block of DriverCarIdx in the YAML); "" when the file does not say
+        internal static string ReviewCarId(string yaml)
+        {
+            string me = TrackMaps.YamlValue(yaml ?? "", "DriverCarIdx");
+            if (me.Length == 0) return "";
+            Match block = Regex.Match(yaml, "- CarIdx: " + Regex.Escape(me) + "\\s*\\n(.*?)(?=\\n\\s*- CarIdx:|\\n\\S|$)", RegexOptions.Singleline);
+            return block.Success ? TrackMaps.YamlValue(block.Groups[1].Value, "CarID") : "";
+        }
 
         // a part of the workbench reply for the traces route: this lap and the reference, only the files they are in (no 40-file gather)
         internal static byte[] ReviewTraces(string file, int lap, string refSpec, out int code)
@@ -691,7 +782,8 @@ namespace IRDash
             StringBuilder sb = new StringBuilder(16000);
             sb.Append("{\"state\":\"ready\",\"v\":").Append(Review.Version).Append(",\"sig\":").Append(Json_.S(sig)).Append(",\"units\":").Append(Json_.S(imperial ? "imperial" : "metric"));
             sb.Append(",\"session\":{\"id\":").Append(Json_.S(Path.GetFileName(file))).Append(",\"track\":").Append(Json_.S(fl.Track)).Append(",\"config\":").Append(Json_.S(fl.Config))
-              .Append(",\"car\":").Append(Json_.S(fl.Car)).Append(",\"type\":").Append(Json_.S(type)).Append(",\"sessionNum\":").Append(sn)
+              .Append(",\"car\":").Append(Json_.S(fl.Car)).Append(",\"carId\":").Append(Json_.S(ReviewCarId(yaml))).Append(",\"trackId\":").Append(Json_.S(fl.TrackId))
+              .Append(",\"type\":").Append(Json_.S(type)).Append(",\"sessionNum\":").Append(sn)
               .Append(",\"date\":").Append(Ms(fl.StartUtc).ToString(Inv)).Append(",\"laps\":").Append(laps.Count).Append(",\"clean\":").Append(counted)
               .Append(",\"best\":").Append(best == null ? "null" : "{\"lap\":" + best.N + ",\"time\":" + F(best.Time, "0.000") + "}");
 

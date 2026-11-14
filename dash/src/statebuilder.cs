@@ -101,7 +101,7 @@ namespace IRDash
         {
             long now = clock.ElapsedMilliseconds;
             bool driving = Driving(), hot = now < hotUntil;
-            if (now - simAt >= 2000) { simAt = now; try { simCached = RigState.SimRunning; } catch { } }
+            if (now - simAt >= 2000) { simAt = now; bool was = simCached; try { simCached = RigState.SimRunning; } catch { } if (was && !simCached) { try { if (SessionEnded != null) SessionEnded(); } catch { } } }      // W4-1: the sim closed (he may have left the car long before): the review once more
             ListsTick(now);
             List<Part> todo = new List<Part>();
             lock (gate) foreach (Part p in parts) if (!p.Deck) todo.Add(p);

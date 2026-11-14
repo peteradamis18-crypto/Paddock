@@ -600,10 +600,11 @@ namespace IRDash
 
         static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa) { return MeasureOne(lap, t, prevPa, -1); }
 
-        // prevP1 >= 0: keep to this corner's own braking. W4-1 / W4-6's raw read of 12 Nov lap 9: T7's "brake point" was T6's press 266 m
-        // before T7's apex (its own press is at 2044 m), so a card could name the wrong corner. The search now starts at the previous corner's
-        // apex when that lies inside the 250 m before this apex, and a press still on there is the previous corner's. (Lovely's T6 ends at
-        // 2049 m, after T7's own press begins: the previous corner's exit is too late a cut; its apex holds. Now T7 = 2044 m, T6 = 1861 m.)
+        // prevP1 >= 0: prefer this corner's own braking. W4-1 / W4-6's raw read of 12 Nov lap 9: T7's "brake point" was T6's press 266 m
+        // before T7's apex (its own press is at 2044 m), so a card could name the wrong corner. A press that STARTS after the previous corner's
+        // apex is this corner's own and wins when there is one; when the only press in the window is one carried on from the previous corner
+        // (linked corners: T3-T4, T10a-T10b, a kink before a hairpin) it is kept, with its real start (up to 80 m back), as before.
+        // 12 Nov lap 9: T6 = 1861 m, T7 = 2044 m, T4 = 748 m (tests\review-test.ps1).
         static Met MeasureOne(LapTrace lap, CornerTurn t, double prevPa, double prevP1)
         {
             double L = lap.LengthM;
@@ -633,18 +634,18 @@ namespace IRDash
             // (2026-10-18, BMW at Road America T6: best lap 2486 m, this lap 2495 m, coach said "60 m earlier"). A press already
             // on at the start of the window counts from where it really began (up to 80 m further back).
             // (A press that runs on from the previous corner is shared with it: the deep dive then looks for a separate press after that
-            // corner's apex, deepdive.cs ZoneStarts. Cutting the window at the previous apex here broke linked corners: T4 with T3.)
-            int minStep = 0;
+            // corner's apex, deepdive.cs ZoneStarts. Cutting the window at the previous apex broke linked corners - T4 with T3 - so a carried
+            // press is only passed over when the corner has a press of its own, see the note above MeasureOne.)
+            int cutStep = 0;
             if (prevP1 >= 0)
             {
                 double back = DeltaM(da, DistNorm(prevPa * L, L), L);       // metres from the previous corner's apex to this apex
-                if (back > 0 && back < 250) minStep = 250 - (int)Math.Floor(back);
+                if (back > 0 && back < 250) cutStep = 250 - (int)Math.Floor(back);
             }
-            bool found = false; double brakeAt = 0, bestArea = 0, area = 0, curStart = 0; bool inApp = false;
-            bool carried = minStep > 0 && ChAt(lap, lap.Brk, da - 250 + minStep) > 0.10;     // the previous corner's press, still on: not ours
-            if (minStep == 0 && ChAt(lap, lap.Brk, da - 250) > 0.10)
+            bool found = false, foundOwn = false; double brakeAt = 0, bestArea = 0, ownAt = 0, ownArea = 0, area = 0, curStart = 0; bool inApp = false; int startStep = 0;
+            if (ChAt(lap, lap.Brk, da - 250) > 0.10)
             {
-                inApp = true; curStart = DistNorm(da - 250, L);
+                inApp = true; curStart = DistNorm(da - 250, L); startStep = 0;
                 for (int k = 1; k <= 80; k++)
                 {
                     double x = DistNorm(da - 250 - k, L);
@@ -652,20 +653,22 @@ namespace IRDash
                     curStart = x;
                 }
             }
-            for (int step = Math.Max(1, minStep); step <= 251; step++)
+            for (int step = 1; step <= 251; step++)
             {
                 double x = DistNorm(da - 250 + step, L);
                 double bv = step <= 250 ? ChAt(lap, lap.Brk, x) : 0;
                 bool on = bv > 0.10;
-                if (carried) { if (on) continue; carried = false; }
-                if (on && !inApp) { inApp = true; curStart = x; area = 0; }
+                if (on && !inApp) { inApp = true; curStart = x; area = 0; startStep = step; }
                 if (on) area += bv;
                 if (!on && inApp)
                 {
                     inApp = false;
                     if (area > bestArea) { bestArea = area; brakeAt = curStart; found = true; }
+                    if (cutStep > 0 && startStep > cutStep && area > ownArea) { ownArea = area; ownAt = curStart; foundOwn = true; }
                 }
-            }            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
+            }
+            if (foundOwn) brakeAt = ownAt;      // this corner's own press beats one carried on from the previous corner
+            m.HasBrake = found; if (found) m.BrakeM = brakeAt;
             for (int k = 1; k <= 200; k++)
             {
                 double x = DistNorm(da + k, L);

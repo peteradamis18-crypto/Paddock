@@ -40,6 +40,12 @@ try {
   ok 'review.cs is in build.ps1''s list' ($buildList -match '\\src\\review\.cs')
   $rsrc = Get-Content (Join-Path $root 'dash\src\review.cs') -Raw
   ok 'the cache is written temp + move' ($rsrc.Contains('File.WriteAllBytes(tmp, b);') -and $rsrc.Contains('File.Move(tmp, path);'))
+  ok 'the trace cache key carries the review''s Sig, and no error is ever written to a file' ($rsrc.Contains('key += "-" + Hash(Sig(file) + "|" + rf);') -and -not $rsrc.Contains('.err"'))
+  ok 'a review is written down only when it is ready and has the track''s corners' ($rsrc.Contains('if (!Lasting(json))'))
+  $ir = Get-Content (Join-Path $root 'dash\src\irdash.cs') -Raw
+  ok 'irdash matches the four review paths exactly' ($ir.Contains('(path == "/api/review" || path == "/api/review/traces" || path == "/api/review/corners" || path == "/api/review/progress")') -and -not $ir.Contains('path.StartsWith("/api/review/"'))
+  $sbs = Get-Content (Join-Path $root 'dash\src\statebuilder.cs') -Raw
+  ok 'the review hook fires when the session ends and again when the sim closes' (([regex]::Matches($sbs, 'SessionEnded\(\)')).Count -ge 2)
   ok 'the build runs as a whenFree job (never on a request thread)' ($rsrc.Contains('Jobs.Run("review " + Path.GetFileName(f), delegate { BuildJob(f); }, true)'))
   $an = Get-Content (Join-Path $root 'dash\src\analysis.cs') -Raw
   ok 'LoadCorners never caches an empty set' ($an.Contains('if (cs.Turns.Count > 0) lock (gate) cornerCache[key] = cs;'))

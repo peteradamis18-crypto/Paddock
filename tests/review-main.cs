@@ -180,6 +180,30 @@ namespace IRDash
             Ok("5. lap 8 against lap 9 of the same session", code == 200 && I(G(G(Obj(cj8), "lap"), "n")) == 8 && I(G(G(Obj(cj8), "ref"), "n")) == 9, Short(cj8));
             string labels12 = ""; foreach (object c in cards) { int n = I(G(G(c, "corner"), "n")); foreach (object r in rows) if (I(G(r, "n")) == n && S(G(r, "label")) != S(G(G(c, "corner"), "label"))) labels12 = "card " + n + " label differs"; }
             Ok("5. a corner's n and label are the same on the cards and in the corner table", labels12.Length == 0, labels12);
+            Func<string, double> brakeOf = delegate (string lab) { foreach (object r in rows) if (S(G(r, "label")) == lab) return D(G(r, "brakeM")); return double.NaN; };
+            Ok("5. 12 Nov lap 9 brake points: T7 = 2044 m (its own press), T6 = 1861 m, T4 = 748 m (the press shared with T3 is kept)",
+               Math.Abs(brakeOf("T7") - 2044) <= 1 && Math.Abs(brakeOf("T6") - 1861) <= 1 && Math.Abs(brakeOf("T4") - 748) <= 1, "T7 " + brakeOf("T7") + ", T6 " + brakeOf("T6") + ", T4 " + brakeOf("T4"));
+            foreach (string rq in new string[] { "ever", "session" })
+            {
+                string cr = Route("/api/review/corners", "id=" + Uri.EscapeDataString(Path.GetFileName(f12)) + "&lap=8&ref=" + rq, out code);
+                Ok("5. corners ref=" + rq + " = the review's own reference (lap 9)", code == 200 && I(G(G(Obj(cr), "ref"), "n")) == 9, code + " " + Short(cr));
+            }
+            Ok("5. session.carId and session.trackId are in the review", S(G(ses, "carId")).Length > 0 && S(G(ses, "trackId")) == "127", S(G(ses, "carId")) + " / " + S(G(ses, "trackId")));
+            string pid = Review.Progress("", "", S(G(ses, "carId")), S(G(ses, "trackId")));
+            Dictionary<string, object> prid = Obj(pid);
+            bool idBest = false; foreach (object o in A(G(prid, "sessions"))) if (Math.Abs(D(G(o, "best")) - 93.832) < 0.0005) idBest = true;
+            Ok("5. progress by carId and trackId (no names): the 12 Nov dot and the corner trend", idBest && A(G(prid, "corners")).Length > 0, Short(pid));
+            string pwrong = Review.Progress(S(G(ses, "car")), S(G(ses, "track")), "99999", S(G(ses, "trackId")));
+            Ok("5. progress with another car's id: no dots, whatever the names say", A(G(Obj(pwrong), "sessions")).Length == 0 && A(G(Obj(pwrong), "corners")).Length == 0, Short(pwrong));
+            string junk = Path.Combine(work, "junk 2026-01-01 10-00-00.ibt"); File.WriteAllBytes(junk, new byte[300]);
+            string jj = Review.BuildNow(junk);
+            Ok("5. an unreadable file: state error, and nothing is written down (built again later)", S(G(Obj(jj), "state")) == "error" && !File.Exists(Review.CachePath(junk)), Short(jj));
+            if (f13 != null)
+            {
+                int tc; byte[] tb = Analysis.ReviewTraces(cut2, 9, Path.GetFileName(f13) + ":8", out tc);
+                string th = tc == 200 ? Encoding.UTF8.GetString(tb, 8, Math.Min(tb.Length - 8, 20000)) : Encoding.UTF8.GetString(tb);
+                Ok("5. traces against his best from another session (the ever reference, 13 Nov lap 8)", tc == 200 && th.Contains("\"ref\":{\"file\":" + new JavaScriptSerializer().Serialize(Path.GetFileName(f13))), tc + " " + Short(th));
+            }
             string pj = Review.Progress(S(G(ses, "car")), S(G(ses, "track")));
             Dictionary<string, object> pr = Obj(pj);
             object[] dots = A(G(pr, "sessions"));
@@ -221,6 +245,25 @@ namespace IRDash
             until = DateTime.UtcNow.AddSeconds(120);
             while (DateTime.UtcNow < until) { tr = Route("/api/review/traces", id12 + "&lap=8", out code); if (code != 202) break; Thread.Sleep(300); }
             Ok("4. traces: then the PWB1 of lap 8 against lap 9 with the corner set in its header", code == 200 && tr.StartsWith("BIN:PWB1") && tr.Contains("\"corners\":[{") && tr.Contains("\"ref\":{"), code + " " + Short(tr));
+            foreach (string rq in new string[] { "ever", "session" })
+            {
+                string tq = id12 + "&lap=8&ref=" + rq; until = DateTime.UtcNow.AddSeconds(120);
+                while (DateTime.UtcNow < until) { tr = Route("/api/review/traces", tq, out code); if (code != 202) break; Thread.Sleep(300); }
+                Ok("4. traces ref=" + rq + ": lap 8 against the review's own reference (lap 9)", code == 200 && tr.StartsWith("BIN:PWB1") && tr.Contains("\"kind\":\"lap\"}") && tr.Contains(",\"lap\":9,"), code + " " + Short(tr));
+            }
+            // at=<ms>: RACES opens a race by its start time
+            DateTime s12 = IbtFile.StartFromName(Path.GetFileName(f12));
+            double at12 = (s12.AddMinutes(5) - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            Ok("4. at=<12 Nov start + 5 min> picks the 12 Nov race file", string.Equals(Review.FileAt(at12), f12, StringComparison.OrdinalIgnoreCase), Review.FileAt(at12));
+            string aw = Route("/api/review", "id=last&at=" + ((long)at12).ToString(Inv), out code);
+            Ok("4. /api/review?id=last&at=... answers the 12 Nov review", code == 200 && S(G(G(Obj(aw), "session"), "id")) == Path.GetFileName(f12), code + " " + Short(aw));
+            if (f13 != null)
+            {
+                DateTime s13 = IbtFile.StartFromName(Path.GetFileName(f13));
+                double at13 = (s13.AddMinutes(15) - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+                Ok("4. at=<13 Nov 16-27 start + 15 min, inside its 21 min span> picks the 13 Nov 16-27-02 file", string.Equals(Review.FileAt(at13), f13, StringComparison.OrdinalIgnoreCase), Review.FileAt(at13));
+            }
+            Ok("4. at= a moment no file covers: no file (the route falls back to last)", Review.FileAt(1000.0) == null);
             // "last" with laps the store has not worked out: pending, a job, nothing read on the request (the job is left waiting: a session is on)
             on = true; Thread.Sleep(100);
             bool pending; string last = Review.Last(out pending);
