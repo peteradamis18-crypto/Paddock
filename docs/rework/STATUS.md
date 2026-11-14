@@ -88,5 +88,5 @@ Cards `docs/rework/cards/W2-1.md` (SdkReader + the race stream set + fuel/pit-wi
 |---|---|---|
 | W2-1 SdkReader, race stream set, fuel maths | building (Opus, worktree) | contract: the `race` state part and `/stream?set=race` (24 channels) |
 | W2-2 Race page zones A-E | building (Opus, worktree) | drive.js / ui.js in-car grid retire; pictures of every state from the 12 Nov replay |
-| W2-3 Pit loss per track | building (Sonnet, worktree) | data/pitloss.tsv; the ghost row shows only once measured |
+| W2-3 Pit loss per track | merged (not wired until W2-1 lands) | pitloss-test 29/0; ~450 of Peter's .ibt files scanned read-only: no measurable stop yet (garage exits, resets, drive-throughs); a reset to the pits is never a stop; PitstopActive was never true in any file, so a stop = still for 2 s in the lane; the first real stop at a track is the real test | data/pitloss.tsv; the ghost row shows only once measured |
 | W2-4 Pictures, contact sheet, one real race | lead | after W2-1..3 |
