@@ -8,7 +8,11 @@ html, body { width: 1920px; height: 1080px; } #page { right: auto; bottom: auto;
 <script src="make-pwb.js"></script>
 <script>
 window.__fx = { /*FX*/ }; window.__state = 'two'; window.__opts = {}; window.__offline = false;
-window.__req = []; window.__go = []; window.__ls = {};
+window.__req = []; window.__go = []; window.__ls = {}; window.__pairWorking = false;
+// headless --dump-dom never delivers animation frames: the real chart/map draw on rAF, so give them a 16 ms timer (virtual time runs it)
+window.requestAnimationFrame = f => setTimeout(() => f(performance.now()), 16); window.cancelAnimationFrame = id => clearTimeout(id);
+window.__errs = []; { const ce = console.error; console.error = function () { window.__errs.push([].map.call(arguments, a => a && a.stack || String(a)).join(' ')); ce.apply(console, arguments); }; }
+window.__outline = JSON.stringify(/*OUTLINE*/ null);
 /*SETUP*/
 const mk = n => (window.__ls[n] = window.__ls[n] || []);
 window.data = { __paddock: true, state: { seq: 1, workbench: { cmd: '', arg: '', seq: 40, driving: false } }, seq: 1, online: !window.__offline,
@@ -21,12 +25,16 @@ window.__emit = (n, a, b) => mk(n).slice().forEach(f => f(a, b));
 window.__realFetch = window.fetch;
 window.fetch = (u, o) => {
   u = String(u);
+  // the real map.js asks irdash for the outline: Road Atlanta's own (dash/maps), whatever key it is asked for
+  if (/^\/trackmap\?/.test(u)) { window.__maps = (window.__maps || 0) + 1; return Promise.resolve(new Response(window.__outline, { status: 200, headers: { 'Content-Type': 'application/json' } })); }
   if (!/^\/api\//.test(u)) return window.__realFetch(u, o);
   window.__req.push((o && o.method && o.method !== 'GET' ? o.method + ' ' : '') + u);
   if (window.__offline) return Promise.reject(new TypeError('Failed to fetch'));
   const j = x => Promise.resolve(new Response(JSON.stringify(x), { status: x && x.state === 'working' ? 202 : 200 }));
   const rv = window.__fx[window.__state], q = new URLSearchParams(u.split('?')[1] || '');
   if (u.indexOf('/api/review?') === 0) return j(rv);
+  // a lap pair the engine has not built yet: 202 {"state":"working"} on both routes (dash/src/review.cs)
+  if (window.__pairWorking && /^\/api\/review\/(traces|corners)\?/.test(u)) return j({ state: 'working' });
   const lapOf = v => { if (v === 'ever') return { n: rv.session.ref.lap, time: rv.session.ref.time }; const l = rv.laps.find(x => String(x.n) === v); return l ? { n: l.n, time: l.time } : null; };
   if (u.indexOf('/api/review/traces?') === 0) {
     const a = lapOf(q.get('lap')), r = q.get('ref') ? lapOf(q.get('ref')) : null;
@@ -35,8 +43,8 @@ window.fetch = (u, o) => {
   }
   if (u.indexOf('/api/review/corners?') === 0) {
     const c = JSON.parse(JSON.stringify(window.__fx.corners));
-    if (rv.session && rv.session.speedUnit === 'km/h') { c.units = 'metric'; c.rows.forEach(r => [r.lap, r.ref].forEach(o => { if (o.minSpeed != null) o.minSpeed = Math.round(o.minSpeed * 16.09344) / 10; })); }
-    if (!q.get('ref')) c.rows.forEach(r => { r.ref = { brakeM: null, minSpeed: null, pickupM: null, time: null }; });
+    if (rv.session && rv.session.speedUnit === 'km/h') { c.units = 'metric'; [c.lap, c.ref].forEach(s => s.rows.forEach(r => { if (r.minSpeed != null) r.minSpeed = Math.round(r.minSpeed * 16.09344) / 10; })); }
+    if (!q.get('ref')) c.ref = null;       // the engine: "ref":null without a reference lap
     return j(c);
   }
   return Promise.resolve(new Response('{}', { status: 404 }));
@@ -52,9 +60,17 @@ const ctx = { data: window.data, Fmt: window.Fmt, opts: {}, go: (n, o) => window
 window.__mount = () => { ctx.opts = {}; window.data.online = !window.__offline; M.mount(document.getElementById('page'), ctx, Object.assign({ screen: 'laps' }, window.__opts)); };
 window.__unmount = () => { M.unmount(); };
 window.__M = M; window.__ctx = ctx;
-window.__chart = (await import('./lib/chart.js')).Chart; window.__map = (await import('./lib/map.js')).Map;
+// W4-2's real libraries, each wrapped only to write down its calls (the real code still runs): Chart.calls, Map.calls
+const Chart = (await import('./lib/chart.js')).Chart, Map = (await import('./lib/map.js')).Map;
+Chart.calls = []; Map.calls = [];
+const rec = (lib, name, shape) => { const f = lib[name]; lib[name] = function () { lib.calls.push([name].concat(shape ? shape.apply(null, arguments) : [].slice.call(arguments))); return f.apply(lib, arguments); }; };
+rec(Chart, 'mount', (el, o) => [{ rows: o.rows.map(r => r.key), len: o.x.len, corners: (o.corners || []).length, readout: o.readout, series: o.rows.map(r => r.series.map(s => s.color)) }]);
+rec(Chart, 'update', rows => [rows.map(r => r.key)]);
+['setCursor', 'setRange', 'zoomCorner', 'zoomLap', 'onCursor', 'unmount'].forEach(n => rec(Chart, n));
+rec(Map, 'mount', (el, o) => [o]);rec(Map, 'colour', g => [g.length]); ['marks', 'cursor', 'cars', 'unmount'].forEach(n => rec(Map, n));
+window.__chart = Chart; window.__map = Map;
 window.__mount();
-if (window.__run) window.__run();
+if (window.__run) window.__run().catch(e => { const o = document.getElementById('out'); o.textContent += '\nFAIL the checks threw: ' + (e && e.stack || e); o.hidden = false; });
 </script>
 <!--RUN-->
 </body></html>

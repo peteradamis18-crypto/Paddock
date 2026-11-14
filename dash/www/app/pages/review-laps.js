@@ -47,28 +47,18 @@ export function speedUnit(session, corners) {
   return /km|metric/.test(u) ? 'km/h' : 'mph';
 }
 const MS_TO = { mph: 2.2369363, 'km/h': 3.6 };
-// one corner-table row, whichever of the three shapes the server sends:
-//   rows:[{n,label,detected, lap:{brakeM..}, ref:{brakeM..}}]  |  {lap:[{n,..}], ref:[{n,..}]}  |  rows:[{n,label, brakeM:{lap,ref}}]
+// the corner-table rows from the engine's one shape (dash/src/review.cs CornersRoute):
+//   {state, units, defs, lap:{n, time, rows:[{n,label,detected,brakeM,minSpeed,pickupM,time}]}, ref:{n, file, rows:[same]} | null}
+// n and label are the same across /api/review, /corners and /progress; the row's label is shown as given
 export function cornerRows(j) {
-  if (!j) return [];
-  const keys = ['brakeM', 'minSpeed', 'pickupM', 'time'];
-  const pick = (o, k, side) => { if (!o) return null; const v = o[k]; if (v && typeof v === 'object') return num(v[side]) ? v[side] : null; return num(v) ? v : null; };
-  let out = [];
-  if (Array.isArray(j.rows)) {
-    out = j.rows.map(r => {
-      const row = { n: r.n, label: r.label || ('T' + r.n), detected: !!r.detected, lap: {}, ref: {} };
-      keys.forEach(k => { row.lap[k] = r.lap ? pick(r.lap, k) : pick(r, k, 'lap'); row.ref[k] = r.ref ? pick(r.ref, k) : pick(r, k, 'ref'); });
-      return row;
-    });
-  } else if (Array.isArray(j.lap)) {
-    const ref = Array.isArray(j.ref) ? j.ref : [];
-    out = j.lap.map(r => {
-      const q = ref.find(x => x.n === r.n), row = { n: r.n, label: r.label || ('T' + r.n), detected: !!r.detected, lap: {}, ref: {} };
-      keys.forEach(k => { row.lap[k] = pick(r, k); row.ref[k] = pick(q, k); });
-      return row;
-    });
-  }
-  return out;
+  if (!j || !j.lap || !Array.isArray(j.lap.rows)) return [];
+  const keys = ['brakeM', 'minSpeed', 'pickupM', 'time'], other = j.ref && Array.isArray(j.ref.rows) ? j.ref.rows : [];
+  const pick = (o, k) => (o && num(o[k])) ? o[k] : null;
+  return j.lap.rows.map(r => {
+    const q = other.find(x => x.n === r.n), row = { n: r.n, label: r.label || ('T' + r.n), detected: !!r.detected, lap: {}, ref: {} };
+    keys.forEach(k => { row.lap[k] = pick(r, k); row.ref[k] = pick(q, k); });
+    return row;
+  });
 }
 // the difference and whether it is a gain: a later brake point, a higher minimum, an earlier throttle and a shorter time are quicker
 export const BETTER = { brakeM: +1, minSpeed: +1, pickupM: -1, time: -1 };
@@ -89,7 +79,7 @@ const P = {
     P.unmount();
     P.el = el; P.ctx = ctx; P.opts = Object.assign({}, (ctx && ctx.opts) || {}, opts || {}); P.live = true; P.offs = [];
     P.rv = null; P.err = false; P.tr = null; P.rows = []; P.cursorM = 0; P.range = null; P.active = null; P.deckSeq = null;
-    P.sel = { lap: null, ref: null }; P.zoomedAtMount = false;
+    P.sel = { lap: null, ref: null }; P.zoomedAtMount = false; P.pending = false; P.retryT = 0; P.fallbackUsed = false;
     if (!document.querySelector('link[data-page="review-laps"]')) {
       const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = new URL('./review-laps.css', import.meta.url).href; l.dataset.page = 'review-laps';
       document.head.appendChild(l);
@@ -108,12 +98,12 @@ const P = {
     const on = off => { if (typeof off === 'function') P.offs.push(off); };
     on(d.on('state', (st, ch) => { if (ch && ch.workbench) P.deck(st.workbench); }));
     if (d.state && d.state.workbench) P.deckSeq = d.state.workbench.seq;     // the first look only learns the seq: an old command is not replayed
-    on(d.onList && d.onList('review', () => { if (P.rv && P.rv.state === 'working') P.load(0); }));
+    on(d.onList && d.onList('review', () => { if (P.rv && P.rv.state === 'working') P.load(0); else if (P.pending && P.sel.lap != null) P.loadPair(); }));
     on(d.on('online', v => { if (v && P.err) P.load(0); }));
     P.load(60000);
   },
   unmount() {
-    P.live = false; P.token++;
+    P.live = false; P.token++; P.pending = false; clearTimeout(P.retryT); P.retryT = 0;
     P.offs.forEach(f => { try { f(); } catch (e) { } }); P.offs = [];
     try { if (P.C && P.C.unmount) P.C.unmount(); } catch (e) { }
     try { if (P.M && P.M.unmount) P.M.unmount(); } catch (e) { }
@@ -165,20 +155,31 @@ const P = {
   pick(row, v) {
     if (row === 'lap') { P.sel.lap = +v; if (P.sel.ref === String(v)) P.sel.ref = null; }
     else P.sel.ref = v === 'none' ? null : String(v);
+    P.fallbackUsed = false;
     P.drawPick(); P.loadPair();
   },
   async loadPair() {
     const t = ++P.token, id = P.session().id || P.id(), s = P.sel;
     const q = 'id=' + encodeURIComponent(id) + '&lap=' + s.lap + (s.ref ? '&ref=' + encodeURIComponent(s.ref) : '');
+    clearTimeout(P.retryT); P.retryT = 0;
     P.busy(true);
-    let buf = null, cj = null, libs = null;
+    let buf = null, cj = null, libs = null, working = false;
     try {
       [buf, cj, libs] = await Promise.all([
-        fetch('/api/review/traces?' + q, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }),
-        P.ctx.data.json('/api/review/corners?' + q, 60000).catch(() => null),
+        // the engine answers 202 {"state":"working"} for a lap pair it has not built yet: not an error, ask again when it says so
+        fetch('/api/review/traces?' + q, { cache: 'no-store' }).then(r => { if (r.status === 202) { working = true; return null; } if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }),
+        P.ctx.data.json('/api/review/corners?' + q, P.pending ? 0 : 60000).catch(() => null),   // 0 after a "working" answer: data.json would hand the same 202 back
         P.libsLoad()]);
-    } catch (e) { if (t !== P.token || !P.live) return; P.busy(false); P.tr = null; P.msgStack('The traces would not load. Press the lap again.'); return; }
+    } catch (e) { if (t !== P.token || !P.live) return; P.busy(false); P.pending = false; P.tr = null; P.msgStack('The traces would not load. Press the lap again.'); return; }
     if (t !== P.token || !P.live) return;
+    if (working || (cj && cj.state === 'working')) {
+      P.busy(false); P.pending = true; P.tr = null; P.msgStack('Reading your laps…');
+      // the engine bumps the review list when the job ends (onList in mount); one fallback ask after 10 s in case that event was missed
+      // once per press: the ask that fallback makes does not arm another (no polling chain)
+      if (!P.fallbackUsed) P.retryT = setTimeout(() => { P.retryT = 0; P.fallbackUsed = true; if (P.live && P.pending && t === P.token) P.loadPair(); }, 10000);
+      return;
+    }
+    P.pending = false;
     P.busy(false);
     try { P.tr = P.traces(readPwb(buf), s); } catch (e) { P.tr = null; P.msgStack('The traces would not load. Press the lap again.'); return; }
     P.unit = speedUnit(P.session(), cj);
@@ -217,9 +218,12 @@ const P = {
     const rows = [
       { key: 'delta', label: 'DELTA', unit: 's', kind: 'line', series: delta ? [{ label: 'lap ' + s.lap + ' against ' + lbl.ref, color: 'gold', data: delta }] : [], note: delta ? '' : 'no reference lap' },
       { key: 'speed', label: 'SPEED', unit: unit, series: two(l => map(l.speed, toU)) },
-      { key: 'pedals', label: 'THROTTLE + BRAKE', unit: '%', series: [{ label: 'throttle ' + lbl.lap, color: 'gain', data: map(A.thr, pct) }, { label: 'brake ' + lbl.lap, color: 'loss', data: map(A.brk, pct) }]
-        .concat(R ? [{ label: 'throttle ' + lbl.ref, color: 'ink', data: map(R.thr, pct) }, { label: 'brake ' + lbl.ref, color: 'ink', data: map(R.brk, pct) }] : []) },
-      { key: 'steer', label: 'STEERING', unit: '°', series: two(l => map(l.steer, steerDeg)) },
+      // the library's pedals row: two values a line, this lap then the reference: [throttle, throttle ref, brake, brake ref]
+      { key: 'pedals', label: 'THROTTLE + BRAKE', unit: '%', series: [{ label: 'throttle ' + lbl.lap, color: 'gain', data: map(A.thr, pct) }]
+        .concat(R ? [{ label: 'throttle ' + lbl.ref, color: 'ink', data: map(R.thr, pct) }] : [])
+        .concat([{ label: 'brake ' + lbl.lap, color: 'loss', data: map(A.brk, pct) }])
+        .concat(R ? [{ label: 'brake ' + lbl.ref, color: 'ink', data: map(R.brk, pct) }] : []) },
+      { key: 'steer', label: 'STEERING', unit: 'deg', series: two(l => map(l.steer, steerDeg)) },
       { key: 'gear', label: 'GEAR', unit: '', kind: 'step', series: two(l => l.gear) },
     ].map(r => { r.series = r.series.filter(x => x.data); return r; });
     const corners = (h.corners || []).map(c => ({ n: c.n, label: c.label || (c.official ? 'T' + String(c.official).toUpperCase() : 'T' + c.n), name: c.name || '',
@@ -296,7 +300,12 @@ const P = {
     m.hidden = !text; m.innerHTML = text ? '<p class="rl-say">' + esc(text) + '</p>' + (sub ? '<p class="rl-sub">' + esc(sub) + '</p>' : '') : '';
     P.$('.rl').classList.toggle('only-msg', !!text);
   },
-  msgStack(text) { const c = P.$('.rl-chart'); if (c) { c.replaceChildren(); const p = document.createElement('p'); p.className = 'rl-chartmsg'; p.textContent = text; c.appendChild(p); } },
+  msgStack(text) {
+    const c = P.$('.rl-chart');
+    // the word replaces the chart: let the library go first, or a later update() would draw on a canvas that is no longer there
+    try { if (P.C && P.C.unmount) P.C.unmount(); } catch (e) { } P.C = null; P.chart = null; P.chartFor = null;
+    const ro = P.$('.rl-readout'); if (ro) ro.replaceChildren();
+    if (c) { c.replaceChildren(); const p = document.createElement('p'); p.className = 'rl-chartmsg'; p.textContent = text; c.appendChild(p); } },
   draw() {
     if (!P.el) return;
     const rv = P.rv, root = P.$('.rl');

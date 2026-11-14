@@ -2,9 +2,9 @@
 # The page runs in headless Chrome inside a fixture shell (tests\fixtures\review\laps\shell.html: the real shell's header and page box,
 # the W3-1 ctx, a stand-in for data.js) with a pretend irdash behind fetch: /api/review from tests\fixtures\review\laps\review-*.json
 # (the W4-1 contract), /api/review/traces as a hand-made PWB1 reply (make-pwb.js: two laps of a 4088 m Road Atlanta and its corner
-# set, written byte for byte as dash\src\workbench.cs does) and /api/review/corners (corners.json). W4-2's Chart and Map are stand-ins
-# with the same API (chart-stub.js, map-stub.js) that record their calls; the pictures use the real app\lib\chart.js and map.js once
-# they exist. Nothing reaches the real irdash.
+# set, written byte for byte as dash\src\workbench.cs does) and /api/review/corners (corners.json). Chart and Map are W4-2's REAL
+# app\lib\chart.js and map.js (the shell only records their calls); the map outline is dash\maps\t127-roadatlanta-full.json served
+# for /trackmap. Nothing reaches the real irdash.
 #   1. the five states (two laps, this lap only, no full lap, working, offline); the chips (counted bright, the best purple, the
 #      reason on dim chips, YOUR BEST HERE); a chip press loads the two routes and the stack redraws; the readout column in 36 px
 #   2. the corner table (rows, this / reference / difference coloured) and the four definitions once; a row press zooms the chart
@@ -33,15 +33,13 @@ $read = { param($n) [IO.File]::ReadAllText((Join-Path $fix $n), [Text.Encoding]:
 $fx = 'two: ' + (& $read 'review-two.json') + ', one: ' + (& $read 'review-one.json') + ', ever: ' + (& $read 'review-ever.json') +
   ', nolap: ' + (& $read 'review-nolap.json') + ', working: ' + (& $read 'review-working.json') + ', corners: ' + (& $read 'corners.json')
 $shellSrc = & $read 'shell.html'
-# two copies of the page: "stub" always with the stand-ins (the checks read their call logs), "real" with W4-2's libraries when present
-function Stage([string]$dir, [bool]$real) {
-  Copy-Item -Recurse $app "$dir\app"
-  Copy-Item (Join-Path $fix 'make-pwb.js') "$dir\app\make-pwb.js"
-  if (-not ($real -and (Test-Path "$app\lib\chart.js"))) { Copy-Item -Force (Join-Path $fix 'chart-stub.js') "$dir\app\lib\chart.js" }
-  if (-not ($real -and (Test-Path "$app\lib\map.js"))) { Copy-Item -Force (Join-Path $fix 'map-stub.js') "$dir\app\lib\map.js" }
-}
-New-Item -ItemType Directory -Force "$tmp\stub", "$tmp\real" | Out-Null
-Stage "$tmp\stub" $false; Stage "$tmp\real" $true
+# one copy of the page with W4-2's REAL app\lib\chart.js and map.js (the shell only writes down their calls; the code still runs),
+# so the page and the libraries are proved to agree. The map outline is Road Atlanta's own (dash\maps), served for /trackmap.
+New-Item -ItemType Directory -Force "$tmp\site" | Out-Null
+Copy-Item -Recurse $app "$tmp\site\app"
+Copy-Item (Join-Path $fix 'make-pwb.js') "$tmp\site\app\make-pwb.js"
+$outline = [IO.File]::ReadAllText((Join-Path $root 'dash\maps\t127-roadatlanta-full.json'), [Text.Encoding]::UTF8).Trim()
+$shellSrc = $shellSrc.Replace('/*OUTLINE*/ null', $outline)
 $common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--force-device-scale-factor=1')
 function Page([string]$dir, [string]$name, [string]$setup, [string]$run) {
   $h = $shellSrc.Replace('/*FX*/', $fx).Replace('/*SETUP*/', $setup).Replace('<!--RUN-->', $run)
@@ -53,8 +51,11 @@ function Page([string]$dir, [string]$name, [string]$setup, [string]$run) {
 $run = @'
 <script>
 window.__run = async () => {
-  const out = [], ok = (what, cond, why) => out.push((cond ? 'ok ' : 'FAIL ') + what + (cond || why == null ? '' : ' -> ' + why));
+  const out = [], show = () => { const o = document.getElementById('out'); o.textContent = out.join('\n'); o.hidden = false; };
+  window.__show = show;     // the shell shows what ran so far if a check throws
+  const ok = (what, cond, why) => { out.push((cond ? 'ok ' : 'FAIL ') + what + (cond || why == null ? '' : ' -> ' + why)); show(); };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const at = async m => { P.cursor(m); for (let i = 0; i < 60 && txt('.chro-m') !== Math.round(m) + ' m'; i++) await sleep(50); };   // the real chart writes its readout on its next animation frame
   const M = window.__M, P = M.Laps, F = window.Fmt, C = window.__chart, Mp = window.__map;
   const q = s => document.querySelector('#page ' + s), qa = s => [...document.querySelectorAll('#page ' + s)];
   const txt = s => { const e = q(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
@@ -87,16 +88,29 @@ window.__run = async () => {
     lapChips[7].classList.contains('on') && refChips[8].classList.contains('on') && refChips[7].disabled && refChips.length === 10, lapChips.findIndex(c => c.classList.contains('on')) + ' ' + refChips.findIndex(c => c.classList.contains('on')));
   const mnt = last(C.calls, 'mount');
   ok('1. the stack: one Chart with the rows delta, speed, throttle + brake, steering, gear on one 4088 m axis, the delta gold, the 12 corners',
-    mnt && mnt[1].rows.join() === 'delta,speed,pedals,steer,gear' && mnt[1].len === 4088 && mnt[1].corners === 12 && mnt[1].series[0].join() === 'gold' && mnt[1].series[1].join() === 'gold,ink', JSON.stringify(mnt && mnt[1]));
+    mnt && mnt[1].rows.join() === 'delta,speed,pedals,steer,gear' && mnt[1].len === 4088 && mnt[1].corners === 12 && mnt[1].series[0].join() === 'gold' && mnt[1].series[1].join() === 'gold,ink', JSON.stringify(mnt && mnt[1]) + ' calls=' + C.calls.map(c => c[0]).join() + ' chart="' + txt('.rl-chart') + '" msg=' + msgText() + ' errs=' + window.__errs.join(' // '));
   ok('1. the readout column is the page\'s .rl-readout, on the right of the stack, always visible, at 36 px (--t-read)',
     mnt && mnt[1].readout === q('.rl-readout') && vis(q('.rl-readout')) && box('.rl-readout').l > 1400 && getComputedStyle(q('.rl-readout')).fontSize === '36px', mnt && box('.rl-readout').l);
-  P.cursor(1165); await sleep(50);
+  await at(1165);
   const A = window.__pwbLap(94.020, (94.020 - 93.832) * 9), R = window.__pwbLap(93.832, 0);
   const sp = (a, i) => String(Math.round(a.Speed[i] * 2.2369363));
-  const spRow = q('.rl-readout [data-key="speed"]');
-  ok('1. at the cursor (1165 m, T5) the readout shows both laps\' speed in mph (' + sp(A, 1165) + ', ' + sp(R, 1165) + ') and the delta',
-    spRow && spRow.textContent.indexOf('mph') > 0 && [...spRow.querySelectorAll('.ro-v')].map(e => e.textContent).join() === sp(A, 1165) + ',' + sp(R, 1165) &&
-    /^[+−]\d\.\d{3}$/.test(q('.rl-readout [data-key="delta"] .ro-v').textContent), spRow && spRow.textContent);
+  const spRow = q('.rl-readout [data-key="speed"]'), vals = k => [...qa('.rl-readout [data-key="' + k + '"] .chro-v')].map(e => e.textContent);
+  ok('1. at the cursor (1165 m, T5) the REAL readout column shows both laps\' speed in mph (' + sp(A, 1165) + ', ' + sp(R, 1165) + ') and the delta',
+    spRow && spRow.textContent.indexOf('mph') > 0 && vals('speed').join() === sp(A, 1165) + ',' + sp(R, 1165) &&
+    /^[+−]\d\.\d{3}$/.test(vals('delta')[0]), spRow && spRow.textContent + ' ' + vals('speed').join() + ' m=' + txt('.chro-m') + ' cur=' + P.cursorM + ' errs=' + window.__errs.join('//'));
+  const pi = i => String(Math.round(Math.min(100, Math.max(0, i))));
+  ok('1. the pedals row reads two values a line in the key\'s columns: [throttle this lap, throttle reference, brake this lap, brake reference] (4 values, 2 columns; colours gain, ink, loss, ink)',
+    vals('pedals').length === 4 && qa('.rl-readout [data-key="pedals"] .chro-v').map(e => e.style.color).join() === ['gain', 'ink', 'loss', 'ink'].map(n => 'var(--' + n + ')').join() && qa('.rl-readout [data-key="pedals"] .chro-vals').length === 1 &&
+    window.__chart.calls.filter(c => c[0] === 'mount').pop()[1].series[2].join() === 'gain,ink,loss,ink', vals('pedals').join() + ' ' + JSON.stringify(window.__chart.calls.filter(c => c[0] === 'mount').pop()[1].series[2]));
+  await at(2500);
+  const pv = vals('pedals'), pa = Math.round(A.Throttle[2500] * (A.Throttle[2500] <= 1.001 ? 100 : 1)), pb = Math.round(R.Throttle[2500] * (R.Throttle[2500] <= 1.001 ? 100 : 1));
+  ok('1. pedals at 2500 m: column 1 is this lap, column 2 the reference (throttle ' + pa + ' / ' + pb + ')', pv[0] === String(pa) && pv[1] === String(pb), pv.join());
+  ok('1. the key under the readout names the two columns "lap 8" and "lap 9" (the library\'s own key)', qa('.rl-readout .chro-k').map(e => e.textContent).join() === 'lap 8,lap 9', qa('.rl-readout .chro-k').map(e => e.textContent).join());
+  let neg = 0; for (let i = 0; i < 4088; i++) if (A.SteeringWheelAngle[i] < A.SteeringWheelAngle[neg]) neg = i;
+  await at(neg);
+  ok('1. steering is passed as "deg": the library prints a true minus sign and whole degrees (at ' + neg + ' m, ' + Math.round(A.SteeringWheelAngle[neg] * 57.29578) + ' deg, never a hyphen)',
+    A.SteeringWheelAngle[neg] < -0.05 && /^−\d+$/.test(vals('steer')[0]) && vals('steer').every(v => /^[−]?\d+$/.test(v)) && txt('.rl-readout [data-key="steer"]').indexOf('deg') >= 0, vals('steer').join() + ' ' + txt('.rl-readout [data-key="steer"]'));
+  await at(1165);
   ok('1. the line above the stack: "Lap 8 1:34.020 against lap 9 1:33.832 · +0.188 s" with the difference red',
     txt('.rl-vs') === 'Lap 8 ' + F.lap(94.02) + ' against lap 9 ' + F.lap(93.832) + ' · +0.188 s' && getComputedStyle(q('.rl-vs b')).color === LOSS, txt('.rl-vs'));
   ok('1. theoretical best with its laps and the date spread: "Theoretical best 1:33.412 from laps 3, 7, 9 (6 Nov – 13 Nov)"',
@@ -124,12 +138,43 @@ window.__run = async () => {
   window.__req.length = 0; q('.rl-pick .row:nth-child(1) .chip:nth-child(3)').click(); await sleep(300);
   ok('1. pressing THIS LAP 3 while 3 is the reference drops the reference (no lap against itself)', window.__req.includes(tr(3, null)) && vis(q('.rl-noref')), window.__req.join(' | '));
 
+  // a lap pair the engine has not built: 202 {"state":"working"} on traces and corners (dash/src/review.cs), then onList('review')
+  await use('two');
+  window.__pairWorking = true; window.__req.length = 0; C.calls.length = 0;
+  q('.rl-pick .row:nth-child(1) .chip:nth-child(6)').click(); await sleep(300);
+  ok('1. a 202 "working" answer is not an error: one line "Reading your laps…" where the stack is, no chart, no "would not load", no spinner',
+    txt('.rl-chart') === 'Reading your laps…' && qa('.rl-chart canvas').length === 0 && qa('.rl-readout *').length === 0 && last(C.calls, 'unmount') !== null && !/would not load/.test(document.getElementById('page').textContent) && qa('.rl-chart svg, .rl-chart .spin').length === 0 && window.__req.length === 2,
+    txt('.rl-chart') + ' | ' + window.__req.join(' | '));
+  sm = small(); ok('1. the working line is 24 px or more', sm.length === 0, sm.join('; '));
+  window.__req.length = 0; await sleep(2000);
+  ok('1. nothing asks again while it waits (2 s: no interval, no polling)', window.__req.length === 0, window.__req.join(' | '));
+  window.__pairWorking = false; window.__emit('list:review'); await sleep(400);
+  ok('1. when irdash says the review list changed it asks again for that pair (traces + corners) and the stack draws with both laps',
+    window.__req.length === 2 && window.__req.includes(tr(6, 9)) && qa('.rl-chart canvas').length === 1 && txt('.rl-chart').indexOf('Reading') < 0 && vals('speed').length === 2 && txt('.rl-vs').indexOf('Lap 6') === 0, window.__req.join(' | ') + ' ' + vals('speed').join());
+  window.__req.length = 0; window.__emit('list:review'); await sleep(200);
+  ok('1. a list change with nothing waiting asks for nothing', window.__req.length === 0, window.__req.join(' | '));
+  // the one fallback: no event, one more ask after 10 s, and that ask does not arm another
+  window.__pairWorking = true; window.__req.length = 0;
+  q('.rl-pick .row:nth-child(1) .chip:nth-child(5)').click(); await sleep(300);
+  window.__req.length = 0; window.__pairWorking = false; await sleep(10600);
+  ok('1. fallback: with no event, one single re-ask after 10 s, and the stack draws', window.__req.length === 2 && window.__req.includes(tr(5, 9)) && qa('.rl-chart canvas').length === 1, window.__req.join(' | '));
+  window.__pairWorking = true; q('.rl-pick .row:nth-child(1) .chip:nth-child(4)').click(); await sleep(300);
+  window.__req.length = 0; await sleep(10600);
+  const fb = window.__req.length; window.__req.length = 0; await sleep(10600);
+  ok('1. fallback: a re-ask that is told "working" again waits for the event; it does not ask a third time', fb === 2 && window.__req.length === 0 && txt('.rl-chart') === 'Reading your laps…', fb + ' then ' + window.__req.join(' | '));
+  window.__pairWorking = false; window.__emit('list:review'); await sleep(400);
+  ok('1. ... and the event still redraws it', qa('.rl-chart canvas').length === 1);
+  window.__pairWorking = true; q('.rl-pick .row:nth-child(1) .chip:nth-child(7)').click(); await sleep(300);
+  window.__unmount(); window.__req.length = 0; window.__pairWorking = false; window.__emit('list:review'); await sleep(10600);
+  ok('1. unmounted while waiting: the event and the fallback timer do nothing', window.__req.length === 0 && Object.keys(window.__ls).every(k => window.__ls[k].length === 0), window.__req.join(' | '));
+  window.__pairWorking = false;
+
   await use('one');
   ok('1. this lap only: lap 2 with no reference (traces asked without ref)', window.__req.includes(tr(2, null)) && !window.__req.some(u => /ref=/.test(u)), window.__req.join(' | '));
   const m1 = last(C.calls, 'mount');
   ok('1. this lap only: the delta row is empty and says "no reference lap"; the other rows have this lap alone',
     m1 && m1[1].series[0].length === 0 && m1[1].series[1].join() === 'gold' && vis(q('.rl-noref')) && txt('.rl-noref') === 'Delta: no reference lap' && txt('.rl-vs') === 'Lap 2 ' + F.lap(94.611) + ' · no reference lap' &&
-    /no reference lap/.test(txt('.rl-readout [data-key="delta"]')), JSON.stringify(m1 && m1[1].series) + ' ' + txt('.rl-vs'));
+    vals('delta').length === 0 && vals('speed').length === 1, JSON.stringify(m1 && m1[1].series) + ' ' + txt('.rl-vs'));
   ok('1. this lap only: the out lap is dim ("out lap"), lap 2 bright; no theoretical best without one', qa('.rl-pick .row:nth-child(1) .chip')[0].textContent.indexOf('out lap') > 0 && txt('.rl-opt') === '');
   { const d0 = qa('.rl-pick .chip.dim')[0], cs = getComputedStyle(d0);
     ok('1. a dim chip has no edge (only the chosen chip is outlined, in gold)', cs.borderTopColor === 'rgba(0, 0, 0, 0)' && qa('.chip.on').every(c => getComputedStyle(c).borderTopColor === GOLD),
@@ -216,9 +261,8 @@ window.__run = async () => {
   const left = Object.keys(window.__ls).reduce((s, k) => s + window.__ls[k].length, 0);
   ok('3. unmount: no listeners left, the chart and the map unmounted, the page empty', left === 0 && last(C.calls, 'unmount') && last(Mp.calls, 'unmount') && document.getElementById('page').children.length === 0, left);
   // pure helpers
-  ok('3. cornerRows reads the three answer shapes alike', ['brakeM', 'time'].every(k =>
-    M.cornerRows({ rows: [{ n: 1, label: 'T1', lap: { brakeM: 5, time: 2 }, ref: { brakeM: 6, time: 3 } }] })[0].ref[k] === M.cornerRows({ lap: [{ n: 1, brakeM: 5, time: 2 }], ref: [{ n: 1, brakeM: 6, time: 3 }] })[0].ref[k] &&
-    M.cornerRows({ lap: [{ n: 1, brakeM: 5, time: 2 }], ref: [{ n: 1, brakeM: 6, time: 3 }] })[0].ref[k] === M.cornerRows({ rows: [{ n: 1, brakeM: { lap: 5, ref: 6 }, time: { lap: 2, ref: 3 } }] })[0].ref[k]));
+  { const cr = M.cornerRows({ lap: { n: 9, time: 93.8, rows: [{ n: 1, label: 'The Esses', detected: true, brakeM: 5, minSpeed: 60, pickupM: 9, time: 2 }] }, ref: { n: 8, rows: [{ n: 1, label: 'The Esses', brakeM: 6, minSpeed: 61, pickupM: 8, time: 3 }] } });
+  ok('3. cornerRows reads the one engine shape (lap.rows / ref.rows, flat rows; a null ref gives dashes; the label is the name as given)', cr.length === 1 && cr[0].label === 'The Esses' && cr[0].lap.brakeM === 5 && cr[0].ref.time === 3 && M.cornerRows({ lap: { rows: [{ n: 1, time: 2 }] }, ref: null })[0].ref.time === null && M.cornerRows({ state: 'working' }).length === 0); }
   ok('3. optimalLine: one day once, one lap singular', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }) === 'Theoretical best ' + F.lap(93.4) + ' from lap 9 (13 Nov)', M.optimalLine({ time: 93.4, from: [{ lap: 9, date: Date.parse('2026-11-13T15:00:00Z') }] }));
 
   out.push('DONE');
@@ -228,21 +272,21 @@ window.__run = async () => {
 '@
 
 Section '1-3. the page'
-$url = Page "$tmp\stub" 't' '' $run
-$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=120000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
+$url = Page "$tmp\site" 't' '' $run
+$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=300000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
 $dom = Get-Content "$tmp\out.txt" -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
 $m = [regex]::Match([string]$dom, '(?s)<pre id="out"[^>]*>(.*?)</pre>')
 $text = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
 $lines = @($text -split [char]10 | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -match '^(ok|FAIL) ' })
 $lines | ForEach-Object { '  ' + $_ }
 $pass += @($lines | Where-Object { $_ -match '^ok' }).Count; $fail += @($lines | Where-Object { $_ -match '^FAIL' }).Count
-if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++; Get-Content "$tmp\err.txt" -ErrorAction SilentlyContinue | Select-Object -Last 8 }
+if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++; Get-Content "$tmp\err.txt" -ErrorAction SilentlyContinue | Select-Object -Last 8; ($text -split "`n" | Select-Object -Last 6) }
 
 Section '3. source'
 function Src($what, $cond) { if ($cond) { $script:pass++; "  ok    3. $what" } else { $script:fail++; "  FAIL  3. $what" } }
 $js = [IO.File]::ReadAllText((Join-Path $app 'pages\review-laps.js'))
 Src 'review-laps.js exports mount(el, ctx, opts), unmount() and onDeck(cmd) by name (REVIEW''s card screen imports them)' ($js -match 'export function mount\(el, ctx, opts\)' -and $js -match 'export function unmount\(\)' -and $js -match 'export function onDeck\(cmd')
-Src 'no timer, no poller, no POST: no setInterval / setTimeout, no /workbench/cmd, no data.fetch, no method' ($js -notmatch 'setInterval|setTimeout|/workbench/cmd|data\.fetch|method:')
+Src 'no poller, no POST: no setInterval, exactly one setTimeout (the single 10 s fallback re-ask), no /workbench/cmd, no data.fetch, no method' ($js -notmatch 'setInterval|/workbench/cmd|data\.fetch|method:' -and [regex]::Matches($js, 'setTimeout\(').Count -eq 1)
 Src 'no typing anywhere: no input, textarea, select or contenteditable' ($js -notmatch '<input|<textarea|<select|contenteditable')
 Src 'no mouse-only tooltips: no title= or :hover-only text' ($js -notmatch 'title=' )
 
@@ -259,7 +303,7 @@ $states = [ordered]@{ 'two-laps' = "window.__state = 'two';"; 'this-lap-only' = 
   'best-here' = "window.__state = 'ever';" }
 foreach ($s in $states.Keys) {
   $png = Join-Path $shots "review-laps-$s.png"; Remove-Item $png -ErrorAction SilentlyContinue
-  $u = Page "$tmp\real" "s-$s" $states[$s] ''
+  $u = Page "$tmp\site" "s-$s" $states[$s] ''
   $p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=4000', "--screenshot=$png", $u)) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\err-$s.txt" -RedirectStandardOutput "$tmp\so-$s.txt"
   if (Test-Path $png) { $pass++; "  ok    picture: $png" } else { $fail++; "  FAIL  no picture for $s" }
 }
