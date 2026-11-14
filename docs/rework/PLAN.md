@@ -428,7 +428,7 @@ From 09 (server), 10 (web), 11 (deck). Grouped by what Peter would notice.
 
 **Visual review loop (rule 8):** a card is not done until Claude has looked at every picture it produced, written one
 line per picture in the card's log, and fixed what it saw; then Peter sees a contact sheet (all states of one screen
-on one image) and says yes or no before it is deployed.
+on one image) and says what to change AFTER it is deployed (2026-11-14, Peter: "build everything without me touching the computer including installs": nothing waits for his click or his yes; the lead's review and the pictures gate the deploy; the add-on installs itself through irdash, card W1-8).
 
 **Definition of done for a card:** tests in layers 1–3 pass; pictures reviewed; no new hex colour, no new font size,
 no new poller, no new "best lap" rule; `docs/USER-GUIDE.md` updated in plain words; the deck and screen words match;

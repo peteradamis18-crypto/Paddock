@@ -125,3 +125,5 @@ goes next to real screenshots of the tools it learns from.
 - Gold: B, the softer broadcast gold `#C9A24B`, everywhere (top screen, phone, deck keys at the next deck rebuild).
 
 - 2026-11-13 20:50, asked "Will you plug in a microphone (Arctis or another) for the talk-over-the-race feature?": **"Yes, with a mic"** -> W1-6 commentary is on.
+
+- 2026-11-14 07:58: **"build everything without me touching the computer including installs"** -> no step waits for a click or a yes from Peter: the add-on installs itself through irdash (card W1-8), screens are deployed after the lead's review and he sees the contact sheet afterwards (PLAN rule 8 amended). Only the Google sign-in (his account) and plugging in the mic stay his.
