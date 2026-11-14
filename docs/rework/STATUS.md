@@ -62,3 +62,17 @@ deployed = on the rig; live = the live checks in the card were run by the lead; 
 - Seen, not wave 0: QUIT TO MENU pressed at 16:16:31 (in the pit) ran on until 16:17:53 and then said "did not reach Home"
   because the sim had been relaunched in between (fail-quitmain.png shows him in the car); it pressed nothing after the relaunch.
   Stream Deck offers its 7.6.1 update (not installed).
+
+## Wave 1: RACES and YouTube (started 2026-11-13 20:20)
+Cards in `docs/rework/cards/W1-1.md` to `W1-5.md`; W1-6 (commentary) waits for Peter's mic decision (PLAN section 10, item 7);
+W1-7 is the lead's acceptance with Peter (one real private upload). The three source stubs `library.cs`, `youtube.cs`, `cuts.cs`
+are in `dash/build.ps1` already (and `System.Security.dll` for DPAPI), so parallel builders never edit the same line of it.
+The lead wires `Library.ShareState = YouTube.StateJson; Library.YouTubeJson = YouTube.Json;` at merge (the two are built apart).
+Found while writing the cards: kept races live in `vault/saved/` (today's three), the rest in `vault/sessions/`; the cards say so.
+| Card | State | Notes |
+|---|---|---|
+| W1-1 SessionIndex + Library | building (Opus, worktree) | contract: GET /api/library, /api/library/thumb, racetrash / raceundo / raceempty / racefree, Library.DeckJson for the deck summary |
+| W1-2 YouTube sign-in + upload | building (Opus, worktree) | loopback + PKCE + DPAPI token, resumable 8 MiB chunks, never twice, pretend Google in the test; Peter's Google setup still to do (docs/YOUTUBE-SETUP.md) |
+| W1-3 Cuts | building (Sonnet, worktree) | trim plan, chapters, 5 title templates, ffmpeg args; pure rules |
+| W1-4 RACES page | spec written | starts after W1-1..3 merge; owns the raceshare chain and the three settings commands |
+| W1-5 Deck RACES mirror | spec written | starts after W1-1 merges; needs a $ver bump and Peter's Install click at the end |
