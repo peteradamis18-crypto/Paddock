@@ -616,7 +616,8 @@ namespace IRDash
             m.InTime = Span(lap, d0, da);
             m.OutTime = Span(lap, da, d1);
             m.Entry = ChAt(lap, lap.Spd, d0) * 3.6; m.HasEntry = true;
-            m.Exit = ChAt(lap, lap.Spd, da + 100) * 3.6; m.HasExit = true;
+            // 100 m on from the apex, but never past the line: wrapping would read this lap's own first metres (the previous pass of the corner), not this exit
+            m.Exit = ChAt(lap, lap.Spd, (da > L * 0.5 && da + 100 >= L) ? L - 0.01 : da + 100) * 3.6; m.HasExit = true;
             double best = 0, at = d0; bool any = false;
             double end = d1 >= d0 ? d1 : d1 + L;
             for (double x = d0; x <= end + 0.1; x += 1)

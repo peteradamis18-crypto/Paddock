@@ -80,30 +80,31 @@ Pi is a GUI app: do this yourself at the PC, not from a builder. Do not copy the
 
 ## Paddock against the raw file (written by the test)
 <!-- PADDOCK-RAW:BEGIN -->
-Run: 2026-11-14 13:44 by `tests\pi-check-test.ps1` (Paddock = irdash's own engine; Raw = `tests\fixtures\rawibt.cs` on the same file). Tolerances: time 0.02 s, speed 0.3 km/h, distance 2 m.
+Run: 2026-11-14 15:00 by `tests\pi-check-test.ps1` (Paddock = irdash's own engine; Raw = `tests\fixtures\rawibt.cs` on the same file). Tolerances: time 0.02 s, speed 0.3 km/h, distance 2 m.
 
 | Corner | Time s: Paddock | Raw | Min km/h: Paddock | Raw | Min at m: Paddock | Raw | Pick-up m: Paddock | Raw | Brake point m: Paddock | Raw |
 |---|---|---|---|---|---|---|---|---|---|---|
-| T1 | 8.972 | 8.972 | 156.42 | 156.38 | 431.8 | 431.6 | 433.0 | 433.1 | 318.0 | 317.2 |
-| T2 | 3.604 | 3.604 | 132.77 | 132.93 | 790.9 | 790.7 | 725.0 | 724.9 | none | none |
-| T3 | 2.000 | 2.000 | 119.58 | 119.54 | 826.2 | 826.0 | 855.4 | 855.3 | 748.4 | 748.2 |
-| T4 | 3.622 | 3.622 | 127.55 | 127.63 | 868.2 | 868.5 | 922.3 | 921.3 | 748.3 | 748.2 |
-| The Esses | 6.187 | 6.187 | 158.24 | 158.25 | 1,054.8 | 1,054.8 | 1,124.5 | 1,124.3 | none | none |
-| T5 | 4.131 | 4.131 | 138.32 | 138.31 | 1,398.9 | 1,399.2 | 1,404.0 | 1,403.0 | 1,318.0 | 1,317.4 |
-| T6 | 4.049 | 4.049 | 132.77 | 132.70 | 1,966.5 | 1,967.1 | 1,992.8 | 1,992.3 | 1,861.8 | 1,860.8 |
-| T7 | 4.615 | 4.615 | 83.06 | 83.00 | 2,123.3 | 2,123.1 | 2,139.1 | 2,138.6 | 1,861.1 | 1,860.8 |
-| T8 | 6.954 | 6.954 | 127.91 | 127.92 | 2,271.9 | 2,271.9 | 2,376.0 | 2,375.3 | none | none |
-| T9 | 4.697 | 4.697 | 184.98 | 184.99 | 2,957.5 | 2,957.8 | 3,083.1 | 3,082.4 | none | none |
-| T10a | 4.342 | 4.342 | 102.98 | 102.91 | 3,488.9 | 3,489.6 | 3,514.8 | 3,514.1 | 3,348.8 | 3,348.6 |
-| T10b | 3.786 | 3.786 | 106.06 | 106.12 | 3,517.3 | 3,517.6 | 3,550.8 | 3,550.0 | 3,348.8 | 3,348.6 |
-| T11 | 3.292 | 3.292 | 131.38 | 131.45 | 3,683.7 | 3,683.9 | 3,776.2 | 3,775.6 | none | none |
-| T12 | 3.349 | 3.336 | 172.42 | 172.43 | 3,890.6 | 3,890.7 | 3,908.6 | 3,907.8 | none | none |
+| T1 | 8.972 | 8.972 | 156.42 | 156.38 | 431.8 | 431.6 | 432.8 | 433.1 | 317.8 | 317.2 |
+| T2 | 3.604 | 3.604 | 132.77 | 132.93 | 790.9 | 790.7 | 713.0 | 712.0 | none | none |
+| T3 | 2.000 | 2.000 | 119.58 | 119.54 | 826.2 | 826.0 | 855.6 | 855.3 | 748.6 | 748.2 |
+| T4 | 3.622 | 3.622 | 127.55 | 127.63 | 868.2 | 868.5 | 940.2 | 939.5 | 749.2 | 748.2 |
+| The Esses | 6.187 | 6.187 | 158.24 | 158.25 | 1,054.8 | 1,054.8 | 1,201.8 | 1,200.9 | none | none |
+| T5 | 4.131 | 4.131 | 138.32 | 138.31 | 1,398.9 | 1,399.2 | 1,433.1 | 1,432.5 | 1,318.1 | 1,317.4 |
+| T6 | 4.049 | 4.049 | 132.77 | 132.70 | 1,966.5 | 1,967.1 | 1,970.6 | 1,969.6 | 1,861.6 | 1,860.8 |
+| T7 | 4.615 | 4.615 | 83.06 | 83.00 | 2,123.3 | 2,123.1 | 2,151.2 | 2,150.2 | 2,044.2 | 2,043.8 |
+| T8 | 6.954 | 6.954 | 127.91 | 127.92 | 2,271.9 | 2,271.9 | 2,414.9 | 2,414.3 | none | none |
+| T9 | 4.697 | 4.697 | 184.98 | 184.99 | 2,957.5 | 2,957.8 | 3,082.2 | 3,081.5 | none | none |
+| T10a | 4.342 | 4.342 | 102.98 | 102.91 | 3,488.9 | 3,489.6 | 3,514.1 | 3,514.1 | 3,349.1 | 3,348.6 |
+| T10b | 3.786 | 3.786 | 106.06 | 106.12 | 3,517.3 | 3,517.6 | 3,579.2 | 3,578.5 | 3,349.2 | 3,348.6 |
+| T11 | 3.292 | 3.292 | 131.38 | 131.45 | 3,683.7 | 3,683.9 | 3,751.6 | 3,750.7 | none | none |
+| T12 | 3.349 | 3.336 | 172.42 | 172.43 | 3,890.6 | 3,890.7 | 3,974.7 | 3,974.4 | none | none |
 
 Worst gaps: time 0.013 s, speed 0.16 km/h, distance 1.0 m. The Raw brake-point column is the nearest press start (pedal through 10 %) the test itself finds in the raw records.
 
 The brake point, wherever it is not a plain match:
-- T7: Paddock's brake point is 266 m before the apex: the press that began in the corner before (a linked corner), still on 250 m out; the raw records show 2 press start(s) in the window (2,044 m, 1,861 m)
-- T10b: Paddock's brake point is 201 m before the apex: the press that began in the corner before (a linked corner), still on 250 m out; the raw records show 1 press start(s) in the window (3,349 m)
+- T7: rawibt.cs picks the press at 1,861 m, Paddock 2,044 m (rawibt weighs the whole press, Paddock the part inside the 250 m window)
+- T10a: rawibt.cs says no brake, Paddock brake (rawibt skips a press still on at the apex)
+- T10b: Paddock's brake point is 229 m before the apex: the press that began in the corner before (a linked corner), still on 250 m out; the raw records show 1 press start(s) in the window (3,349 m)
 
 | Mark | Time into lap s: Paddock | Raw | Delta vs lap 10 s: Paddock | Raw | Speed km/h: Paddock | Raw | Lateral g: Paddock | Raw | Longitudinal g: Paddock | Raw |
 |---|---|---|---|---|---|---|---|---|---|---|
