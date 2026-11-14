@@ -251,7 +251,7 @@ try {
   Check 'a path is refused' ((Http "$api/api/do?c=key&a=..%5Cirdeck").code -eq 400)
   Check 'an empty key is refused' ((Http "$api/api/do?c=key").code -eq 400)
   $map = Get-Content (Join-Path $root 'keys\keys.map') | Where-Object { $_ -match '=' } | ForEach-Object { ($_ -split '=')[0].Trim() }
-  $notInMap = @(@('rig-on', 'test-drive', 'smart', 'get-out', 'tow', 'fuel-finish', 'vol-up', 'mute') | Where-Object { $map -notcontains $_ })
+  $notInMap = @(@('rig-on', 'smart', 'get-out', 'tow', 'fuel-finish', 'vol-up', 'mute') | Where-Object { $map -notcontains $_ })
   Check 'keys.map has the deck keys the app offers' ($notInMap.Count -eq 0) ($notInMap -join ', ')
 
   Section '5. the app at iPhone size (393x852)'
@@ -314,7 +314,8 @@ try {
   $paired = Wait-Until "PhoneApp.paired === true && !!PhoneApp.st" 12
   Check 'the right code pairs from the app and it comes alive' $paired
   $devId3 = Cdp-Eval "PhoneApp.devId || ''"
-  Check 'the saved address carries the token for the home-screen app' ((Cdp-Eval "location.search.indexOf('t=') >= 0") -eq $true)
+  $stateOk = Cdp-Eval "fetch('/phone/state', { credentials: 'same-origin' }).then(r => r.status)"
+  Check 'the saved address carries no token (it lives in an HttpOnly cookie since W0-2) and /phone/state answers 200 after pairing' (((Cdp-Eval "location.search.indexOf('t=') < 0") -eq $true) -and $stateOk -eq 200) "stateOk=$stateOk"
   Check 'no JS errors on the pair screen' ($script:cdp.errors.Count -eq 0) ($script:cdp.errors -join ' | ')
 
   Section '6. driving mode (pretend session): only what the deck allows'
@@ -329,7 +330,7 @@ try {
   Cdp-Shot (Join-Path $shots 'phone-driving.png')
   $null = Cdp-Eval "PhoneApp.show('drive'); true"; Start-Sleep -Seconds 3
   $vis = Cdp-Json "PhoneApp.visibleActions()"
-  $gone = @('rig-on', 'test-drive', 'smart', 'showcase', 'sleep', 'lock') | Where-Object { $n = $_; @($vis | Where-Object { $_.c -eq 'key' -and $_.a -eq $n }).Count -gt 0 }
+  $gone = @('rig-on', 'smart', 'showcase', 'sleep', 'lock') | Where-Object { $n = $_; @($vis | Where-Object { $_.c -eq 'key' -and $_.a -eq $n }).Count -gt 0 }
   Check 'START and PC keys are gone while driving' ($gone.Count -eq 0) ($gone -join ', ')
   Check 'pit, chat and volume keys stay' (@($vis | Where-Object { $_.c -eq 'key' -and $_.a -in @('fuel-finish', 'say-sorry', 'vol-up', 'get-out', 'tow') }).Count -eq 5)
   $null = Cdp-Eval "PhoneApp.setSeg('drive', 'replay'); true"; Start-Sleep -Seconds 2
@@ -361,10 +362,10 @@ try {
   }
   function Banned-Hits([string]$t) { $h = @(); foreach ($k in $banned.Keys) { if ([regex]::IsMatch($t, $banned[$k])) { $h += $k } }; return $h }
   # what each control must say for what it sends (the deck's own words); read from the page's own labels
-  $keyWords = @{ 'rig-on' = '^rig on$'; 'test-drive' = '^test drive$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'keep-lap' = '^keep lap$'; 'tv' = '^tv$'; 'spot-save' = '^mark spot$'; 'spot-back' = '^back to spot$';
+  $keyWords = @{ 'rig-on' = '^rig on$'; 'smart' = '^get in$'; 'get-out' = '^get out$'; 'tow' = '^reset car$'; 'spot-save' = '^mark spot$'; 'spot-back' = '^back to spot$';
     'restart-race' = '^restart$'; 'skip-session' = '^skip$'; 'quit-main' = '^quit$'; 'fuel-finish' = '^fuel$'; 'pit-tires' = '^tires$'; 'pit-clear' = '^clear$'; 'pit-fr' = '^repair$'; 'pit-ws' = '^wipe$'; 'seat-down' = '^seat down$'; 'seat-up' = '^seat up$';
     'say-sorry' = '^sorry$'; 'say-thanks' = '^thanks$'; 'say-gg' = '^good race$'; 'vol-down' = '^game .$'; 'vol-up' = '^game \+$'; 'mute' = '^mute pc$'; 'bb-f3' = '^relative$'; 'bb-f1' = '^timing$'; 'bb-f2' = '^standings$'; 'bb-f4' = '^fuel$';
-    'bb-f5' = '^tires$'; 'bb-f8' = '^in-car$'; 'bb-f11' = '^weather$'; 'showcase' = '^showcase$'; 'sleep' = '^sleep pc$'; 'lock' = '^lock pc$' }
+    'bb-f5' = '^tires$'; 'bb-f8' = '^in-car$'; 'bb-f11' = '^weather$'; 'showcase' = '^showcase$'; 'lock' = '^lock pc$' }
   $lt = [regex]::Unescape('‹'); $gt = [regex]::Unescape('›'); $minus = [regex]::Unescape('−')
   $cmdWords = @{ rpplay = '^play / pause$'; rpback10 = "^${minus}10 s$"; rprew = '^rewind$'; rpfast = '^forward$'; rpslow = '^slow motion$'; rplive = '^live$'; rplapprev = "^lap ${lt}$"; rplapnext = "^lap ${gt}$"; rpincprev = "^incident ${lt}$"; rpincnext = "^incident ${gt}$";
     rpmyinc = '^my last incident$'; rpphoto = '^photo$'; rpmycar = '^my car$'; rpahead = '^car ahead$'; rpbehind = '^car behind$'; rpleader = '^leader$'; rpcamnext = '^next camera$'; rphideui = '^hide menus$';

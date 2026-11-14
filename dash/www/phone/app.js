@@ -17,12 +17,9 @@ const PhoneApp = {
   // ---------- the deck's MAIN / MORE keys: group, key name (keys\keys.map), label, small line, tone, x2 ----------
   KEYS: [
     ['car', 'rig-on', 'Rig on', '', 'go'],
-    ['car', 'test-drive', 'Test drive', '', 'go'],
     ['car', 'smart', 'Get in', '', 'go'],
     ['ses', 'get-out', 'Get out', ''],
     ['ses', 'tow', 'Reset car', ''],
-    ['ses', 'keep-lap', 'Keep lap', ''],
-    ['ses', 'tv', 'TV', ''],
     ['ses', 'spot-save', 'Mark spot', ''],      // the deck's SAVE SPOT and BACK TO SPOT keys (keys.map names; the old names were no deck keys)
     ['ses', 'spot-back', 'Back to spot', ''],
     ['ses', 'restart-race', 'Restart', '', 'stop', 1],
@@ -49,7 +46,6 @@ const PhoneApp = {
     ['box', 'bb-f8', 'In-car', 'F8'],
     ['box', 'bb-f11', 'Weather', 'F11'],
     ['pc', 'showcase', 'Showcase', ''],
-    ['pc', 'sleep', 'Sleep PC', '', 'stop', 1],
     ['pc', 'lock', 'Lock PC', '', 'stop', 1]
   ],
   GROUPS: { car: 'Start', ses: 'Session', pit: 'Pit', talk: 'Race chat', vol: 'Volume', box: 'Black box', pc: 'PC' },
@@ -330,7 +326,7 @@ const PhoneApp = {
     if (inCar) act = ['tow', 'Reset car'];
     else if (sess) act = ['smart', 'Get in'];
     else if (apps.ui && apps.ui !== 'ok') act = ['rig-on', 'Rig on'];
-    else act = ['test-drive', 'Test drive'];
+    else act = ['smart', 'Get in'];   // the deck's DRIVE key sends smart; test-drive left keys.map
     const busy = Date.now() < this.busyUntil;
     let h = '';
     if (sess) {
@@ -340,7 +336,7 @@ const PhoneApp = {
     }
     if (inCar) {
       h += '<h2>Pit</h2><div class="grid three">' + this.keyTiles(['fuel-finish', 'pit-tires', 'pit-clear']) + '</div>';
-      h += '<h2>Session</h2><div class="grid">' + this.keyTiles(['get-out', 'keep-lap']) + '</div>';
+      h += '<h2>Session</h2><div class="grid">' + this.keyTiles(['get-out']) + '</div>';
     }
     h += '<div class="card" style="margin-top:' + (inCar ? 24 : 0) + 'px"><span class="lbl">Rig</span><div class="sys">' + (s.health && s.health.apps || []).map(a => '<div class="' + e(a.state) + '"><i></i><b>' + e(a.name) + '</b><em>' + ({ ok: 'On', live: 'Live', off: 'Off', down: 'Down', stuck: 'Stuck' }[a.state] || e(a.state)) + '</em></div>').join('') + '</div></div>';
     const last = !inCar && this.sessions && this.sessions.filter(x => x.laps > 0)[0];

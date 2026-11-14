@@ -32,7 +32,9 @@ namespace IRDash
         public const int Version = 4;
         // iRacing announces a lap's time 1.2-2.0 s after the line in a file (12 Nov race: 71 to 122 records); 4 s leaves room for a slow frame.
         public const double WindowSec = 4.0;
-        public const double MinLap = 15, MaxLap = 900;      // shorter is a reset or a blip, longer is a car parked on track
+        public const double MaxLap = 900;                    // longer is a car parked on track
+        // shorter is a reset or a blip. Not a const only so the recorder test can lower it (its pretend laps are 6-9 s); the test reset puts 15 back.
+        public static double MinLap = 15;
         // The first change of LapLastLapTime after the line is iRacing's time for that lap. Ours (line to line) can differ: lap 1 of a race is timed
         // by iRacing from the start (12 Nov: 101.580 against our 98.809). More than 5 % apart = something else happened (a reset): not its time.
         public const double TimeTolPart = 0.05;

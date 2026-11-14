@@ -2324,7 +2324,7 @@ namespace IRDash
             double now = WallMs();
             if (ff != null) { AskStop("test over", now); for (int i = 0; i < 60 && ff != null; i++) { try { if (ff.HasExited) break; } catch { break; } Thread.Sleep(150); } if (ff != null) { try { if (!ff.HasExited) ff.Kill(); } catch { } try { ReadList(run); ff.Dispose(); } catch { } ff = null; expectStop = false; } }
             RecAudio.Stop(); testAudio = "off";
-            testOn = false; source = "screen"; keepOverrideSec = 0; segSecs = 10; graceSecs = 20; minLap = 15; testBar = 0; testBlack = false; freeOverride = -1; gaveUp = false; restarts = 0; encoder = "hevc_nvenc"; fellBack = false;
+            testOn = false; source = "screen"; keepOverrideSec = 0; segSecs = 10; graceSecs = 20; minLap = 15; LapRules.MinLap = 15; testBar = 0; testBlack = false; freeOverride = -1; gaveUp = false; restarts = 0; encoder = "hevc_nvenc"; fellBack = false;
             // W0-2: the REAL defaults (keepSessions was set to 3 here: after any recorder test retention kept 3 unsaved sessions until a restart)
             openSess = null; diskPaused = false; recState = ""; keepSessions = DefaultKeepSessions; recentBudgetBytes = -1; savedBudgetBytes = -1;
             lock (gate) { segs.Clear(); cuts.Clear(); incCuts.Clear(); probing = 0; clips.Clear(); }
@@ -2368,7 +2368,7 @@ namespace IRDash
                         TestOff();
                         int v; double d;
                         keepOverrideSec = int.TryParse(Q(q, "keep"), out v) && v > 5 ? v : 0; segSecs = int.TryParse(Q(q, "seg"), out v) && v >= 3 && v <= 60 ? v : 10; graceSecs = int.TryParse(Q(q, "grace"), out v) && v >= 0 ? v : 20;
-                        minLap = double.TryParse(Q(q, "minlap"), NumberStyles.Float, Inv, out d) && d >= 0 ? d : 15; testBar = double.TryParse(Q(q, "bar"), NumberStyles.Float, Inv, out d) && d > 0 ? d : 0; testBlack = Q(q, "black") == "1";
+                        minLap = double.TryParse(Q(q, "minlap"), NumberStyles.Float, Inv, out d) && d >= 0 ? d : 15; LapRules.MinLap = minLap; testBar = double.TryParse(Q(q, "bar"), NumberStyles.Float, Inv, out d) && d > 0 ? d : 0; testBlack = Q(q, "black") == "1";
                         try { Directory.CreateDirectory(RecDir); Directory.CreateDirectory(ClipDir); foreach (string f in Directory.GetFiles(RecDir)) File.Delete(f); foreach (string f in Directory.GetFiles(ClipDir, "rec-*")) File.Delete(f); } catch { }
                         RecAudio.ForgetMissing();
                         // the sound of a test: off (default), synth (clicks on every whole second), system, or pid:<n> (one program, e.g. a tone player)
