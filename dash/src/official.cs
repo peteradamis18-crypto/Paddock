@@ -520,6 +520,21 @@ namespace IRDash
             return k;
         }
 
+        // one log line at start-up and whenever it changes, so the lead can check it names his real series (PLAN 9 C1)
+        static string mineLogged;
+        static void LogMine(HashSet<string> mine)
+        {
+            List<string> names = new List<string>(); HashSet<string> left = new HashSet<string>(mine);
+            foreach (OfSeries s in series) if (left.Remove(s.Key)) names.Add(s.Short);
+            foreach (string n in favNames) { string k = OfficialCore.Norm(OfficialCore.ShortName(n)); if (left.Remove(k)) names.Add(n + " (favourite, not in this schedule)"); }
+            foreach (string k in left) names.Add(k);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            string line = names.Count > 0 ? string.Join(", ", names.ToArray()) : "none found in his last 10 races; HOME counts down to the next race he has a car and track for";
+            if (line == mineLogged) return;
+            mineLogged = line;
+            Log.W("official: Peter's series: " + line);
+        }
+
         // ---- career cache: licence and the cars he drives (read only) ----
         static void LoadCareer()
         {
@@ -544,9 +559,13 @@ namespace IRDash
                             if (p[6].Trim().Length > 0) cars.Add(OfficialCore.Norm(p[6]));
                             OfficialCore.SessionHint h = new OfficialCore.SessionHint();
                             h.When = new DateTime(ticks, DateTimeKind.Utc);
+                            long st0; if (p.Length >= 20 && p[12] == "2" && long.TryParse(p[18], out st0) && st0 > 0) h.When = new DateTime(st0, DateTimeKind.Utc);   // format 2 knows when the session began
                             h.Car = p[6].Trim();
                             h.Track = p[7].Trim();
                             h.Series = "";
+                            // W3-3: a race (the event or the session says so; not qualifying or practice) can name his series by car, track and week
+                            string kind = p[8] + " " + (p.Length >= 20 ? p[19] : "");
+                            h.Race = Regex.IsMatch(kind, "race", RegexOptions.IgnoreCase) && !Regex.IsMatch(kind, "qual|prac|test", RegexOptions.IgnoreCase);
                             hints.Add(h);
                             // a rated session (iRating above the 1 that test drives carry) has his real licence class
                             if (int.TryParse(p[5], out ir) && ir > 1 && p[11].Trim().Length > 0 && ticks > licWhen) { licWhen = ticks; lic = p[11].Trim(); }
@@ -710,7 +729,7 @@ namespace IRDash
             if (series.Count == 0 || owned == null)
             {
                 sb.Append(",\"loaded\":false,\"msg\":").Append(Json_.S(series.Count == 0 ? "No schedule yet" : "Loading"));
-                sb.Append(",\"days\":[],\"deck\":[],\"next\":null}");
+                sb.Append(",\"days\":[],\"deck\":[],\"mine\":[],\"next\":null}");
                 return sb.ToString();
             }
 
@@ -720,6 +739,12 @@ namespace IRDash
             if (dirt.Length == 0) dirt = "R";                       // not known: assume Rookie (shows only series a Rookie can enter)
             OfficialCore.Query q = new OfficialCore.Query(); q.Owned = owned; q.RoadLic = road; q.OvalLic = oval; q.DirtLic = dirt; q.Favs = FavKeys();
             HashSet<string> his = OfficialCore.HisSeriesKeys(favNames, careerSessions, nowUtc);
+            // W3-3: HIS series = the favourites and the series of his last 10 races (car + track + week, officialcore SeriesOfRaces).
+            // It picks HOME's next race and sorts his series first; the day and deck lists keep filtering on the favourites alone,
+            // as before, so the OFFICIAL deck screen does not shrink to one series by surprise.
+            HashSet<string> hisAll = new HashSet<string>(his);
+            hisAll.UnionWith(OfficialCore.SeriesOfRaces(series, careerSessions, 10));
+            if (!fake) LogMine(hisAll);
 
             DateTime lastDayEnd = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(sun.AddDays(1), DateTimeKind.Unspecified), tz);
             DateTime to = nowUtc.AddDays(8) > lastDayEnd ? nowUtc.AddDays(8) : lastDayEnd;
@@ -729,7 +754,7 @@ namespace IRDash
             // one entry per series (and day): the first start after `from`, how many more that day, how it repeats
             Dictionary<string, OfPattern> pats = new Dictionary<string, OfPattern>();
             Func<OfSeries, OfPattern> pat = delegate (OfSeries s) { OfPattern p; if (!pats.TryGetValue(s.Id, out p)) { p = OfficialCore.ParsePattern(s.Freq); pats[s.Id] = p; } return p; };
-            Func<OfSeries, bool> isFam = delegate (OfSeries s) { foreach (string c in s.Cars) if (familiar.Contains(OfficialCore.Norm(c))) return true; return OfficialCore.IsHisSeries(s, his); };
+            Func<OfSeries, bool> isFam = delegate (OfSeries s) { foreach (string c in s.Cars) if (familiar.Contains(OfficialCore.Norm(c))) return true; return OfficialCore.IsHisSeries(s, hisAll); };
 
             List<List<Row>> dayRows = new List<List<Row>>();
             List<DateTime> dayDates = new List<DateTime>(); List<string> dayKeys = new List<string>(), dayLabels = new List<string>();
@@ -777,9 +802,10 @@ namespace IRDash
                 dayRows.Add(rows);
             }
 
-            // the top favourite's next race (countdown in the idle header)
-            OfRace nextFav = null;
-            foreach (OfRace r in races) if (q.Favs.Contains(r.S.Key)) { nextFav = r; break; }
+            // HOME's countdown (W3-3): the next race of his series; none coming = the next race he has a car and track for (PLAN 4.1)
+            OfRace nextRace = null; bool nextMine = false;
+            foreach (OfRace r in races) if (OfficialCore.IsHisSeries(r.S, hisAll)) { nextRace = r; nextMine = true; break; }
+            if (nextRace == null && races.Count > 0) nextRace = races[0];
 
             bool weekend = (nowLocal.DayOfWeek == DayOfWeek.Friday && nowLocal.Hour >= 17) || nowLocal.DayOfWeek == DayOfWeek.Saturday || nowLocal.DayOfWeek == DayOfWeek.Sunday;
             DateTime end = DateTime.MinValue; foreach (OfSeries s in series) foreach (OfWeek w in s.Weeks) if (w.Start.AddDays(7) > end) end = w.Start.AddDays(7);
@@ -793,7 +819,11 @@ namespace IRDash
             sb.Append(",\"owned\":{\"cars\":").Append(owned.CarFolders.Count).Append(",\"tracks\":").Append(owned.TrackFolders.Count).Append(",\"unknownCars\":").Append(owned.UnknownCars.Count).Append(",\"unknownTracks\":").Append(owned.UnknownTracks.Count).Append("}");
             sb.Append(",\"left\":{\"series\":").Append(why.Total).Append(",\"noTimes\":").Append(why.NoTimes).Append(",\"noCar\":").Append(why.NoCar).Append(",\"noTrack\":").Append(why.NoTrack).Append(",\"licence\":").Append(why.Licence).Append("}");
             sb.Append(",\"favCount\":").Append(favNames.Count).Append(",\"open\":").Append(DateTime.UtcNow < openUntil ? "true" : "false");
-            sb.Append(",\"next\":").Append(nextFav == null ? "null" : RaceJson(nextFav, null, q, pat(nextFav.S), owned, isFam, 0, nowUtc, tz));
+            List<string> mineKeys = new List<string>(hisAll); mineKeys.Sort(StringComparer.Ordinal);
+            sb.Append(",\"mine\":[");
+            for (int i = 0; i < mineKeys.Count; i++) sb.Append(i > 0 ? "," : "").Append(Json_.S(mineKeys[i]));
+            sb.Append("],\"nextMine\":").Append(nextMine ? "true" : "false");
+            sb.Append(",\"next\":").Append(nextRace == null ? "null" : RaceJson(nextRace, null, q, pat(nextRace.S), owned, isFam, 0, nowUtc, tz));
             // special events from today to three weeks ahead (dates only)
             List<Special> soon = specials.FindAll(delegate (Special s) { return s.To >= today && s.From <= today.AddDays(21) && (s.Track.Length == 0 || OfficialCore.OwnsTrack(owned, s.Track)); });   // only ones at tracks he owns
             soon.Sort(delegate (Special a, Special b) { bool oa = OfficialCore.OwnsTrack(owned, a.Track), ob = OfficialCore.OwnsTrack(owned, b.Track); if (oa != ob) return oa ? -1 : 1; return a.From.CompareTo(b.From); });

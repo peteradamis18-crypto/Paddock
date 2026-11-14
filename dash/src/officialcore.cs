@@ -311,7 +311,42 @@ namespace IRDash
             return "not published";
         }
 
-        public sealed class SessionHint { public DateTime When; public string Car = "", Track = "", Series = ""; }
+        public sealed class SessionHint { public DateTime When; public string Car = "", Track = "", Series = ""; public bool Race; }
+
+        // W3-3: the series of his last `lastN` races, found by what he drove: the car, the track and the week. A race in a GR86 at
+        // Road Atlanta during the week the GR Cup ran there was a GR Cup race. A recording never names its series, so this is the
+        // one honest link; races that match no series week (AI races, last season) simply add nothing.
+        public static HashSet<string> SeriesOfRaces(List<OfSeries> all, IEnumerable<SessionHint> sessions, int lastN)
+        {
+            HashSet<string> k = new HashSet<string>();
+            if (all == null || sessions == null) return k;
+            List<SessionHint> races = new List<SessionHint>();
+            foreach (SessionHint h in sessions) if (h != null && h.Race && h.Car.Length > 0 && h.Track.Length > 0) races.Add(h);
+            races.Sort(delegate (SessionHint a, SessionHint b) { return b.When.CompareTo(a.When); });
+            for (int i = 0; i < races.Count && i < lastN; i++)
+            {
+                string car = Norm(races[i].Car), track = Norm(races[i].Track);
+                foreach (OfSeries s in all)
+                {
+                    OfWeek w = WeekAt(s, races[i].When);
+                    if (w == null || !SameTrack(Norm(w.Track), track)) continue;
+                    bool carOk = false;
+                    if (s.CarsKnown) { foreach (string c in s.Cars) if (Norm(c) == car) { carOk = true; break; } }
+                    else carOk = car.Length >= 6 && Norm(w.Track + " " + w.Layout).Contains(car);      // "See race week for cars": the week's cell names them
+                    if (carOk) k.Add(s.Key);
+                }
+            }
+            return k;
+        }
+
+        // "Road Atlanta" = "Road Atlanta"; "Silverstone Circuit" in a session vs "Silverstone Circuit" in the schedule; a longer
+        // name that starts with the other counts too (iRacing's session and the PDF do not always agree on the tail)
+        static bool SameTrack(string a, string b)
+        {
+            if (a.Length == 0 || b.Length == 0) return false;
+            if (a == b) return true;
+            return (a.Length >= 6 && b.StartsWith(a, StringComparison.Ordinal)) || (b.Length >= 6 && a.StartsWith(b, StringComparison.Ordinal));
+        }
 
         // Favourites union series named in the last 90 days. Car or track alone never implies a series.
         public static HashSet<string> HisSeriesKeys(IEnumerable<string> favNames, IEnumerable<SessionHint> sessions, DateTime nowUtc)

@@ -24,6 +24,7 @@ namespace IRDash
     static class Program { public static bool Driving; public static bool IsDriving { get { return Driving; } } }
 static class RigState { public static bool SessionOn { get { return Sdk.FakeConnected || Program.Driving; } } }      // W0-2: official.cs asks the one rig state
     static class Watch { public static string IrdeckPath; }
+    static class Jobs { public static bool Run(string name, Action work, bool whenFree) { work(); return true; } }      // W0-3 queue: here the job runs at once
 }
 
 static class T
@@ -39,6 +40,7 @@ static class T
         if (mode == "unit") Unit();
         else if (mode == "glue") Glue(a[1]);
         else if (mode == "source") Source(a[1], a.Length > 2 ? a[2] : a[1]);
+        else if (mode == "mine") Mine(a[1]);
         else if (mode == "json")
         {
             Official.Init(Path.Combine(a[1], @"data\official"));
@@ -332,8 +334,8 @@ static class T
         j = Parse(Official.Json(nowIso)); rows = Arr(Obj(Arr(j["days"])[0])["rows"]);
         Check("Bravo is now a favourite and the first row of today", S(Obj(rows[0])["series"]).StartsWith("Bravo") && S(Obj(rows[0])["fav"]) == "True");
         Check("the top favourite's next race is in the header data (next)", j["next"] != null && S(Obj(j["next"])["series"]).StartsWith("Bravo"));
-        Check("un-star: the line goes and the favourite flag with it", Official.Do("offav", idB) && !File.ReadAllText(Path.Combine(dir, "favourites.ini")).Contains("Bravo Rookie Cup") && Parse(Official.Json(nowIso))["next"] == null);
-        Check("a hand-edited favourites.ini is picked up (Notepad)", Hand(dir, "Echo Mini Cup") && Parse(Official.Json(nowIso))["next"] != null);
+        Check("un-star: the line goes and the favourite flag with it", Official.Do("offav", idB) && !File.ReadAllText(Path.Combine(dir, "favourites.ini")).Contains("Bravo Rookie Cup") && NotFavNext(Parse(Official.Json(nowIso))));
+        Check("a hand-edited favourites.ini is picked up (Notepad)", Hand(dir, "Echo Mini Cup") && Parse(Official.Json(nowIso))["next"] != null && S(Obj(Parse(Official.Json(nowIso))["next"])["series"]).StartsWith("Echo"));
         File.WriteAllText(Path.Combine(dir, "favourites.ini"), "");
 
         Console.WriteLine("9. the whitelist");
@@ -443,6 +445,89 @@ static class T
         Official.TestTransport = null;
         WriteProfile(dir, "no", "");
     }
+
+    static bool NotFavNext(Dictionary<string, object> j) { return j["next"] == null || S(Obj(j["next"])["fav"]) == "False"; }
+
+    // ---------------------------------------------------------------- W3-3: his series from his own races, and HOME's next race
+    // A schedule with the GR Cup at Road Atlanta in week 10 (10-16 Nov), a Mazda Cup there too, and a Ferrari series he has no car for.
+    public static byte[] GrCupPdf()
+    {
+        List<string[]> pg = new List<string[]>(); int y = 740; pg.Add(I(302, 18, "1"));
+        string[][] gr = new string[][] { new string[] { "9", "2026-11-03", "Silverstone Circuit - Grand Prix", "30 mins" }, new string[] { "10", "2026-11-10", "Road Atlanta - Full Course", "30 mins" }, new string[] { "11", "2026-11-17", "Silverstone Circuit - Grand Prix", "30 mins" } };
+        Series(pg, ref y, "Toyota GR Cup - 2026 Season 4", new string[] { "Toyota GR86" }, "Rookie (1.0) --> Pro/WC (4.0)", "Races hourly at :15", gr);
+        Series(pg, ref y, "Global Mazda MX-5 Cup - 2026 Season 4", new string[] { "Global Mazda MX-5 Cup" }, "Rookie (1.0) --> Pro/WC (4.0)", "Races hourly at :10", new string[][] { new string[] { "10", "2026-11-10", "Road Atlanta - Full Course", "20 mins" } });
+        List<string[]> pg2 = new List<string[]>(); y = 740; pg2.Add(I(302, 18, "2"));
+        Series(pg2, ref y, "Ferrari GT3 Challenge - 2026 Season 4", new string[] { "Ferrari 296 GT3" }, "Rookie (1.0) --> Pro/WC (4.0)", "Races every 30 minutes", new string[][] { new string[] { "10", "2026-11-10", "Road Atlanta - Full Course", "20 mins" } });
+        return MakePdf(new List<List<string[]>> { pg, pg2 });
+    }
+
+    // a career-cache.tsv row in format 2 (the columns Career writes): file, ticks, secs, metres, laps, iR, car, track, event, name, number, licence, 2, best, fuel, fuel laps, config, track id, start ticks, session type
+    static string CareerRow(string file, DateTime startUtc, string car, string track, string ev, string stype)
+    {
+        long t = startUtc.Ticks;
+        return string.Join("\t", new string[] { file + "|1", (t + 1800L * 10000000L).ToString(), "1800", "60000", "15", "1350", car, track, ev, "Peter", "7", "D 3.10", "2", "93.8", "2.1", "14", "Full Course", "127", t.ToString(), stype });
+    }
+
+    static void Mine(string root)
+    {
+        Console.WriteLine("13. his series from his last races (W3-3)");
+        // the pure part first
+        List<OfSeries> ser = OfficialCore.ParseSeason(PdfText.Extract(GrCupPdf()));
+        Check("the GR Cup fixture has 3 series and the GR Cup has weeks 9-11", ser.Count == 3 && ser[0].Weeks.Count == 3 && ser[0].Weeks[1].N == 10 && ser[0].Weeks[1].Track == "Road Atlanta");
+        string grKey = ser.Count > 0 ? ser[0].Key : "?";
+        List<OfficialCore.SessionHint> hs = new List<OfficialCore.SessionHint>();
+        foreach (string d in new string[] { "2026-11-11 20:00", "2026-11-12 20:00", "2026-11-13 20:00" }) { OfficialCore.SessionHint h = new OfficialCore.SessionHint(); h.When = U(d); h.Car = "Toyota GR86"; h.Track = "Road Atlanta"; h.Race = true; hs.Add(h); }
+        HashSet<string> k = OfficialCore.SeriesOfRaces(ser, hs, 10);
+        Check("three GR86 races at Road Atlanta in week 10 -> his series is the GR Cup and nothing else (" + string.Join(",", k.ToArray()) + ")", k.Count == 1 && k.Contains(grKey));
+        OfficialCore.SessionHint prac = new OfficialCore.SessionHint(); prac.When = U("2026-11-12 18:00"); prac.Car = "Global Mazda MX-5 Cup"; prac.Track = "Road Atlanta"; prac.Race = false; hs.Add(prac);
+        Check("a practice in the MX-5 at the same track adds nothing (races only)", OfficialCore.SeriesOfRaces(ser, hs, 10).Count == 1);
+        OfficialCore.SessionHint wrongWeek = new OfficialCore.SessionHint(); wrongWeek.When = U("2026-11-05 20:00"); wrongWeek.Car = "Toyota GR86"; wrongWeek.Track = "Road Atlanta"; wrongWeek.Race = true;
+        Check("a GR86 race at Road Atlanta in week 9 (the GR Cup was at Silverstone) matches no series", OfficialCore.SeriesOfRaces(ser, new List<OfficialCore.SessionHint> { wrongWeek }, 10).Count == 0);
+        List<OfficialCore.SessionHint> many = new List<OfficialCore.SessionHint>();
+        for (int i = 0; i < 10; i++) { OfficialCore.SessionHint h = new OfficialCore.SessionHint(); h.When = U("2026-11-13 10:00").AddMinutes(i); h.Car = "Mystery Car"; h.Track = "Nowhere"; h.Race = true; many.Add(h); }
+        many.Add(hs[0]);
+        Check("only the last 10 races count: an 11th, older GR Cup race is not looked at", OfficialCore.SeriesOfRaces(ser, many, 10).Count == 0 && OfficialCore.SeriesOfRaces(ser, many, 11).Count == 1);
+
+        // irdash's side: a pretend root with no favourites file
+        string dir = Path.Combine(root, @"data\official");
+        Directory.CreateDirectory(dir); Directory.CreateDirectory(Path.Combine(root, "dash"));
+        foreach (string c in new string[] { "toyotagr86", "mx5\\mx52016" }) { string cd = Path.Combine(root, "iRacing\\cars\\" + c); Directory.CreateDirectory(cd); File.WriteAllText(Path.Combine(cd, Path.GetFileName(c) + ".dat"), "x"); }
+        foreach (string t in new string[] { "roadatlanta", "silverstone" }) Directory.CreateDirectory(Path.Combine(root, "iRacing\\tracks\\" + t));
+        File.WriteAllText(Path.Combine(dir, "profile.ini"), "iracing=" + Path.Combine(root, "iRacing") + "\r\nevening=18\r\nautodownload=no\r\nscheduleurl=\r\n");
+        string cache = Path.Combine(root, @"dash\career-cache.tsv");
+        File.WriteAllText(cache, string.Join("\n", new string[] {
+            CareerRow("toyotagr86_roadatlanta full 2026-11-11 20-00-00.ibt", U("2026-11-11 20:00"), "Toyota GR86", "Road Atlanta", "Race", "Race"),
+            CareerRow("toyotagr86_roadatlanta full 2026-11-12 20-00-00.ibt", U("2026-11-12 20:00"), "Toyota GR86", "Road Atlanta", "Race", "Race"),
+            CareerRow("toyotagr86_roadatlanta full 2026-11-13 20-00-00.ibt", U("2026-11-13 20:00"), "Toyota GR86", "Road Atlanta", "Race", "Race"),
+            CareerRow("mx52016_roadatlanta full 2026-11-12 18-00-00.ibt", U("2026-11-12 18:00"), "Global Mazda MX-5 Cup", "Road Atlanta", "Practice", "Practice") }) + "\n");
+        Official.Init(dir);
+        Official.MinSeries = 2;
+        string pdf = Path.Combine(dir, "grcup.pdf"); File.WriteAllBytes(pdf, GrCupPdf());
+        string m = Official.ImportPath(pdf, "fixture");
+        Check("the GR Cup schedule is read" + (m == null ? "" : " - " + m), m == null);
+        Check("no favourites file is needed", !File.Exists(Path.Combine(dir, "favourites.ini")));
+        string nowIso = "2026-11-14T12:00:00Z";
+        Dictionary<string, object> j = Parse(Official.Json(nowIso));
+        object[] mine = Arr(j.ContainsKey("mine") ? j["mine"] : null) ?? new object[0];
+        Console.WriteLine("        his series (mine): " + string.Join(", ", mine.Select(delegate (object o) { return S(o); }).ToArray()));
+        Check("/official \"mine\" holds the GR Cup key and only that", mine.Length == 1 && S(mine[0]) == grKey);
+        Dictionary<string, object> nx = j["next"] == null ? null : Obj(j["next"]);
+        Check("next is the GR Cup's next race (12:15 UTC), not the Mazda Cup at 12:10 that is sooner", nx != null && S(nx["series"]).StartsWith("Toyota GR Cup") && S(nx["t"]) == "2026-11-14T12:15:00Z" && S(j["nextMine"]) == "True", nx == null ? "" : " (" + S(nx["series"]) + " " + S(nx["t"]) + ")");
+        TimeZoneInfo tz = TimeZoneInfo.Local;
+        Check("next carries the local start and the countdown (15 min = 900 s)", nx != null && S(nx["localStart"]) == OfficialCore.LocalStart(U("2026-11-14 12:15"), tz) && Convert.ToInt32(nx["countdownSeconds"]) == 900);
+        Check("the Ferrari series (no car) is never his next race", nx != null && !S(nx["series"]).StartsWith("Ferrari"));
+        Official.Json(null);      // the real clock: the start-up log line (his series does not depend on the clock)
+
+        // the fallback: no race of his matches a series week -> the next race he has a car and track for
+        File.WriteAllText(cache, CareerRow("toyotagr86_lime 2026-11-05.ibt", U("2026-11-05 20:00"), "Toyota GR86", "Lime Rock Park", "Race", "Race") + "\n");
+        File.SetLastWriteTimeUtc(cache, DateTime.UtcNow.AddSeconds(10));
+        Official.Do("ofrefresh", "");
+        j = Parse(Official.Json(nowIso));
+        mine = Arr(j["mine"]) ?? new object[0];
+        nx = j["next"] == null ? null : Obj(j["next"]);
+        Check("nothing matches: \"mine\" is empty and next falls back to the soonest race he can enter (Mazda Cup 12:10)", mine.Length == 0 && nx != null && S(nx["series"]).StartsWith("Global Mazda") && S(nx["t"]) == "2026-11-14T12:10:00Z" && S(j["nextMine"]) == "False");
+    }
+    static void Check(string what, bool ok, string extra) { Check(what + (ok ? "" : extra), ok); }
 
     static bool Hand(string dir, string line) { File.WriteAllText(Path.Combine(dir, "favourites.ini"), "; hand written\r\n" + line + "\r\n"); System.Threading.Thread.Sleep(30); File.SetLastWriteTimeUtc(Path.Combine(dir, "favourites.ini"), DateTime.UtcNow.AddSeconds(5)); return true; }
     static bool Dry() { Sdk.FakeConnected = true; bool a = !Official.Do("ofscan", "") && !Official.Do("ofdry", "o00000000"); Sdk.FakeConnected = false; Program.Driving = true; bool b = !Official.Do("ofscan", ""); Program.Driving = false; return a && b; }
