@@ -199,9 +199,8 @@ namespace IRDash
 
         static string Kind(string id)
         {
-            Func<string, string> h = ShareState;
-            if (h == null) return "none";
-            try { Match m = Regex.Match(h(id) ?? "", "\"kind\"\\s*:\\s*\"([a-z]+)\""); return m.Success ? m.Groups[1].Value : "none"; } catch { return "none"; }
+            Match m = Regex.Match(StateJson(id), "\"kind\"\\s*:\\s*\"([a-z]+)\"");
+            return m.Success ? m.Groups[1].Value : "none";
         }
         // an upload waiting or running holds the file: nothing automatic touches it
         static bool Uploading(string id) { string k = Kind(id); return k == "queued" || k == "sharing"; }
@@ -435,11 +434,21 @@ namespace IRDash
         public static bool EmptyTrash() { return Jobs.Run("library empty old trash", delegate { long b; Empty(false, out b); }, true); }
         public static bool EmptyTrashNow() { return Jobs.Run("empty the trash", delegate { long b; Empty(true, out b); }, true); }
 
+        // the race's share state: YouTube's record when it has one; before that, "queued" from the SHARE press while the cut is made
+        // (pendingShare), or the plain reason a cut failed
         static string StateJson(string id)
         {
             Func<string, string> h = ShareState;
-            if (h != null) { try { string j = (h(id) ?? "").Trim(); if (j.StartsWith("{") && j.EndsWith("}")) return j; } catch { } }
-            return "{\"kind\":\"none\"}";
+            string j = "";
+            if (h != null) { try { j = (h(id) ?? "").Trim(); } catch { j = ""; } }
+            if (!(j.StartsWith("{") && j.EndsWith("}"))) j = "{\"kind\":\"none\"}";
+            if (Regex.IsMatch(j, "\"kind\"\\s*:\\s*\"none\""))
+                lock (shareGate)
+                {
+                    if (pendingShare.Contains(id)) return "{\"kind\":\"queued\",\"pct\":0}";
+                    string err; if (cutFailed.TryGetValue(id, out err)) return "{\"kind\":\"failed\",\"error\":" + Json_.S(err) + "}";
+                }
+            return j;
         }
 
         public sealed class FreeResult { public int Count; public long Bytes; public string Say = ""; }
@@ -508,6 +517,7 @@ namespace IRDash
                 if (Jobs.ShouldYield) return;
                 long freed; if (Empty(false, out freed) > 0) changed = true;
                 if (Floor()) changed = true;
+                TidyCuts();
                 if (changed) Changed();
             }
             catch (Exception ex) { Log.W("library: tidy: " + ex.Message); }
@@ -669,7 +679,9 @@ namespace IRDash
         {
             List<RaceInfo> all = SessionIndex.All(), trash = TrashList();
             long tb = 0; foreach (RaceInfo r in trash) tb += r.Bytes;
-            StringBuilder sb = new StringBuilder("{\"storage\":" + StoreJson(Storage(all, tb)) + ",\"youtube\":" + YouTube() + ",\"races\":[");
+            Store st = Storage(all, tb); string sj = StoreJson(st);
+            if (st.LowSpace) sj = sj.Substring(0, sj.Length - 1) + ",\"freeUp\":" + FreeUpJson(all) + "}";      // W1-4: the page's FREE UP SPACE key says what it would delete
+            StringBuilder sb = new StringBuilder("{\"storage\":" + sj + ",\"youtube\":" + YouTube() + ",\"titles\":" + TitlesJson(all) + ",\"races\":[");
             bool first = true;
             foreach (RaceInfo r in Shown(all))
             {
@@ -710,8 +722,168 @@ namespace IRDash
             return sb.Append("]}").ToString();
         }
 
-        // ---------------- commands (/api/do?c=...; all in Gate.GuardedDo: never while a session is on) ----------------
-        public static bool Handles(string c) { return c == "racetrash" || c == "raceundo" || c == "raceempty" || c == "racefree"; }
+        // ---------------- SHARE TO YOUTUBE (W1-4): cut the out lap off, then hand the cut to YouTube's queue ----------------
+        // The press answers at once; each race is one whenFree job (ffmpeg + a long upload never run in a session). From the press until
+        // YouTube's own record exists the race says "queued" (pendingShare). The cut lives in vault\cuts until its upload is shared.
+        static readonly object shareGate = new object();
+        static readonly HashSet<string> pendingShare = new HashSet<string>();
+        static readonly Dictionary<string, string> cutFailed = new Dictionary<string, string>();
+        static string CutDir { get { return Path.Combine(Recorder.LibVaultRoot, "cuts"); } }
+        internal delegate string CutFn(string mp4, string outDir, CutPlan p, out string outPath);
+        internal static CutFn CutTool;                      // tests: stands in for Cuts.Run
+        internal static Action<string, string, string, string, string, string> Enqueued;   // tests: id, file, title, description, privacy, thumb
+
+        static bool SignedIn() { return Regex.IsMatch(YouTube(), "\"signedIn\"\\s*:\\s*true"); }
+        static int TemplateNow() { Match m = Regex.Match(YouTube(), "\"template\"\\s*:\\s*([1-5])"); return m.Success ? int.Parse(m.Groups[1].Value, Inv) : 1; }
+        static string PrivacyNow() { return Regex.IsMatch(YouTube(), "\"privacy\"\\s*:\\s*\"public\"") ? "public" : "private"; }
+
+        // what a title knows about a race. Series: no clean link from a recording to Peter's registered series yet (the schedule in
+        // official.cs knows series, not which one a session was), so it stays empty and the templates leave it out. Finish/Start: the
+        // sidecar has no positions yet, so 0 (the P segments vanish).
+        static Facts FactsOf(RaceInfo r)
+        {
+            Facts f = new Facts();
+            f.Car = r.Car ?? ""; f.Track = r.Track ?? ""; f.Config = r.Config ?? ""; f.Series = "";
+            if (r.StartMs > 0) f.Date = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(r.StartMs).ToLocalTime();
+            return f;
+        }
+
+        public sealed class ShareResult { public int Started, Already, Missing; public bool SignIn; public string Say = ""; }
+
+        public static ShareResult Share(IList<string> ids)
+        {
+            ShareResult res = new ShareResult();
+            List<string> start = new List<string>();
+            foreach (string id in ids)
+            {
+                if (!IdOk(id)) continue;
+                RaceInfo r = SessionIndex.Get(id);
+                if (r == null || r.InTrash) { res.Missing++; continue; }
+                string k = Kind(id);
+                if (k == "shared" || k == "sharing") { res.Already++; continue; }
+                lock (shareGate)
+                {
+                    if (pendingShare.Contains(id)) { res.Started++; continue; }      // a second press: the first one is already on it
+                    pendingShare.Add(id); cutFailed.Remove(id);
+                }
+                start.Add(id); res.Started++;
+            }
+            foreach (string id in start) { string x = id; Jobs.Run("share " + x, delegate { ShareOne(x); }, true); }
+            if (start.Count > 0) { Log.W("library: share pressed for " + Plural(start.Count) + " (" + string.Join(", ", start.ToArray()) + ")"); Changed(); }
+            res.SignIn = !SignedIn();
+            res.Say = res.Started == 0 ? (res.Already > 0 ? MsgAlready : "Nothing to share")
+                : res.SignIn ? "Sign in to YouTube first"
+                : "Sharing " + Plural(res.Started) + (res.Already > 0 ? ". " + res.Already + " already on YouTube" : "");
+            return res;
+        }
+        const string MsgAlready = "Already on YouTube";
+
+        // on the Jobs worker, between sessions: plan -> title/description -> cut -> YouTube's queue
+        static void ShareOne(string id)
+        {
+            string err = "";
+            try
+            {
+                if (Jobs.ShouldYield) { Jobs.Again("share " + id, delegate { ShareOne(id); }); return; }
+                RaceInfo r = SessionIndex.Get(id);
+                if (r == null) err = "The race video is missing.";
+                else
+                {
+                    string side = "{}";
+                    try { if (File.Exists(r.Sidecar)) side = File.ReadAllText(r.Sidecar, Encoding.UTF8); } catch { }
+                    CutPlan p = Cuts.Plan(side, r.Sec);
+                    Facts f = FactsOf(r);
+                    string title = Cuts.Title(TemplateNow(), f), desc = Cuts.Description(p, f);
+                    string cut; string res = Cut(r.File, CutDir, p, out cut);
+                    if (res == "YIELD") { Jobs.Again("share " + id, delegate { ShareOne(id); }); return; }     // a session started mid-cut: after it
+                    if (res != "ok") err = res;
+                    else
+                    {
+                        string thumb = File.Exists(ThumbPath(id, false)) ? ThumbPath(id, false) : "";
+                        Action<string, string, string, string, string, string> seen = Enqueued; if (seen != null) seen(id, cut, title, desc, PrivacyNow(), thumb);
+                        string m;
+                        if (!IRDash.YouTube.Enqueue(id, cut, title, desc, PrivacyNow(), thumb, out m)) { if (m != MsgAlready) err = m; try { File.Delete(cut); } catch { } }
+                        else Log.W("library: " + id + " cut (" + p.Why + ") and queued for YouTube: " + title);
+                    }
+                }
+            }
+            catch (Exception ex) { err = "Could not share it (" + ex.Message + ")"; }
+            lock (shareGate) { pendingShare.Remove(id); if (err.Length > 0) cutFailed[id] = err; }
+            if (err.Length > 0) Log.W("library: " + id + " not shared: " + err);
+            Changed();
+        }
+
+        static string Cut(string mp4, string outDir, CutPlan p, out string outPath)
+        {
+            CutFn t = CutTool;
+            if (t != null) return t(mp4, outDir, p, out outPath);
+            if (Recorder.Mock)
+            {
+                // irdash --test and the library test: the recorder's pretend ffmpeg writes the cut (Cuts.Run starts the real tool itself)
+                outPath = Path.Combine(outDir, Path.GetFileNameWithoutExtension(mp4) + "-cut.mp4");
+                Directory.CreateDirectory(outDir);
+                string e; int rc = Recorder.LibFfmpeg(Cuts.FfmpegArgs(mp4, outPath, p), 30 * 60000, out e);
+                return rc == -1 ? "YIELD" : rc == 0 && File.Exists(outPath) ? "ok" : "The cut did not work (the video tool stopped).";
+            }
+            return Cuts.Run(Recorder.FfmpegExe, Recorder.FfprobeExe, mp4, outDir, p, out outPath);
+        }
+
+        // a cut is only the upload's copy: gone once YouTube has the race, or when nothing waits for it any more
+        static void TidyCuts()
+        {
+            try
+            {
+                if (!Directory.Exists(CutDir)) return;
+                foreach (string f in Directory.GetFiles(CutDir, "*-cut.mp4"))
+                {
+                    if (Jobs.ShouldYield) return;
+                    string n = Path.GetFileNameWithoutExtension(f), id = n.Substring(0, n.Length - 4);
+                    string k = Kind(id);
+                    if (k != "shared" && k != "none") continue;
+                    if (k == "none") { try { if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(f)).TotalHours < 1) continue; } catch { continue; } }   // just written: its queue entry may be on the way
+                    try { File.Delete(f); Log.W("library: removed the YouTube cut of " + id + (k == "shared" ? " (it is on YouTube)" : " (nothing waits for it)")); } catch { }
+                }
+            }
+            catch (Exception ex) { Log.W("library: tidy cuts: " + ex.Message); }
+        }
+
+        // the five title templates as they would read for the newest race (the page's picker: Peter presses one, never types)
+        static string TitlesJson(List<RaceInfo> all)
+        {
+            RaceInfo pick = null;
+            foreach (RaceInfo r in all) if (r.IsRace) { pick = r; break; }
+            if (pick == null && all.Count > 0) pick = all[0];
+            StringBuilder sb = new StringBuilder("[");
+            for (int n = 1; n <= 5; n++)
+            {
+                if (n > 1) sb.Append(',');
+                string t = "";
+                try { t = pick == null ? "" : Cuts.Title(n, FactsOf(pick)); } catch { }
+                sb.Append(Json_.S(t));
+            }
+            return sb.Append(']').ToString();
+        }
+
+        // what FREE UP SPACE would delete now (the same choice as FreeUpSpace, without deleting): the page's "delete the 6 oldest shared races (7 GB)"
+        static string FreeUpJson(List<RaceInfo> all)
+        {
+            long[] d = Measure(); long target = (long)(d[1] * FreeShare), free = d[0], bytes = 0; int n = 0;
+            List<RaceInfo> old = new List<RaceInfo>(all);
+            old.Sort(delegate (RaceInfo a, RaceInfo b) { return a.StartMs.CompareTo(b.StartMs); });
+            foreach (RaceInfo r in old)
+            {
+                if (free >= target) break;
+                if (r.Kept || r.Busy || Kind(r.Id) != "shared") continue;
+                n++; bytes += r.Bytes; free += r.Bytes;
+            }
+            return "{\"count\":" + n + ",\"gb\":" + (bytes / Gb).ToString("0.0", Inv) + "}";
+        }
+
+        // ---------------- commands (/api/do?c=...; all in Gate.GuardedDo but the two settings: never while a session is on) ----------------
+        public static bool Handles(string c)
+        {
+            return c == "racetrash" || c == "raceundo" || c == "raceempty" || c == "racefree" || c == "raceshare" || c == "ytsignin" || c == "ytprivacy" || c == "yttemplate";
+        }
 
         static string Say(string json, string say) { return json.Substring(0, json.Length - 1) + (json.Length > 2 ? "," : "") + "\"say\":" + Json_.S(say) + "}"; }
         static string Plural(int n) { return n + " race" + (n == 1 ? "" : "s"); }
@@ -796,6 +968,32 @@ namespace IRDash
                         FreeResult r = FreeUpSpace();
                         if (r.Count == 0) code = 409;
                         return Say("{\"ok\":" + B(r.Count > 0) + ",\"count\":" + r.Count + ",\"gb\":" + (r.Bytes / Gb).ToString("0.0", Inv) + "}", r.Say);
+                    }
+                case "raceshare":
+                    {
+                        List<string> ids = new List<string>();
+                        foreach (string id in (a ?? "").Split('|')) if (IdOk(id.Trim()) && !ids.Contains(id.Trim())) ids.Add(id.Trim());
+                        ShareResult r = Share(ids);
+                        if (r.Started == 0) code = 409;
+                        return Say("{\"ok\":" + B(r.Started > 0) + ",\"count\":" + r.Started + ",\"already\":" + r.Already + ",\"signin\":" + B(r.SignIn) + "}", r.Say);
+                    }
+                case "ytsignin":
+                    {
+                        string m = IRDash.YouTube.SignIn();
+                        bool opened = m != IRDash.YouTube.MsgSetup;      // the only refusal: no client.json yet
+                        if (!opened) code = 409;
+                        return Say("{\"ok\":" + B(opened) + "}", m);
+                    }
+                case "ytprivacy":
+                    {
+                        if (!IRDash.YouTube.SetPrivacy(a)) { code = 400; return Say("{\"ok\":false}", "Uploads can be private or public"); }
+                        string p = PrivacyNow();
+                        return Say("{\"ok\":true,\"privacy\":" + Json_.S(p) + "}", p == "public" ? "New uploads are public" : "New uploads are private");
+                    }
+                case "yttemplate":
+                    {
+                        int n; if (!int.TryParse(a ?? "", NumberStyles.Integer, Inv, out n) || !IRDash.YouTube.SetTemplate(n)) { code = 400; return Say("{\"ok\":false}", "Pick one of the five titles"); }
+                        return Say("{\"ok\":true,\"template\":" + n + "}", "Titles will look like this from now on");
                     }
             }
             code = 404; return "{\"say\":\"Unknown command\"}";
