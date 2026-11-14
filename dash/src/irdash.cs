@@ -610,11 +610,6 @@ namespace IRDash
                         int wc; string wj = Coverage.Route(path, ParseQuery(query), out wc);
                         Send(s, wc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(wj)); return;
                     }
-                    if (method == "GET" && path == "/realworld")
-                    {
-                        int rc; string rj = RealWorld.Route(path, ParseQuery(query), out rc);
-                        if (rj != null) { Send(s, rc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(rj), "Access-Control-Allow-Origin: *\r\n"); return; }
-                    }
                     if (method == "GET" && (path == "/official" || path.StartsWith("/official/")))      // official racing (official.cs). Off until official=1.
                     {
                         if (!Official.Enabled) { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"enabled\":false}"), "Access-Control-Allow-Origin: *\r\n"); return; }
@@ -2728,7 +2723,7 @@ namespace IRDash
             try { Commentary.Browser = BrowserExe; Commentary.Port = cfg.Port; Commentary.Start(); } catch (Exception ex) { Log.W("commentary: could not start: " + ex.Message); }   // W1-6 TALK OVER IT: the player opens in the dashboard's browser; a voice not yet mixed is mixed between sessions
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
-            if (!TestMode) { try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); } }   // test mode: no internet
+            // W3-3 (PLAN 10 item 6, decided: drop): no real-world calendar fetch and no /realworld route any more (HOME's real-world block is gone); realworld.cs itself goes in wave 6
             Coverage.Init(RootDir);   // where to watch in the U.S. (dash\coverage.json, coverage.cs)
             Doctor.Init(RootDir, Dir);
             try { AcAuto.Init(RootDir); AcAuto.Start(); } catch (Exception ex) { Log.W("ac auto: could not start: " + ex.Message); }   // auto-cool the rig room (ac.cs, ac\ac.py); idle until ac\ac.json exists
