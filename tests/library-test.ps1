@@ -2,6 +2,8 @@
 #   1. the index (newest first, IsRace, Best from the sidecar, markers)   2. trash and undo   3. retention (and nothing while a session is on)
 #   4. free up space   5. storage maths   6. the /api/library and /deck/summary JSON contract   7. thumbnails (RecMock), yielding to a session
 #   8. source checks: the routes and the deck part are wired in irdash.cs
+#   9. W1-4 SHARE TO YOUTUBE: raceshare (queued from the press, cut by the pretend ffmpeg, YouTube.Enqueue with title/description/privacy),
+#      never twice, the cut tidy, a failed cut, ytprivacy / yttemplate / ytsignin, the five titles, storage.freeUp
 # A throw-away exe built from dash\src (the build.ps1 list) + tests\library-main.cs runs in tests\library-scratch\bin against a scratch
 # vault of 1-KB pretend videos with real schema-2 sidecars. Nothing touches irdash, Peter's vault or any app.
 #   powershell -ExecutionPolicy Bypass -File tests\library-test.ps1 [-Only 2,3] [-Keep]

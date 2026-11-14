@@ -87,14 +87,23 @@ Paddock films every session you drive, start to finish, with the game and spotte
 |---|---|
 | a race | Opens it: track, day and time, length and laps, best lap, size on disk. |
 | **SHARE ON YOUTUBE** | Opens YouTube's upload page and shows the race's file selected in **Videos\Paddock**: drag the file into YouTube. |
-| **DELETE FROM PC** | Press twice: the video is gone for good, so the space is free again. |
+| **DELETE FROM PC** | Press twice: the race goes to the trash. It is deleted for good after 14 days. |
 | **WATCH** | Plays it on the middle screen. |
 | **KEEP** | Only on a practice or qualifying video: keeps it for good. Races are kept by themselves. |
-
-**On the top screen:** click the gold **MY RACES** button at the top. Every race has **WATCH**, **SHARE ON YOUTUBE** and **DELETE FROM PC** (click twice).
-
-**Without the deck:** every race is also a normal file in **Videos\Paddock**, named by date, track and car. On YouTube press **Select files**, open **Videos** then **Paddock**, and pick it. Delete a race there like any file: once the Recycle Bin is emptied, Paddock frees its space too.
 | **BACK / EXIT** | Back to the list / back to your keys. |
+
+**On the top screen:** click **MY RACES** at the top of Home. The RACES page shows every race as a card with a picture from the race. Each card says when it was, the track, the car, how long, how many laps, your best lap ("no clean lap" when iRacing counted none) and its size. One line says where it is with YouTube: **Not shared**, **Waiting to share**, **Sharing 41%**, **On YouTube (private)**, **On YouTube**, **No internet, waiting**, **YouTube limit: trying again after 9** (YouTube's daily upload limit; it goes by itself the next morning), or the reason it could not go. **Kept** means it stays until you delete it.
+- **Tabs:** **RACES** (races only), **PRACTICE & QUALIFYING**, **ALL**.
+- **Tick a card** (the box top left) and a bar appears at the bottom: **SHARE TO YOUTUBE**, **DELETE**, **CANCEL**. Hold SHIFT and tick another card to tick everything in between. Switching tabs clears the ticks. **SELECT ALL SHARED** ticks every race that is already on YouTube (handy for freeing space).
+- **DELETE** works at once, with no question. The races go to the trash and a note says "Deleted 3 races · UNDO" for 8 seconds: press **UNDO** to bring them back. The trash empties itself after 14 days.
+- **SHARE TO YOUTUBE**: Paddock cuts off the out lap and the time after the finish, names the video (see YouTube titles below), adds chapters (start, incidents, pit stops, best lap, finish) and uploads it. All of this waits until you are out of the car, so it never slows a session. A race goes to YouTube only once.
+- **OPEN** shows one race big: **WATCH** (plays it on the middle screen, from the start), **SHARE TO YOUTUBE**, **TALK OVER IT** (comes with the commentary update), **REVIEW** (the Sessions page for now) and **DELETE**. Under them the moments of the race in time order. When it is on YouTube, its link is there with **COPY LINK**. **BACK TO ALL RACES** or Esc goes back.
+- **The line at the top** says how much the races use, how much is free and about how many more races fit. When the trash holds 1 GB or more it says so, with **EMPTY NOW**. When the disk is nearly full, one gold key appears: **Free up space: delete the 6 oldest shared races (7 GB)**. It only ever deletes races that are already on YouTube, never a race you kept.
+- **YouTube, once:** if Paddock is not signed in to YouTube yet, a line with **SIGN IN TO YOUTUBE** appears as soon as you tick or open a race. Press it once and sign in to Google, then press SHARE. Until then SHARE says "Sign in to YouTube first" and nothing is cut.
+- **Top right:** "Uploads are private · **MAKE PUBLIC**" (one press switches new uploads between private and public) and **YOUTUBE TITLES**: the ways a video can be named, shown with your latest race. Press the one you like.
+- While you drive the page only says "Back after your drive". If the dashboard stops answering, one line says so and the rest stays as it was.
+
+**Without the deck:** every race is also a normal file in **Videos\Paddock**, named by date, track and car. On YouTube press **Select files**, open **Videos** then **Paddock**, and pick it.
 
 ## The AC screen (the AC key on MORE)
 Everything for the room AC on one page. A press shows on the keys at once; the AC follows a few seconds later, because the command goes through Midea's server the same way the Midea Air app does. While it is on its way, the ROOM key says SENDING. Several quick presses go out together.
@@ -133,7 +142,7 @@ While you drive: the live dashboard. A coloured edge when a flag is out. A small
 
 Afterwards: the review (the **REVIEW** key opens it). When you set a personal best, a small comparison sits with it: your lap against other iRacing drivers (once enough of them have driven it) and against real IMSA times.
 
-When the rig is idle: **Home**. Your name and your number, with the name of the car you drove last (the number is that car's number), your personal best at each track (iRacing's own times only), your career numbers and your week, your last session with a **REVIEW** button (the Session Review opens over Home; **‹ HOME** at the top brings it back), and one big gold button that fits the moment: **RIG ON** when the rig is not up, **LAST DRIVE** when it is, **GET IN** when a session is open. Top right: the code to scan with your iPhone (below). Quiet links at the top: **Sessions & laps**, **Vault**, **Performance**. Home never shows while you drive.
+When the rig is idle: **Home**. Your name and your number, with the name of the car you drove last (the number is that car's number), your personal best at each track (iRacing's own times only), your career numbers and your week, your last session with a **REVIEW** button (the Session Review opens over Home; **‹ HOME** at the top brings it back), and one big gold button that fits the moment: **RIG ON** when the rig is not up, **LAST DRIVE** when it is, **GET IN** when a session is open. Top right: the code to scan with your iPhone (below). Quiet links at the top: **Sessions & laps**, **Vault**, **Performance**, and **My races** (the RACES page, above). Home never shows while you drive.
 
 Home only counts real drives. A test, or a Test Drive where the car sat in the pit box and never went out, is not an outing: it is not in your last outing, your seat time, THIS WEEK, or the car shown. The small line **Since** and a month and year (when your first session was) is only a date, not a number of anything.
 

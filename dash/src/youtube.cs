@@ -50,6 +50,7 @@ namespace IRDash
         public const string MsgQuota = "YouTube says today's upload limit is reached. I'll try again after 9 in the morning";
         public const string MsgOffline = "No internet, waiting";
         public const string MsgAlready = "Already on YouTube";
+        public const string MsgDailyWait = "YouTube's daily limit is reached. Trying again after 9 in the morning";
         public const string MsgChannel = "Make a YouTube channel first: open youtube.com with your Google account";
         public const string SignedInPage = "Paddock is signed in to YouTube. You can close this tab.";
         public const string NotSignedInPage = "Paddock was not signed in to YouTube. You can close this tab.";
@@ -178,7 +179,11 @@ namespace IRDash
                     case "shared": return "{\"kind\":\"shared\",\"pct\":100,\"privacy\":" + Json_.S(r.Privacy) + ",\"url\":" + Json_.S(r.Url) + "}";
                     case "sharing": return "{\"kind\":\"sharing\",\"pct\":" + r.Pct.ToString(CultureInfo.InvariantCulture) + "}";
                     case "queued": return "{\"kind\":\"queued\",\"pct\":0}";
-                    case "failed": case "signin": case "offline": return "{\"kind\":\"" + r.Kind + "\",\"error\":" + Json_.S(r.Error) + "}";
+                    case "failed":
+                        // the daily limit is not a failure: the race waits for its retry time (W1-4 review: gold, not red, and SHARE does not cut it again)
+                        if (r.RetryAtMs > 0) return "{\"kind\":\"queued\",\"pct\":0,\"error\":" + Json_.S(MsgDailyWait) + "}";
+                        return "{\"kind\":\"failed\",\"error\":" + Json_.S(r.Error) + "}";
+                    case "signin": case "offline": return "{\"kind\":\"" + r.Kind + "\",\"error\":" + Json_.S(r.Error) + "}";
                 }
                 return "{\"kind\":\"none\"}";
             }
@@ -241,6 +246,22 @@ namespace IRDash
             }
             Bump();
             Kick(0);
+            return true;
+        }
+
+        // DELETE of a race that is waiting (W1-4): its record goes, so the trashed race is never uploaded. Only "queued" with nothing sent
+        // yet; a race already sending, or on YouTube, is left alone (never a half-told story). true = removed.
+        public static bool Cancel(string raceId)
+        {
+            lock (gate)
+            {
+                Load();
+                Rec r = Find(raceId);
+                if (r == null || r.Kind != "queued" || File.Exists(SessionFile(raceId))) return false;
+                recs.Remove(r); Save();
+            }
+            Log.W("youtube: " + raceId + " taken out of the queue (deleted)");
+            Bump();
             return true;
         }
 

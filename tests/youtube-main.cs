@@ -272,8 +272,9 @@ namespace IRDash
             YouTube.Clock = delegate () { return new DateTime(2026, 11, 13, 15, 0, 0, DateTimeKind.Local); };
             g.QuotaOnce = true;
             YouTube.Enqueue("r3", file, "race r3", "", "private", "");
-            Ok("7. quota 403 -> kind failed", WaitFor(delegate () { return Kind("r3") == "failed"; }, 10000), YouTube.StateJson("r3"));
-            Ok("7. ... with the exact message", YouTube.StateJson("r3") == "{\"kind\":\"failed\",\"error\":" + Json_.S(YouTube.MsgQuota) + "}", YouTube.StateJson("r3"));
+            // W1-4 review: a daily-limit race is waiting (queued, gold) with the plain words, not "failed"; the record itself stays failed + a retry time
+            Ok("7. quota 403 -> kind queued (waiting for its retry time)", WaitFor(delegate () { return YouTube.RetryAt("r3") > DateTime.MinValue && Kind("r3") == "queued"; }, 10000), YouTube.StateJson("r3"));
+            Ok("7. ... with the exact message", YouTube.StateJson("r3") == "{\"kind\":\"queued\",\"pct\":0,\"error\":" + Json_.S(YouTube.MsgDailyWait) + "}", YouTube.StateJson("r3"));
             Ok("7. ... and a retry at 09:00 the next morning", YouTube.RetryAt("r3") == new DateTime(2026, 11, 14, 9, 0, 0), YouTube.RetryAt("r3").ToString("s"));
             Ok("7. before 9 in the morning the retry is the same day", YouTube.NextNine(new DateTime(2026, 11, 14, 8, 0, 0)) == new DateTime(2026, 11, 14, 9, 0, 0));
             YouTube.Clock = null;

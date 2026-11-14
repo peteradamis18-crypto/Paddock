@@ -8,24 +8,56 @@
 <link rel="stylesheet" href="races.css">
 </head>
 <body>
-<!-- MY RACES (Peter 2026-11-12: "i need access from paddock screen make it clear"): every whole-race video, each with
-     WATCH / SHARE ON YOUTUBE / DELETE FROM PC. Same backend as the deck's RACES screen (/api/rec/races, vault.cs). -->
+<!-- RACES (W1-4, docs/rework/PLAN.md 4.3): every recorded race as a card with its picture and one state line. Tick cards, then
+     SHARE TO YOUTUBE / DELETE in the bar at the bottom (Google Photos: no "are you sure", UNDO for 8 s). OPEN shows one race.
+     The list is /api/library (library.cs); the page reloads it only when irdash says the list changed (data.onList). -->
 <div id="app">
-  <header>
-    <h1>My races</h1>
-    <div class="sub" id="sub">&nbsp;</div>
+  <header class="top">
+    <div class="row1">
+      <h1>Races</h1>
+      <div class="store" id="store">
+        <div class="store-line"><span id="storeLine">&nbsp;</span><span id="trashBit" hidden>&nbsp;·&nbsp;<span id="trashGb"></span> in trash&nbsp;·&nbsp;<button type="button" class="link" id="emptyNow">Empty now</button></span></div>
+        <div class="store-bar" id="storeBar"><i id="storeFill"></i></div>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab on" role="tab" aria-selected="true" data-tab="races">Races</button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-tab="pq">Practice &amp; qualifying</button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-tab="all">All</button>
+      </div>
+      <button type="button" class="btn" id="selShared" hidden>Select all shared</button>
+      <div class="ytset" id="ytset">
+        <span id="privWords">Uploads are private</span>
+        <button type="button" class="link" id="privBtn">Make public</button>
+        <span class="sep">·</span>
+        <button type="button" class="link" id="titlesBtn">YouTube titles</button>
+      </div>
+    </div>
+    <div class="row3" id="freeRow" hidden></div>
   </header>
-  <div class="how">
-    <div><b>Share on YouTube</b>YouTube opens, with the race file next to it. Drag the file onto YouTube.</div>
-    <div><b>Delete from PC</b>Click it, then click again. The space is free straight away.</div>
-  </div>
-  <div class="tabs">
-    <button type="button" class="tab on" id="tabRaces">Races</button>
-    <button type="button" class="tab" id="tabAll">Practice and qualifying too</button>
-  </div>
-  <div id="list" class="list"></div>
-  <div id="msg" class="banner" role="status" hidden></div>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <main id="grid" class="grid"></main>
+  <div id="driving" class="driving" hidden>Back after your drive</div>
 </div>
+
+<!-- select mode: the bar at the bottom -->
+<div id="bar" class="selbar" hidden>
+  <div class="count" id="barCount"></div>
+  <button type="button" class="btn gold" id="barShare"></button>
+  <button type="button" class="btn danger" id="barDelete"></button>
+  <button type="button" class="btn" id="barCancel">Cancel</button>
+</div>
+
+<!-- OPEN: one race over the grid -->
+<section id="open" class="opencard" hidden></section>
+
+<!-- the five YouTube titles: Peter presses one -->
+<section id="titles" class="picker" hidden></section>
+
+<div id="undo" class="toast undo-toast" role="status" hidden></div>
+<div id="toast" class="toast" role="status" hidden></div>
+
 <script src="../app/lib/data.js"></script><!-- W0-5: the one connection to irdash (state push) -->
 <script src="../app/lib/format.js"></script>
 <script src="races.js"></script>
