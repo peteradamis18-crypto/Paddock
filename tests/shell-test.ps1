@@ -203,7 +203,8 @@ try {
   Start-Sleep -Milliseconds 400
   ok 'tow wait while kids mode is on: kids keeps the banner' ((Cdp-Eval $kind) -eq 'kids')
   Push 'kids' '{"on":false,"text":""}'
-  ok 'kids off: the tow wait shows' (Wait-Until "$kind === 'tow' && document.getElementById('banner').textContent === 'Reset car · waiting for the car to stop'" 3)
+  # the middle dot is spelled by code: this file has no BOM, so Windows PowerShell 5.1 reads a literal one as two ANSI characters
+  ok 'kids off: the tow wait shows' (Wait-Until "$kind === 'tow' && document.getElementById('banner').textContent === 'Reset car $([char]0xB7) waiting for the car to stop'" 3)
   Cdp-Shot (Join-Path $shots 'shell-tow.png')
   $at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   Push 'keymsg' ('{"seq":901,"key":"fuel","text":"Fuel to finish: 12.4 litres","kind":"ok","at":' + $at + '}')
