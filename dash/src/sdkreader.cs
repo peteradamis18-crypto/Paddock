@@ -29,8 +29,81 @@ namespace IRDash
 
         static void Publish(Frame f)
         {
+            ParseSession(f);        // before the frame is out: whoever sees this SessionVersion finds its parsed session ready
             lock (gate) { f.Seq = ++seq; latest = f; lastFrameAt = DateTime.UtcNow; Monitor.PulseAll(gate); }
             RigState.Feed(f.Connected, f.Connected && f.Num("IsOnTrack") != 0, fakeUp);     // the one "is he busy" answer (rigstate.cs)
+            FeedFuel(f);
+        }
+
+        // ---- W2-1: the session YAML, parsed once per SessionVersion on this (the reader's) thread ----
+        static volatile SdkSession session;
+        static int parsedVer = int.MinValue; static string parsedYaml;
+        static int parses;
+        public static SdkSession Session { get { return session; } }
+        public static int SessionParses { get { return parses; } }       // the tests count them
+        static void ParseSession(Frame f)
+        {
+            if (!f.Connected) { session = null; parsedVer = int.MinValue; parsedYaml = null; return; }
+            // the version and the very same string: a pretend session and a real one can both be at version 2
+            if (f.SessionVersion == parsedVer && ReferenceEquals(f.SessionYaml, parsedYaml)) return;
+            parsedVer = f.SessionVersion; parsedYaml = f.SessionYaml;
+            Interlocked.Increment(ref parses);
+            SdkSession s = null;
+            try { s = SdkSession.Parse(f.SessionYaml, f.SessionVersion); }
+            catch (Exception ex) { RigState.LogOnce("sdk session", "sdk: session yaml: " + ex.Message); }
+            session = s;
+        }
+
+        // ---- W2-1: the race screen's one channel set (PLAN 4.2, zones A-E): /stream?set=race sends exactly these, at 15 Hz ----
+        public static readonly string[] RaceSet = {
+            "CarIdxPosition", "CarIdxClassPosition", "CarIdxF2Time", "CarIdxLapDistPct", "CarIdxEstTime", "CarIdxOnPitRoad", "CarIdxClass",
+            "CarIdxLap", "Lap", "LapCompleted", "SessionLapsRemainEx", "SessionTimeRemain", "SessionTime", "PlayerCarMyIncidentCount",
+            "SessionFlags", "FuelLevel", "FuelUsePerHour", "LapLastLapTime", "LapBestLapTime", "LapDeltaToBestLap", "LapDeltaToBestLap_OK",
+            "OnPitRoad", "PlayerCarIdx", "IsOnTrack" };
+        // the names a stream asked for: ?set=race wins over ?vars= (exactly the 24, nothing else); null = unknown set
+        public static string[] SetNames(string set) { return set == "race" ? RaceSet : null; }
+
+        // one slot of an array channel (Frame.Num reads slot 0 only); 0 when the channel or the slot is not there
+        public static double NumAt(Frame f, string name, int idx)
+        {
+            VarDef d;
+            if (f == null || !f.Connected || f.Vars == null || !f.Vars.TryGetValue(name, out d) || idx < 0 || idx >= d.Count) return 0;
+            int p = d.Offset + idx * Size(d.Type);
+            if (p < 0 || p + Size(d.Type) > f.Data.Length) return 0;
+            switch (d.Type)
+            {
+                case 0: case 1: return f.Data[p];
+                case 2: return BitConverter.ToInt32(f.Data, p);
+                case 3: return BitConverter.ToUInt32(f.Data, p);
+                case 4: return BitConverter.ToSingle(f.Data, p);
+                case 5: return BitConverter.ToDouble(f.Data, p);
+            }
+            return 0;
+        }
+        public static bool Has(Frame f, string name) { return f != null && f.Vars != null && f.Vars.ContainsKey(name); }
+
+        // ---- W2-1: every frame feeds the fuel tracker (fuel.cs), at most 15 samples a second of sim time (it drops the rest itself) ----
+        static void FeedFuel(Frame f)
+        {
+            try
+            {
+                if (!f.Connected) { if (Fuel.Live.Samples > 0) Fuel.Live.Reset(); return; }
+                SdkSession ss = session;
+                FuelSample s = new FuelSample();
+                s.Time = f.Num("SessionTime"); s.SessionNum = (int)f.Num("SessionNum"); s.Lap = (int)f.Num("Lap");
+                s.Level = f.Num("FuelLevel"); s.Flags = unchecked((uint)(long)f.Num("SessionFlags"));
+                s.OnPitRoad = f.Num("OnPitRoad") != 0; s.OnTrack = f.Num("IsOnTrack") != 0;
+                s.Surface = Has(f, "PlayerTrackSurface") ? (int)f.Num("PlayerTrackSurface") : 3;
+                s.Incidents = (int)f.Num("PlayerCarMyIncidentCount");
+                s.LastLap = f.Num("LapLastLapTime"); s.BestLap = f.Num("LapBestLapTime"); s.HaveBest = Has(f, "LapBestLapTime");
+                s.LapsRemain = Has(f, "SessionLapsRemainEx") ? (int)f.Num("SessionLapsRemainEx") : 32767;
+                s.TimeRemain = Has(f, "SessionTimeRemain") ? f.Num("SessionTimeRemain") : -1;
+                SdkSessionRow row = ss == null ? null : ss.For(s.SessionNum);
+                s.LapRace = row != null ? row.Laps > 0 : s.LapsRemain < 32767;
+                if (ss != null) { Fuel.Live.TankL = ss.FuelMaxL; Fuel.Live.EstLap = ss.EstLap; }
+                Fuel.Live.Feed(s);
+            }
+            catch (Exception ex) { RigState.LogOnce("sdk fuel", "sdk: fuel: " + ex.Message); }
         }
         public static Frame WaitNext(long lastSeq, int timeoutMs)
         {
@@ -313,7 +386,9 @@ namespace IRDash
             }
         }
 
-        public static string FrameJson(Frame f, string[] names)
+        public static string FrameJson(Frame f, string[] names) { return FrameJson(f, names, false); }
+        // allKeys (a named set such as ?set=race): a channel this frame does not have is sent as null, so the page always gets the same keys
+        public static string FrameJson(Frame f, string[] names, bool allKeys)
         {
             StringBuilder sb = new StringBuilder(12000);
             sb.Append("{\"seq\":").Append(f.Seq).Append(",\"v\":{");
@@ -321,7 +396,14 @@ namespace IRDash
             foreach (string n in names)
             {
                 VarDef d;
-                if (!f.Vars.TryGetValue(n, out d)) continue;
+                if (!f.Vars.TryGetValue(n, out d))
+                {
+                    if (!allKeys) continue;
+                    if (!first) sb.Append(',');
+                    first = false;
+                    sb.Append('"').Append(n).Append("\":null");
+                    continue;
+                }
                 if (!first) sb.Append(',');
                 first = false;
                 sb.Append('"').Append(n).Append("\":");
@@ -336,6 +418,126 @@ namespace IRDash
             }
             sb.Append("}}");
             return sb.ToString();
+        }
+    }
+
+    // ---- W2-1: the session YAML parsed once (Sdk.Session) ----
+    sealed class SdkDriver
+    {
+        public int Idx, ClassId; public string Num = "", ShortName = "", UserName = "", ClassShort = "", ClassColor = ""; public bool IsPaceCar, IsSpectator;
+    }
+    sealed class SdkSessionRow { public int Num = -1, Laps; public double TimeSec; public string Type = "", Name = ""; }
+
+    sealed class SdkSession
+    {
+        public int Ver; public string Yaml;
+        public string Json = "null";            // the "session" state part (StateBuilder.SessionJsonOf: the same JSON as before W2-1)
+        // the current session (SessionInfo.CurrentSessionNum); For(n) when the frame's SessionNum says another one
+        public string Type = ""; public int Num = -1, Laps; public double TimeSec;
+        public int IncidentLimit;               // WeekendInfo.WeekendOptions.IncidentLimit, "unlimited" = 0
+        public bool Multiclass;
+        public string Track = "", TrackName = "", Config = "";
+        public int PlayerIdx = -1;               // DriverInfo.DriverCarIdx
+        public double FuelMaxL, EstLap;          // the tank in litres (DriverCarFuelMaxLtr x DriverCarMaxFuelPct), DriverCarEstLapTime
+        public SdkDriver[] Drivers = new SdkDriver[64];     // by CarIdx; null = empty slot (the pace car sits at 64, so it can be longer)
+        public readonly List<SdkSessionRow> Sessions = new List<SdkSessionRow>();
+
+        public SdkDriver Driver(int idx) { return idx >= 0 && idx < Drivers.Length ? Drivers[idx] : null; }
+        public SdkSessionRow For(int num) { foreach (SdkSessionRow r in Sessions) if (r.Num == num) return r; return null; }
+        public SdkDriver Me { get { return Driver(PlayerIdx); } }
+
+        static string Str(Dictionary<string, object> d, string k) { object v; return d != null && d.TryGetValue(k, out v) && v is string ? (string)v : ""; }
+        static Dictionary<string, object> Map(Dictionary<string, object> d, string k) { object v; return d != null && d.TryGetValue(k, out v) ? v as Dictionary<string, object> : null; }
+        static List<object> List(Dictionary<string, object> d, string k) { object v; return d != null && d.TryGetValue(k, out v) ? v as List<object> : null; }
+        // the leading number of "83.333", "1.000 %", "900.0000 sec", "17"; 0 for "unlimited" or nothing
+        static double Lead(string s)
+        {
+            Match m = Regex.Match(s ?? "", "^\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
+            double v; return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : 0;
+        }
+        static int Int(string s) { return (int)Math.Round(Lead(s)); }
+
+        // "Peter Adamis" -> "Adamis"; iRacing's duplicate-name digits go ("Santos11" -> "Santos"); a suffix is not a surname
+        public static string Surname(string user)
+        {
+            string[] w = (user ?? "").Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (w.Length == 0) return "";
+            int i = w.Length - 1;
+            string low = w[i].ToLowerInvariant().TrimEnd('.');
+            if (i > 0 && (low == "jr" || low == "sr" || low == "ii" || low == "iii" || low == "iv")) i--;
+            string s = w[i].TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+            return s.Length > 0 ? s : w[i];
+        }
+        // "0xffda59" -> "#ffda59"
+        static string Colour(string c)
+        {
+            c = (c ?? "").Trim();
+            if (c.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) c = c.Substring(2);
+            if (!Regex.IsMatch(c, "^[0-9a-fA-F]{1,6}$")) return "";
+            return "#" + c.ToLowerInvariant().PadLeft(6, '0');
+        }
+
+        public static SdkSession Parse(string yaml, int ver)
+        {
+            if (string.IsNullOrEmpty(yaml)) return null;
+            Dictionary<string, object> y = StateBuilder.ParseYaml(yaml);
+            SdkSession s = new SdkSession(); s.Ver = ver; s.Yaml = yaml;
+            s.Json = StateBuilder.SessionJsonOf(y, ver);
+
+            Dictionary<string, object> wi = Map(y, "WeekendInfo");
+            s.TrackName = Str(wi, "TrackName"); s.Config = Str(wi, "TrackConfigName");
+            s.Track = Str(wi, "TrackDisplayName"); if (s.Track.Length == 0) s.Track = s.TrackName;
+            s.IncidentLimit = Int(Str(Map(wi, "WeekendOptions"), "IncidentLimit"));     // "unlimited" -> 0
+            int classes = Int(Str(wi, "NumCarClasses"));
+
+            Dictionary<string, object> si = Map(y, "SessionInfo");
+            List<object> rows = List(si, "Sessions");
+            if (rows != null)
+                foreach (object o in rows)
+                {
+                    Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue;
+                    SdkSessionRow sr = new SdkSessionRow();
+                    string num = Str(r, "SessionNum"); sr.Num = num.Length > 0 ? Int(num) : -1;
+                    sr.Type = Str(r, "SessionType"); sr.Name = Str(r, "SessionName");
+                    sr.Laps = Int(Str(r, "SessionLaps")); sr.TimeSec = Lead(Str(r, "SessionTime"));
+                    s.Sessions.Add(sr);
+                }
+            string cur = Str(si, "CurrentSessionNum");
+            SdkSessionRow now = cur.Length > 0 ? s.For(Int(cur)) : (s.Sessions.Count > 0 ? s.Sessions[s.Sessions.Count - 1] : null);
+            if (now != null) { s.Type = now.Type; s.Num = now.Num; s.Laps = now.Laps; s.TimeSec = now.TimeSec; }
+
+            Dictionary<string, object> di = Map(y, "DriverInfo");
+            string pi = Str(di, "DriverCarIdx"); s.PlayerIdx = pi.Length > 0 ? Int(pi) : -1;
+            double maxL = Lead(Str(di, "DriverCarFuelMaxLtr")), pct = Lead(Str(di, "DriverCarMaxFuelPct"));
+            s.FuelMaxL = maxL * (pct > 0 && pct <= 1 ? pct : 1);
+            s.EstLap = Lead(Str(di, "DriverCarEstLapTime"));
+            List<object> drivers = List(di, "Drivers");
+            HashSet<int> seenClass = new HashSet<int>();
+            if (drivers != null)
+                foreach (object o in drivers)
+                {
+                    Dictionary<string, object> r = o as Dictionary<string, object>; if (r == null) continue;
+                    string idxS = Str(r, "CarIdx"); if (idxS.Length == 0) continue;
+                    SdkDriver d = new SdkDriver();
+                    d.Idx = Int(idxS); if (d.Idx < 0 || d.Idx > 255) continue;
+                    d.Num = Str(r, "CarNumber"); d.UserName = Str(r, "UserName");
+                    d.ShortName = Surname(d.UserName);
+                    d.ClassId = Int(Str(r, "CarClassID")); d.ClassShort = Str(r, "CarClassShortName"); d.ClassColor = Colour(Str(r, "CarClassColor"));
+                    d.IsPaceCar = Str(r, "CarIsPaceCar") == "1"; d.IsSpectator = Str(r, "IsSpectator") == "1";
+                    if (d.Idx >= s.Drivers.Length) Array.Resize(ref s.Drivers, d.Idx + 1);
+                    s.Drivers[d.Idx] = d;
+                    if (!d.IsPaceCar && !d.IsSpectator) seenClass.Add(d.ClassId);
+                }
+            s.Multiclass = classes > 1 || seenClass.Count > 1;
+            return s;
+        }
+
+        // the cars racing (no pace car, no spectators), and those in one class
+        public int Field(int classId)
+        {
+            int n = 0;
+            foreach (SdkDriver d in Drivers) if (d != null && !d.IsPaceCar && !d.IsSpectator && (classId < 0 || d.ClassId == classId)) n++;
+            return n;
         }
     }
 }

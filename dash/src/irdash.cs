@@ -150,9 +150,9 @@ namespace IRDash
         }
 
         // the .ibt has no field arrays, so the car's own channels go into its own slot and every other slot stays empty (not in the world)
-        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time" };
-        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "" };
-        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0 };
+        static readonly string[] derivedName = { "CarIdxLapDistPct", "CarIdxLap", "CarIdxLapCompleted", "CarIdxPosition", "CarIdxClassPosition", "CarIdxOnPitRoad", "CarIdxTrackSurface", "CarIdxGear", "CarIdxRPM", "CarIdxLastLapTime", "CarIdxBestLapTime", "CarIdxEstTime", "CarIdxF2Time", "CarIdxClass" };   // CarIdxClass: W2-1 race set
+        static readonly string[] derivedFrom = { "LapDistPct", "Lap", "LapCompleted", "PlayerCarPosition", "PlayerCarClassPosition", "OnPitRoad", "PlayerTrackSurface", "Gear", "RPM", "LapLastLapTime", "LapBestLapTime", "", "", "PlayerCarClass" };
+        static readonly double[] derivedIdle = { -1, -1, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0 };
         // all: every slot (the first frame); after that only the player's own slot changes (the pretend session keeps the others: W0-3,
         // 832 idle slots re-sent 30 times a second were most of the test hook's cost in the load test)
         static int derivedFor = -1;
@@ -804,6 +804,7 @@ namespace IRDash
             StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
             StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
+            StateBuilder.Add("race", 250, 250, StateBuilder.RacePart);      // W2-1: the race screen (null out of a session)
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
@@ -835,11 +836,14 @@ namespace IRDash
         {
             string varList; q.TryGetValue("vars", out varList);
             string[] names = (varList ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            // W2-1: ?set=race = exactly the race screen's 24 channels (sdkreader.cs Sdk.RaceSet), every key on every frame; no raw YAML
+            string setName; string[] setNames = q.TryGetValue("set", out setName) ? Sdk.SetNames(setName) : null;
+            if (setNames != null) names = setNames;
             string hzs; int hz;
             if (!q.TryGetValue("hz", out hzs) || !int.TryParse(hzs, out hz)) hz = 15;
             hz = Math.Max(1, Math.Min(60, hz));
             int interval = 1000 / hz;
-            bool withState = q.ContainsKey("state"), withYaml = !withState || q.ContainsKey("yaml");
+            bool withState = q.ContainsKey("state"), withYaml = (!withState && setNames == null) || q.ContainsKey("yaml");
 
             Write(s, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\nretry: 1000\n\n");
             long lastSeq = -1, stateSeq = -1; int sentSess = -1;
@@ -876,7 +880,7 @@ namespace IRDash
                     sb.Append("event: session\ndata: ").Append(Json.Str(f.SessionYaml)).Append("\n\n");
                     sentSess = f.SessionVersion;
                 }
-                sb.Append("data: ").Append(Sdk.FrameJson(f, names)).Append("\n\n");
+                sb.Append("data: ").Append(Sdk.FrameJson(f, names, setNames != null)).Append("\n\n");
                 Write(s, sb.ToString());
             }
         }
