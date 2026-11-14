@@ -37,7 +37,18 @@ Check "a busy copy is tried again three times, a second apart (took $([math]::Ro
 $r = Step
 Check 'the next run (copy free again) brings it up to date: 3 of 3, exit 0' ($r.rc -eq 0 -and (IsNew 'vol-up'))
 
-Section '3. the script'
+Section '3. the W3-4 deck (keys.map made by build-deck.ps1 -Preview from deck\layout.json)'
+$o = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build-deck.ps1') -Preview 2>&1 | ForEach-Object { "$_" }
+$pm = [regex]::Match(($o -join ' '), 'preview written to (\S+)')
+$keys2 = Join-Path $tmp 'keys2'; New-Item -ItemType Directory -Force $keys2 | Out-Null
+if ($pm.Success) { Copy-Item (Join-Path $pm.Groups[1].Value 'keys.map') (Join-Path $keys2 'keys.map'); Remove-Item -Recurse -Force $pm.Groups[1].Value -ErrorAction SilentlyContinue }
+$names = @(Get-Content (Join-Path $keys2 'keys.map') -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '=', 2)[0] })
+$o2 = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build-irdeck.ps1') -KeysOnly -From $new -KeysDir $keys2 2>&1 | ForEach-Object { "$_" }
+$rc2 = $LASTEXITCODE
+$newOnes = @($names | Where-Object { $f = Join-Path $keys2 "$_.exe"; (Test-Path $f) -and (Get-FileHash $f).Hash -eq $want })
+Check "every name of the new deck's keys.map gets the new exe ($($newOnes.Count) of $($names.Count), to-the-race and spotter-tap among them)" ($rc2 -eq 0 -and $names.Count -ge 20 -and $newOnes.Count -eq $names.Count -and $names -contains 'to-the-race' -and $names -contains 'spotter-tap') ($o2 -join ' | ')
+
+Section '4. the script'
 $b = [IO.File]::ReadAllText((Join-Path $root 'build-irdeck.ps1'))
 Check 'the deploy uses the same step on keys\ (no hash-of-the-old-exe filter left)' ($b -match 'Update-KeyCopies "\$r\\irdeck\.exe" "\$r\\keys"' -and $b -notmatch 'Hash -eq \$old')
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

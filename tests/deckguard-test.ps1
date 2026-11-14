@@ -42,6 +42,8 @@ static class T {
     C("a sim box (RELATIVE, F3) 0.3 s apart gives one run", Runs("bb-f3", "key --sim f3", 300) == 1);
     C("on/off keys: MUTE SPOTTER 1.0 s apart is one run, 1.6 s apart two", Runs("mute-spotter", "appvol mute spotter", 1000) == 1 && Runs("mute-spotter", "appvol mute spotter", 1600) == 2);
     C("pit toggles and AC on/off keep 1.5 s", DeckGuard.GapMs("pit-tires", A("pittoggle tires")) == 1500 && DeckGuard.GapMs("ac", A("ac toggle")) == 1500);
+    C("W3-4: SPOTTER (spotter-tap, mute / unmute) is an on/off key: 1.0 s apart is one run, 1.6 s apart two", Runs("spotter-tap", "spotter-tap", 1000) == 1 && Runs("spotter-tap", "spotter-tap", 1600) == 2 && !DeckGuard.IsFastKey("spotter-tap"));
+    C("W3-4: TO THE RACE (to-the-race) 0.3 s apart gives one run, and it waits for a copy still running", Runs("to-the-race", "to-the-race", 300) == 1 && DeckGuard.UsesMutex("to-the-race"));
     C("only names make a key fast: a key called something else running appvol game +5 is 0.7 s", DeckGuard.GapMs("other", A("appvol game +5")) == 700);
     C("a key still running (mutex taken) never runs twice", !DeckGuard.KeyRuns("get-out", A("getout"), 0, 638000000000000000L, false));
     C("fast keys do not wait for the mutex", DeckGuard.KeyRuns("vol-up", A("appvol game +5"), 0, 638000000000000000L, false) && !DeckGuard.UsesMutex("vol-up") && DeckGuard.UsesMutex("ghost"));

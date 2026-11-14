@@ -43,6 +43,8 @@ class Driver {
       case "next": Console.WriteLine(DeckRules.SecondNextDue(B(a[1]), int.Parse(a[2]), int.Parse(a[3]), B(a[4]), a.Length > 5 ? int.Parse(a[5]) : 1)); break;
       case "qual": Console.WriteLine(DeckRules.IsQualify(a[1])); break;
       case "race": Console.WriteLine(DeckRules.IsRaceType(S(a[1]))); break;
+      case "ahead": Console.WriteLine(DeckRules.RaceAhead(S(a[1]).Length == 0 ? new string[0] : a[1].Split('|'), int.Parse(a[2]))); break;
+      case "totherace": Console.WriteLine(DeckRules.ToTheRacePlan(B(a[1]), B(a[2]))); break;
     }
   }
 }
@@ -108,6 +110,13 @@ Check 'NEXT: ... but not before 6 s, not after it advanced, and never a fourth c
 Check 'qualify names: Open Qualify / Lone Qualify / Qualify' ((Rule qual 'Open Qualify') -eq 'True' -and (Rule qual 'Lone Qualify') -eq 'True' -and (Rule qual 'Qualify') -eq 'True')
 Check 'qualify names: Practice and Race are not' ((Rule qual 'Practice') -eq 'False' -and (Rule qual 'Race') -eq 'False')
 Check 'RACE NOW: Race is the race; Practice, Open Qualify, Warmup are not' ((Rule race 'Race') -eq 'True' -and (Rule race ' race ') -eq 'True' -and (Rule race 'Practice') -eq 'False' -and (Rule race 'Open Qualify') -eq 'False' -and (Rule race 'Warmup') -eq 'False' -and (Rule race '<empty>') -eq 'False')
+# TO THE RACE (W3-4): NEXT SESSION and RACE NOW on one key
+Check 'TO THE RACE: an AI weekend in practice with its race still to come -> race now' ((Rule ahead '0:Practice|1:Qualify|2:Race' 0) -eq 'True' -and (Rule totherace 1 1) -eq 'racenow')
+Check 'TO THE RACE: already in the race session -> race now (it only gets him in the car)' ((Rule ahead '0:Practice|1:Race' 1) -eq 'True')
+Check 'TO THE RACE: the race is over (a session after it is on) -> no race ahead -> next session' ((Rule ahead '0:Practice|1:Race|2:Heat' 2) -eq 'False' -and (Rule totherace 1 0) -eq 'skip')
+Check 'TO THE RACE: a Test Drive (no race in the event) -> next session (it ends the drive, as NEXT SESSION did)' ((Rule ahead '0:Testing' 0) -eq 'False' -and (Rule totherace 0 0) -eq 'skip')
+Check 'TO THE RACE: an official race is not an AI weekend -> next session, which refuses it in plain words' ((Rule totherace 0 1) -eq 'skip')
+Check 'TO THE RACE: no session list at all -> next session' ((Rule ahead '<empty>' 0) -eq 'False')
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------- 2. the source does what the rules say
@@ -152,6 +161,9 @@ Check 'racenow is a command' ($ir -match 'case "racenow": return CmdRaceNow\(\)'
 Check 'racenow: skips until the session is the race (at most DeckRules.RaceHopsMax = 3), then CmdGo' ($rn -match 'hop <= DeckRules\.RaceHopsMax' -and $rn -match 'CmdSkip\(\)' -and $rn -match 'DeckRules\.IsRaceType\(s\.Type\)' -and $rn -match 'CmdGo\(\)' -and $rules -match 'RaceHopsMax = 3')
 Check 'racenow: refuses test drives and official sessions in plain words; waits for a rolling car' ($rn -match '!s\.Ai' -and $rn -match 'Test Drive has no race' -and $rn -match 'WaitCarStopped\("racenow"')
 Check 'racenow runs one at a time' ((Body $ir 'static int CmdRaceNow()') -match 'WithNamedLock\("Local\\\\irdeck-racenow"')
+$ttr = Body $ir 'static int CmdToTheRace(string[] a)'
+Check 'to-the-race is a command: the plan from DeckRules on the loaded event''s sessions, then the existing RACE NOW or NEXT SESSION path' ($ir -match 'case "to-the-race": return CmdToTheRace\(Slice\(a, 1\)\)' -and $ttr -match 'DeckRules\.ToTheRacePlan\(s\.Ai, DeckRules\.RaceAhead\(s\.Sessions\.ToArray\(\), s\.Num\)\)' -and $ttr -match 'plan == "racenow" \? CmdRaceNow\(\) : CmdSkip\(\)')
+Check 'spotter-tap is a command: the spotter mute toggle (CrewChief''s own mixer entry), with a dry form' ($ir -match 'case "spotter-tap": return CmdSpotterTap\(Slice\(a, 1\)\)' -and (Body $ir 'static int CmdSpotterTap(string[] a)') -match 'AppMuteToggle\("spotter", Array\.IndexOf\(a, "--dry"\) >= 0\)' -and $ir -match 'if \(!dry\) \{ Guid g = Guid\.Empty; v\.SetMute\(target, ref g\); \}')
 
 Section '4. chat, OFFICIAL, Test Drive setup'
 $chat = Body $ir 'static int CmdChat(string[] a)'
@@ -210,6 +222,16 @@ if ($state -match 'sim=False') {
   Check 'skip with no session: rc 3 and says so' ($r.rc -eq 3 -and $r.out -match 'skip: no session is running') $r.out
   $r = Ir chat say 'Thanks!'
   Check 'chat say with no session: rc 3, nothing typed, no stamp written' ($r.rc -eq 3 -and $r.out -match 'chat say: no sim session running') $r.out
+  $r = Ir to-the-race
+  Check 'to-the-race with no session: rc 3 and says so' ($r.rc -eq 3 -and $r.out -match 'to-the-race: no session is running') $r.out
+  $r = Ir to-the-race --dry
+  Check 'to-the-race --dry with no session: rc 3 too, nothing done' ($r.rc -eq 3 -and $r.out -match 'no session is running') $r.out
+  $r = Ir to-the-race --fake '0:Practice,1:Qualify,2:Race' 0 1
+  Check 'to-the-race --fake: an AI weekend in practice -> RACE NOW' ($r.rc -eq 0 -and $r.out -match 'to-the-race \(fake\): RACE NOW') $r.out
+  $r = Ir to-the-race --fake '0:Testing' 0 0
+  Check 'to-the-race --fake: a Test Drive -> NEXT SESSION' ($r.rc -eq 0 -and $r.out -match 'to-the-race \(fake\): NEXT SESSION') $r.out
+  $r = Ir spotter-tap --dry
+  Check 'spotter-tap --dry says what a tap would do and changes nothing (or that the spotter is not making sound)' (($r.rc -eq 0 -and $r.out -match 'a tap would (mute|turn the sound back on for) CrewChiefV4.*nothing changed') -or ($r.rc -eq 3 -and $r.out -match 'CrewChiefV4 is not making sound right now')) $r.out
   $r = Ir tow --pretend 0.4
   Check 'tow --pretend still works (the tow wait is untouched)' ($r.rc -eq 0 -and $r.out -match 'stationary') $r.out
 }
