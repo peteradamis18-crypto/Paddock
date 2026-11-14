@@ -12,7 +12,7 @@ $cfgFile = Join-Path $env:APPDATA 'irdashies\config.json'
 $pass = 0; $fail = 0
 function Check($what, $ok) { if ($ok) { $script:pass++; "  ok    $what" } else { $script:fail++; "  FAIL  $what" } }
 function J($path) { $r = Invoke-WebRequest -UseBasicParsing "$api$path" -TimeoutSec 8; [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json }
-function Api($c, $a) { $u = "$api/api/do?c=$c" + $(if ($a) { "&a=$a" } else { '' }); $null = Invoke-WebRequest -UseBasicParsing $u -TimeoutSec 8; Start-Sleep -Milliseconds 850 }   # W0-1 repeat guard: the same command within 0.7 s counts as one press, so every press here is spaced
+function Api($c, $a) { $u = "$api/api/do?c=$c" + $(if ($a) { "&a=$a" } else { '' }); $null = Invoke-WebRequest -UseBasicParsing $u -TimeoutSec 8 }
 function Widgets { (Get-Content $cfgFile -Raw | ConvertFrom-Json).dashboards.default.widgets }
 function IsOn($id) { [bool](@(Widgets | Where-Object { $_.id -eq $id })[0].enabled) }
 function Ini($key) { $m = Select-String -Path (Join-Path $root 'dash\irdash.ini') -Pattern "^$key=(.*)$" | Select-Object -First 1; if ($m) { $m.Matches[0].Groups[1].Value } else { $null } }
@@ -342,9 +342,9 @@ Api 'deltaup'; Api 'deltaup'; Start-Sleep -Milliseconds 400; $y1 = [int](J '/ove
 Api 'deltadown'; Api 'deltadown'; Api 'deltadown'; Start-Sleep -Milliseconds 400; $y2 = [int](J '/overlays').delta.y
 Api 'deltaup'; Start-Sleep -Milliseconds 400
 Check 'MOVE up and down nudges 10 px each and saves it in irdash.ini' ($y1 -eq $y0 - 20 -and $y2 -eq $y0 + 10 -and (Ini 'delta_pos') -match ",$y0$")
-Api 'deltaon'; Start-Sleep -Milliseconds 400
+Api 'deltaon'; Start-Sleep -Milliseconds 850   # W0-1: a second press within 0.7 s is the same press, so the two toggles are spaced
 Check 'DELTA ON/OFF switches it off and writes delta_bar=0' ((J '/overlays').delta.on -eq $false -and (Ini 'delta_bar') -eq '0')
-Api 'deltaon'; Start-Sleep -Milliseconds 400
+Api 'deltaon'; Start-Sleep -Milliseconds 850   # W0-1: a second press within 0.7 s is the same press, so the two toggles are spaced
 Check 'and back on' ((J '/overlays').delta.on -eq $true -and (Ini 'delta_bar') -eq '1')
 Start-Sleep -Milliseconds 7000
 Check 'the bar goes away by itself when there is nothing to show' (-not [OvT]::IsWindowVisible($hb))
