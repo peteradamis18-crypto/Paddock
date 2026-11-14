@@ -1,4 +1,4 @@
-﻿# One-press deck keys (2026-10-23): GET IN from any state, GET OUT waits for the car, RESTART in one press, NEXT SESSION / RACE NOW,
+# One-press deck keys (2026-10-23): GET IN from any state, GET OUT waits for the car, RESTART in one press, NEXT SESSION / RACE NOW,
 # the chat repeat guard, OFFICIAL as a hyperlink, the damage-switch fallback and kids mode that works while the sim runs.
 # Offline: it compiles src\deckrules.cs on its own and runs every rule, reads the source for what the keys must do, and runs the
 # irdeck CLI only in forms that cannot touch the sim (no session -> refusals, --dry, --fake). No clicks, no keys, no sim.
@@ -165,6 +165,13 @@ Check 'racenow runs one at a time' ((Body $ir 'static int CmdRaceNow()') -match 
 $ttr = Body $ir 'static int CmdToTheRace(string[] a)'
 Check 'to-the-race is a command: the plan from DeckRules on the loaded event''s sessions, then the existing RACE NOW or NEXT SESSION path' ($ir -match 'case "to-the-race": return CmdToTheRace\(Slice\(a, 1\)\)' -and $ttr -match 'DeckRules\.ToTheRacePlan\(s\.Ai, DeckRules\.RaceAhead\(s\.Sessions\.ToArray\(\), s\.Num\), test\)' -and $ttr -match 'if \(plan == "none"\) \{[^}]*Say\("no", "A Test Drive has no race\. QUIT TO MENU is on LEAVE\."\); return 3; \}' -and $ttr -match 'plan == "racenow" \? CmdRaceNow\(\) : CmdSkip\(\)')
 Check 'spotter-tap is a command: the spotter mute toggle (CrewChief''s own mixer entry), with a dry form' ($ir -match 'case "spotter-tap": return CmdSpotterTap\(Slice\(a, 1\)\)' -and (Body $ir 'static int CmdSpotterTap(string[] a)') -match 'AppMuteToggle\("spotter", Array\.IndexOf\(a, "--dry"\) >= 0\)' -and $ir -match 'if \(!dry\) \{ Guid g = Guid\.Empty; v\.SetMute\(target, ref g\); \}')
+# 2026-11-14 deck-v2-live: the refusal said "iRacing could not find that car" because the "has no " car rule matched "has no race" first
+$km = [IO.File]::ReadAllText((Join-Path $root 'src\keymsg.cs'))
+Check 'to-the-race''s refusal has its own top-screen words, listed before the "has no " car rule' ($km.IndexOf('to-the-race refused: a Test Drive has no race') -ge 0 -and $km.IndexOf('to-the-race refused: a Test Drive has no race') -lt $km.IndexOf('is not in the list|has no '))
+# 2026-11-14 deck-v2-live: iRacing's AI wizard ends its steps with Next and closes with Update (Continue is gone); the layout menu pops up outside the modal
+$td = [IO.File]::ReadAllText((Join-Path $root 'src\testdrive.cs'))
+Check 'AI RACE presses Next while it is enabled, else Update, and logs the candidates when neither is there' ($td -match 'Same\(u\.Name, "Continue"\) \|\| Same\(u\.Name, "Next"\)' -and $td -match 'Same\(u\.Name, "Update"\)' -and $td -match 'AiLogCandidates\(window, "step "' -and $td -match 'aiAllowRace && \(Same\(name, "Race"\) \|\| Same\(name, "Update"\)\)')
+Check 'AI RACE looks for the track layout menu in the whole window, not only the wizard modal' ($td -match 'TdMenuItems\(AiElements\(window\), row\)')
 
 Section '4. chat, OFFICIAL, Test Drive setup'
 $chat = Body $ir 'static int CmdChat(string[] a)'

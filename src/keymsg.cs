@@ -93,6 +93,7 @@ namespace IRDeck
             new[] { @"mydrive: START|starting your last drive", "wait", "Starting your last drive" },
             new[] { @"choose a car and track first", "no", "Choose a car and track first" },
             new[] { @"The Test Drive window isn't open|iRacing UI is not running|press HOME", "no", "iRacing is not open" },
+            new[] { @"to-the-race refused: a Test Drive has no race", "no", "A Test Drive has no race. QUIT TO MENU is on LEAVE." },   // before "has no " below (deck-v2-live 2026-11-14: the car rule won and the screen said "could not find that car")
             new[] { @"is not in the list|has no ", "no", "iRacing could not find that car" },
             new[] { @"pressed \[\w+\] (.+)", "ok", "Opened $1" },
             new[] { @"not found: (.+?) \(", "no", "Could not find $1" },

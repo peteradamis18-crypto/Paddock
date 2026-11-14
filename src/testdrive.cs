@@ -95,6 +95,23 @@ namespace IRDeck
             }
             return list;
         }
+        // When the wizard changes under us (2026-11-14: Continue became Next + Update), the log must show what was there to press
+        static void AiLogCandidates(AutomationElement window, string where)
+        {
+            try
+            {
+                int n = 0;
+                foreach (UEl u in AiElements(window))
+                {
+                    if (u.Type != ControlType.Hyperlink && u.Type != ControlType.Button && u.Type != ControlType.MenuItem) continue;
+                    if (u.Name.Length == 0 || u.Name.Length > 40 || u.R.Width <= 0) continue;
+                    bool en = false; try { en = u.E.Current.IsEnabled; } catch { }
+                    Log("airace candidate (" + where + "): " + u.Type.ProgrammaticName.Replace("ControlType.", "") + " '" + u.Name + "' [" + (int)u.R.X + "," + (int)u.R.Y + " " + (int)u.R.Width + "x" + (int)u.R.Height + "] enabled=" + en);
+                    if (++n >= 40) break;
+                }
+            }
+            catch { }
+        }
         // list rows carry iRacing's tags: "[Legacy] BMW Z4 GT3", "New  Aston Martin Valkyrie AMR-LMH" - compare without them
         static string AiRowName(string n)
         {
@@ -164,8 +181,8 @@ namespace IRDeck
                 || id.StartsWith("default-close-modal-btn-", StringComparison.Ordinal)
                 || Same(name, "AI Single Player") || Same(name, "Single Race")
                 || Same(name, "Last Settings") || Same(name, "Close") || Same(name, "Back") || Same(name, "Select") || Same(name, "Add a Car")
-                || (aiAllowNew && Same(name, "New Race")) || (aiAllowRace && Same(name, "Race"))
-                || (aiAllowContinue && Same(name, "Continue"))
+                || (aiAllowNew && Same(name, "New Race")) || (aiAllowRace && (Same(name, "Race") || Same(name, "Update")))
+                || (aiAllowContinue && (Same(name, "Continue") || Same(name, "Next")))   // 2026-11-14: the wizard's steps now end with Next, and Update closes it
                 || (aiAllowLayout && Same(name, aiLayoutName))
                 || (aiSurveyName.Length > 0 && Same(name, aiSurveyName));
         }
@@ -659,35 +676,50 @@ namespace IRDeck
                 // The step's elements are replaced after every press, so read them fresh each time and treat a vanished element as "not yet".
                 for (int press = 0; press < 12; press++)
                 {
-                    UEl next = null; bool closed = false;
+                    UEl next = null, update = null; bool closed = false;
+                    // 2026-11-14 (deck-v2-live, tests\shots\rework\ai-wizard-survey.txt): the wizard's steps now end with "Next" (greyed on the last step)
+                    // and an "Update" link on every step closes the wizard with everything set; "Continue" is gone. Next while it is enabled, else Update.
                     if (!WaitFor(delegate
                     {
                         try
                         {
                             modal = AiModal(window); if (modal == null) { closed = true; return true; }
-                            next = AiElements(modal).Find(u => { try { return u.Type == ControlType.Hyperlink && Same(u.Name, "Continue") && u.E.Current.IsEnabled; } catch { return false; } });
-                            return next != null;
+                            List<UEl> els2 = AiElements(modal);
+                            next = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && (Same(u.Name, "Continue") || Same(u.Name, "Next")) && u.E.Current.IsEnabled; } catch { return false; } });
+                            if (next == null) update = els2.Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Update") && u.E.Current.IsEnabled; } catch { return false; } });
+                            return next != null || update != null;
                         }
                         catch { return false; }
-                    }, 15000, 250, "UI CHANGED", "Continue " + (press + 1))) return AiStop("UI CHANGED", "Continue missing", window);
+                    }, 15000, 250, "UI CHANGED", "Continue " + (press + 1)))
+                    {
+                        AiLogCandidates(window, "step " + (press + 1));
+                        return AiStop("UI CHANGED", "Continue missing", window);
+                    }
+                    if (!closed && next == null && update != null)
+                    {
+                        aiAllowRace = true; bool upd = false; try { upd = AiPress(update); } catch { } aiAllowRace = false;
+                        Log("airace start: pressed Update (the wizard's steps are all set)");
+                        if (!upd) return AiStop("UI CHANGED", "Update failed", window);
+                        if (!WaitFor(delegate { return AiModal(window) == null; }, 10000, 250, "UI CHANGED", "wizard closed after Update")) { AiLogCandidates(window, "after Update"); return AiStop("UI CHANGED", "the wizard stayed open after Update", window); }
+                        closed = true;
+                    }
                     if (closed)
                     {
-                        // the wizard ends on a "Summary" page (car, track, weather, Back / Race) that has no step sidebar: verify it, then press Race
+                        // the wizard ends on a page with the car, the track and one Race control (the old "Summary" page; its label is optional since 2026-11-14)
                         UEl race = null;
                         WaitFor(delegate
                         {
                             try
                             {
                                 List<UEl> all = AiElements(window);
-                                bool summary = all.Exists(u => Same(u.Name, "Summary"));
                                 bool shows = all.Exists(u => AiRowName(u.Name).IndexOf(combo.Car, StringComparison.OrdinalIgnoreCase) >= 0) && all.Exists(u => u.Name.IndexOf(combo.Track, StringComparison.OrdinalIgnoreCase) >= 0);
-                                List<UEl> races = all.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Race"));
-                                race = (summary && shows && races.Count == 1) ? races[0] : null;
+                                List<UEl> races = all.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Race") && u.E.Current.IsEnabled);
+                                race = (shows && races.Count == 1) ? races[0] : null;
                                 return race != null;
                             }
                             catch { return false; }
                         }, 10000, 250, "UI CHANGED", "Summary Race");
-                        if (race == null) return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window);
+                        if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;
                         Log("airace start: pressed Race on the Summary (" + combo.Car + " at " + combo.Track + ")");
                         if (!raced) return AiStop("UI CHANGED", "Race failed", window);
