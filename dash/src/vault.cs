@@ -1235,7 +1235,7 @@ namespace IRDash
                     return NavSet("vault");
                 case "recsave": { string st = Recorder.Save(a ?? ""); if (st == "SESSION") Refused = RigState.NotInSession; return st == "SAVED" || st == "SAVING"; }
                 // the RACES screen on the deck (2026-11-06). The deck asks twice before DELETE; these only check the id.
-                case "racedelete": return RaceIdOk(a) && Recorder.Delete(a) == "DELETED";
+                case "racedelete": return RaceIdOk(a) && Library.TrashOne(a) == "DELETED";      // W1-1: into the trash (14 days), the same path as racetrash
                 case "raceexport": return RaceIdOk(a) && RaceExport(a);
                 case "racewatch": return RaceIdOk(a) && RaceWatch(a);   // the key lights only for a real save, not SAVED FULL / SAVE FAILED / NOTHING
                 case "wheelteach": return Wheel.Teach(10000).Length > 0;
@@ -1634,7 +1634,7 @@ namespace IRDash
                     case "/api/rec/save": j = "{\"state\":" + Json_.S(Recorder.Save(Q(q, "id"))) + "}"; break;
                 case "/api/rec/races": j = Recorder.RacesJson(); break;
                 case "/api/rec/backfill": j = Recorder.Backfill(); break;   // the races from before every race was kept by itself
-                case "/api/rec/delete": j = "{\"state\":" + Json_.S(Q(q, "confirm") == "yes" && RaceIdOk(Q(q, "id")) ? Recorder.Delete(Q(q, "id")) : "ASK") + "}"; break;   // confirm=yes: the caller asked Peter
+                case "/api/rec/delete": j = "{\"state\":" + Json_.S(Q(q, "confirm") == "yes" && RaceIdOk(Q(q, "id")) ? Library.TrashOne(Q(q, "id")) : "ASK") + "}"; break;   // confirm=yes: the caller asked Peter; W1-1: into the trash
                     case "/api/rec/session-video": return Recorder.ServeSession(s, Q(q, "id"), hdr);
                     case "/vault/thumb": return ServeThumb(s, Q(q, "id"));
                     case "/vault/frame": return ServeFrame(s, Q(q, "id"));                                   // a real picture from the lap's own recording (made in the background, 404 until then)

@@ -822,7 +822,15 @@ namespace IRDash
                         if (dg != null) { KeyMsg.Set(Regex.IsMatch(dc ?? "", "^[a-z0-9_-]{1,40}$") ? dc : "", dg, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(dg), "Access-Control-Allow-Origin: *\r\n"); return; }
                         Vault.Refused = null;
                         // W0-1: one repeat guard for every press that reaches irdash (src\deckguard.cs): the same command + argument within 0.7 s is the same press
-                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks)) { Log.W("api/do: repeat press ignored: " + dc); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        if (!DeckDo.Allow(dc, da, DateTime.UtcNow.Ticks))
+                        {
+                            Log.W("api/do: repeat press ignored: " + dc);
+                            // W1-1: a repeated library press gets the first press's JSON answer again (the page parses it)
+                            int rc = 200; string rj = Library.Handles(dc) ? Library.Recent(dc, da, out rc) : null;
+                            if (rj != null) Send(s, rc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(rj), "Access-Control-Allow-Origin: *\r\n");
+                            else Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok"), "Access-Control-Allow-Origin: *\r\n");
+                            return;
+                        }
                         // SHUT DOWN / SLEEP (W0-1): the CONFIRM screen arms irdash when it opens; YES is taken only from this PC, with an X-Paddock header
                         // that W0-2's Gate (above, rigstate.cs) already accepted (the add-on's secret, or 1 from a local program),
                         // kids lock off, within 5 s of that arm (DeckGuard.PowerGate). irdeck then quits iRacing, sends the deck to MAIN, powers off.
@@ -839,6 +847,8 @@ namespace IRDash
                             if (why != "ok") Log.W("api/do: " + dc + " refused (" + why + ")");
                             Send(s, pk ? 200 : 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(pk ? "ok" : why == "kids" ? "kids" : "Not done: the PC is turned off or put to sleep only from the CONFIRM screen on the deck (" + why + ")."), "Access-Control-Allow-Origin: *\r\n"); return;
                         }
+                        // W1-1: the RACES library answers in JSON with the words the page shows ("say": "Deleted 3 races")
+                        if (Library.Handles(dc)) { int lc; string lj = Library.Do(dc, da, out lc); Send(s, lc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(lj), "Access-Control-Allow-Origin: *\r\n"); return; }
                         bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : DeckFeed.Handles(dc) ? DeckFeed.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         if (!ok && Vault.Refused != null) { KeyMsg.Set(dc, Vault.Refused, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(Vault.Refused), "Access-Control-Allow-Origin: *\r\n"); return; }      // KEEP in a session: say why
@@ -895,6 +905,16 @@ namespace IRDash
                         Send(s, ac, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(aj), "Access-Control-Allow-Origin: *\r\n"); return;
                     }
                     if (method == "GET" && path.StartsWith("/share/", StringComparison.Ordinal) && Share.Handle(s, path, ParseQuery(query), hdr, local && !query.Contains("asphone=1"))) return;      // share studio + replay jump (share.cs, replayjump.cs); /share/open and /share/jump are for this PC only
+                    // W1-1: the RACES library (library.cs), read-only, with the Vault on or off
+                    if (method == "GET" && path == "/api/library") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Library.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    if (method == "GET" && path == "/api/library/thumb")
+                    {
+                        var tq = ParseQuery(query); string tid, tw; tq.TryGetValue("id", out tid); tq.TryGetValue("w", out tw);
+                        byte[] jpg = Library.Thumb(tid, tw);
+                        if (jpg == null) Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not made yet"), "Access-Control-Allow-Origin: *\r\n");
+                        else Send(s, 200, "image/jpeg", jpg, "Cache-Control: max-age=86400\r\nAccess-Control-Allow-Origin: *\r\n");
+                        return;
+                    }
                     // Vault (vault.cs) and the recorder's session video (S1, /api/rec/*). Off until vault=1. The test hook may use /vault/test while it is off.
                     if ((method == "GET" || method == "POST") && (path == "/vault" || path.StartsWith("/vault/") || path.StartsWith("/api/rec/", StringComparison.Ordinal)))
                     {
@@ -1106,7 +1126,7 @@ namespace IRDash
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
             StateBuilder.AddDeck("replay", 1000, Replay.Json);
-            StateBuilder.AddDeck("races", 10000, Recorder.RacesJson);
+            StateBuilder.AddDeck("races", 10000, Library.DeckJson);     // W1-1: the library's 40 newest (min, saved, freeGb kept for the old deck screen)
             StateBuilder.AddDeck("deckWorkbench", 1000, DeckFeed.WorkbenchJson);
             StateBuilder.AddDeck("sound", 2000, delegate () { return Sound.Json(false); });
             StateBuilder.AddDeck("ac", 2000, delegate () { return AcAuto.Json(false); });
@@ -3012,6 +3032,7 @@ namespace IRDash
             try { Perf.Start(); } catch (Exception ex) { Log.W("perf: could not start: " + ex.Message); }
             try { Vault.Init(RootDir); Vault.Start(); } catch (Exception ex) { Log.W("vault: could not start: " + ex.Message); }   // vault=0: both return at once
             try { Recorder.Init(RootDir); Recorder.Start(); } catch (Exception ex) { Log.W("recorder: could not start: " + ex.Message); }   // recorder=0 (the default): Start returns at once; Init only reads the clips already made
+            try { Library.Start(); } catch (Exception ex) { Log.W("library: could not start: " + ex.Message); }   // W1-1: once a minute the tidy and missing race thumbnails go on the Jobs queue (between sessions only)
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
             if (!TestMode) { try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); } }   // test mode: no internet
