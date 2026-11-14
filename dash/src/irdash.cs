@@ -906,6 +906,7 @@ namespace IRDash
                     }
                     if (method == "GET" && path.StartsWith("/share/", StringComparison.Ordinal) && Share.Handle(s, path, ParseQuery(query), hdr, local && !query.Contains("asphone=1"))) return;      // share studio + replay jump (share.cs, replayjump.cs); /share/open and /share/jump are for this PC only
                     // W1-1: the RACES library (library.cs), read-only, with the Vault on or off
+                    if ((path == "/api/library/video" || path.StartsWith("/api/talk/", StringComparison.Ordinal)) && Commentary.Route(s, method, path, ParseQuery(query), hdr)) return;   // W1-6 TALK OVER IT: the player's video, its events and the voice
                     if (method == "GET" && path == "/api/library") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(Library.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/api/library/thumb")
                     {
@@ -3034,6 +3035,7 @@ namespace IRDash
             try { Recorder.Init(RootDir); Recorder.Start(); } catch (Exception ex) { Log.W("recorder: could not start: " + ex.Message); }   // recorder=0 (the default): Start returns at once; Init only reads the clips already made
             try { Library.Start(); } catch (Exception ex) { Log.W("library: could not start: " + ex.Message); }   // W1-1: once a minute the tidy and missing race thumbnails go on the Jobs queue (between sessions only)
             try { Library.ShareState = YouTube.StateJson; Library.YouTubeJson = YouTube.Json; YouTube.Start(); } catch (Exception ex) { Log.W("youtube: could not start: " + ex.Message); }   // W1-2: the library shows each race's share state; a half-sent upload resumes between sessions
+            try { Commentary.Browser = BrowserExe; Commentary.Port = cfg.Port; Commentary.Start(); } catch (Exception ex) { Log.W("commentary: could not start: " + ex.Message); }   // W1-6 TALK OVER IT: the player opens in the dashboard's browser; a voice not yet mixed is mixed between sessions
             try { RaceField.Init(RootDir); RaceField.Start(); } catch (Exception ex) { Log.W("field: could not start: " + ex.Message); }   // W6: logs every car while a session with other cars runs (reads only; BelowNormal)
             try { Official.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("official: could not start: " + ex.Message); }   // official=0: returns at once
             if (!TestMode) { try { RealWorld.Init(Path.Combine(RootDir, @"data\official")); } catch (Exception ex) { Log.W("realworld: could not start: " + ex.Message); } }   // test mode: no internet

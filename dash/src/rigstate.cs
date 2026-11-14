@@ -203,7 +203,7 @@ namespace IRDash
             "ovapply", "ovedit",                                         // OVERLAYS: restarts irdashies / sends its hotkey and moves focus
             "racedelete", "vkdelete",                                    // the Vault and the recorder: deletes of GB files
             "racetrash", "raceundo", "raceempty", "racefree", "ytsignin", "raceshare", // W1-1 RACES library: moves and deletes of GB files; W1-2: SIGN IN opens a browser
-            "raceexport", "racewatch", "db-cosworth" };                  // RACES / DEBRIEF: open Explorer, a browser, the video player or Pi Toolbox on his screens
+            "raceexport", "racewatch", "db-cosworth", "racetalk" };      // RACES / DEBRIEF: open Explorer, a browser, the video player or Pi Toolbox on his screens; W1-6 TALK OVER IT (its STOP is not guarded)
         // recsave and /api/rec/save are not here on purpose: SAVE of the session being recorded only writes a small note and must work
         // mid-session (recorder-test 13). Recorder.Save itself refuses the big move of a FINISHED session while one is on ("SESSION").
 
