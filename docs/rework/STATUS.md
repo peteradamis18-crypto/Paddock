@@ -30,6 +30,7 @@ deployed = on the rig; live = the live checks in the card were run by the lead; 
 - Peter: on the deck go to LEAVE and press **SHUT DOWN PC** once, then press nothing: the gold YES must disappear by itself after
   5 s and the PC must stay on. That one press is also what tells irdash the new add-on is installed (`dash\deck-secret.txt` appears;
   log: "the Stream Deck add-on is installed with its secret"). Until then a page with no origin is still let through (logged hourly).
+- 2026-11-13 20:10: Peter skipped the re-press ("no skip next step"): the SHUT DOWN PC proof and the promotion of `dash/deck-secret.txt` wait for his next LEAVE press; the lead then reads the add-on log, `dash/irdash.log` and the secret files.
 - `tests\kids-test.ps1` and the other `-NeedAway` live tests wait for 10 min with no keyboard or mouse (Peter away from the PC).
 - 2026-11-13 16:07 small fix deployed: the every-minute passes (perf reports, gain, field laps backfill) are `Jobs.Routine` now, so
   `irdash.log` no longer gets two "jobs: … ran (waited 0.0 s, took 0.0 s)" lines a minute (they still log when they wait or take ≥ 1 s);
