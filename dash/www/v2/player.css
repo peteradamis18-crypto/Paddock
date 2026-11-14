@@ -8,10 +8,11 @@ video { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh - 168
   background: color-mix(in srgb, var(--bg) 80%, transparent); border-top: 2px solid var(--line); }
 .rec { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--danger); }
 .clock { flex: none; font-size: var(--t-title); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: var(--track); text-transform: uppercase; }
-.mic { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; font-size: var(--t-body); color: var(--muted); }
+.mic { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; font-size: var(--t-read); color: var(--muted); }   /* read from the seat, like the counter */
 .mic span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meter { width: 100%; max-width: 560px; height: 14px; border-radius: 7px; background: var(--line); overflow: hidden; }
 .meter i { display: block; height: 100%; width: 0; background: var(--gain); transition: width 80ms linear; }
+.meter.silent { background: color-mix(in srgb, var(--amber) 55%, transparent); }   /* silent: the whole meter turns amber, not just empty */
 .meter.silent i { background: var(--amber); }
 .btn.stop { flex: none; min-height: 112px; min-width: 360px; padding: 0 72px; background: var(--danger); border-color: var(--danger); color: var(--bg);
   font-size: var(--t-read); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; }

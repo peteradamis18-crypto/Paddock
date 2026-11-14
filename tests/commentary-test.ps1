@@ -49,7 +49,9 @@ try {
   $null = FF @('-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=1000:duration=3', '-af', 'volume=4', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', "`"$media\voice.webm`"")
   $null = FF @('-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'aevalsrc=if(gte(t\,1)\,0.8*sin(2*PI*1000*t)\,0):s=48000:d=3', '-ac', '1', '-c:a', 'libopus', "`"$media\voice-late.webm`"")
   $null = FF @('-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-t', '12', '-c:a', 'pcm_s16le', "`"$media\silent.wav`"")
-  ok '0. the test video (3 s and 9 s), two voices and a silent wav are made' ((Test-Path "$media\v3.mp4") -and (Test-Path "$media\v9.mp4") -and (Test-Path "$media\voice.webm") -and (Test-Path "$media\voice-late.webm") -and (Test-Path "$media\silent.wav"))
+  # a voice shorter than the clip (STOP pressed before the end): the mix must still have sound to the end
+  $null = FF @('-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=1000:duration=1', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', "`"$media\voice-short.webm`"")
+  ok '0. the test video (3 s and 9 s), three voices (one of 1 s) and a silent wav are made' ((Test-Path "$media\v3.mp4") -and (Test-Path "$media\v9.mp4") -and (Test-Path "$media\voice.webm") -and (Test-Path "$media\voice-late.webm") -and (Test-Path "$media\voice-short.webm") -and (Test-Path "$media\silent.wav"))
 
   $mixed = $null
   if (Want 1) {
@@ -144,14 +146,16 @@ try {
       ok "2. the microphone's name is on the screen ($micShown)" ($micShown -and $micShown -eq (Invoke-DeckJs $pg 'player.out.mic') -and $micShown -ne 'Microphone')
       ok '2. the bar says "Talking 0:0x" with one STOP' ((Invoke-DeckJs $pg "/^Talking 0:0[0-3]$/.test(document.getElementById('clock').textContent) && !document.getElementById('bar').hidden && document.querySelectorAll('.btn.stop').length === 1") -eq $true) (Invoke-DeckJs $pg "document.getElementById('clock').textContent")
       ok '2. no pause, no seek: the video has no controls' ((Invoke-DeckJs $pg "!document.getElementById('v').controls") -eq $true)
+      ok '2. the microphone name is 36 px like the counter line (read from the seat)' ((Invoke-DeckJs $pg "getComputedStyle(document.getElementById('micName')).fontSize") -eq '36px')
+      ok '2. the whole race picture is above the bar' ((Invoke-DeckJs $pg "document.getElementById('v').getBoundingClientRect().bottom <= document.getElementById('bar').getBoundingClientRect().top + 1") -eq $true)
       Shot $pg 'player-talking'
       $done = WaitJs $pg 'player.out.posted > 0' 12
       $o = Invoke-DeckJs $pg 'player.out'
       $vl = @(Log | Where-Object { $_ -match '^POST /api/talk/voice\?id=a1&D=' })
       $vf = @(Log | Where-Object { $_ -match '^VOICE 1 (\d+)' }); $vsize = if ($vf) { [int]($vf[0] -replace '^VOICE 1 ', '') } else { 0 }
       ok "2. the video's end stops it: the voice is posted once (X-Paddock: 1) with D = $([math]::Round($o.D, 3)) s (between -0.5 and 0.5)" ($done -and $vl.Count -eq 1 -and $vl[0] -match 'xp=1$' -and $o.D -ge -0.5 -and $o.D -le 0.5) (($vl -join ' | ') + ' ' + ($o | ConvertTo-Json -Compress))
-      ok "2. secs about 3 ($([math]::Round($o.secs, 2)) s), a non-empty webm ($vsize bytes), mic and silent=0 in the query" ($o.secs -ge 2.5 -and $o.secs -le 4.5 -and $vsize -gt 500 -and $vsize -eq $o.size -and $vl[0] -match '&mic=[^&]+&silent=0 ') ($vl -join ' | ')
-      ok '2. then "Mixing... you can close this"' ((Invoke-DeckJs $pg "document.getElementById('msgMain').textContent") -match '^Mixing')
+      ok "2. secs about 3 ($([math]::Round($o.secs, 2)) s), a non-empty webm ($vsize bytes), stall, mic and silent=0 in the query" ($o.secs -ge 2.5 -and $o.secs -le 4.5 -and $vsize -gt 500 -and $vsize -eq $o.size -and $vl[0] -match '&stall=[\d.]+&mic=[^&]+&silent=0 ') ($vl -join ' | ')
+      ok '2. then "Mixing your commentary. Paddock closes this in a moment."' ((Invoke-DeckJs $pg "document.getElementById('msgMain').textContent") -eq 'Mixing your commentary. Paddock closes this in a moment.')
       Shot $pg 'player-mixing'
       $null = Invoke-Cdp $pg.Ws 'Page.close'
 
@@ -183,6 +187,7 @@ try {
       $st = WaitJs $pg 'window.player && player.out.started' 10
       $sil = WaitJs $pg "!document.getElementById('warn').hidden" 9
       ok '2. a silent microphone for 5 s: "The microphone is silent. Is it muted?" and irdash is told (ev=silent); the recording goes on' ($st -and $sil -and ((Log) -match '^POST /api/talk/event\?id=b1&ev=silent xp=1$') -and (Invoke-DeckJs $pg "player.rec.state") -eq 'recording') ((Log) -join ' | ')
+      ok '2. the meter turns amber (not just empty)' ((Invoke-DeckJs $pg "(() => { const m = document.getElementById('meter'); if (!m.classList.contains('silent')) return false; const s = getComputedStyle(m).backgroundColor; m.classList.remove('silent'); const n = getComputedStyle(m).backgroundColor; m.classList.add('silent'); return s !== n; })()") -eq $true)
       Shot $pg 'player-silent'
       Set-Content (Join-Path $ctl 'stop.txt') '1'
       $done = WaitJs $pg 'player.out.posted > 0' 6
@@ -203,6 +208,8 @@ try {
       $pr = & $fp -v error -show_entries format=duration:stream=codec_type -of default=nw=1 $mixed 2>&1 | Out-String
       $vd = [double](& $fp -v error -show_entries format=duration -of default=nw=1:nk=1 "$media\v3.mp4")
       $md = if ($pr -match 'duration=([\d.]+)') { [double]$Matches[1] } else { 0 }
+      $ad = [double](& $fp -v error -select_streams a:0 -show_entries stream=duration -of default=nw=1:nk=1 $mixed)
+      ok "3. the sound stream itself is as long as the video ($ad s)" ([math]::Abs($ad - $vd) -le 0.2)
       ok '3. two streams (video + the mixed sound)' (([regex]::Matches($pr, 'codec_type=(video|audio)')).Count -eq 2 -and $pr.Contains('codec_type=video') -and $pr.Contains('codec_type=audio')) $pr
       ok "3. as long as the video within 0.2 s ($md s of $vd s)" ([math]::Abs($md - $vd) -le 0.2)
       # D = 0.5 trims the voice's first 0.5 s: it was silent for 1 s, so it is heard from 0.5 s on
@@ -233,7 +240,9 @@ try {
       shared    = '{"kind":"shared","sec":312,"mic":"","silent":false,"url":"https://youtu.be/talk123","error":"","note":"","yt":{"kind":"shared","pct":100,"privacy":"private","url":"https://youtu.be/talk123"}}'
       failed    = '{"kind":"failed","sec":0,"mic":"","silent":false,"url":"","error":"No microphone found. Plug in the headset and press again.","note":"","yt":{"kind":"none"}}'
     }
-    $races = @((Race 'r1' ($now - $h) $T.none), (Race 'r2' ($now - 2 * $h) $T.talking), (Race 'r3' ($now - 3 * $h) $T.ready), (Race 'r4' ($now - 4 * $h) $T.mixing))
+    $T.stall = '{"kind":"ready","sec":312,"mic":"","silent":false,"url":"","error":"","note":"","stall":1.4,"yt":{"kind":"none"}}'
+    $races = @((Race 'r1' ($now - $h) $T.none), (Race 'r2' ($now - 2 * $h) $T.talking), (Race 'r3' ($now - 3 * $h) $T.ready), (Race 'r4' ($now - 4 * $h) $T.mixing),
+               (Race 'r5' ($now - 5 * $h) $T.shared '{"kind":"shared","pct":100,"privacy":"private","url":"https://youtu.be/abc123"}'), (Race 'r6' ($now - 6 * $h) $T.stall))
     $fixture = '{"storage":{"usedGb":412,"freeGb":280,"trashGb":0,"moreRaces":38,"lowSpace":false},"youtube":{"signedIn":true,"privacy":"private","template":1},"titles":[],"races":[' + ($races -join ',') + '],"trash":[]}'
     $stub = @"
 <script>
@@ -276,10 +285,18 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
   open('r3'); await sleep(100);
   const sh = document.querySelector('#open [data-act="sharetalk"]');
   ok('4. ready: the second line "With commentary: ready" with SHARE WITH COMMENTARY', /With commentary: ready/.test($('open').textContent) && sh && sh.textContent === 'Share with commentary');
-  const ln = document.querySelector('#open .o-talk .state');
-  ok('4. that line stays on one row', ln && ln.getBoundingClientRect().height < 60, ln && ln.getBoundingClientRect().height);
+  const inside = () => [...document.querySelectorAll('#open .btn, #open .keylabel, #open .state')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.left < 0 || b.right > innerWidth + 0.5 || b.bottom > innerHeight + 0.5); }).map(e => e.textContent);
+  ok('4. every key and line of the open card lies inside the screen (ready)', inside().length === 0, inside().join(' | '));
   window.__req.length = 0; click(sh); await sleep(150);
   ok('4. that SHARE sends raceshare a=r3:c (the second video), and the line says waiting', cmds().join(' ') === '/api/do?c=raceshare&a=r3:c' && /With commentary: waiting to share/.test($('open').textContent), cmds().join(' '));
+  click(document.querySelector('[data-act="close"]')); await sleep(50);
+  open('r5'); await sleep(100);
+  ok('4. on YouTube with commentary: TALK OVER IT gives way to a label "With commentary: on YouTube"', !document.querySelector('#open [data-act="talk"]') && /With commentary: on YouTube/.test(document.querySelector('#open .o-keys').textContent));
+  ok('4. every key and line of the open card lies inside the screen (shared)', inside().length === 0, inside().join(' | '));
+  click(document.querySelector('[data-act="close"]')); await sleep(50);
+  open('r6'); await sleep(100);
+  ok('4. a stall over 0.5 s: "With commentary: ready (sync may be off by 1.4 s)"', /With commentary: ready \(sync may be off by 1\.4 s\)/.test($('open').textContent), $('open').textContent);
+  ok('4. every key and line of the open card lies inside the screen (sync note)', inside().length === 0, inside().join(' | '));
   out.push('DONE'); $('out').textContent = out.join('\n');
 })();
 </script>
@@ -302,7 +319,7 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
     $rj = [IO.File]::ReadAllText((Join-Path $www 'races.js'))
     ok '4. races.js still has no setInterval (the counter is a timeout only while talking)' (-not $rj.Contains('setInterval'))
     # one picture per state: the open card of a race in that state
-    foreach ($s in @('preparing', 'talking', 'silent', 'mixing', 'session', 'ready', 'sharing', 'shared', 'failed')) {
+    foreach ($s in @('preparing', 'talking', 'silent', 'mixing', 'session', 'ready', 'stall', 'sharing', 'shared', 'failed')) {
       $one = '{"storage":{"usedGb":412,"freeGb":280,"trashGb":0,"moreRaces":38,"lowSpace":false},"youtube":{"signedIn":true,"privacy":"private","template":1},"titles":[],"races":[' + (Race 'x1' ($now - $h) $T[$s] $(if ($s -eq 'shared') { '{"kind":"shared","pct":100,"privacy":"private","url":"https://youtu.be/abc123"}' } else { '{"kind":"none"}' })) + '],"trash":[]}'
       $u = Page "s-$s" "window.__fx = $one;" "<script>setTimeout(() => document.querySelector('.card [data-act=""open""]').dispatchEvent(new MouseEvent('click', { bubbles: true })), 500);</script>"
       $png = Join-Path $shots "talk-page-$s.png"; Remove-Item $png -ErrorAction SilentlyContinue
@@ -365,8 +382,11 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
       $null = Invoke-DeckJs $page 'window.__apis.length = 0'; Press 3 3
       ok '4. STOP (any of its 6 keys) sends racetalkstop a=r00' (@(Apis | Where-Object { $_ -match 'racetalkstop' }) -join ' ' -match 'racetalkstop&a=r00') ((Apis) -join ' | ')
       Set-Talk $T.mixing
-      ok '4. mixing: "MIXING NOW", no STOP' ((Reg 2 0).t -eq 'MIXING NOW' -and $null -eq (Reg 2 2))
+      ok '4. mixing: "MIXING YOUR VOICE", no STOP' ((Reg 2 0).t -eq 'MIXING YOUR VOICE' -and $null -eq (Reg 2 2))
       Sheet 'mixing'
+      Set-Talk $T.session
+      ok '4. a session started: AFTER THE SESSION, one word-run per key' ((Reg 2 1).t -eq 'AFTER THE SESSION')
+      Sheet 'mixing-session'
       Set-Talk $T.ready
       $null = Invoke-DeckJs $page "(async () => { Races.sel = 'r00'; Races.relayout(); return 1; })()"; Start-Sleep -Milliseconds 400
       $r = Reg 7 2

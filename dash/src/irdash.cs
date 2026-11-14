@@ -3234,7 +3234,7 @@ namespace IRDash
                 foreach (Process p in Proc.ByName(n))
                 {
                     bool mine = false;
-                    try { string wt = p.MainWindowTitle; mine = wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/"); } catch { }
+                    try { string wt = p.MainWindowTitle; mine = (wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/")) && wt.IndexOf("player.html", StringComparison.OrdinalIgnoreCase) < 0; } catch { }   // W1-6: the TALK OVER IT player is never the dashboard
                     if (mine) r.Add(p); else { try { p.Dispose(); } catch { } }
                 }
             return r;
@@ -3336,7 +3336,7 @@ namespace IRDash
         {
             if (!IsWindow(h)) return false;
             StringBuilder t = new StringBuilder(256); GetWindowText(h, t, 256); string wt = t.ToString();
-            return wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/");
+            return (wt.StartsWith(WindowTitle) || wt.StartsWith("localhost:" + cfg.Port + "/")) && wt.IndexOf("player.html", StringComparison.OrdinalIgnoreCase) < 0;   // W1-6: not the player
         }
 
         // the guard thread

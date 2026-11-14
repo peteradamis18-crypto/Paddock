@@ -37,6 +37,11 @@ namespace IRDash
         internal static string LastLaunchArgs = "", LastMixArgs = "";
         public static int VoiceWaitMs = 10000;              // after STOP, how long the player has to send what was said
         public static int StartWaitMs = 40000;              // the player must say "started" this long after it was opened
+        public static int PrepareWaitMs = 90000;            // and open this long after the press (the cut waits behind any job): never minutes later
+        public static int TidyDays = 30;                    // an unshared commentary video (about 1 GB) goes after this long
+        public static int LeftoverGraceMs = 15000;          // at irdash start an old player gets this long to send what was said before it is closed
+        public const string MsgBusy = "Paddock was busy, press TALK OVER IT again";
+        const string MicSite = "http://localhost:{0},*";    // the player profile's microphone grant (Chrome's content settings key)
         const long VoiceMaxBytes = 300L * 1024 * 1024;      // opus at ~32 kbit/s is ~15 MB an hour; anything near this is not a voice
         public const string Suffix = " (with commentary)";
         public const string MsgNoMic = "No microphone found. Plug in the headset and press again.";
@@ -57,7 +62,7 @@ namespace IRDash
         static readonly Dictionary<string, Talk> talks = new Dictionary<string, Talk>();
 
         // what is on disk per race: <id>.json (d, secs, mic, when, silent, mixed), <id>-voice.webm until the mix is verified, <id>-commentary.mp4
-        sealed class Meta { public double D, Secs, When; public string Mic = ""; public bool Silent, Mixed, HasVideo, HasVoice; public long Bytes; }
+        sealed class Meta { public double D, Secs, When, Stall; public string Mic = ""; public bool Silent, Mixed, HasVideo, HasVoice; public long Bytes; }
         static Dictionary<string, Meta> metas;      // null = not read yet (read once; only this file writes the folder)
 
         static double Now { get { return Clock != null ? Clock() : (DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalMilliseconds; } }
@@ -84,9 +89,11 @@ namespace IRDash
             return "-hide_banner -y -i \"" + cut + "\" " + seek + "-i \"" + voice + "\" -filter_complex \"" + Filter(delay) + "\"" +
                    " -map 0:v:0 -map \"[a]\" -c:v copy -c:a aac -b:a 192k " + (hevc ? "-tag:v hvc1 " : "") + "-movflags +faststart \"" + outPath + "\"";
         }
+        // apad: the voice runs on as silence to the end of the race. Without it the ducking stops where he pressed STOP and amix
+        // (duration=first) ends the whole sound track there: the rest of the race would be silent (review W1-6 #1).
         public static string Filter(string delay)
         {
-            return "[1:a]" + (delay ?? "") + "asplit=2[vkey][vmix];[0:a][vkey]" + Duck + "[duck];[duck][vmix]" + Mix2 + "[a]";
+            return "[1:a]" + (delay ?? "") + "apad,asplit=2[vkey][vmix];[0:a][vkey]" + Duck + "[duck];[duck][vmix]" + Mix2 + "[a]";
         }
 
         // the second video's title: under 70 characters with the suffix whole. The title gives way first: its last " · " part, then words.
@@ -108,11 +115,14 @@ namespace IRDash
         }
 
         // the "talk" object of /api/library per race
-        public static string Json(string kind, double sec, string mic, bool silent, string url, string error, string note, string yt)
+        public static string Json(string kind, double sec, string mic, bool silent, string url, string error, string note, string yt) { return Json(kind, sec, mic, silent, url, error, note, yt, 0); }
+        // stall: seconds the video stood still while he talked (buffering); over 0.5 s the words after it may be early by that much
+        public static string Json(string kind, double sec, string mic, bool silent, string url, string error, string note, string yt, double stall)
         {
             return "{\"kind\":" + Json_.S(kind) + ",\"sec\":" + Math.Max(0, Math.Round(sec)).ToString("0", Inv) + ",\"mic\":" + Json_.S(mic ?? "") +
                    ",\"silent\":" + (silent ? "true" : "false") + ",\"url\":" + Json_.S(url ?? "") + ",\"error\":" + Json_.S(error ?? "") +
-                   ",\"note\":" + Json_.S(note ?? "") + ",\"yt\":" + (string.IsNullOrEmpty(yt) ? "{\"kind\":\"none\"}" : yt) + "}";
+                   ",\"note\":" + Json_.S(note ?? "") + ",\"stall\":" + Math.Max(0, stall).ToString("0.0", Inv) +
+                   ",\"yt\":" + (string.IsNullOrEmpty(yt) ? "{\"kind\":\"none\"}" : yt) + "}";
         }
 
         // ================= state =================
@@ -138,8 +148,8 @@ namespace IRDash
             if (m != null && m.Mixed)
             {
                 string yt = Yt(id), k = KindOf(yt);
-                if (k == "shared") return Json("shared", m.Secs, m.Mic, m.Silent, UrlOf(yt), "", "", yt);
-                if (m.HasVideo || k == "queued" || k == "sharing") return Json("ready", m.Secs, m.Mic, m.Silent, "", "", "", yt);
+                if (k == "shared") return Json("shared", m.Secs, m.Mic, m.Silent, UrlOf(yt), "", "", yt, m.Stall);
+                if (m.HasVideo || k == "queued" || k == "sharing") return Json("ready", m.Secs, m.Mic, m.Silent, "", "", "", yt, m.Stall);
             }
             if (m != null && m.HasVoice && !m.Mixed) return Json("mixing", m.Secs, m.Mic, m.Silent, "", "", "", null);    // after a restart, the mix waits its turn
             return Json("none", 0, "", false, "", "", "", null);
@@ -184,7 +194,7 @@ namespace IRDash
             try
             {
                 string s = File.ReadAllText(path, Encoding.UTF8);
-                m.D = Num(s, "d"); m.Secs = Num(s, "secs"); m.When = Num(s, "when");
+                m.D = Num(s, "d"); m.Secs = Num(s, "secs"); m.When = Num(s, "when"); m.Stall = Num(s, "stall");
                 Match mm = Regex.Match(s, "\"mic\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""); if (mm.Success) m.Mic = Regex.Unescape(mm.Groups[1].Value);
                 m.Silent = Regex.IsMatch(s, "\"silent\"\\s*:\\s*true"); m.Mixed = Regex.IsMatch(s, "\"mixed\"\\s*:\\s*true");
             }
@@ -198,7 +208,7 @@ namespace IRDash
         }
         static void WriteMeta(string id, Meta m)
         {
-            string j = "{\"d\":" + m.D.ToString("0.000", Inv) + ",\"secs\":" + m.Secs.ToString("0.0", Inv) + ",\"mic\":" + Json_.S(m.Mic) + ",\"when\":" + m.When.ToString("0", Inv) +
+            string j = "{\"d\":" + m.D.ToString("0.000", Inv) + ",\"secs\":" + m.Secs.ToString("0.0", Inv) + ",\"stall\":" + m.Stall.ToString("0.00", Inv) + ",\"mic\":" + Json_.S(m.Mic) + ",\"when\":" + m.When.ToString("0", Inv) +
                        ",\"silent\":" + (m.Silent ? "true" : "false") + ",\"mixed\":" + (m.Mixed ? "true" : "false") + "}";
             string p = MetaPath(id), tmp = p + ".tmp";
             File.WriteAllText(tmp, j, new UTF8Encoding(false));
@@ -232,6 +242,7 @@ namespace IRDash
                 t = new Talk(); t.Id = id; t.AskedMs = Now; talks[id] = t;
             }
             Log.W("commentary: TALK OVER IT pressed for " + id);
+            EnsureWatch();
             Bump();
             string cut = Library.CutFile(id);
             if (File.Exists(cut)) OpenPlayer(t);
@@ -258,17 +269,56 @@ namespace IRDash
             try { b = System.Windows.Forms.Screen.PrimaryScreen.Bounds; } catch { b = new Rectangle(0, 0, 2560, 1440); }   // the middle race screen (CLAUDE.md: the Windows primary)
             string profile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "player-profile");
             string url = "http://localhost:" + Port.ToString(Inv) + "/v2/player.html?id=" + Uri.EscapeDataString(t.Id);
+            // no --use-fake-ui-for-media-stream: real Chrome shows its yellow "unsupported command-line flag" bar for it. The microphone is
+            // granted in the player's own profile instead (GrantMic), so Peter still clicks nothing.
             string args = "--user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --hide-crash-restore-bubble --disable-session-crashed-bubble " +
                           "--disable-features=Translate --window-position=" + b.X + "," + b.Y + " --window-size=" + b.Width + "," + b.Height + " --start-fullscreen " +
-                          "--autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --app=" + url;
+                          "--autoplay-policy=no-user-gesture-required --app=" + url;
             LastLaunchArgs = args;
             try
             {
+                GrantMic(profile);
+                if (On() || !Mine(t)) { if (On()) Drop(t, MsgSession); return; }      // the last look before a window appears on his screen
                 Process p = Launch != null ? Launch("test", args) : Process.Start(Browser(), args);
                 lock (gate) { t.Player = p; t.OpenedMs = Now; }
                 Log.W("commentary: player opened for " + t.Id + " on " + b);
             }
             catch (Exception ex) { Fail(t, "Could not open Paddock's player (" + ex.Message + ")"); }
+        }
+
+        // The player profile's Default\Preferences says "localhost:<port> may use the microphone" (content setting 1 = allow), merged
+        // into what Chrome already wrote there. Written only while no player runs (CloseLeftovers came first). A failure is logged:
+        // Chrome then asks once on screen, which is worse but not broken.
+        internal static void GrantMic(string profile)
+        {
+            try
+            {
+                string dir = Path.Combine(profile, "Default"), file = Path.Combine(dir, "Preferences");
+                Directory.CreateDirectory(dir);
+                System.Web.Script.Serialization.JavaScriptSerializer js = new System.Web.Script.Serialization.JavaScriptSerializer();
+                js.MaxJsonLength = int.MaxValue;
+                Dictionary<string, object> root = null;
+                if (File.Exists(file)) { try { root = js.DeserializeObject(File.ReadAllText(file, Encoding.UTF8)) as Dictionary<string, object>; } catch { root = null; } }
+                if (root == null) root = new Dictionary<string, object>();
+                Dictionary<string, object> mic = Child(Child(Child(Child(root, "profile"), "content_settings"), "exceptions"), "media_stream_mic");
+                string site = string.Format(Inv, MicSite, Port);
+                object cur; Dictionary<string, object> have = mic.TryGetValue(site, out cur) ? cur as Dictionary<string, object> : null;
+                if (have != null && Convert.ToString(have.ContainsKey("setting") ? have["setting"] : "", Inv) == "1") return;   // already granted
+                Dictionary<string, object> grant = new Dictionary<string, object>(); grant["setting"] = 1;
+                mic[site] = grant;
+                string tmp = file + ".paddock";
+                File.WriteAllText(tmp, js.Serialize(root), new UTF8Encoding(false));
+                if (File.Exists(file)) File.Delete(file);
+                File.Move(tmp, file);
+                Log.W("commentary: the player may use the microphone (" + site + " in player-profile)");
+            }
+            catch (Exception ex) { Log.W("commentary: could not grant the microphone in the player profile (" + ex.Message + ")"); }
+        }
+        static Dictionary<string, object> Child(Dictionary<string, object> d, string k)
+        {
+            object o; Dictionary<string, object> c = d.TryGetValue(k, out o) ? o as Dictionary<string, object> : null;
+            if (c == null) { c = new Dictionary<string, object>(); d[k] = c; }
+            return c;
         }
 
         // ================= the player's events (POST /api/talk/event?id=&ev=) =================
@@ -356,20 +406,47 @@ namespace IRDash
         static void CloseSoon(Talk t) { Thread th = new Thread(delegate () { Thread.Sleep(300); ClosePlayer(t); }); th.IsBackground = true; th.Start(); }
 
         // ================= the voice (POST /api/talk/voice?id=&D=&secs=&mic=&silent=, the webm as the body) =================
-        public static string OnVoice(string id, byte[] voice, double d, double secs, string mic, bool silent, out int code)
+        public static string OnVoice(string id, byte[] voice, double d, double secs, string mic, bool silent, out int code) { return OnVoice(id, voice, d, secs, mic, silent, 0, out code); }
+        public static string OnVoice(string id, byte[] voice, double d, double secs, string mic, bool silent, double stall, out int code)
         {
             code = 200; Talk t;
+            if (voice == null || voice.Length == 0) { code = 400; return Say(false, "Nothing was recorded"); }
+            bool orphan = false;
             lock (gate)
             {
-                if (!talks.TryGetValue(id ?? "", out t) || !(t.Kind == "talking" || t.Kind == "mixing") || t.VoiceIn) { code = 409; return Say(false, "Not talking over this race"); }
-                if (voice == null || voice.Length == 0) { code = 400; return Say(false, "Nothing was recorded"); }
-                if (double.IsNaN(d) || Math.Abs(d) > 30) d = 0;          // a clock that went wrong: no shift beats a wild one
-                t.VoiceIn = true; t.StopAsked = true; t.Kind = "mixing"; t.Secs = secs > 0 ? secs : (Now - t.StartedMs) / 1000.0;
-                if (!string.IsNullOrEmpty(mic)) t.Mic = Clip(mic);
-                t.Silent = silent;
+                Talk x; bool have = talks.TryGetValue(id ?? "", out x);
+                if (have && x.VoiceIn) { code = 409; return Say(false, "Already have what you said"); }
+                if (have && (x.Kind == "talking" || x.Kind == "mixing")) t = x;
+                else if (have && x.Kind == "preparing") { code = 409; return Say(false, "Not talking over this race"); }
+                else
+                {
+                    // irdash restarted while he talked (the talk list is empty): the race is still here, so what he said is kept and mixed
+                    t = null; orphan = true;
+                }
+                if (t != null)
+                {
+                    if (double.IsNaN(d) || Math.Abs(d) > 30) d = 0;          // a clock that went wrong: no shift beats a wild one
+                    t.VoiceIn = true; t.StopAsked = true; t.Kind = "mixing"; t.Secs = secs > 0 ? secs : (Now - t.StartedMs) / 1000.0;
+                    if (!string.IsNullOrEmpty(mic)) t.Mic = Clip(mic);
+                    t.Silent = silent;
+                }
             }
-            Meta m = new Meta(); m.D = d; m.Secs = t.Secs; m.Mic = t.Mic; m.When = Now; m.Silent = silent; m.HasVoice = true;
-            Log.W("commentary: voice in for " + id + " (" + (voice.Length / 1024) + " KB, " + t.Secs.ToString("0", Inv) + " s, D " + d.ToString("0.000", Inv) + " s)");
+            if (orphan)
+            {
+                RaceInfo r = Library.IdOk(id) ? SessionIndex.Get(id) : null;
+                if (r == null || r.InTrash || On()) { code = 409; return Say(false, "Not talking over this race"); }
+                if (double.IsNaN(d) || Math.Abs(d) > 30) d = 0;
+                lock (gate)
+                {
+                    t = new Talk(); t.Id = id; t.Kind = "mixing"; t.VoiceIn = true; t.StopAsked = true; t.AskedMs = Now;
+                    t.Secs = secs > 0 ? secs : 0; t.Mic = Clip(mic); t.Silent = silent; talks[id] = t;
+                }
+                Log.W("commentary: a voice for " + id + " with no talk on (irdash restarted while he talked) - kept and mixed");
+            }
+            if (double.IsNaN(stall) || stall < 0) stall = 0;
+            Meta m = new Meta(); m.D = d; m.Secs = t.Secs; m.Mic = t.Mic; m.When = Now; m.Silent = silent; m.HasVoice = true; m.Stall = stall;
+            Log.W("commentary: voice in for " + id + " (" + (voice.Length / 1024) + " KB, " + t.Secs.ToString("0", Inv) + " s, D " + d.ToString("0.000", Inv) + " s" +
+                  (stall > 0 ? ", the video stood still " + stall.ToString("0.0", Inv) + " s while he talked" : "") + ")");
             // nothing over 1 MB is written in a session (plan rule 2): the voice then waits in memory for the session to end
             if (On()) Jobs.Save("talk voice " + id, delegate { Keep(id, voice, m); });
             else Keep(id, voice, m);
@@ -406,17 +483,19 @@ namespace IRDash
             if (res != "ok") { MixDone(id, res); return; }
             if (Cuts.FreeBytes(Dir) < 3L * 1024 * 1024 * 1024) { MixDone(id, "Not enough space for the commentary video (needs 3 GB free)"); return; }
             try { if (File.Exists(part)) File.Delete(part); } catch { }
-            bool hevc = Probe("-v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 \"" + cut + "\"").Trim() != "h264";
+            bool hevc = Probe("-v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 \"" + cut + "\"").Trim() == "hevc";
             string args = MixArgs(cut, voice, m.D, part, hevc);
             LastMixArgs = args;
             Stopwatch sw = Stopwatch.StartNew();
             string err; int rc = Ffmpeg(args, 30 * 60 * 1000, out err);
             if (rc == Cuts.Yielded || (rc == -1 && Jobs.ShouldYield)) { TryDelete(part); Log.W("commentary: the mix of " + id + " stopped - a session started; it runs again after it"); Jobs.Again("talk mix " + id, delegate { Mix(id); }); return; }
             if (rc != 0 || !File.Exists(part)) { TryDelete(part); MixDone(id, "The mix did not work (the video tool stopped). Press TALK OVER IT again."); Log.W("commentary: ffmpeg " + rc + ": " + Tail(err)); return; }
-            // verified before it counts: two streams, as long as the cut (within 1 s)
-            double want = Duration(cut), got; int streams = Streams(part, out got);
+            // verified before it counts: two streams, and the SOUND as long as the cut (within 1 s): the file's own length is the
+            // video's, so a sound track that stopped early would pass a format-duration check (review W1-6 #1)
+            double want = Duration(cut), dur; int streams = Streams(part, out dur);
+            double got = AudioDuration(part);
             if (streams != 2 || want <= 0 || Math.Abs(got - want) > 1.0)
-            { TryDelete(part); MixDone(id, "The mix came out wrong (" + streams + " streams, " + got.ToString("0.0", Inv) + " s of " + want.ToString("0.0", Inv) + " s), so it was not used"); return; }
+            { TryDelete(part); MixDone(id, "The mix came out wrong (" + streams + " streams, sound " + got.ToString("0.0", Inv) + " s of " + want.ToString("0.0", Inv) + " s), so it was not used"); return; }
             try { if (File.Exists(outPath)) File.Delete(outPath); File.Move(part, outPath); }
             catch (Exception ex) { TryDelete(part); MixDone(id, "Could not keep the commentary video (" + ex.Message + ")"); return; }
             m.Mixed = true; m.HasVideo = true; m.HasVoice = false;
@@ -476,9 +555,10 @@ namespace IRDash
         }
         // every Chrome/Edge program of the player's own profile (never the dashboard's: that is dash\browser-profile). A process
         // scan, so never in a session.
-        static void CloseLeftovers()
+        static int CloseLeftovers()
         {
-            if (Launch != null || CloseHook != null || On()) return;
+            if (Launch != null || CloseHook != null || On()) return 0;
+            int killed = 0;
             try
             {
                 string prof = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "player-profile");
@@ -490,28 +570,43 @@ namespace IRDash
                             string cl = Convert.ToString(o["CommandLine"]);
                             if (cl == null || (cl.IndexOf(prof, StringComparison.OrdinalIgnoreCase) < 0 && cl.IndexOf("/v2/player.html", StringComparison.OrdinalIgnoreCase) < 0)) continue;
                             if (cl.IndexOf("browser-profile", StringComparison.OrdinalIgnoreCase) >= 0) continue;     // never the dashboard
-                            try { using (Process p = Process.GetProcessById(Convert.ToInt32(o["ProcessId"]))) p.Kill(); } catch { }
+                            // gone before the next start: a dying Chrome still holds the profile ("profile in use", or the new one hands over to it)
+                            try { using (Process p = Process.GetProcessById(Convert.ToInt32(o["ProcessId"]))) { p.Kill(); p.WaitForExit(2000); } } catch { }
+                            killed++;
                         }
             }
             catch (Exception ex) { Log.W("commentary: could not look for an old player (" + ex.Message + ")"); }
+            if (killed > 0) Log.W("commentary: closed " + killed + " program" + (killed == 1 ? "" : "s") + " of an old player");
+            return killed;
         }
 
         // once a second: a session starting while he talks stops it (rule 1); a player that never started or vanished ends the talk
+        // The timer runs only while a talk is preparing or talking (review W1-6 #12): started by the press, stopped here when none is.
         static void Watch()
         {
             List<Talk> act = new List<Talk>();
-            lock (gate) foreach (Talk t in talks.Values) if (t.Kind == "preparing" || t.Kind == "talking") act.Add(t);
-            if (act.Count == 0) return;
+            lock (gate)
+            {
+                foreach (Talk t in talks.Values) if (t.Kind == "preparing" || t.Kind == "talking") act.Add(t);
+                if (act.Count == 0) { if (tick != null) { tick.Dispose(); tick = null; } return; }
+            }
             bool on = On();
             foreach (Talk t in act)
             {
                 int c;
                 if (on) { if (t.Kind == "talking") Stop(t.Id, "session", out c); else Drop(t, MsgSession); continue; }
                 bool gone = false; try { gone = t.Player != null && t.Player.HasExited; } catch { }
-                if (t.Kind == "preparing" && t.OpenedMs > 0 && Now - t.OpenedMs > StartWaitMs) { Fail(t, "The player did not start. Press TALK OVER IT again."); CloseSoon(t); }
+                // the cut waits behind whatever job runs: past the deadline the player must not pop up minutes after the press
+                if (t.Kind == "preparing" && t.OpenedMs <= 0 && Now - t.AskedMs > PrepareWaitMs) Fail(t, MsgBusy);
+                else if (t.Kind == "preparing" && t.OpenedMs > 0 && Now - t.OpenedMs > StartWaitMs) { Fail(t, "The player did not start. Press TALK OVER IT again."); CloseSoon(t); }
                 else if (gone && !t.VoiceIn) Fail(t, "The player was closed before STOP, so nothing was kept");
             }
         }
+        static void EnsureWatch()
+        {
+            lock (gate) if (tick == null) tick = new Timer(delegate { try { Watch(); } catch (Exception ex) { Log.W("commentary: " + ex.Message); } }, null, 1000, 1000);
+        }
+        internal static bool Watching { get { lock (gate) return tick != null; } }
 
         // ================= share, tidy, forget =================
         // Library.TidyCuts: the commentary video is the upload's copy, like the cut: gone once YouTube has it (the voice is long gone)
@@ -522,14 +617,26 @@ namespace IRDash
             foreach (string id in ids)
             {
                 if (Jobs.ShouldYield) return;
-                if (KindOf(Yt(id)) != "shared") continue;
-                try { File.Delete(VideoPath(id)); lock (gate) { Meta m = MetaOf(id); if (m != null) { m.HasVideo = false; m.Bytes = 0; } } Log.W("commentary: removed the commentary video of " + id + " (it is on YouTube)"); } catch { }
+                string k = KindOf(Yt(id));
+                if (k == "queued" || k == "sharing" || Holds(id)) continue;            // YouTube or a talk still needs it
+                double days; try { days = (DateTime.UtcNow - File.GetLastWriteTimeUtc(VideoPath(id))).TotalDays; } catch { continue; }
+                bool shared = k == "shared", old = days >= TidyDays;
+                if (!shared && !old) continue;
+                try
+                {
+                    File.Delete(VideoPath(id));
+                    lock (gate) { Meta m = MetaOf(id); if (m != null) { m.HasVideo = false; m.Bytes = 0; } }
+                    Log.W("commentary: removed the commentary video of " + id + (shared ? " (it is on YouTube)" : " (not shared in " + TidyDays + " days)"));
+                }
+                catch { }
             }
         }
-        // the race is gone for good: its commentary goes with it
+        // the race is gone for good: its commentary goes with it (a talk still on over it is ended first: its window closes)
         internal static void Forget(string id)
         {
             if (!Library.IdOk(id)) return;
+            Talk t; lock (gate) talks.TryGetValue(id, out t);
+            if (t != null && Active(t.Kind)) { lock (gate) t.StopAsked = true; ClosePlayer(t); }
             foreach (string f in new string[] { VideoPath(id), VoicePath(id), MetaPath(id) }) TryDelete(f);
             lock (gate) { Load(); metas.Remove(id); talks.Remove(id); }
         }
@@ -559,7 +666,8 @@ namespace IRDash
                 try { while (got < len) { int n = s.Read(body, got, (int)Math.Min(256 * 1024, len - got)); if (n <= 0) break; got += n; } } catch (IOException) { }
                 if (got < len) { Log.W("commentary: the voice of " + id + " came in short (" + got + " of " + len + " bytes)"); Reply(s, 400, Say(false, "What you said did not arrive whole")); return true; }
                 double d = Dbl(Q(q, "D")), secs = Dbl(Q(q, "secs"));
-                int c; string j = OnVoice(id, body, d, secs, Q(q, "mic"), Q(q, "silent") == "1" || Q(q, "silent") == "true", out c);
+                double stall = Dbl(Q(q, "stall")); if (double.IsNaN(stall)) stall = 0;
+                int c; string j = OnVoice(id, body, d, secs, Q(q, "mic"), Q(q, "silent") == "1" || Q(q, "silent") == "true", stall, out c);
                 Reply(s, c, j); return true;
             }
             return false;
@@ -591,6 +699,11 @@ namespace IRDash
         static double Duration(string file)
         {
             double v; string o = Probe("-v error -show_entries format=duration -of default=nw=1:nk=1 \"" + file + "\"").Trim();
+            return double.TryParse(o.Split('\n')[0].Trim(), NumberStyles.Float, Inv, out v) ? v : 0;
+        }
+        static double AudioDuration(string file)
+        {
+            double v; string o = Probe("-v error -select_streams a:0 -show_entries stream=duration -of default=nw=1:nk=1 \"" + file + "\"").Trim();
             return double.TryParse(o.Split('\n')[0].Trim(), NumberStyles.Float, Inv, out v) ? v : 0;
         }
         static int Streams(string file, out double dur)
@@ -635,13 +748,22 @@ namespace IRDash
         static Timer tick;
         public static void Start()
         {
-            if (tick != null) return;
+            lock (gate) { if (started) return; started = true; }
             // a voice kept but not mixed (irdash closed in between): mixed after the next session, or now
             List<string> again = new List<string>();
             lock (gate) { Load(); foreach (KeyValuePair<string, Meta> kv in metas) if (kv.Value.HasVoice && !kv.Value.Mixed) again.Add(kv.Key); }
             foreach (string id in again) { string x = id; Jobs.Run("talk mix " + x, delegate { Mix(x); }, true); }
             if (again.Count > 0) Log.W("commentary: " + again.Count + " commentary mix" + (again.Count == 1 ? "" : "es") + " still to do after a restart");
-            tick = new Timer(delegate { try { Watch(); } catch (Exception ex) { Log.W("commentary: " + ex.Message); } }, null, 1000, 1000);
+            // a player left open by an irdash that closed mid-talk: it asks /api/talk/state, hears "stop" (no talk) and sends what was
+            // said within a second or two (OnVoice keeps it). After a grace it is closed if it is still there (review W1-6 #2).
+            Thread th = new Thread(delegate ()
+            {
+                Thread.Sleep(LeftoverGraceMs);
+                bool any; lock (gate) { any = false; foreach (Talk t in talks.Values) if (t.Kind == "preparing" || t.Kind == "talking") any = true; }
+                if (!any && !On()) CloseLeftovers();
+            });
+            th.IsBackground = true; th.Name = "talk leftovers"; th.Start();
         }
+        static bool started;
     }
 }

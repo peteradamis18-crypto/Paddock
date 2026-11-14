@@ -46,6 +46,8 @@ function talkLine(r) {
       if (yt.kind === 'sharing') return { text: 'With commentary: sharing ' + (yt.pct | 0) + '%', cls: 'wait' };
       if (yt.kind === 'queued' || yt.kind === 'offline' || yt.kind === 'signin') return { text: 'With commentary: waiting to share', cls: 'wait' };
       if (yt.kind === 'failed') return { text: 'With commentary: ' + (yt.error || 'could not share it'), cls: 'bad', share: true };
+      // the video stood still while he talked (buffering): the words after it may be early by that much (W1-6 review #8)
+      if (t.stall > 0.5) return { text: 'With commentary: ready (sync may be off by ' + (Math.round(t.stall * 10) / 10) + ' s)', cls: 'done', share: true };
       return { text: 'With commentary: ready', cls: 'done', share: true };
     case 'shared': return { text: 'With commentary: on YouTube', cls: 'done' };
     case 'failed': return t.error ? { text: t.error, cls: 'bad' } : t.note ? { text: t.note, cls: 'wait' } : null;
@@ -284,7 +286,8 @@ const Races = {
       '<div class="o-keys">' +
         '<button type="button" class="btn" data-act="watch">Watch</button>' +
         shareKey +
-        '<button type="button" class="btn" data-act="talk">Talk over it</button>' +
+        // on YouTube with his commentary already: a label in its place, as the share key does (a press would only be refused)
+        (t.kind === 'shared' ? '<div class="keylabel done">With commentary: on YouTube</div>' : '<button type="button" class="btn" data-act="talk">Talk over it</button>') +
         '<button type="button" class="btn" data-act="review">Review</button>' +
         '<button type="button" class="btn danger" data-act="delete">Delete</button>' +
       '</div>') +

@@ -235,7 +235,8 @@ namespace IRDash
         // ---- the X-Paddock header rule: a web page's blind fetch('http://localhost:8199/api/do?c=...') must not work ----
         static readonly HashSet<string> ReadOnlyApi = new HashSet<string> {
             "/api/tow-wait", "/api/kids", "/api/rec/races", "/api/rec/sessions", "/api/rec/for", "/api/rec/session-video",
-            "/api/library", "/api/library/thumb" };      // W1-1: the RACES library list and its thumbnails
+            "/api/library", "/api/library/thumb",       // W1-1: the RACES library list and its thumbnails
+            "/api/library/video", "/api/talk/state" };  // W1-6: the player's video (range requests) and its once-a-second STOP question
         public static bool ChangesState(string method, string path)
         {
             if (path == null) return false;

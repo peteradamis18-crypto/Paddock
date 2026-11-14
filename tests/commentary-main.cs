@@ -85,12 +85,12 @@ namespace IRDash
         static void Rules()
         {
             Console.WriteLine("-- 1. rules");
-            string want = "[1:a]asplit=2[vkey][vmix];[0:a][vkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[duck];[duck][vmix]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]";
-            Ok("1.1 the filter string is exactly the decided one (D = 0)", Commentary.Filter("") == want, Commentary.Filter(""));
+            string want = "[1:a]apad,asplit=2[vkey][vmix];[0:a][vkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[duck];[duck][vmix]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]";
+            Ok("1.1 the filter string is exactly the decided one, the voice padded to the end (D = 0)", Commentary.Filter("") == want, Commentary.Filter(""));
             string p = Commentary.MixArgs("C:\\c\\cut.mp4", "C:\\c\\voice.webm", 0.8, "C:\\c\\out.mp4");
             Ok("1.2 D = +0.8: the voice input starts 0.8 s in (-ss 0.8 before it), no delay", p.Contains("-i \"C:\\c\\cut.mp4\" -ss 0.8 -i \"C:\\c\\voice.webm\"") && !p.Contains("adelay") && p.Contains("\"" + want + "\""), p);
             string n = Commentary.MixArgs("C:\\c\\cut.mp4", "C:\\c\\voice.webm", -0.3, "C:\\c\\out.mp4");
-            Ok("1.2 D = -0.3: the voice is delayed by 0.3 s (adelay=300 on the voice, nothing trimmed)", n.Contains("-i \"C:\\c\\cut.mp4\" -i \"C:\\c\\voice.webm\"") && n.Contains("[1:a]adelay=delays=300:all=1,asplit=2[vkey][vmix];[0:a][vkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[duck]") && !n.Contains("-ss "), n);
+            Ok("1.2 D = -0.3: the voice is delayed by 0.3 s (adelay=300 on the voice, nothing trimmed)", n.Contains("-i \"C:\\c\\cut.mp4\" -i \"C:\\c\\voice.webm\"") && n.Contains("[1:a]adelay=delays=300:all=1,apad,asplit=2[vkey][vmix];[0:a][vkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[duck]") && !n.Contains("-ss "), n);
             string z = Commentary.MixArgs("C:\\c\\cut.mp4", "C:\\c\\voice.webm", 0, "C:\\c\\out.mp4");
             Ok("1.2 D = 0: neither", !z.Contains("-ss ") && !z.Contains("adelay") && z.Contains("\"" + want + "\""), z);
             Ok("1.3 video copied, sound AAC 192k, hvc1 tag, faststart, the mix mapped", z.Contains("-map 0:v:0 -map \"[a]\" -c:v copy -c:a aac -b:a 192k -tag:v hvc1 -movflags +faststart \"C:\\c\\out.mp4\""), z);
@@ -141,15 +141,24 @@ namespace IRDash
             Ok("1.7 a session on: racetalk refused (409, plain words), nothing opened, no cut", code == 409 && j.Contains("Not while a session is on") && launched.Count == 0 && cuts() == 0, j);
             sessionOn = false;
 
-            // the press: the cut is made first ("preparing"), then the player opens on the primary screen
+            // the press: the cut is made first ("preparing"), then the player opens on the primary screen. A Preferences file Chrome
+            // already wrote is merged into, not replaced.
+            string pdir = Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "player-profile"), "Default");
+            try { if (Directory.Exists(Path.GetDirectoryName(pdir))) Directory.Delete(Path.GetDirectoryName(pdir), true); } catch { }
+            Directory.CreateDirectory(pdir);
+            File.WriteAllText(Path.Combine(pdir, "Preferences"), "{\"keep_me\":\"yes\",\"profile\":{\"name\":\"Person 1\"}}");
             j = D("racetalk", "t1", out code);
             Ok("1.8 TALK OVER IT: 200 \"Getting the race ready\", the race says preparing", code == 200 && j.Contains("Getting the race ready") && (Kind("t1") == "preparing" || launched.Count > 0), j);
             Ok("1.8 the cut is made (Jobs, between sessions) and the player opens", Wait(delegate { return launched.Count == 1; }, 8000) && cuts() == 1 && File.Exists(Path.Combine(cutDir, "t1-cut.mp4")));
             string args = launched.Count > 0 ? launched[0] : "";
             System.Drawing.Rectangle pr = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-            Ok("1.9 the player: its own profile, the Windows primary screen, full screen, sound allowed, the mic without a prompt, player.html of this race",
+            Ok("1.9 the player: its own profile, the Windows primary screen, full screen, sound allowed, player.html of this race, and no flag Chrome warns about",
                args.Contains("player-profile") && !args.Contains("browser-profile") && args.Contains("--window-position=" + pr.X + "," + pr.Y + " --window-size=" + pr.Width + "," + pr.Height) &&
-               args.Contains("--start-fullscreen") && args.Contains("--autoplay-policy=no-user-gesture-required") && args.Contains("--use-fake-ui-for-media-stream") && args.EndsWith("--app=http://localhost:8199/v2/player.html?id=t1"), args);
+               args.Contains("--start-fullscreen") && args.Contains("--autoplay-policy=no-user-gesture-required") && !args.Contains("--use-fake-ui-for-media-stream") && args.EndsWith("--app=http://localhost:8199/v2/player.html?id=t1"), args);
+            string prefs = Path.Combine(Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "player-profile"), "Default"), "Preferences");
+            Dictionary<string, object> pj = File.Exists(prefs) ? Parse(File.ReadAllText(prefs)) : null;
+            Ok("1.9 the microphone is granted in the player profile instead (media_stream_mic, http://localhost:8199,* = 1), and what was there is kept",
+               pj != null && File.ReadAllText(prefs).Contains("\"media_stream_mic\":{\"http://localhost:8199,*\":{\"setting\":1}}") && File.ReadAllText(prefs).Contains("\"keep_me\":\"yes\""), File.Exists(prefs) ? File.ReadAllText(prefs) : "no file");
             j = D("racetalk", "t2", out code);
             Ok("1.10 a second race while one is on: 409 \"press STOP first\"", code == 409 && j.Contains("STOP first"), j);
             Ok("1.10 the player's state route: not stopped", Commentary.PlayerState("t1").Contains("\"stop\":false"));
@@ -169,6 +178,8 @@ namespace IRDash
             j = D("racetalkstop", "t1", out code);
             Ok("1.14 STOP with a session on: 200, mixing at once", code == 200 && Kind("t1") == "mixing", j);
             Ok("1.14 the player is told to stop", Commentary.PlayerState("t1").Contains("\"stop\":true"));
+            j = D("racetalkstop", "t1", out code);
+            Ok("1.14 STOP pressed twice: the second is answered \"Mixing your commentary\", nothing else changes", code == 200 && j.Contains("Mixing your commentary") && Kind("t1") == "mixing", j);
             byte[] voice = File.ReadAllBytes(Path.Combine(Media, "voice-late.webm"));
             j = Commentary.OnVoice("t1", voice, 0.5, 2.9, "Arctis Nova 7P", false, out code);
             Ok("1.15 the voice comes in: 200", code == 200, j);
@@ -181,6 +192,7 @@ namespace IRDash
             string outMp4 = Path.Combine(comDir, "t1-commentary.mp4");
             Ok("1.16 the commentary video exists, the voice file is gone after the check, the note says mixed", File.Exists(outMp4) && !File.Exists(Path.Combine(comDir, "t1-voice.webm")) && File.ReadAllText(Path.Combine(comDir, "t1.json")).Contains("\"mixed\":true"));
             Ok("1.16 the mix used D = +0.5 (the voice trimmed by 0.5 s)", Commentary.LastMixArgs.Contains("-ss 0.5 -i \"") && Commentary.LastMixArgs.Contains("t1-voice.webm"), Commentary.LastMixArgs);
+            Ok("1.16 the test clip is h264: no hvc1 tag (only an HEVC cut gets it)", !Commentary.LastMixArgs.Contains("hvc1"), Commentary.LastMixArgs);
             if (File.Exists(outMp4)) Console.WriteLine("MIXED " + outMp4);
             Ok("1.16 ready says the length and the microphone; the first video is untouched", Commentary.StateJson("t1").Contains("\"sec\":3") && Commentary.StateJson("t1").Contains("Arctis") && YouTube.StateJson("t1") == "{\"kind\":\"none\"}", Commentary.StateJson("t1"));
 
@@ -227,7 +239,62 @@ namespace IRDash
             // the race is deleted for good: its commentary goes too
             typeof(Library).GetMethod("Erase", Any).Invoke(null, new object[] { SessionIndex.Get("t2") });
             Ok("1.24 a race deleted for good takes its commentary with it", !File.Exists(Path.Combine(comDir, "t2-commentary.mp4")) && !File.Exists(Path.Combine(comDir, "t2.json")) && Kind("t2") == "none");
+            Review(launched, closed, comDir);
             Library.ShareState = null; Library.YouTubeJson = null; Library.Enqueued = null; Library.CutTool = null;
+        }
+
+        // ---------------- 1c. the review's cases (W1-6 review 2026-11-14) ----------------
+        static void Review(List<string> launched, List<string> closed, string comDir)
+        {
+            Console.WriteLine("-- 1. review cases");
+            int code; string j;
+            Fix("t4", Path.Combine(Media, "v3.mp4"), now - 10800000); Fix("t5", Path.Combine(Media, "v3.mp4"), now - 12600000);
+            Reload();
+
+            // a talk still preparing past its deadline (the cut waited behind another job): dropped, and no player appears later
+            Library.CutFn real = Library.CutTool;
+            Library.CutTool = delegate (string mp4, string outDir, CutPlan p, out string outPath) { Thread.Sleep(3500); return real(mp4, outDir, p, out outPath); };
+            int keep = Commentary.PrepareWaitMs; Commentary.PrepareWaitMs = 1000;
+            int before = launched.Count;
+            j = D("racetalk", "t4", out code);
+            Ok("1.25 preparing past its deadline: failed \"" + Commentary.MsgBusy + "\"", Wait(delegate { return Commentary.StateJson("t4").Contains(Commentary.MsgBusy); }, 4000), Commentary.StateJson("t4"));
+            Thread.Sleep(4000);
+            Ok("1.25 when the cut is done after all, no player pops up", launched.Count == before && File.Exists(Path.Combine(Path.Combine(Vlt, "cuts"), "t4-cut.mp4")), launched.Count + " vs " + before);
+            Commentary.PrepareWaitMs = keep; Library.CutTool = real;
+            Ok("1.26 nothing preparing or talking: the once-a-second watch has stopped", Wait(delegate { return !Commentary.Watching; }, 3000));
+
+            // irdash restarted mid-talk: the talk list is empty; the player's voice still arrives and is kept and mixed. The voice is
+            // 1 s long on a 3 s clip, and the video stood still 0.8 s
+            typeof(Commentary).GetField("talks", Any).GetValue(null).GetType().GetMethod("Clear").Invoke(typeof(Commentary).GetField("talks", Any).GetValue(null), null);
+            j = Commentary.OnVoice("t4", File.ReadAllBytes(Path.Combine(Media, "voice-short.webm")), 0, 1.0, "Arctis Nova 7P", false, 0.8, out code);
+            Ok("1.27 a voice for a race with no talk on (after a restart): 200, kept", code == 200, j);
+            Ok("1.27 it is mixed and ready, and says the video stood still 0.8 s", Wait(delegate { return Kind("t4") == "ready"; }, 60000) && Commentary.StateJson("t4").Contains("\"stall\":0.8"), Commentary.StateJson("t4"));
+            string t4 = Path.Combine(comDir, "t4-commentary.mp4");
+            double aud = File.Exists(t4) ? (double)typeof(Commentary).GetMethod("AudioDuration", Any).Invoke(null, new object[] { t4 }) : 0;
+            Ok("1.28 a voice shorter than the clip (1 s of 3 s): the sound still runs to the end (" + aud.ToString("0.00", Inv) + " s)", Math.Abs(aud - 3.0) < 0.2, aud.ToString(Inv));
+            if (File.Exists(t4)) Console.WriteLine("MIXEDSHORT " + t4);
+            j = Commentary.OnVoice("nosuchrace", new byte[] { 1, 2, 3 }, 0, 1, "", false, 0, out code);
+            Ok("1.27 a voice for a race that is not here: 409, nothing kept", code == 409 && !File.Exists(Path.Combine(comDir, "nosuchrace-voice.webm")), j);
+            sessionOn = true;
+            typeof(Commentary).GetField("talks", Any).GetValue(null).GetType().GetMethod("Clear").Invoke(typeof(Commentary).GetField("talks", Any).GetValue(null), null);
+            j = Commentary.OnVoice("t5", File.ReadAllBytes(Path.Combine(Media, "voice.webm")), 0, 2, "", false, 0, out code);
+            Ok("1.27 ... but not while a session is on (409)", code == 409, j);
+            sessionOn = false;
+
+            // a talk still on when its race is deleted for good: the player closes first
+            lock (closed) closed.Clear();
+            j = D("racetalk", "t5", out code);
+            Wait(delegate { return Kind("t5") == "preparing" && launched.Count > before; }, 8000);
+            Commentary.Event("t5", "started", "Arctis", out code);
+            Commentary.Forget("t5");
+            Ok("1.29 emptying the trash during a talk closes the player and ends the talk", Kind("t5") == "none" && closed.Contains("t5"), Commentary.StateJson("t5"));
+
+            // an unshared commentary video goes after 30 days, a fresh one stays
+            Commentary.Tidy();
+            Ok("1.30 a fresh unshared commentary video stays", File.Exists(t4));
+            File.SetLastWriteTimeUtc(t4, DateTime.UtcNow.AddDays(-31));
+            Commentary.Tidy();
+            Ok("1.30 after 30 days unshared it is removed (and the race no longer offers it)", !File.Exists(t4) && Kind("t4") == "none", Commentary.StateJson("t4"));
         }
         static int Count(List<string[]> seen, string id) { int n = 0; lock (seen) foreach (string[] x in seen) if (x[0] == id) n++; return n; }
         static bool TidyKeeps(string cutName)

@@ -15,7 +15,7 @@ const send = (url, opts) => (window.data && data.fetch ? data.fetch : fetch)(url
 const mmss = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x; };
 
 const P = {
-  stream: null, rec: null, chunks: [], t0: 0, t1: 0, c1: 0, mic: '', silent: false, quietSince: 0, talking: false, stopping: false,
+  stream: null, rec: null, chunks: [], t0: 0, t1: 0, c1: 0, stall: 0, waitAt: 0, mic: '', silent: false, quietSince: 0, talking: false, stopping: false,
   timers: [], ctx: null,
   // for the test (and the lead's live check): what was measured and sent
   out: { started: false, D: null, secs: 0, size: 0, posted: 0, mic: '', silent: false },
@@ -32,7 +32,7 @@ const P = {
     // the rig's cuts are HEVC: Chrome with the RTX 4080 plays them; a PC that cannot says so instead of showing black
     if (!v.canPlayType(CODEC)) { this.say("This PC cannot play the video in Paddock's player", 'Watch it with WATCH instead.', 'bad'); this.ev('cannotplay'); return; }
     try {
-      // irdash starts the browser with --use-fake-ui-for-media-stream: no prompt, Windows' default recording device
+      // irdash granted the microphone in the player's own profile (commentary.cs GrantMic): no prompt, Windows' default recording device
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } });
     } catch (e) { this.stream = null; }
     const track = this.stream && this.stream.getAudioTracks()[0];
@@ -51,7 +51,13 @@ const P = {
     this.rec = mime ? new MediaRecorder(this.stream, { mimeType: mime }) : new MediaRecorder(this.stream);
     this.rec.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
     this.rec.onstart = () => { this.t0 = performance.now(); };
-    v.addEventListener('playing', () => { if (!this.t1) { this.t1 = performance.now(); this.c1 = v.currentTime; } });
+    v.addEventListener('playing', () => {
+      if (!this.t1) { this.t1 = performance.now(); this.c1 = v.currentTime; }
+      else if (this.waitAt) { this.stall += (performance.now() - this.waitAt) / 1000; this.waitAt = 0; }
+    });
+    // a stall (buffering) stops the picture while the voice runs on: every word after it is early by that much. Added up and
+    // sent with the voice; irdash says "sync may be off" when it is over half a second.
+    v.addEventListener('waiting', () => { if (this.t1 && this.talking && !this.waitAt) this.waitAt = performance.now(); });
     v.addEventListener('ended', () => this.stop('ended'));
     // no pausing and no seeking while he talks (v1): the recording and the picture stay one timeline
     v.addEventListener('pause', () => { if (this.talking && !this.stopping && !v.ended) v.play().catch(() => { }); });
@@ -110,13 +116,15 @@ const P = {
     const D = this.t1 && this.t0 ? (this.t1 - this.t0) / 1000 - this.c1 : 0;
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.end();
-    Object.assign(this.out, { D, secs, size: blob.size });
-    const url = '/api/talk/voice?id=' + encodeURIComponent(ID) + '&D=' + D.toFixed(3) + '&secs=' + secs.toFixed(1) + '&mic=' + encodeURIComponent(this.mic) + '&silent=' + (this.out.silent ? 1 : 0);
+    if (this.waitAt) { this.stall += (performance.now() - this.waitAt) / 1000; this.waitAt = 0; }
+    Object.assign(this.out, { D, secs, size: blob.size, stall: this.stall });
+    const url = '/api/talk/voice?id=' + encodeURIComponent(ID) + '&D=' + D.toFixed(3) + '&secs=' + secs.toFixed(1) + '&stall=' + this.stall.toFixed(2) +
+      '&mic=' + encodeURIComponent(this.mic) + '&silent=' + (this.out.silent ? 1 : 0);
     let ok = false;
     for (let i = 0; i < 3 && !this.out.posted; i++) {      // a dropped connection is tried again; an answer is final
       try { const r = await send(url, { method: 'POST', body: blob, headers: { 'Content-Type': 'audio/webm' } }); this.out.posted = r.status; ok = r.ok; } catch (e) { await new Promise(r => setTimeout(r, 700)); }
     }
-    if (ok) this.say('Mixing… you can close this', 'Your commentary is ready on the RACES page in a few seconds.', 'done');
+    if (ok) this.say('Mixing your commentary. Paddock closes this in a moment.', 'It is ready on the RACES page in a few seconds.', 'done');
     else this.say('What you said could not be saved', 'Press TALK OVER IT again.', 'bad');
   },
 
