@@ -285,9 +285,18 @@ try {
   Check 'irdash.cs has the /analysis/session route' ((Get-Content (Join-Path $root 'dash\src\irdash.cs') -Raw) -match 'path == "/analysis/session"')
   # a throw-away exe from the same sources with its own Main (tests\sr-main.cs): the Session Review data without irdash
   $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-  $srcs = @([regex]::Matches((Get-Content (Join-Path $root 'dash\build.ps1') -Raw), '"\$d\\src\\([A-Za-z0-9_]+\.cs)"') | ForEach-Object { Join-Path $root ('dash\src\' + $_.Groups[1].Value) }) + @((Join-Path $root 'src\deckstate.cs'), (Join-Path $root 'tests\sr-main.cs'))
+  # every source on build.ps1's $src lines ("$d\src\x.cs" and (Join-Path $d "..\src\x.cs"), the $src += lines too) and its /r: list,
+  # so the harness never falls behind a new file (2026-11-14: irdash.cs needed DeckGuard from ..\src\deckguard.cs)
+  $buildText = Get-Content (Join-Path $root 'dash\build.ps1') -Raw
+  $srcBlock = [regex]::Match($buildText, '(?s)\$src = @\(.*?(?=\r?\n& \$csc)').Value   # the first $src line (two lines long) through the last $src += line
+  $srcs = @()
+  foreach ($mS in [regex]::Matches($srcBlock, '"(\$d\\|\.\.\\)src\\([A-Za-z0-9_]+\.cs)"')) {
+    if ($mS.Groups[1].Value -eq '$d\') { $srcs += Join-Path $root ('dash\src\' + $mS.Groups[2].Value) } else { $srcs += Join-Path $root ('src\' + $mS.Groups[2].Value) }
+  }
+  $srcs += Join-Path $root 'tests\sr-main.cs'
+  $refs = @([regex]::Matches($buildText, '/r:(System[A-Za-z.]*\.dll)') | ForEach-Object { '/r:' + $_.Groups[1].Value } | Select-Object -Unique)
   $harness = Join-Path $work 'srharness.exe'
-  $cout = & $csc /nologo /target:winexe /optimize+ /platform:anycpu /main:IRDash.SrMain "/out:$harness" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll @srcs | Out-String
+  $cout = & $csc /nologo /target:winexe /optimize+ /platform:anycpu /main:IRDash.SrMain "/out:$harness" @refs @srcs | Out-String
   Check 'the data harness compiled from the same sources' ($LASTEXITCODE -eq 0 -and (Test-Path $harness))
   if (-not (Test-Path $harness)) { throw $cout }
 
