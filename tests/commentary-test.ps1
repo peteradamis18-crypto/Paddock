@@ -220,7 +220,7 @@ try {
   }
   if (Want 4) {
     Section 'Section 4. the RACES page'
-    $www = Join-Path $root 'dash\www\v2'
+    $www = Join-Path $root 'dash\www\app'           # W3-1: RACES is a page of the shell (app\index.html?page=races)
     $tmp = Join-Path $scratch 'page'; New-Item -ItemType Directory -Force $tmp | Out-Null
     $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds(); $h = 3600000
     function Race($id, $ms, $talk, $state = '{"kind":"none"}') {
@@ -247,7 +247,7 @@ try {
     $stub = @"
 <script>
 window.__fx = $fixture; window.__req = []; window.__rig = { online: true, driving: false }; window.__ls = {};
-window.data = { __paddock: true, get rig() { return window.__rig; }, get online() { return true; }, on(n, f) { (window.__ls[n] = window.__ls[n] || []).push(f); return () => {}; },
+window.data = { __paddock: true, state: {}, seq: -1, telemetry() {}, reloadOnVersion() {}, json(u) { return window.fetch(u).then(r => r.json()); }, get rig() { return window.__rig; }, get online() { return true; }, on(n, f) { (window.__ls[n] = window.__ls[n] || []).push(f); return () => {}; },
   onList(n, f) { (window.__ls['list:' + n] = window.__ls['list:' + n] || []).push(f); }, fetch(u, o) { return window.fetch(u, o); } };
 window.fetch = (url) => { url = String(url); window.__req.push(url);
   const j = (o, code) => Promise.resolve(new Response(JSON.stringify(o), { status: code || 200 }));
@@ -301,14 +301,14 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
 })();
 </script>
 '@
-    $src = [IO.File]::ReadAllText((Join-Path $www 'races.html'))
+    $src = [IO.File]::ReadAllText((Join-Path $www 'index.html'))
     $base = '<base href="file:///' + ($www -replace '\\', '/') + '/">'
     $utf8 = New-Object Text.UTF8Encoding($false)
     $common = @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$tmp\prof", '--allow-file-access-from-files', '--window-size=1920,1080', '--hide-scrollbars', '--mute-audio')
     function Page([string]$name, [string]$head, [string]$body) {
       $x = $src.Replace('<head>', '<head>' + $base + $stub + $(if ($head) { '<script>' + $head + '</script>' } else { '' }))
       if ($body) { $x = $x.Replace('</body>', $body + '</body>') }
-      [IO.File]::WriteAllText("$tmp\$name.html", $x, $utf8); return 'file:///' + ("$tmp\$name.html" -replace '\\', '/')
+      [IO.File]::WriteAllText("$tmp\$name.html", $x, $utf8); return 'file:///' + ("$tmp\$name.html" -replace '\\', '/') + '?page=races&intro=0'
     }
     $u = Page 't' '' $run
     $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=20000', '--dump-dom', $u)) -NoNewWindow -Wait -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt"
@@ -316,7 +316,7 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
     $text = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
     foreach ($l in @($text -split "`n")) { if ($l -match '^ok (.*)') { ok $Matches[1] $true } elseif ($l -match '^FAIL (.*)') { ok $Matches[1] $false } }
     ok '4. the page test ran to the end' ($text -match 'DONE')
-    $rj = [IO.File]::ReadAllText((Join-Path $www 'races.js'))
+    $rj = [IO.File]::ReadAllText((Join-Path $www 'pages\races.js'))
     ok '4. races.js still has no setInterval (the counter is a timeout only while talking)' (-not $rj.Contains('setInterval'))
     # one picture per state: the open card of a race in that state
     foreach ($s in @('preparing', 'talking', 'silent', 'mixing', 'session', 'ready', 'stall', 'sharing', 'shared', 'failed')) {

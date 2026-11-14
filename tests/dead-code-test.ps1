@@ -14,7 +14,9 @@ $gone = @(
   'dash\www\v2\debrief.js', 'dash\www\v2\debrief.css', 'dash\www\v2\sr-demo.json', 'dash\www\v2\tv.js', 'dash\www\v2\tv.css',
   'dash\src\tv.cs', 'tests\actions-test.ps1', 'tests\bench-test.ps1', 'tests\tv-test.ps1', 'tests\tv-live-race-test.ps1',
   # W2-2: the race screen (race.html, app\pages\race.js) replaced Drive v1, the old in-car grid and its SoF header
-  'dash\www\v2\drive.js', 'dash\www\v2\drive.css', 'dash\www\v2\race.js', 'tests\drive-v1-test.ps1')
+  'dash\www\v2\drive.js', 'dash\www\v2\drive.css', 'dash\www\v2\race.js', 'tests\drive-v1-test.ps1',
+  # W3-1: RACES is a page of the shell (app\pages\races.js + races.css)
+  'dash\www\v2\races.html', 'dash\www\v2\races.js', 'dash\www\v2\races.css')
 foreach ($g in $gone) { Check "$g does not exist" (-not (Test-Path (Join-Path $root $g))) }
 Check 'dash\www\v2\sessionreview.html still exists (Coach''s ALL LAPS opens it)' (Test-Path (Join-Path $root 'dash\www\v2\sessionreview.html'))
 Check 'dash\www\v2\sessionreview.js and .css still exist (that page uses them)' ((Test-Path (Join-Path $root 'dash\www\v2\sessionreview.js')) -and (Test-Path (Join-Path $root 'dash\www\v2\sessionreview.css')))
@@ -44,6 +46,14 @@ Check 'index.html no longer loads drive.js, drive.css or the old race.js, and ha
 Check 'no page script calls Drive v1, the old grid or the SoF header (W2-2)' ($wwwJs -notmatch '\bDrive\.(tick|onFrame|frame|shown|showRec)' -and $wwwJs -notmatch 'RaceExtras' -and $wwwJs -notmatch "\`$\('(sofBox|standings|rpmbar|dRows)'\)")
 Check 'no page script calls the deleted debrief, tv or idle objects' ($wwwJs -notmatch 'Debrief\.(frame|show|hide)' -and $wwwJs -notmatch 'Tv\.(frame|on|poll)\b' -and $wwwJs -notmatch 'linkDebrief')
 Check 'the dead idle rules are gone from style.css' ((Get-Content (Join-Path $root 'dash\www\v2\style.css') -Raw) -notmatch '\.idle-(glow|mark|mid|line)\b')
+
+'2b. the shell (W3-1) loads only its own files'
+$app = Get-Content (Join-Path $root 'dash\www\app\index.html') -Raw
+$tags = @([regex]::Matches($app, '(?:src|href)="([^"#?]+\.(?:js|css))"') | ForEach-Object { $_.Groups[1].Value })
+Check "app\index.html loads design.css, shell.css, lib\data.js, lib\format.js, shell.js and nothing from v2 ($($tags -join ', '))" (($tags -join ',') -eq 'design.css,shell.css,lib/data.js,lib/format.js,shell.js')
+$shell = Get-Content (Join-Path $root 'dash\www\app\shell.js') -Raw
+Check 'shell.js has no setInterval (one-shot timers only)' ($shell -notmatch 'setInterval')
+Check 'no app page loads pagehost.js, nav.js, ui.js, core.js or intro.js' (-not ((Get-ChildItem (Join-Path $root 'dash\www\app') -Recurse -Include *.js, *.html | Get-Content -Raw) -join ' ' -match '(src="|from ''|import\('')[^"'']*\b(pagehost|nav|ui|core|intro)\.js'))
 
 '3. dash\src has none of the deleted routes'
 $src = (Get-ChildItem (Join-Path $root 'dash\src') -Filter *.cs | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"

@@ -32,7 +32,7 @@ const bootAt = performance.now();
 /* ---------------- the router ---------------- */
 const Shell = {
   cur: '', page: null, scope: null, mods: {}, pageBanner: null, openedBy: '', seen: {}, navTo: {},
-  told: [], msgs: [], seenOnline: false,
+  told: [], msgs: [], log: [], seenOnline: false,
 
   // go(name, opts): unmount the current page, then mount that one. opts.from: 'press' (a door, CLOSE, Esc: irdash is told),
   // 'nav' (irdash asked: nothing to tell), 'drive' or 'boot'. Refused while the race screen is up.
@@ -40,6 +40,7 @@ const Shell = {
     opts = opts || {};
     if (!DOORS.includes(name)) name = 'home';
     if (Race.on) return false;
+    this.log.push(name + ':' + (opts.from || '') + (opts.why ? ':' + opts.why : '')); if (this.log.length > 40) this.log.shift();   // what moved the screen (tests, debugging)
     if (name === this.cur && !opts.at) return true;
     const from = this.cur;
     this.unmount();
@@ -59,7 +60,7 @@ const Shell = {
     this.mount(name, opts);
     return true;
   },
-  close() { return this.go('home', { from: 'press' }); },
+  close(why) { return this.go('home', { from: 'press', why: why || 'close' }); },
 
   async mount(name, opts) {
     const scope = this.scope = { live: true, offs: [] };
@@ -134,15 +135,15 @@ const Shell = {
   init() {
     Race.init();                                   // first: a state that is already known runs the switch at once
     document.querySelectorAll('.door').forEach(b => b.addEventListener('click', () => this.go(b.dataset.door, { from: 'press' })));
-    $('shellClose').addEventListener('click', () => this.close());
+    $('shellClose').addEventListener('click', () => this.close('CLOSE'));
     // Esc goes HOME; a page that used Esc itself (closing its own open card) stops it first
-    window.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented && this.cur && this.cur !== 'home' && !Race.on) this.close(); });
+    window.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented && this.cur && this.cur !== 'home' && !Race.on) this.close('esc'); });
     window.addEventListener('message', e => {
       if (e.origin !== location.origin || !e.data) return;
       const m = e.data; this.msgs.push(m.paddock || m.irdash || ''); if (this.msgs.length > 40) this.msgs.shift();
-      if (m.paddock === 'esc' || /^(sessions|races|vault|perf|coach)-close$/.test(m.irdash || '')) { if (this.cur && this.cur !== 'home') this.close(); }
+      if (m.paddock === 'esc' || /^(sessions|races|vault|perf|coach)-close$/.test(m.irdash || '')) { if (this.cur && this.cur !== 'home') this.close(m.paddock || m.irdash); }
     });
-    window.addEventListener('hashchange', () => { const n = (/^#\/([a-z]+)/.exec(location.hash) || [])[1]; if (n && n !== this.cur) this.go(n, { from: 'press' }); });
+    window.addEventListener('hashchange', () => { const n = (/^#\/([a-z]+)/.exec(location.hash) || [])[1]; if (n && n !== this.cur) this.go(n, { from: 'press', why: 'hash' }); });
     data.on('state', (st, ch) => {
       this.follow(st, ch);
       Banner.state(st, ch);

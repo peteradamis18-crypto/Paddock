@@ -31,7 +31,7 @@ body:not(.at-home) #page { top: 88px; }
    Exactly one thing at a time (shell.js picks: offline, kids, tow, key message, the page's own line). */
 .shell-banner { position: fixed; left: 50%; bottom: 8px; z-index: 990; transform: translateX(-50%); max-width: 1824px; min-height: 64px;
   display: flex; align-items: center; justify-content: center; padding: 0 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: var(--t-read); line-height: 1.2; pointer-events: none; }
+  font-size: var(--t-read); line-height: 1.2; pointer-events: none; box-shadow: 0 6px 28px var(--bg); }
 .shell-banner.offline { border-color: var(--danger); }
 .shell-banner.kids { border-color: var(--gold); color: var(--gold); }
 .shell-banner.tow { border-color: var(--amber); color: var(--amber); }

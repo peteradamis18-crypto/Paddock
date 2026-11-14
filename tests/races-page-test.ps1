@@ -1,5 +1,5 @@
-﻿# races-page-test.ps1 - offline: the RACES page on the top screen (W1-4, dash\www\v2\races.html / races.js / races.css).
-# A copy of races.html runs in headless Chrome with a pretend irdash: fetch answers /api/library from a fixture and the /api/do
+﻿# races-page-test.ps1 - offline: the RACES page on the top screen (W1-4; since W3-1 a page module of the shell: dash\www\app\pages\races.js + races.css).
+# A copy of the shell (app\index.html?page=races) runs in headless Chrome with a pretend irdash: fetch answers /api/library from a fixture and the /api/do
 # commands the way library.cs does, every request is recorded, and window.data is a stand-in whose rig state the test flips.
 #   1. every state line (none, queued, sharing, shared private / public, failed, signin, offline), Kept, no clean lap
 #   2. the tabs   3. select mode, the bar, SHIFT range, SELECT ALL SHARED, CANCEL, SHARE, DELETE + UNDO (one click each)
@@ -12,7 +12,7 @@
 Assert-RigFree
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
 $root = Split-Path -Parent $PSScriptRoot
-$www = Join-Path $root 'dash\www\v2'
+$www = Join-Path $root 'dash\www\app'
 $shots = Join-Path $root 'tests\shots\rework'; New-Item -ItemType Directory -Force $shots | Out-Null
 $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $chrome) { '  FAIL  Chrome not found'; exit 1 }
@@ -61,7 +61,7 @@ $stub = @"
 <script>
 window.__fx = $fixture;
 window.__req = []; window.__rig = { online: true, driving: false }; window.__ls = {}; window.__trash = {};
-window.data = { __paddock: true, get rig() { return window.__rig; }, get online() { return window.__rig.online; },
+window.data = { __paddock: true, state: {}, seq: -1, telemetry() {}, reloadOnVersion() {}, get rig() { return window.__rig; }, get online() { return window.__rig.online; },
   on(n, f) { (window.__ls[n] = window.__ls[n] || []).push(f); return () => {}; },
   onList(n, f) { (window.__ls['list:' + n] = window.__ls['list:' + n] || []).push(f); },
   fetch(u, o) { return window.fetch(u, o); }, json(u) { return window.fetch(u).then(r => r.json()); } };
@@ -106,7 +106,7 @@ $run = @'
   const cmds = () => window.__req.filter(u => u.indexOf('/api/do') === 0).map(u => decodeURIComponent(u));
   const click = (el, shift) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: !!shift }));
   const tick = (id, shift) => click(card(id).querySelector('.tick'), shift);
-  const toast = () => vis($('toast')) ? $('toast').textContent : '';
+  const toast = () => vis($('rcToast')) ? $('rcToast').textContent : '';
   const undoNote = () => vis($('undo')) ? $('undo').querySelector('span').textContent : '';
   const tabOn = () => [...document.querySelectorAll('.tab.on')].map(b => b.dataset.tab).join(',');
   await sleep(600);
@@ -165,7 +165,7 @@ $run = @'
   window.__req.length = 0;
   click($('barShare')); click($('barShare')); await sleep(600);
   ok('3. two quick clicks on SHARE send one raceshare a=r1|r9', cmds().join(' ') === '/api/do?c=raceshare&a=r1|r9', cmds().join(' '));
-  ok('3. not signed in: "Sign in to YouTube first", the cards stay Not shared, the banner shows', /Sign in to YouTube first/.test(toast()) && state('r1') === 'Not shared' && vis($('banner')) && /Sign in once/.test($('banner').textContent), toast() + ' | ' + state('r1') + ' | ' + vis($('banner')) + ' | ' + $('banner').textContent);
+  ok('3. not signed in: "Sign in to YouTube first", the cards stay Not shared, the banner shows', /Sign in to YouTube first/.test(toast()) && state('r1') === 'Not shared' && vis($('rcBanner')) && /Sign in once/.test($('rcBanner').textContent), toast() + ' | ' + state('r1') + ' | ' + vis($('rcBanner')) + ' | ' + $('rcBanner').textContent);
   click($('barCancel')); await sleep(50);
   window.__fx.youtube.signedIn = true; await Races.load();
   tick('r1'); tick('r9'); await sleep(50);
@@ -228,7 +228,7 @@ $run = @'
   ok('4. the timeline has every marker with its label and time', chips.join('|') === '0:00 Start|6:53 Incident +2x|10:55 Pit (lap 6)|13:00 Best lap 1:33.832 (lap 9)|20:48 Finish', chips.join('|'));
   ok('4. one dot per marker on the rail', o.querySelectorAll('.rail .dot').length === 5);
   ok('4. not shared: no COPY LINK', !o.querySelector('[data-act="copy"]'));
-  ok('4. not signed in: the sign-in banner is over the open card', vis($('banner')) && $('banner').classList.contains('over') && /Sign in to YouTube/.test($('banner').textContent));
+  ok('4. not signed in: the sign-in banner is over the open card', vis($('rcBanner')) && $('rcBanner').classList.contains('over') && /Sign in to YouTube/.test($('rcBanner').textContent));
   click(o.querySelector('[data-act="watch"]')); await sleep(150);
   ok('4. WATCH sends racewatch for this race', cmds().join(' ') === '/api/do?c=racewatch&a=r1', cmds().join(' '));
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(50);
@@ -269,27 +269,27 @@ $run = @'
   // 6. offline, driving, sign-in, settings
   const n6 = cards().length;
   window.__rig.online = false; window.__emit('online'); await sleep(50);
-  ok('6. offline: one banner', vis($('banner')) && /not answering/.test($('banner').textContent));
+  ok('6. offline: one banner, the shell banner: "Paddock is not running. Press HOME on the deck."', vis($('banner')) && $('banner').textContent === 'Paddock is not running. Press HOME on the deck.' && !vis($('rcBanner')), $('banner').textContent);
   ok('6. offline: nothing else changes (the cards stay)', cards().length === n6 && n6 === 9 && vis($('grid')), n6);
   window.__rig.online = true; window.__emit('online'); await sleep(50);
-  ok('6. back online: the banner goes', !vis($('banner')));
+  ok('6. back online: the banner goes', !vis($('banner')) && !vis($('rcBanner')));
   click($('privBtn')); await sleep(150);
   window.__rig.driving = true; window.__emit('state'); await sleep(50);
-  const shown = [...document.querySelectorAll('button')].filter(vis);
-  ok('6. driving: "Back after your drive", not one key, no message', vis($('driving')) && $('driving').textContent === 'Back after your drive' && shown.length === 0 && !vis($('toast')) && !vis($('undo')), shown.map(b => b.textContent).join('|'));
+  const shown = [...document.querySelector('.rc').querySelectorAll('button')].filter(vis);
+  ok('6. driving: "Back after your drive", not one key, no message', vis($('driving')) && $('driving').textContent === 'Back after your drive' && shown.length === 0 && !vis($('rcToast')) && !vis($('undo')), shown.map(b => b.textContent).join('|'));
   Races.toast('test'); await sleep(20);
-  ok('6. driving: a message that arrives now is not shown', !vis($('toast')));
+  ok('6. driving: a message that arrives now is not shown', !vis($('rcToast')));
   window.__rig.driving = false; window.__emit('state'); await sleep(50);
   ok('6. after the drive the grid is back', vis($('grid')) && cards().length === 9);
   click($('privBtn')); await sleep(150);
-  ok('6. not signed in, nothing ticked: no sign-in banner', !vis($('banner')));
+  ok('6. not signed in, nothing ticked: no sign-in banner', !vis($('rcBanner')));
   tick('r1'); await sleep(50);
-  ok('6. not signed in and a race ticked: the banner with SIGN IN TO YOUTUBE', vis($('banner')) && $('banner').querySelector('.btn').textContent === 'Sign in to YouTube');
-  window.__req.length = 0; click($('banner').querySelector('.btn')); await sleep(150);
+  ok('6. not signed in and a race ticked: the banner with SIGN IN TO YOUTUBE', vis($('rcBanner')) && $('rcBanner').querySelector('.btn').textContent === 'Sign in to YouTube');
+  window.__req.length = 0; click($('rcBanner').querySelector('.btn')); await sleep(150);
   ok('6. the banner key sends ytsignin', cmds().join(' ') === '/api/do?c=ytsignin', cmds().join(' '));
   click($('barCancel')); await sleep(50);
   window.__fx.youtube.signedIn = true; await Races.load(); tick('r1'); await sleep(50);
-  ok('6. signed in: no banner even with a tick', !vis($('banner')));
+  ok('6. signed in: no banner even with a tick', !vis($('rcBanner')));
   click($('barCancel')); await sleep(50);
   ok('6. settings say "Uploads are private · MAKE PUBLIC"', $('privWords').textContent === 'Uploads are private' && $('privBtn').textContent === 'Make public');
   window.__req.length = 0; click($('privBtn')); await sleep(150);
@@ -317,7 +317,7 @@ $run = @'
 </script>
 '@
 
-$src = [IO.File]::ReadAllText((Join-Path $www 'races.html'))
+$src = [IO.File]::ReadAllText((Join-Path $www 'index.html'))
 $base = '<base href="file:///' + ($www -replace '\\', '/') + '/">'
 $utf8 = New-Object Text.UTF8Encoding($false)
 $thumbs = 'file:///' + ("$tmp\thumbs\" -replace '\\', '/')
@@ -326,7 +326,7 @@ function Page([string]$name, [string]$head, [string]$body) {
   $h = $src.Replace('<head>', '<head>' + $base + $stub + $(if ($head) { '<script>' + $head + '</script>' } else { '' }))
   if ($body) { $h = $h.Replace('</body>', $body + '</body>') }
   [IO.File]::WriteAllText("$tmp\$name.html", $h, $utf8)
-  return 'file:///' + ("$tmp\$name.html" -replace '\\', '/') + '?thumbs=' + [uri]::EscapeDataString($thumbs)
+  return 'file:///' + ("$tmp\$name.html" -replace '\\', '/') + '?page=races&intro=0&thumbs=' + [uri]::EscapeDataString($thumbs)
 }
 
 Assert-RigFree -Where '1-7. page'
@@ -341,9 +341,9 @@ $pass += @($lines | Where-Object { $_ -match '^ok' }).Count; $fail += @($lines |
 if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++ }
 
 Assert-RigFree -Where '7. source'
-$js = [IO.File]::ReadAllText((Join-Path $www 'races.js'))
+$js = [IO.File]::ReadAllText((Join-Path $www 'pages\races.js'))
 if ($js -notmatch 'setInterval' -and $js.Contains("data.onList('races'")) { $pass++; '  ok    7. races.js has no setInterval and reloads on data.onList(''races'')' } else { $fail++; '  FAIL  7. races.js polls or does not use data.onList' }
-if ($js.Contains("'sessions.html?embed=1&at='")) { $pass++; '  ok    4. REVIEW opens sessions.html?embed=1&at=<startMs> (the Review door, wave 4, reads at=)' } else { $fail++; '  FAIL  4. REVIEW link' }
+if ($js.Contains("ctx.go('review', { at: r.startMs || 0 })")) { $pass++; '  ok    4. REVIEW opens the REVIEW door with at=<startMs> (its host passes it to sessions.html; wave 4 reads it)' } else { $fail++; '  FAIL  4. REVIEW link' }
 
 # ---------------- one picture per state ----------------
 Assert-RigFree -Where 'pictures'

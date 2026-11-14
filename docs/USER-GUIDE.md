@@ -92,7 +92,7 @@ Paddock films every session you drive, start to finish, with the game and spotte
 | **KEEP** | Only on a practice or qualifying video: keeps it for good. Races are kept by themselves. |
 | **BACK / EXIT** | Back to the list / back to your keys. |
 
-**On the top screen:** click **MY RACES** at the top of Home. The RACES page shows every race as a card with a picture from the race. Each card says when it was, the track, the car, how long, how many laps, your best lap ("no clean lap" when iRacing counted none) and its size. One line says where it is with YouTube: **Not shared**, **Waiting to share**, **Sharing 41%**, **On YouTube (private)**, **On YouTube**, **No internet, waiting**, **YouTube limit: trying again after 9** (YouTube's daily upload limit; it goes by itself the next morning), or the reason it could not go. **Kept** means it stays until you delete it.
+**On the top screen:** press **RACES** at the top. The RACES page shows every race as a card with a picture from the race. Each card says when it was, the track, the car, how long, how many laps, your best lap ("no clean lap" when iRacing counted none) and its size. One line says where it is with YouTube: **Not shared**, **Waiting to share**, **Sharing 41%**, **On YouTube (private)**, **On YouTube**, **No internet, waiting**, **YouTube limit: trying again after 9** (YouTube's daily upload limit; it goes by itself the next morning), or the reason it could not go. **Kept** means it stays until you delete it.
 - **Tabs:** **RACES** (races only), **PRACTICE & QUALIFYING**, **ALL**.
 - **Tick a card** (the box top left) and a bar appears at the bottom: **SHARE TO YOUTUBE**, **DELETE**, **CANCEL**. Hold SHIFT and tick another card to tick everything in between. Switching tabs clears the ticks. **SELECT ALL SHARED** ticks every race that is already on YouTube (handy for freeing space).
 - **DELETE** works at once, with no question. The races go to the trash and a note says "Deleted 3 races · UNDO" for 8 seconds: press **UNDO** to bring them back. The trash empties itself after 14 days.
@@ -146,13 +146,18 @@ Everything for the room AC on one page. A press shows on the keys at once; the A
 
 ## The top screen
 
-Before you get in the car, a short brief: the track, your best lap there, and how much fuel a lap usually takes. It fades when you get in.
+Four doors along the top: **HOME · RACES · REVIEW · RIG**, the same four words as on the deck. The one you are on is gold. Next to PADDOCK is today's date. One page shows at a time.
 
-While you drive: the race screen (below). A coloured edge when a flag is out.
+- **HOME** is the start. (It is being rebuilt: for now it says so.)
+- **RACES** is every race you recorded (above).
+- **REVIEW** shows your sessions and laps (below), newest first. Pressing REVIEW on a race in RACES opens it here.
+- **RIG** shows how the PC ran (Performance, below).
 
-Afterwards: the review (the **REVIEW** key opens it). When you set a personal best, a small comparison sits with it: your lap against other iRacing drivers (once enough of them have driven it) and against real IMSA times.
+To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
 
-When the rig is idle: **Home**. Your name and your number, with the name of the car you drove last (the number is that car's number), your personal best at each track (iRacing's own times only), your career numbers and your week, your last session with a **REVIEW** button (the Session Review opens over Home; **‹ HOME** at the top brings it back), and one big gold button that fits the moment: **RIG ON** when the rig is not up, **LAST DRIVE** when it is, **GET IN** when a session is open. Top right: the code to scan with your iPhone (below). Quiet links at the top: **Sessions & laps**, **Vault**, **Performance**, and **My races** (the RACES page, above). Home never shows while you drive.
+One line at the bottom of the screen tells you the one thing you need to know, never two at once, in this order: **Paddock is not running. Press HOME on the deck.** (the screen cannot reach Paddock; the doors still work), kids mode, **Reset car · waiting for the car to stop**, and what the last deck key did (for 4 seconds).
+
+While you drive: the race screen (below) covers everything, and no page stays open behind it. A coloured edge when a flag is out. Five seconds after you stop, HOME is back.
 
 Home only counts real drives. A test, or a Test Drive where the car sat in the pit box and never went out, is not an outing: it is not in your last outing, your seat time, THIS WEEK, or the car shown. The small line **Since** and a month and year (when your first session was) is only a date, not a number of anything.
 
@@ -164,7 +169,7 @@ The Corvette picture: until your own shot exists, Home shows a credited photo of
 
 ## The race screen
 
-The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session, a replay, or the sim or Paddock not answering), Home comes back. You press nothing. In Friends mode your guest keeps their own screen.
+The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session, a replay, or the sim or Paddock not answering), HOME comes back. You press nothing. In Friends mode the race screen does not come up.
 
 - **Top strip.** Your position (and your class position in a multiclass race), the lap and how many to go (or, in a race run on time, the time left), your incidents against the limit (the box turns amber when you are 3 or fewer from it), and the race clock. When a new flag comes out, the strip turns that flag's colour and says its name for 2 seconds. The light box and the coloured edge keep showing it after that. Under a caution the strip says **CAUTION** in amber for the whole caution.
 - **Gaps.** The car ahead and the car behind: the gap in seconds, their number and name. Green means it is going your way (closing on the car ahead, pulling away from the car behind), red means the other way. The small arrow is how much per lap, over the last 3 laps. Under a caution this becomes your gap to the leader.
