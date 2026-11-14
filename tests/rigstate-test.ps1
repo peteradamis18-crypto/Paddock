@@ -23,6 +23,7 @@ try {
 
   ''; '5. everyone asks RigState (source)'
   $src = @{}; foreach ($f in 'irdash', 'official', 'realworld', 'overlays', 'spotterguard', 'doctor', 'vault', 'recorder') { $src[$f] = [IO.File]::ReadAllText((Join-Path $root "dash\src\$f.cs")) }
+  $src.irdash += [IO.File]::ReadAllText((Join-Path $root 'dash\src\sdkreader.cs'))   # W2-1: the Sdk class (Publish, RealBusy) moved to sdkreader.cs
   $build = [IO.File]::ReadAllText((Join-Path $root 'dash\build.ps1'))
   Check 'rigstate.cs and log.cs are in dash\build.ps1' ($build -match 'src\\rigstate\.cs' -and $build -match 'src\\log\.cs')
   Check 'every SDK frame feeds it (Sdk.Publish)' ($src.irdash -match 'RigState\.Feed\(f\.Connected, f\.Connected && f\.Num\("IsOnTrack"\) != 0, fakeUp\)')

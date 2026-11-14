@@ -866,7 +866,10 @@ namespace IRDash
                 }
                 long wait = interval - (sw.ElapsedMilliseconds - lastSend);
                 if (wait > 0) { Thread.Sleep((int)wait); f = Sdk.Latest; }
-                lastSend = sw.ElapsedMilliseconds; lastWrite = lastSend;
+                // W2-1: keep the beat (Sleep wakes up to 15 ms late, which made 15 Hz into 13): the next wait is shorter by the lateness.
+                // After a pause (no frames) the beat starts again from now.
+                long sent = sw.ElapsedMilliseconds;
+                lastSend = sent - lastSend < 2 * interval ? lastSend + interval : sent; lastWrite = sent;
                 lastSeq = f.Seq;
                 if (!f.Connected)
                 {

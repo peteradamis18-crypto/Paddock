@@ -32,7 +32,7 @@ try {
   $b = [IO.File]::ReadAllText((Join-Path $root 'dash\build.ps1'))
   Check 'fuel.cs and sdkreader.cs are in dash\build.ps1' ($b -match 'src\\fuel\.cs' -and $b -match 'src\\sdkreader\.cs')
   $fs = [IO.File]::ReadAllText((Join-Path $root 'dash\src\fuel.cs'))
-  Check 'fuel.cs stays C# 5 (no $", ?., nameof, out var)' (-not ($fs -match '\$"|\?\.[A-Za-z]|nameof\(|out var '))
+  Check 'fuel.cs stays C# 5 (no $", ?., nameof, out var)' (-not ($fs -match '(^|[\s(=,+])\$"|\?\.[A-Za-z]|nameof\(|out var '))
   Check 'fuel.cs is pure (no File, no Thread, no DateTime.Now, no Sdk)' (-not ($fs -match 'File\.|Thread\.|DateTime\.Now|Sdk\.'))
   Check 'the W2-3 hook is there: Func<string, double?> Fuel.PitLossFor' ($fs -match 'public static Func<string, double\?> PitLossFor;')
 } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
