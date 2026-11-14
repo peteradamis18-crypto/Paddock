@@ -301,11 +301,16 @@ try {
   Check 'at 35 m/s the change is saved but the overlays are not restarted' ((IsOn 'battle') -ne $before_battle -and (IrdashiesStart) -eq $started1 -and $o.pending -eq $true)
   Check 'and the deck screen says it is waiting for the car to stop' ($o.waiting -eq $true)
   Fake 'Speed=0'
-  $o = Settle 20
-  # the restart is a queued job (W0-3): it runs ~20 s after the session ends and can wait behind others
+  # W0-2/W0-3: ovapply/ovedit are guarded (they restart irdashies and move focus), so a stopped car inside a
+  # session changes nothing: the change stays pending until the session is over
+  Start-Sleep -Seconds 8
+  $o = J '/overlays'
+  Check 'with the car stopped inside the session the overlays are still not restarted' ((IrdashiesStart) -eq $started1 -and $o.pending -eq $true)
+  # end the pretend session this test already runs (the finally ends it again, harmlessly); the queued apply job runs ~20 s later
+  try { $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 5 } catch { }
   for ($i = 0; $i -lt 75; $i++) { if ((IrdashiesStart) -gt $started1) { break }; Start-Sleep -Seconds 1 }
   for ($i = 0; $i -lt 30; $i++) { $o = J '/overlays'; if (-not $o.pending) { break }; Start-Sleep -Seconds 1 }
-  Check 'once the car is stopped the overlays restart by themselves' ((IrdashiesStart) -gt $started1 -and -not $o.pending)
+  Check 'after the session ends the overlays restart by themselves' ((IrdashiesStart) -gt $started1 -and -not $o.pending)
 }
 finally {
   try { $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 5 } catch { }
@@ -376,10 +381,11 @@ if ($tsvBefore -ne $null) { [IO.File]::WriteAllText($tsvFile, $tsvBefore) } else
 # the original config goes back through the real tool so irdashies restarts on it
 [IO.File]::Copy("$tmp\config.json", $cfgFile, $true)
 Api 'ovapply'; $o = Settle
-# the restore apply is a queued job too (W0-3): wait until the file shows the saved widgets again
+# the restore apply is a queued job too (W0-3): the pretend session already ended in section 7, so it runs ~20 s after that end; wait until the file shows the saved widgets again
 $want = ($cfg0.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';'
 for ($i = 0; $i -lt 75; $i++) { $now = Get-Content $cfgFile -Raw | ConvertFrom-Json; if ((($now.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -eq $want) { break }; Start-Sleep -Seconds 1 }
-$now = Get-Content $cfgFile -Raw | ConvertFrom-Json
+$o = J '/overlays'
+$now =Get-Content $cfgFile -Raw | ConvertFrom-Json
 Check 'your overlays are exactly as before the test' ((($cfg0.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -eq (($now.dashboards.default.widgets | ForEach-Object { "$($_.id):$($_.enabled):$($_.layout.x),$($_.layout.y)" }) -join ';') -and $o.running)
 Set-Ref $refOrig
 Check 'no change was left in the delta bar settings' ((Ini 'delta_bar') -eq $on0 -and (Ini 'delta_ref') -eq $refOrig -and ((Ini 'delta_pos') -replace '^.*,', '') -eq ($pos0 -replace '^.*,', '' -replace '^auto$', '160'))
