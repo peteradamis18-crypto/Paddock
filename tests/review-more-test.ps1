@@ -53,7 +53,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const ok = (what, cond, detail) => out.push((cond ? 'ok ' : 'FAIL ') + what + (!cond && detail ? ' | ' + detail : ''));
 const listeners = []; let driving = false; const homes = [];
 window.addEventListener('message', e => { if (e.data && e.data.paddock === 'esc') homes.push(e.data.token); });
-const ctx = { data: { state: { workbench: { seq: 5, cmd: '', arg: '' } }, on(n, f) { listeners.push(f); return () => { }; } }, driving: () => driving, opts: {} };
+const ctx = { data: { state: { workbench: { seq: 5, cmd: '', arg: '' } }, on(n, f) { listeners.push(f); return () => { }; }, json(u) { return fetch(u).then(r => r.json()); } }, driving: () => driving, opts: {} };
 const stats = () => fetch('/__stats').then(r => r.json());
 const frame = () => document.querySelector('#page iframe');
 const W = () => frame().contentWindow;
@@ -61,6 +61,11 @@ async function ready() { for (let i = 0; i < 80; i++) { const w = frame() && fra
 async function deck(cmd, arg, seq) { const st = { workbench: { seq, cmd, arg } }; ctx.data.state = st; listeners.forEach(f => f(st, { workbench: true })); await sleep(200); }
 (async () => {
   const where = Q.get('page') || 'driver';
+  if (Q.get('nolap')) {                                       // the button's way: a session and no lap
+    mod.mount(document.getElementById('page'), ctx, { id: 'fixture-lap.ibt', at: 'fixture-lap.ibt' }); await sleep(2500);
+    const f0 = frame(); out.push('src=' + (f0 ? f0.getAttribute('src') : '') + '\nsay=' + ((document.querySelector('.rm-empty') || {}).textContent || ''));
+    document.getElementById('out').textContent = out.join('\n') + '\nDONE'; return;
+  }
   mod.mount(document.getElementById('page'), ctx, { id: 'fixture-lap.ibt', lap: 4, ref: 'pb', page: where });
   const up = await ready();
   ok('the workbench loads in the frame', up);
@@ -133,7 +138,7 @@ async function deck(cmd, arg, seq) { const st = { workbench: { seq, cmd, arg } }
   ok('3. EXPORT CSV asks /analysis/pro/export once (csv, lap and reference)', rk.some(k => k.indexOf('/analysis/pro/export') === 0) && (s2.routes['/analysis/pro/export'] || {}).count === 1, rk.join(' '));
   ok('3. the file name is kept (the export saved)', !!W().WB.exported, JSON.stringify(W().WB.exported));
   if (d.querySelector('#cwbtn')) { d.querySelector('#cwbtn').click(); d.querySelector('#cwbtn').click(); await sleep(500); s2 = await stats(); ok('3. OPEN IN PI TOOLBOX opens one lap through /vault/open (a second press while opening does nothing)', (s2.routes['/vault/open'] || {}).count === 1, JSON.stringify(s2.routes['/vault/open'])); }
-  if (d.querySelector('#dlbtn')) { d.querySelector('#dlbtn').click(); await sleep(500); s2 = await stats(); ok('3. OPEN DELTA starts Delta through /api/review/tools?open=delta', (s2.routes['/api/review/tools'] || {}).count >= 1); }
+  if (d.querySelector('#dlbtn')) { d.querySelector('#dlbtn').click(); await sleep(500); s2 = await stats(); ok('3. OPEN DELTA starts Delta through /vault/tools?open=delta', (s2.routes['/vault/tools'] || {}).count >= 1); }
   mod.unmount();
   ok('3. after unmount the deck can do nothing (and no throw)', onDeck({ seq: 99, cmd: 'page', arg: 'braking' }) === false);
   document.getElementById('out').textContent = out.join('\n') + '\nDONE';
@@ -173,6 +178,14 @@ try {
   Check 'with neither installed the only link is EXPORT CSV' ($line -eq 'chips=EXPORT CSV') $line
   Check 'with no field log for the session there is no RACE tab' (($t -split "`n" | Where-Object { $_ -match '^tabs=' } | Select-Object -First 1).Trim() -eq 'tabs=DRIVER|BRAKING|SPLITS')
 
+  Section '1. MORE DATA with only the session (the card''s button): the best counted lap opens'
+  New-MoreFixtures -Dir $fx -Pi $true -Delta $false
+  $t = Run-Page 'nolap=1'
+  Check 'with an id and no lap the frame opens the engine''s best counted lap (lap 4) of that file' ($t -match 'src=\.\./v2/workbench\.html\?id=fixture-lap\.ibt&lap=4')  $t.Trim()
+  New-MoreFixtures -Dir $fx -Pi $true -Delta $false -NoLaps $true
+  $t = Run-Page 'nolap=1'
+  Check 'a file with no lap says so in words (no dead frame)' ($t -match 'say=This session has no full lap to show\.' -and $t -notmatch 'src=\.\./v2')  $t.Trim()
+
   Section 'pictures'
   New-MoreFixtures -Dir $fx -Pi $true -Delta $true
   foreach ($tab in 'driver', 'braking', 'splits', 'race') {
@@ -180,7 +193,7 @@ try {
     $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=20000', "--screenshot=$png", "$base/app/rm-harness.html?mode=shot&tab=$tab")) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\e-$tab.txt" -RedirectStandardOutput "$tmp\o-$tab.txt"
     Check "picture $png" (Test-Path $png)
   }
-  $png = Join-Path $shots 'review-more-braking-zoomed.png'; Remove-Item $png -ErrorAction SilentlyContinue
+  $png = Join-Path $shots 'review-more-driver-zoomed.png'; Remove-Item $png -ErrorAction SilentlyContinue
   $null = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=20000', "--screenshot=$png", "$base/app/rm-harness.html?mode=shot&tab=driver&zoom=1")) -NoNewWindow -PassThru -Wait -RedirectStandardError "$tmp\e-z.txt" -RedirectStandardOutput "$tmp\o-z.txt"
   Check "picture $png (DRIVER zoomed on a corner)" (Test-Path $png)
 }
@@ -205,7 +218,7 @@ Check 'design-lint holds review-more.js and review-more.css to the 20 px lean-in
 $rm = [IO.File]::ReadAllText((Join-Path $root 'dash\www\app\pages\review-more.js'))
 Check 'review-more.js exports mount, unmount and onDeck and has no timer' ($rm -match 'export function mount' -and $rm -match 'export function unmount' -and $rm -match 'export function onDeck' -and $rm -notmatch 'setInterval|setTimeout')
 $vc = [IO.File]::ReadAllText((Join-Path $root 'dash\src\vault.cs'))
-Check '/api/review/tools is in vault.cs next to /vault/open and the route is open while the vault is off' ($vc -match 'case "/api/review/tools"' -and $vc -match 'path == "/api/review/tools" \|\|')
+Check '/vault/tools is in vault.cs next to /vault/open and the route is open while the vault is off' ($vc -match 'case "/vault/tools"' -and $vc -match 'path == "/vault/tools" \|\|')
 $tl = [IO.File]::ReadAllText((Join-Path $root 'tests\run-all.ps1'))
 Check 'run-all.ps1 lists review-more-test.ps1' ($tl -match "review-more-test\.ps1")
 

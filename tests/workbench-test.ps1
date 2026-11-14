@@ -838,7 +838,7 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
     } else { Check 'wb-offset-auto is queued by the deck API and polled into WB.cmd("offset-auto")' $false }
     Cdp-Close
 
-    Section '5b. real Sessions and Vault selections open the same Workbench with their lap'
+    Section '5b. real Sessions selections open the same Workbench with their lap'
     $liveSessions = (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/sessions' -TimeoutSec 10).Content | ConvertFrom-Json
     $sessionRow = $liveSessions.sessions | Where-Object { $_.best -ne $null -and -not $_.gone } | Select-Object -First 1
     $lapReply = (Invoke-WebRequest -UseBasicParsing ('http://localhost:8199/ibt/laps?file=' + [uri]::EscapeDataString($sessionRow.file)) -TimeoutSec 20).Content | ConvertFrom-Json
@@ -848,22 +848,6 @@ Section '4j. Session Review ANALYSIS sends the selected lap, not the session bes
     $clicked = $false; if ($rowReady) { $clicked = (Cdp-Eval ('(function(){var r=[].filter.call(document.querySelectorAll(".row[data-file]"),function(x){return x.dataset.file===' + (ConvertTo-Json $sessionRow.file -Compress) + '})[0];if(!r)return false;r.click();return true})()')) -eq $true }
     $src = ''; for ($i = 0; $i -lt 60 -and -not $src; $i++) { Start-Sleep -Milliseconds 250; $src = [string](Cdp-Eval 'document.querySelector("#wbHost iframe") ? document.querySelector("#wbHost iframe").src : ""') }
     Check 'clicking the real Sessions row opens workbench.html on that file and its best lap' ($clicked -and $src -match ('workbench\.html\?id=' + [regex]::Escape([uri]::EscapeDataString($sessionRow.file)) + '&lap=' + [int]$lapReply.best))
-
-    $list = (Invoke-WebRequest -UseBasicParsing 'http://localhost:8199/vault/list' -TimeoutSec 10).Content | ConvertFrom-Json
-    $moment = $null
-    foreach ($candidate in $list.moments) {
-      if (-not $candidate.ibtSrc -or -not $candidate.lap) { continue }
-      try { $item = (Invoke-WebRequest -UseBasicParsing ('http://localhost:8199/vault/item?id=' + [uri]::EscapeDataString($candidate.id)) -TimeoutSec 10).Content | ConvertFrom-Json; if ($item.hasTelemetry) { $moment = $candidate; break } } catch { }
-    }
-    $vaultOk = $false
-    if ($moment) {
-      $null = Cdp 'Page.navigate' @{ url = 'http://localhost:8199/v2/vault.html' }
-      $cardReady = $false; for ($i = 0; $i -lt 40 -and -not $cardReady; $i++) { Start-Sleep -Milliseconds 250; $cardReady = (Cdp-Eval ('[].some.call(document.querySelectorAll(".card[data-id]"),function(r){return r.dataset.id===' + (ConvertTo-Json $moment.id -Compress) + '})')) -eq $true }
-      if ($cardReady) { $null = Cdp-Eval ('(function(){var r=[].filter.call(document.querySelectorAll(".card[data-id]"),function(x){return x.dataset.id===' + (ConvertTo-Json $moment.id -Compress) + '})[0];r.click();return true})()') }
-      $vsrc = ''; for ($i = 0; $i -lt 60 -and -not $vsrc; $i++) { Start-Sleep -Milliseconds 250; $vsrc = [string](Cdp-Eval 'document.querySelector("#wbHost iframe") ? document.querySelector("#wbHost iframe").src : ""') }
-      $vaultOk = $cardReady -and $vsrc -match ('workbench\.html\?id=' + [regex]::Escape([uri]::EscapeDataString($moment.id)) + '&lap=' + [int]$moment.lap)
-    }
-    Check 'clicking a real Vault lap card opens workbench.html with its Vault id and lap' $vaultOk
 
     $reviewData = (Invoke-WebRequest -UseBasicParsing ('http://localhost:8199/analysis/session?id=' + [uri]::EscapeDataString($sessionRow.file)) -TimeoutSec 30).Content | ConvertFrom-Json
     $null = Cdp 'Page.navigate' @{ url = 'http://localhost:8199/v2/sessionreview.html?id=' + [uri]::EscapeDataString($sessionRow.file) }

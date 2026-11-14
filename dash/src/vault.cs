@@ -1209,7 +1209,7 @@ namespace IRDash
         [ThreadStatic] public static string Refused;
         // W0-2: the recorder's routes and the deck's RACES keys belong to the recorder, so they answer whether the Vault is on or off
         static bool RecorderCommand(string c) { return c == "recsave" || c == "racedelete" || c == "raceexport" || c == "racewatch"; }
-        public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/api/review/tools" || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
+        public static bool RecorderRoute(string path) { return path != null && (path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/vault/tools" || path == "/vault/video" || path == "/vault/videoinfo" || path == "/vault/recorder"); }
         public static readonly List<string> TestEvents = new List<string>();
         static DateTime lastKeep = DateTime.MinValue, lastClip = DateTime.MinValue;
         public static string LastClipKey = "";
@@ -1607,7 +1607,7 @@ namespace IRDash
         // Returns true when the request was ours (and has been answered).
         public static bool Handle(NetworkStream s, string path, Dictionary<string, string> q, Dictionary<string, string> hdr)
         {
-            if (path != "/vault" && !path.StartsWith("/vault/", StringComparison.Ordinal) && !path.StartsWith("/api/rec/", StringComparison.Ordinal) && path != "/api/review/tools") return false;
+            if (path != "/vault" && !path.StartsWith("/vault/", StringComparison.Ordinal) && !path.StartsWith("/api/rec/", StringComparison.Ordinal) && path != "/vault/tools") return false;
             if (!Serving && !RecorderRoute(path) && !(path.StartsWith("/vault/test/", StringComparison.Ordinal) && Sdk.TestHook)) { try { Reply(s, 200, "{\"enabled\":false}"); } catch { } return true; }
             try
             {
@@ -1625,7 +1625,7 @@ namespace IRDash
                     case "/vault/edit": j = EditRoute(q, out code); break;
                     case "/vault/delete": j = DeleteRoute(q, out code); break;
                     case "/vault/open": j = OpenRoute(q, out code); break;
-                    case "/api/review/tools": j = ReviewToolsRoute(q, out code); break;      // W4-5: which other analysis programs are installed (REVIEW > MORE DATA links)
+                    case "/vault/tools": j = ReviewToolsRoute(q, out code); break;      // W4-5: which other analysis programs are installed (REVIEW > MORE DATA links)
                     case "/vault/clip": return ServeClip(s, Q(q, "id"), hdr);
                     case "/vault/video": return Recorder.ServeVideo(s, Q(q, "id"), hdr);                     // Paddock's own recording of a lap (recorder.cs); Range works, 404 when there is none
                     case "/vault/videoinfo": j = Recorder.InfoJson(Q(q, "id"), out code); break;             // its sidecar: where the lap starts inside the clip
@@ -2039,9 +2039,9 @@ namespace IRDash
             return null;
         }
 
-        // ---- W4-5: the other analysis programs, for the REVIEW > MORE DATA links. GET /api/review/tools -> {pi:{installed}, delta:{installed}}.
+        // ---- W4-5: the other analysis programs, for the REVIEW > MORE DATA links. GET /vault/tools -> {pi:{installed}, delta:{installed}}.
         // ?open=delta starts Delta (Pi opens through /vault/open?how=cosworth). Never while he drives: Delta costs frames (evidence 05).
-        static string deltaExe = null; static DateTime deltaAt = DateTime.MinValue;
+        static string deltaExe = null; static DateTime deltaAt = DateTime.MinValue, deltaStarted = DateTime.MinValue;
         static string DeltaPath()
         {
             if (deltaExe != null && (DateTime.Now - deltaAt).TotalSeconds < 60) return deltaExe;
@@ -2086,7 +2086,12 @@ namespace IRDash
             {
                 if (Program.IsDriving) { code = 409; return Err("not while driving"); }
                 if (delta.Length == 0) { code = 404; return Err("Delta is not installed"); }
-                try { Process.Start(new ProcessStartInfo(delta) { UseShellExecute = true }); return "{\"ok\":true,\"action\":\"delta\"}"; }
+                // idempotent (CLAUDE.md rule 6): a second press while Delta runs, or within 10 s of the first start, does nothing
+                bool running = false;
+                try { foreach (Process dp in Process.GetProcesses()) { try { if (Regex.IsMatch(dp.ProcessName, "^(coach.?dave.?)?delta", RegexOptions.IgnoreCase)) running = true; } catch { } finally { dp.Dispose(); } } } catch { }
+                if (running || (DateTime.Now - deltaStarted).TotalSeconds < 10) return "{\"ok\":true,\"action\":\"already\"}";
+                deltaStarted = DateTime.Now;
+                try { using (Process started = Process.Start(new ProcessStartInfo(delta) { UseShellExecute = true })) { } return "{\"ok\":true,\"action\":\"delta\"}"; }
                 catch (Exception ex) { Log.W("vault: starting Delta: " + ex.Message); code = 500; return Err("could not start Delta"); }
             }
             return "{\"pi\":{\"installed\":" + (cw.Installed ? "true" : "false") + "},\"delta\":{\"installed\":" + (delta.Length > 0 ? "true" : "false") + "}}";

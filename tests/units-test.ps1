@@ -42,20 +42,20 @@ function Cdp-Close() {
 $tel = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'iRacing\telemetry'
 $ibt = 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt'
 if (-not (Test-Path (Join-Path $tel $ibt))) { "  (skipped: $ibt is not in the telemetry folder)"; exit 0 }
-$url = "$api/v2/workbench.html?id=" + [uri]::EscapeDataString($ibt) + '&lap=7&page=grip'
-function Look() { Cdp-Eval "JSON.stringify({ head: [].map.call(document.querySelectorAll('table.ct th'), function (t) { return t.textContent; }).join('|'), f: window.WBX && WBX.api.SPD && WBX.api.SPD.f, vmin: (function () { var r = document.querySelector('table.ct tr:nth-child(2) td:nth-child(3)'); return r ? parseFloat(r.firstChild.textContent) : null; })() })" | ConvertFrom-Json }
+$url = "$api/v2/workbench.html?id=" + [uri]::EscapeDataString($ibt) + '&lap=7&page=driver'
+function Look() { Cdp-Eval "JSON.stringify({ head: [].map.call(document.querySelectorAll('table.ro td.n'), function (t) { return t.textContent; }).slice(0, 1).join('|'), f: window.WBX && WBX.api.SPD && WBX.api.SPD.f, vmin: (function () { var r = document.querySelector('table.ro tr:first-child td.a'); return r ? parseFloat(r.textContent) : null; })() })" | ConvertFrom-Json }
 try {
   Section '1. iRacing set to imperial: mph'
   Cdp-Open "$api/v2/"; Start-Sleep -Seconds 2
   $null = Cdp-Eval "localStorage.setItem('irdash-units', 'false'); location.href = '$url'; 1"; Start-Sleep -Seconds 7
   $m = Look
-  Check "the corner table says MIN MPH ($($m.head))" ($m.head -match 'MIN MPH')
+  Check "the speed readout says mph (DRIVER, W4-5: the corner table went with GRIP) ($($m.head))" ($m.head -match 'mph')
   Check "speed is metres per second x 2.237 ($($m.f))" ([math]::Abs($m.f - 2.236936) -lt 0.0001)
   Section '2. iRacing set to metric: km/h, and the same corner reads 1.609 times higher'
   $null = Cdp-Eval "localStorage.setItem('irdash-units', 'true'); location.reload(); 1"; Start-Sleep -Seconds 7
   $k = Look
-  Check "the corner table says MIN KM/H ($($k.head))" ($k.head -match 'MIN KM/H')
-  Check "the slowest-corner minimum: $($m.vmin) mph = $($k.vmin) km/h" ($m.vmin -gt 20 -and [math]::Abs($k.vmin - $m.vmin * 1.609344) -le 1.5)
+  Check "the speed readout says km/h ($($k.head))" ($k.head -match 'km/h')
+  Check "the speed at the cursor: $($m.vmin) mph = $($k.vmin) km/h" ($m.vmin -gt 10 -and [math]::Abs($k.vmin - $m.vmin * 1.609344) -le 1.5)
 }
 finally { Cdp-Close }
 ''

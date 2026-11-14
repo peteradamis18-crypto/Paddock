@@ -1,8 +1,8 @@
 # review-more-fixtures.ps1 - makes the fixtures REVIEW > MORE DATA's test serves from a pretend irdash (W4-5): a made-up lap in irdash's own binary
 # reply (PWB1: JSON header + Float32 arrays on a 1 m grid), its reference lap, and the small JSON answers the kept tabs read
-# (/analysis/deep for BRAKING, /analysis/session for SPLITS, /analysis/race for RACE, /vault and /api/review/tools for the links).
+# (/analysis/deep for BRAKING, /analysis/session for SPLITS, /analysis/race for RACE, /vault and /vault/tools for the links).
 # Dot-source it, then:  New-MoreFixtures -Dir <folder> [-Pi $true] [-Delta $false] [-Race $true]
-function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false, [bool]$Race = $true) {
+function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false, [bool]$Race = $true, [bool]$NoLaps = $false) {
   New-Item -ItemType Directory -Force $Dir | Out-Null
   $inv = [Globalization.CultureInfo]::InvariantCulture
   $metres = 1000; $n = $metres + 1; $L = 4000.0; $step = $L / $metres
@@ -75,7 +75,11 @@ function New-MoreFixtures([string]$Dir, [bool]$Pi = $true, [bool]$Delta = $false
   $sum = '{"race":true,"focus":"c1","maxLap":6,"prec":{"hz":10,"cornerS":0.05,"lapS":0.02,"gapS":0.02,"pitS":0.1},"ahead":1,"behind":3,"leader":0,"classes":[{"id":"c1","name":"GR86","col":"#d8d4ca","cars":4}],"tower":[' + ($tower -join ',') + '],"posMismatch":0,"trace":[' + ($trace -join ',') + '],"cm":[],"passes":[],"pits":[]}'
   W 'analysis_race.json' $(if ($Race) { '{"ok":true,"complete":true,"me":2,"cars":[' + ($cars -join ',') + '],"corners":[],"summary":' + $sum + '}' } else { '{"error":"no field log for this session"}' })
   W 'vault.json' ('{"enabled":true,"cosworth":{"installed":' + $Pi.ToString().ToLower() + ',"exe":"C:\\Pi\\toolbox.exe"}}')
-  W 'api_review_tools.json' ('{"pi":{"installed":' + $Pi.ToString().ToLower() + '},"delta":{"installed":' + $Delta.ToString().ToLower() + '}}')
+  W 'vault_tools.json' ('{"pi":{"installed":' + $Pi.ToString().ToLower() + '},"delta":{"installed":' + $Delta.ToString().ToLower() + '}}')
+  # the review engine's answer the module reads when MORE DATA arrives with a session and no lap (session.id = the telemetry file name)
+  $rv = '{"session":{"id":"fixture-lap.ibt","best":{"lap":4,"time":82.567}},"laps":[{"n":3,"counted":false},{"n":4,"counted":true}]}'
+  if ($NoLaps) { $rv = '{"session":{"id":"fixture-lap.ibt","best":null},"laps":[]}' }
+  W 'api_review.json' $rv
   W 'workbench_state.json' '{"open":false}'
   W 'analysis_pro_export.txt' "distance,speed`n0,60`n"
   W 'vault_open.json' '{"ok":true,"action":"cosworth","dry":false}'

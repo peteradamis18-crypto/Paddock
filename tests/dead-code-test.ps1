@@ -48,6 +48,9 @@ $wwwJs = (Get-ChildItem (Join-Path $root 'dash\www') -Recurse -Include *.js | Ge
 Check 'index.html no longer loads drive.js, drive.css or the old race.js, and has no in-car grid (W2-2)' ($idx -notmatch 'src="(drive|race)\.js"' -and $idx -notmatch 'href="drive\.css"' -and $idx -notmatch 'id="(strip|pStand|drive)"')
 Check 'no page script calls Drive v1, the old grid or the SoF header (W2-2)' ($wwwJs -notmatch '\bDrive\.(tick|onFrame|frame|shown|showRec)' -and $wwwJs -notmatch 'RaceExtras' -and $wwwJs -notmatch "\`$\('(sofBox|standings|rpmbar|dRows)'\)")
 Check 'no page script calls the deleted debrief, tv or idle objects' ($wwwJs -notmatch 'Debrief\.(frame|show|hide)' -and $wwwJs -notmatch 'Tv\.(frame|on|poll)\b' -and $wwwJs -notmatch 'linkDebrief')
+$delRx = '(workbench-(pro|career|video)|vaultlive|vault)\.(html|js|css)'
+$hits = @(); foreach ($h in Get-ChildItem (Join-Path $root 'dash\www') -Recurse -Include *.js,*.html,*.css) { $tx = Get-Content -LiteralPath $h.FullName -Raw; foreach ($m in [regex]::Matches($tx, $delRx)) { $pre = $tx.Substring([Math]::Max(0, $m.Index - 1), 1); if ($pre -notmatch '[A-Za-z0-9_-]') { $hits += $h.Name + ': ' + $m.Value } } }
+Check 'no .js, .html or .css under dash\www names a deleted workbench / Vault detail file (W4-5)' ($hits.Count -eq 0) (($hits | Select-Object -Unique) -join '; ')
 Check 'no page script loads or calls the deleted workbench / Vault detail files (W4-5)' ($wwwJs -notmatch 'workbench-(pro|career|video)\.js' -and $idx -notmatch 'vaultlive\.js' -and (Get-Content (Join-Path $root 'dash\www\v2\workbench.html') -Raw) -notmatch 'workbench-(pro|career|video)')
 Check 'the dead idle rules are gone from style.css' ((Get-Content (Join-Path $root 'dash\www\v2\style.css') -Raw) -notmatch '\.idle-(glow|mark|mid|line)\b')
 

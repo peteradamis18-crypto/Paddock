@@ -1194,7 +1194,7 @@ X.api = { S: S, C: C, FONT: FONT, P: P, LIVE: LIVE, need: need, el: el, clamp: c
   // for page files: the channel list and picker, loading any channel, the binary reply reader, a page rebuild
   catalog: catalog, search: searchChannels, meta: function (k) { catalog(); return xmeta[k] || null; }, fetchChannel: fetchExtra, openPicker: openPicker, closePicker: closePicker,
   addCatalog: addCatalog, dropCatalog: dropCatalog, readReply: readReply, fetchBuf: fetchBuf, rebuild: function () { buildPage(); } };
-// W4-5: the three links at the foot of the page (#tools). Which programs exist is asked once, at load (GET /api/review/tools, dash\src\vault.cs):
+// W4-5: the three links at the foot of the page (#tools). Which programs exist is asked once, at load (GET /vault/tools, dash\src\vault.cs):
 //   OPEN IN PI TOOLBOX  only when Pi Toolbox is installed (one press opens the lap's file in Pi; irdash opens Pi's workbook first when Pi is cold)
 //   OPEN DELTA          only when Coach Dave Delta is installed
 //   EXPORT CSV          the lap and its reference, every metre, through /analysis/pro/export (the server's default channel list)
@@ -1222,7 +1222,7 @@ function addTools() {
       });
     }).catch(function () { say('COULD NOT MAKE IT', 4000); });
   });
-  getJson('/api/review/tools').then(function (r) {
+  getJson('/vault/tools').then(function (r) {
     var t = r.j || {}; if (!box.isConnected) return;
     if (t.pi && t.pi.installed) chip('cwbtn', 'OPEN IN PI TOOLBOX', 'opens the whole file in Cosworth\'s standard layout', function (say) {
       say('OPENING', 30000);
@@ -1235,7 +1235,7 @@ function addTools() {
       }).catch(function () { say('COULD NOT OPEN', 4000); });
     });
     if (t.delta && t.delta.installed) chip('dlbtn', 'OPEN DELTA', 'Coach Dave Delta, the other lap coach', function (say) {
-      getJson('/api/review/tools?open=delta').then(function (x) { say(x.status === 409 ? 'NOT WHILE DRIVING' : x.ok ? 'OPENING DELTA' : 'COULD NOT OPEN', 4000); }).catch(function () { say('COULD NOT OPEN', 4000); });
+      getJson('/vault/tools?open=delta').then(function (x) { say(x.status === 409 ? 'NOT WHILE DRIVING' : x.ok ? 'OPENING DELTA' : 'COULD NOT OPEN', 4000); }).catch(function () { say('COULD NOT OPEN', 4000); });
     });
   }).catch(function () { });
 }
