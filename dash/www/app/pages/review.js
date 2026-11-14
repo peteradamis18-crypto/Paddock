@@ -163,6 +163,7 @@ const R = {
       (noLap ? '' :
         '<footer class="rv-bottom"><div class="plan-box">' + (j.plan ? '<p class="plan">' + esc(j.plan) + '</p>' : '') +
         '<p class="ref">' + esc(refLine(s.ref, F)) + '</p></div><div class="acts">' +
+        '<button type="button" class="btn more">More data</button>' +
         (showN != null ? '<button type="button" class="btn gold show" data-n="' + esc(showN) + '">Show me</button>' : '') +
         R.watchBtn('watch', watchClip, main ? cornerName(main.corner) + DOT + secs(main.lost) : '') + '</div></footer>') +
       '<section class="rv-progress" hidden></section>';
