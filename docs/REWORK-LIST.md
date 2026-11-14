@@ -123,3 +123,5 @@ goes next to real screenshots of the tools it learns from.
 
 ## Peter's decisions during wave 0 (2026-11-13)
 - Gold: B, the softer broadcast gold `#C9A24B`, everywhere (top screen, phone, deck keys at the next deck rebuild).
+
+- 2026-11-13 20:50, asked "Will you plug in a microphone (Arctis or another) for the talk-over-the-race feature?": **"Yes, with a mic"** -> W1-6 commentary is on.

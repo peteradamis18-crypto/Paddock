@@ -552,7 +552,7 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
    Recommendation: stop until the black box says it helps.
 6. **Real-world race fetch** (`realworld.cs` fetching F1/IMSA calendars every 6 h, forced on): keep or drop?
    Recommendation: drop with the HOME real-world block.
-7. **Commentary mic:** will he plug in the Arctis headset (or another mic) for commentary? Otherwise v1 ships without
+7. **Commentary mic:** DECIDED 2026-11-13 20:50: yes, Peter will plug in a mic (Arctis or another), so W1-6 TALK OVER IT is on. Was: will he plug in the Arctis headset (or another mic) for commentary? Otherwise v1 ships without
    TALK OVER IT.
 8. **Wave order:** W0 (safety, 1 week) then W1 RACES+YouTube, as above? Or RACES first with the W0 safety items only?
 
