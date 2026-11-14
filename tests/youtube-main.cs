@@ -1,0 +1,280 @@
+// Entry point for tests\youtube-test.ps1 only (W1-2): compiled with dash\src\*.cs and tests\youtube-google.cs (csc /main:IRDash.YouTubeMain)
+// into a throw-away exe in %TEMP%. Points every YouTube address at the pretend Google, dash\yt at a temp folder, and walks the card's
+// cases 1-9. Prints "ok ..." / "FAIL ..." lines and DONE. Every secret and token is made up; nothing reaches the real Google.
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+namespace IRDash
+{
+    static class YouTubeMain
+    {
+        static int fails;
+        static volatile bool sessionOn;
+        static string tmp, yt;
+        static PretendGoogle g;
+        static readonly List<string> pages = new List<string>();
+        static string browserUrl = "";
+
+        static void Ok(string what, bool cond, string why)
+        {
+            if (cond) Console.WriteLine("ok " + what);
+            else { fails++; Console.WriteLine("FAIL " + what + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")")); }
+        }
+        static void Ok(string what, bool cond) { Ok(what, cond, ""); }
+
+        static bool WaitFor(Func<bool> f, int ms)
+        {
+            DateTime until = DateTime.UtcNow.AddMilliseconds(ms);
+            while (DateTime.UtcNow < until) { if (f()) return true; Thread.Sleep(20); }
+            return f();
+        }
+
+        static string Kind(string race) { Match m = Regex.Match(YouTube.StateJson(race), "\"kind\":\"([a-z]+)\""); return m.Success ? m.Groups[1].Value : "?"; }
+        static PretendGoogle.Up UpFor(string title) { lock (g.Ups) foreach (PretendGoogle.Up u in g.Ups.Values) if (u.Title == title) return u; return null; }
+        static List<PretendGoogle.Up> UpsFor(string title) { List<PretendGoogle.Up> l = new List<PretendGoogle.Up>(); lock (g.Ups) foreach (PretendGoogle.Up u in g.Ups.Values) if (u.Title == title) l.Add(u); return l; }
+        static string LogText() { Log.Flush(3000); try { return File.ReadAllText(Path.Combine(tmp, "youtube.log")); } catch { return ""; } }
+        static int Count(string text, string what) { int n = 0, i = 0; while ((i = text.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
+        static bool Has(byte[] hay, byte[] needle)
+        {
+            for (int i = 0; i + needle.Length <= hay.Length; i++) { int k = 0; while (k < needle.Length && hay[i + k] == needle[k]) k++; if (k == needle.Length) return true; }
+            return false;
+        }
+
+        static int Main(string[] a)
+        {
+            tmp = a.Length > 0 ? a[0] : Path.Combine(Path.GetTempPath(), "yt-test-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tmp);
+            yt = Path.Combine(tmp, "yt");
+            Log.FilePath = Path.Combine(tmp, "youtube.log");
+            Jobs.SessionOn = delegate () { return sessionOn; };
+            Jobs.GraceMs = 0;
+            g = new PretendGoogle(); g.Start();
+            YouTube.AuthUrl = g.Base + "/o/oauth2/v2/auth"; YouTube.TokenUrl = g.Base + "/token";
+            YouTube.UploadUrl = g.Base + "/upload/youtube/v3"; YouTube.ApiUrl = g.Base + "/youtube/v3";
+            YouTube.Dir = yt; YouTube.IniFile = Path.Combine(tmp, "irdash.ini");
+            YouTube.ChunkSize = 1024 * 1024; YouTube.BackoffBaseMs = 100; YouTube.BackoffMaxMs = 800; YouTube.OfflineRetryMs = 300; YouTube.SignInTimeoutMs = 15000;
+            YouTube.OpenBrowser = delegate (string url)
+            {
+                browserUrl = url;
+                Thread t = new Thread(delegate ()
+                {
+                    try
+                    {
+                        HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(url); rq.AllowAutoRedirect = true; rq.Timeout = 10000;
+                        using (WebResponse r = rq.GetResponse()) using (StreamReader sr = new StreamReader(r.GetResponseStream())) lock (pages) pages.Add(sr.ReadToEnd());
+                    }
+                    catch (Exception ex) { lock (pages) pages.Add("ERR " + ex.Message); }
+                });
+                t.IsBackground = true; t.Start();
+            };
+
+            // the race video: 3 MiB of fixed noise, and a small "jpeg"
+            byte[] video = new byte[3 * 1024 * 1024]; new Random(20261113).NextBytes(video);
+            string file = Path.Combine(tmp, "race.mp4"); File.WriteAllBytes(file, video);
+            string thumb = Path.Combine(tmp, "thumb.jpg"); File.WriteAllBytes(thumb, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9 });
+            string hash = PretendGoogle.Hash(video);
+
+            try { Run(file, thumb, hash, video.Length); }
+            catch (Exception ex) { Ok("the harness ran without an exception", false, ex.GetType().Name + ": " + ex.Message); }
+            Console.WriteLine("DONE");
+            return fails == 0 ? 0 : 1;
+        }
+
+        static void Run(string file, string thumb, string hash, long size)
+        {
+            // ---- 0. no client.json yet: one plain message, no browser ----
+            Ok("0. SignIn without client.json says how to set it up", YouTube.SignIn() == YouTube.MsgSetup);
+            Ok("0. Json says not set up and not signed in", YouTube.Json().Contains("\"signedIn\":false") && YouTube.Json().Contains("\"setUp\":false"), YouTube.Json());
+            g.CutOnce = true; g.ThumbForbiddenOnce = true;
+            Ok("0. a race can be queued before YouTube is set up", YouTube.Enqueue("r0", file, "race r0", "0:00 Start\nLap 1", null, thumb));
+            Ok("0. ... and shows kind signin with the set-up message", WaitFor(delegate () { return YouTube.StateJson("r0") == "{\"kind\":\"signin\",\"error\":" + Json_.S(YouTube.MsgSetup) + "}"; }, 5000), YouTube.StateJson("r0"));
+            Ok("0. no browser was opened", browserUrl.Length == 0);
+
+            // ---- 1. sign-in ----
+            Directory.CreateDirectory(yt);
+            File.WriteAllText(Path.Combine(yt, "client.json"), "{\"installed\":{\"client_id\":\"" + PretendGoogle.ClientId + "\",\"project_id\":\"paddock-test\",\"auth_uri\":\"x\",\"token_uri\":\"x\",\"client_secret\":\"" + PretendGoogle.Secret + "\",\"redirect_uris\":[\"http://localhost\"]}}");
+            string said = YouTube.SignIn();
+            Ok("1. SignIn answers at once", said.Contains("browser"), said);
+            Ok("1. signed in within 10 s", WaitFor(delegate () { return YouTube.Json().Contains("\"signedIn\":true"); }, 10000), YouTube.Json());
+            Ok("1. the sign-in URL asks for youtube.upload, offline, consent, S256 and a loopback redirect", g.RedirectOk && g.ChallengeMethod == "S256", g.AuthQuery.Length > 0 ? "query seen" : "no query");
+            Ok("1. the PKCE verifier matches the challenge", g.PkceOk);
+            Ok("1. the client secret went in the token POST body, never in a URL", g.SecretInBody && !g.SecretInQuery && !browserUrl.Contains(PretendGoogle.Secret));
+            string tokenFile = Path.Combine(yt, "token.bin");
+            Ok("1. token.bin exists", File.Exists(tokenFile));
+            if (File.Exists(tokenFile))
+            {
+                byte[] tb = File.ReadAllBytes(tokenFile);
+                bool plain = Has(tb, Encoding.UTF8.GetBytes(PretendGoogle.Refresh)) || Has(tb, Encoding.Unicode.GetBytes(PretendGoogle.Refresh)) || Has(tb, Encoding.UTF8.GetBytes("pretend-access"));
+                Ok("1. token.bin is not plaintext (no token string in it)", !plain);
+                string back = "";
+                try { back = Encoding.UTF8.GetString(ProtectedData.Unprotect(tb, Encoding.UTF8.GetBytes(YouTube.EntropyText), DataProtectionScope.CurrentUser)); } catch { }
+                Ok("1. token.bin is DPAPI for this Windows user (Unprotect gives the refresh token back)", back.Contains(PretendGoogle.Refresh));
+            }
+            Ok("1. the browser got one page, and it says signed in", WaitFor(delegate () { lock (pages) return pages.Count >= 1; }, 3000) && pages.Count == 1 && pages[0].Contains(YouTube.SignedInPage), pages.Count > 0 ? pages[0] : "no page");
+            Match rp = Regex.Match(Uri.UnescapeDataString(browserUrl), "redirect_uri=(http://[^&]+)");
+            bool closed = false;
+            if (rp.Success)
+            {
+                Thread.Sleep(300);
+                try
+                {
+                    HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(rp.Groups[1].Value + "/?state=x"); rq.Timeout = 2000;
+                    using (HttpWebResponse r = (HttpWebResponse)rq.GetResponse()) closed = false;
+                }
+                // nothing listens (refused), or Windows' own 404/503: not Paddock's "Not found." page for a wrong state
+                catch (WebException ex) { HttpWebResponse r = ex.Response as HttpWebResponse; closed = r == null || !ReadAll(r).Contains("Not found."); }
+            }
+            Ok("1. the sign-in listener is closed afterwards", closed, rp.Success ? rp.Groups[1].Value : "no redirect_uri");
+
+            // ---- 2 + 3. the race queued before sign-in goes by itself: refresh first, cut at 40 %, resume, read back ----
+            List<int> pcts = new List<int>();
+            bool sampling = true;
+            Thread sampler = new Thread(delegate ()
+            {
+                while (sampling) { Match m = Regex.Match(YouTube.StateJson("r0"), "\"pct\":(\\d+)"); if (m.Success) lock (pcts) pcts.Add(int.Parse(m.Groups[1].Value)); Thread.Sleep(10); }
+            });
+            sampler.IsBackground = true; sampler.Start();
+            g.AfterChunk = delegate (PretendGoogle.Up u) { if (u.Title == "race r0") Thread.Sleep(150); };   // time for the sampler to see the progress
+            Ok("3. r0 goes to YouTube by itself after the sign-in", WaitFor(delegate () { return Kind("r0") == "shared"; }, 20000), YouTube.StateJson("r0"));
+            sampling = false; sampler.Join(500);
+            Ok("2. the access token about to run out was refreshed before the upload", g.Refreshes >= 1 && g.FirstPostToken.Length > 0 && g.FirstPostToken != g.Issued[0], "refreshes " + g.Refreshes);
+            PretendGoogle.Up u0 = UpFor("race r0");
+            Ok("3. one upload session for r0", UpsFor("race r0").Count == 1);
+            if (u0 != null)
+            {
+                string ev = string.Join(" | ", u0.Events.ToArray());
+                long cut = size * 4 / 10;
+                Ok("3. the link dropped at 40 %, then Paddock asked */total and carried on from the Range byte", Regex.IsMatch(ev, "cut " + cut + " \\| query " + cut + " \\| put " + cut + "-"), ev);
+                Ok("3. chunks are 1 MiB: the first PUT is bytes 0-1048575", ev.StartsWith("put 0-1048575"), ev);
+                Ok("3. the file arrived byte-exact (SHA-256)", PretendGoogle.Hash(u0.Data.ToArray()) == hash);
+                Ok("3. the upload asked for private (the default setting) and category 20", u0.Privacy == "private" && u0.Meta.Contains("\"categoryId\":\"20\""), u0.Meta);
+            }
+            Ok("3. StateJson is the contract's shared object", YouTube.StateJson("r0") == "{\"kind\":\"shared\",\"pct\":100,\"privacy\":\"private\",\"url\":\"https://youtu.be/vid-s1\"}", YouTube.StateJson("r0"));
+            string uploads = File.Exists(Path.Combine(yt, "uploads.json")) ? File.ReadAllText(Path.Combine(yt, "uploads.json")) : "";
+            Ok("3. uploads.json says r0 shared, with the url and the read-back status", Regex.IsMatch(uploads, "\"r0\":\\{\"kind\":\"shared\",\"videoId\":\"vid-s1\",\"url\":\"https://youtu.be/vid-s1\",\"privacy\":\"private\",\"uploadStatus\":\"uploaded\",\"pct\":100"), uploads.Length > 300 ? uploads.Substring(0, 300) : uploads);
+            bool mid; lock (pcts) mid = pcts.Exists(delegate (int p) { return p > 0 && p < 100; });
+            int last; lock (pcts) last = pcts.Count > 0 ? pcts[pcts.Count - 1] : -1;
+            Ok("3. pct moved through the middle and reached 100", mid && last == 100, "samples " + pcts.Count + ", last " + last);
+            Ok("3. session.json is gone once the video is on YouTube", !File.Exists(Path.Combine(yt, "session.json")));
+            g.AfterChunk = null;
+
+            // ---- 8. thumbnail 403 ----
+            string log = LogText();
+            Ok("8. the thumbnail 403 left r0 shared and wrote one log line", g.ThumbsRefused == 1 && Kind("r0") == "shared" && Count(log, "thumbnail skipped") == 1, "refused " + g.ThumbsRefused + ", lines " + Count(log, "thumbnail skipped"));
+            Ok("8. no job failed (no exception)", !Regex.IsMatch(Jobs.Status(), "\"name\":\"youtube upload\"[^}]*\"error\":\"[^\"]+\""), Jobs.Status());
+
+            // ---- 4. never twice ----
+            string msg;
+            bool again = YouTube.Enqueue("r0", file, "race r0", "", null, thumb, out msg);
+            Ok("4. Enqueue on a shared race is refused: \"Already on YouTube\"", !again && msg == YouTube.MsgAlready, msg);
+            Ok("4. ... and nothing new reached Google", UpsFor("race r0").Count == 1);
+
+            // ---- 5. restart mid-way ----
+            g.AfterChunk = delegate (PretendGoogle.Up u) { if (u.Title == "race r2" && u.Chunks == 1) g.StopAfterThis = true; };
+            YouTube.Enqueue("r2", file, "race r2", "", "private", thumb);
+            Ok("5. the pretend Google went away after r2's first chunk", WaitFor(delegate () { PretendGoogle.Up x = UpFor("race r2"); return x != null && x.Chunks == 1; }, 10000));
+            Thread.Sleep(1200);                    // Paddock fails to reach it a few times
+            Ok("5. r2 is waiting (offline or retrying), not failed", Kind("r2") == "offline" || Kind("r2") == "sharing", YouTube.StateJson("r2"));
+            Ok("5. session.json kept the session for r2", File.Exists(Path.Combine(yt, "session.json")) && File.ReadAllText(Path.Combine(yt, "session.json")).Contains("\"race\":\"r2\""));
+            g.AfterChunk = null;
+            YouTube.Reset();                        // a new irdash: everything from disk again
+            g.Start();
+            YouTube.Start();
+            Ok("5. after the restart r2 finishes", WaitFor(delegate () { return Kind("r2") == "shared"; }, 15000), YouTube.StateJson("r2"));
+            PretendGoogle.Up u2 = UpFor("race r2");
+            if (u2 != null)
+            {
+                string ev = string.Join(" | ", u2.Events.ToArray());
+                Ok("5. it asked */total and went on from byte 1048576", Regex.IsMatch(ev, "^put 0-1048575 \\| query 1048576 \\| put 1048576-"), ev);
+                Ok("5. no byte before the Range byte was sent again", u2.PutBytes == size, u2.PutBytes + " of " + size);
+                Ok("5. byte-exact", PretendGoogle.Hash(u2.Data.ToArray()) == hash);
+                Ok("5. one upload session for r2 (resumed, not restarted)", UpsFor("race r2").Count == 1);
+            }
+            Ok("5. the thumbnail was set for r2", g.ThumbsSet >= 1);
+
+            // ---- 6. a session starts mid-upload ----
+            g.AfterChunk = delegate (PretendGoogle.Up u) { if (u.Title == "race r4" && u.Chunks == 1) sessionOn = true; };
+            YouTube.Enqueue("r4", file, "race r4", "", "private", "");
+            Ok("6. the session started after r4's first chunk", WaitFor(delegate () { return sessionOn; }, 10000));
+            Thread.Sleep(1000);
+            PretendGoogle.Up u4 = UpFor("race r4");
+            Ok("6. the job stopped within one chunk", u4 != null && u4.Chunks <= 2, u4 == null ? "no upload" : u4.Chunks + " chunks");
+            Ok("6. session.json is kept and r4 shows sharing", File.Exists(Path.Combine(yt, "session.json")) && Kind("r4") == "sharing", YouTube.StateJson("r4"));
+            Ok("6. Jobs says the upload is queued again, not running", !Jobs.Status().Contains("\"running\":{\"name\":\"youtube upload\"") && Jobs.Status().Contains("\"queued\":[{\"name\":\"youtube upload\""), Jobs.Status());
+            g.AfterChunk = null;
+            sessionOn = false;
+            Ok("6. the session over, r4 finishes", WaitFor(delegate () { return Kind("r4") == "shared"; }, 10000), YouTube.StateJson("r4"));
+            if (u4 != null) Ok("6. byte-exact, nothing sent twice", PretendGoogle.Hash(u4.Data.ToArray()) == hash && u4.PutBytes == size, u4.PutBytes + "");
+
+            // ---- 7. daily limit, no internet ----
+            YouTube.Clock = delegate () { return new DateTime(2026, 11, 13, 15, 0, 0, DateTimeKind.Local); };
+            g.QuotaOnce = true;
+            YouTube.Enqueue("r3", file, "race r3", "", "private", "");
+            Ok("7. quota 403 -> kind failed", WaitFor(delegate () { return Kind("r3") == "failed"; }, 10000), YouTube.StateJson("r3"));
+            Ok("7. ... with the exact message", YouTube.StateJson("r3") == "{\"kind\":\"failed\",\"error\":" + Json_.S(YouTube.MsgQuota) + "}", YouTube.StateJson("r3"));
+            Ok("7. ... and a retry at 09:00 the next morning", YouTube.RetryAt("r3") == new DateTime(2026, 11, 14, 9, 0, 0), YouTube.RetryAt("r3").ToString("s"));
+            Ok("7. before 9 in the morning the retry is the same day", YouTube.NextNine(new DateTime(2026, 11, 14, 8, 0, 0)) == new DateTime(2026, 11, 14, 9, 0, 0));
+            YouTube.Clock = null;
+            string goodUpload = YouTube.UploadUrl;
+            TcpListener dead = new TcpListener(IPAddress.Loopback, 0); dead.Start(); int deadPort = ((IPEndPoint)dead.LocalEndpoint).Port; dead.Stop();
+            YouTube.UploadUrl = "http://127.0.0.1:" + deadPort + "/upload/youtube/v3";
+            YouTube.Enqueue("r5", file, "race r5", "", "private", "");
+            Ok("7. no internet -> kind offline, \"No internet, waiting\"", WaitFor(delegate () { return YouTube.StateJson("r5") == "{\"kind\":\"offline\",\"error\":\"No internet, waiting\"}"; }, 10000), YouTube.StateJson("r5"));
+            Thread.Sleep(1000);
+            Ok("7. it keeps waiting (still offline after several tries)", Kind("r5") == "offline");
+            YouTube.UploadUrl = goodUpload;
+            Ok("7. the internet back, r5 finishes by itself", WaitFor(delegate () { return Kind("r5") == "shared"; }, 10000), YouTube.StateJson("r5"));
+
+            // ---- 4b. a failed race may go again ----
+            bool re = YouTube.Enqueue("r3", file, "race r3", "", "private", "", out msg);
+            Ok("4. Enqueue on a failed race is accepted", re, msg);
+            Ok("4. ... and it goes", WaitFor(delegate () { return Kind("r3") == "shared"; }, 10000), YouTube.StateJson("r3"));
+
+            // ---- 404: the session ran out -> from zero ----
+            g.GoneOnce = true;
+            YouTube.Enqueue("r8", file, "race r8", "", "private", "");
+            Ok("3b. a 404 on the session URL starts again from zero and finishes", WaitFor(delegate () { return Kind("r8") == "shared"; }, 10000), YouTube.StateJson("r8"));
+            List<PretendGoogle.Up> u8 = UpsFor("race r8");
+            Ok("3b. ... in a second session, byte-exact", u8.Count == 2 && PretendGoogle.Hash(u8[u8.Count - 1].Data.ToArray()) == hash, u8.Count + " sessions");
+
+            // ---- 2b. invalid_grant: signed out ----
+            sessionOn = true;
+            YouTube.Enqueue("r6", file, "race r6", "", "private", "");
+            YouTube.Enqueue("r7", file, "race r7", "", "private", "");
+            g.Revoked = true; g.InvalidGrant = true;
+            sessionOn = false;
+            string again2 = "{\"kind\":\"signin\",\"error\":\"Sign in to YouTube again\"}";
+            Ok("2. invalid_grant -> every queued race shows signin, \"Sign in to YouTube again\"", WaitFor(delegate () { return YouTube.StateJson("r6") == again2 && YouTube.StateJson("r7") == again2; }, 10000), YouTube.StateJson("r6") + " " + YouTube.StateJson("r7"));
+            Ok("2. ... token.bin is gone and Json says signed out", !File.Exists(Path.Combine(yt, "token.bin")) && YouTube.Json().Contains("\"signedIn\":false"), YouTube.Json());
+            Ok("2. ... a shared race stays shared", Kind("r0") == "shared");
+
+            // ---- settings ----
+            Ok("settings: privacy public is saved in [youtube]", YouTube.SetPrivacy("public") && YouTube.Privacy == "public" && Regex.IsMatch(File.ReadAllText(YouTube.IniFile), "\\[youtube\\]\\r?\\nprivacy=public"));
+            Ok("settings: a wrong privacy is refused", !YouTube.SetPrivacy("everyone") && YouTube.Privacy == "public");
+            Ok("settings: template 3 is saved, 9 is refused", YouTube.SetTemplate(3) && !YouTube.SetTemplate(9) && YouTube.Template == 3);
+            Ok("settings: Json shows them", YouTube.Json().Contains("\"privacy\":\"public\",\"template\":3"), YouTube.Json());
+            File.AppendAllText(YouTube.IniFile, "\r\n[other]\r\nprivacy=private\r\n");
+            Ok("settings: a privacy key in another section is not read", YouTube.Privacy == "public");
+
+            // ---- 9. nothing secret in the log ----
+            log = LogText();
+            List<string> secrets = new List<string>(g.Issued);
+            secrets.Add(PretendGoogle.Secret); secrets.Add(PretendGoogle.Refresh); secrets.Add(PretendGoogle.Code); secrets.Add("upload_id"); secrets.Add("pretend-upload");
+            if (g.Verifier.Length > 0) secrets.Add(g.Verifier);
+            string found = "";
+            foreach (string s in secrets) if (log.Contains(s)) found += s + " ";
+            Ok("9. the log holds no secret, code, token, verifier or session URL", found.Length == 0, found);
+            Ok("9. the log says \"youtube: signed in\"", log.Contains("youtube: signed in"));
+            Ok("9. the pretend Google saw no protocol error", g.Errors.Count == 0, string.Join(" | ", g.Errors.ToArray()));
+        }
+
+        static string ReadAll(HttpWebResponse r) { try { using (StreamReader sr = new StreamReader(r.GetResponseStream())) return sr.ReadToEnd(); } catch { return ""; } }
+    }
+}
