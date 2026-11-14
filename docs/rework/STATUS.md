@@ -73,6 +73,6 @@ Found while writing the cards: kept races live in `vault/saved/` (today's three)
 |---|---|---|
 | W1-1 SessionIndex + Library | building (Opus, worktree) | contract: GET /api/library, /api/library/thumb, racetrash / raceundo / raceempty / racefree, Library.DeckJson for the deck summary |
 | W1-2 YouTube sign-in + upload | building (Opus, worktree) | loopback + PKCE + DPAPI token, resumable 8 MiB chunks, never twice, pretend Google in the test; Peter's Google setup still to do (docs/YOUTUBE-SETUP.md) |
-| W1-3 Cuts | building (Sonnet, worktree) | trim plan, chapters, 5 title templates, ffmpeg args; pure rules |
+| W1-3 Cuts | merged 2129d81 (not deployed: Peter is racing) | cuts-main 57/0 (run directly: the guard stopped the script, sim running); lead review: -ss/-to before -i is right (input -to becomes stop - start), a lap row offset is the lap start; owed when sim=False: tests/cuts-test.ps1 and one ffprobe keyframe check on a real cut |
 | W1-4 RACES page | spec written | starts after W1-1..3 merge; owns the raceshare chain and the three settings commands |
 | W1-5 Deck RACES mirror | spec written | starts after W1-1 merges; needs a $ver bump and Peter's Install click at the end |
