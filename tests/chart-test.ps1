@@ -217,7 +217,7 @@ try {
   T.ok('4. delta readout ' + dv + ' s', dv === want, want);
   T.ok('4. speed readout shows both laps: ' + T.ro('speed').join(' / '), T.ro('speed').join(',') === E.mph880A + ',' + E.mph880R);
   T.ok('4. pedals readout shows throttle and brake for both laps: ' + T.ro('pedals').join(' / '), T.ro('pedals').length === 4 && T.ro('pedals').every(v => /^\d+$/.test(v)));
-  T.ok('4. steering, gear, rpm each show both laps', ['steer', 'gear', 'rpm'].every(k => T.ro(k).length === 2 && T.ro(k).every(v => v && v !== '–')) && T.ro('gear').join(',') === '2,2');
+  T.ok('4. steering, gear, rpm each show both laps', ['steer', 'gear', 'rpm'].every(k => T.ro(k).length === 2 && T.ro(k).every(v => v && v !== String.fromCharCode(8211))) && T.ro('gear').join(',') === '2,2');
   const vals = [...document.querySelectorAll('#r .chro-v')], sizes = vals.map(v => parseFloat(getComputedStyle(v).fontSize));
   const tread = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--t-read'));
   T.ok('4. every readout value is --t-read (' + tread + ' px)', sizes.every(z => z === tread) && tread >= 32, sizes.join(','));
@@ -293,11 +293,13 @@ try {
   Chart.mount(document.getElementById('c'), { x: { len: 4000, unit: 'm' }, rows: big, corners: ROWS.corners, readout: document.getElementById('r') });
   Chart.flush();
   const pts = big.reduce((n, r) => n + r.series.reduce((m, s) => m + s.data.length, 0), 0);
+  // reading one pixel back makes the canvas really paint now (it would otherwise put the work off and the time would look too good)
+  const vis = T.cv().getContext('2d'), sink = () => vis.getImageData(0, 0, 1, 1);
   let t0 = performance.now();
-  for (let k = 0; k < 100; k++) { Chart.setRange(k * 5, 4000 - k * 5); Chart.flush(); }
+  for (let k = 0; k < 100; k++) { Chart.setRange(k * 5, 4000 - k * 5); Chart.flush(); sink(); }
   const full = (performance.now() - t0) / 100;
   t0 = performance.now();
-  for (let k = 0; k < 100; k++) { Chart.setCursor(1000 + k * 7); Chart.flush(); }
+  for (let k = 0; k < 100; k++) { Chart.setCursor(1000 + k * 7); Chart.flush(); sink(); }
   const cur = (performance.now() - t0) / 100;
   const W = T.cv().clientWidth;
   Chart.unmount();
@@ -318,7 +320,7 @@ try {
   let f0 = Chart.stats.frames;
   await new Promise(r => setTimeout(r, 1200));
   T.ok('8. nothing is drawn while nothing changes (1.2 s, ' + (Chart.stats.frames - f0) + ' frames)', Chart.stats.frames === f0);
-  const c = document.getElementById('c'); c.style.display = 'none';
+  const c = document.getElementById('c'); c.style.display = 'none'; await T.frame(); await T.frame();      // the page hides it; the chart hears its size go to 0
   f0 = Chart.stats.frames; const l0 = Chart.stats.layers;
   Chart.setCursor(1100); Chart.setRange(900, 1300); Chart.flush(); await T.frame(); await T.frame();
   T.ok('8. nothing is drawn while hidden', Chart.stats.frames === f0 && Chart.stats.layers === l0);
@@ -355,8 +357,8 @@ try {
   Run-Js @'
 (async () => { await T.frame(); Chart.flush();
   const flat = [...document.querySelectorAll('#r .chro-row')].filter(e => e.classList.contains('flat')).length;
-  const ov = [...document.querySelectorAll('#r .chro-row')].some(e => e.scrollHeight > e.clientHeight + 1);
-  T.ok('9. a short stack puts the row names beside the values (' + flat + ' rows) and nothing spills', flat >= 4 && !ov);
+  const ov = [...document.querySelectorAll('#r .chro-row')].some(e => e.scrollHeight > e.clientHeight + 1) || [...document.querySelectorAll('#r .chro-l')].some(e => e.scrollWidth > e.clientWidth + 1);
+  T.ok('9. a short stack puts the row names beside the values (' + flat + ' rows) and nothing spills or is cut short', flat >= 4 && !ov);
   return T.done(); })()
 '@
   Shot 'short'

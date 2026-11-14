@@ -55,7 +55,7 @@ function fmt(row, v) {
 const VAL_H = 42, LAB_H = 30;
 function valLines(r) { return Math.ceil(Math.max(1, r.series.length) / 2); }
 function layout() {
-  const w = st.cv.clientWidth, h = st.cv.clientHeight;
+  const w = st.size.w, h = st.size.h;
   st.w = w; st.h = h;
   st.x0 = PAD_X; st.x1 = Math.max(PAD_X + 10, w - PAD_X);
   const top = BAND_H, bottom = h - AXIS_H, n = st.rows.length;
@@ -94,6 +94,74 @@ function xOf(m) { return st.x0 + (m - st.a) / (st.b - st.a) * (st.x1 - st.x0); }
 function mOf(x) { return st.a + (x - st.x0) / (st.x1 - st.x0) * (st.b - st.a); }
 
 // ---------- the static layer: rows, bands, grid, traces ----------
+// The plot area is painted straight into a pixel buffer: per pixel column the trace is one vertical span from the lowest to the
+// highest value it takes there, widened by half the line width, with soft (partly covered) top and bottom pixels. Canvas paths
+// were measured first: a 4000-point lap with sensor noise cost 0.75 ms per trace to stroke or fill on this PC's software canvas,
+// 10 ms for the stack; the spans cost a fraction of that and keep every peak. Text (corner names, distances) stays on the canvas.
+function rgbaOf(s) {
+  s = String(s || '').trim();
+  if (s.charAt(0) === '#') { const h = s.length === 4 ? s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2) + s.charAt(3) + s.charAt(3) : s.slice(1, 7); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 1]; }
+  const m = s.match(/[\d.]+/g) || ['0', '0', '0'];
+  return [+m[0], +m[1], +m[2], m[3] != null ? +m[3] : 1];
+}
+function pack(r, g, b) { return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0; }
+
+// the buffer: P = pixels (0xAABBGGRR), PW x PH device pixels starting at (OX, OY) on the layer
+let P = null, PW = 0, PH = 0;
+// blend colour c (rgba) at alpha a into rows [ya, yb) of column x, the end rows partly (device pixels, clipped to cy0..cy1)
+function span(x, ya, yb, c, a, cy0, cy1) {
+  if (x < 0 || x >= PW) return;
+  if (ya < cy0) ya = cy0; if (yb > cy1) yb = cy1;
+  if (!(yb > ya)) return;
+  const r0 = Math.floor(ya), r1 = Math.ceil(yb) - 1;
+  blend(r0 * PW + x, c, a * (Math.min(yb, r0 + 1) - ya));
+  if (r1 > r0) blend(r1 * PW + x, c, a * (yb - r1));
+  if (r1 - r0 < 2) return;
+  // the fully covered rows: one alpha, so the sums are worked out once
+  const q = 1 - a, ar = c[0] * a, ag = c[1] * a, ab = c[2] * a;
+  for (let i = (r0 + 1) * PW + x, e = r1 * PW + x; i < e; i += PW) {
+    const d = P[i];
+    P[i] = (0xff000000 | (((ab + ((d >>> 16) & 255) * q) | 0) << 16) | (((ag + ((d >>> 8) & 255) * q) | 0) << 8) | ((ar + (d & 255) * q) | 0)) >>> 0;
+  }
+}
+function blend(i, c, k) {
+  if (!(k > 0)) return;
+  const d = P[i], q = 1 - k;
+  P[i] = (0xff000000 | (((c[2] * k + ((d >>> 16) & 255) * q) | 0) << 16) | (((c[1] * k + ((d >>> 8) & 255) * q) | 0) << 8) | ((c[0] * k + (d & 255) * q) | 0)) >>> 0;
+}
+// a rectangle, row by row (the pixels of a row sit together in memory)
+function rect(xa, xb, ya, yb, c, a, cy0, cy1) {
+  const x0 = Math.max(0, Math.floor(xa)), x1 = Math.min(PW, Math.ceil(xb));
+  if (ya < cy0) ya = cy0; if (yb > cy1) yb = cy1;
+  if (!(yb > ya) || x1 <= x0) return;
+  for (let y = Math.floor(ya), r1 = Math.ceil(yb) - 1; y <= r1; y++) {
+    const k = a * (Math.min(yb, y + 1) - Math.max(ya, y)); if (!(k > 0)) continue;
+    const q = 1 - k, ar = c[0] * k, ag = c[1] * k, ab = c[2] * k;
+    for (let i = y * PW + x0, e = y * PW + x1; i < e; i++) {
+      const d = P[i];
+      P[i] = (0xff000000 | (((ab + ((d >>> 16) & 255) * q) | 0) << 16) | (((ag + ((d >>> 8) & 255) * q) | 0) << 8) | ((ar + (d & 255) * q) | 0)) >>> 0;
+    }
+  }
+}
+
+// per device column of the plot: the lowest and highest value the lap takes in it (interpolated at the column's edges, every
+// sample between); a NaN (a part lap not driven there) leaves the column empty
+function columns(d) {
+  const W = PW;
+  if (!st.cLo || st.cLo.length < W) { st.cLo = new Float32Array(W); st.cHi = new Float32Array(W); }
+  const lo = st.cLo, hi = st.cHi, mpp = (st.b - st.a) / W, n = d.length;
+  const at = f => { if (f <= 0) return d[0]; if (f >= n - 1) return d[n - 1]; const i = f | 0, a = d[i]; return a + (d[i + 1] - a) * (f - i); };
+  const k = mpp / st.step;
+  let fA = st.a / st.step, vA = at(fA);
+  for (let c = 0; c < W; c++) {
+    const fB = fA + k, vB = at(fB);
+    let l = vA < vB ? vA : vB, h = vA < vB ? vB : vA;
+    for (let i = fA > 0 ? Math.ceil(fA) : 0, e = fB < n - 1 ? fB | 0 : n - 1; i <= e; i++) { const v = d[i]; if (v < l) l = v; else if (v > h) h = v; else if (v !== v) l = NaN; }
+    if (vA !== vA || vB !== vB) l = NaN;
+    lo[c] = l; hi[c] = h; fA = fB; vA = vB;
+  }
+}
+
 function renderLayer() {
   const t0 = performance.now();
   const dpr = window.devicePixelRatio || 1, w = st.w, h = st.h;
@@ -103,116 +171,100 @@ function renderLayer() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.globalAlpha = 1; g.fillStyle = st.col.bg; g.fillRect(0, 0, w, h);
   const top = BAND_H, bottom = h - AXIS_H, font = st.col.font;
+  const C = st.rgba || (st.rgba = {});
+  for (const k of ['bg', 'ink', 'line', 'dim', 'gain', 'loss']) if (!C[k]) C[k] = rgbaOf(st.col[k]);
 
-  // corner bands across every row, the corner's name at its apex along the top
+  // the pixel buffer for the plot area
+  const OX = Math.round(st.x0 * dpr), OY = Math.round(top * dpr);
+  PW = Math.max(1, Math.round((st.x1 - st.x0) * dpr)); PH = Math.max(1, Math.round((bottom - top) * dpr));
+  if (!st.img || st.img.width !== PW || st.img.height !== PH) { st.img = new ImageData(PW, PH); st.pix = new Uint32Array(st.img.data.buffer); }
+  P = st.pix;
+  const bg = C.bg; P.fill(pack(bg[0], bg[1], bg[2]));
+  const X = m => ((m - st.a) / (st.b - st.a)) * PW;            // metres -> buffer column
+  const full0 = 0, full1 = PH;
+
+  // corner bands across every row (a flat lighter fill), the corner's name at its apex along the top (canvas text)
   g.font = '600 24px ' + font; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const band = pack((bg[0] + (C.ink[0] - bg[0]) * 0.06) | 0, (bg[1] + (C.ink[1] - bg[1]) * 0.06) | 0, (bg[2] + (C.ink[2] - bg[2]) * 0.06) | 0);
   let lastRight = -1e9;
   for (const c of st.corners) {
     const d0 = c.p0 * st.len, d1 = (c.p1 > c.p0 ? c.p1 : 1) * st.len, da = c.pa * st.len;
     if (d1 < st.a || d0 > st.b) continue;
-    const xa = xOf(d0), xb = xOf(d1);
-    g.globalAlpha = 0.06; g.fillStyle = st.col.ink; g.fillRect(xa, top, Math.max(1, xb - xa), bottom - top);
+    const xa = Math.max(0, Math.round(X(d0))), xb = Math.min(PW, Math.max(xa + 1, Math.round(X(d1))));
+    for (let y = 0; y < PH; y++) P.fill(band, y * PW + xa, y * PW + xb);
     g.globalAlpha = 0.5; g.fillStyle = st.col.ink; g.fillRect(xOf(da) - 0.5, top - 8, 1, 8);
     const text = c.label || ('T' + c.n), tw = g.measureText(text).width, xc = clamp(xOf(da), st.x0 + tw / 2, st.x1 - tw / 2);
     if (xc - tw / 2 > lastRight + 10) { g.globalAlpha = 1; g.fillStyle = st.col.muted; g.fillText(text, xc, top / 2); lastRight = xc + tw / 2; }
   }
 
   // distance grid: a round step at least 160 px apart
-  const span = st.b - st.a, steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
+  const span_ = st.b - st.a, steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
   let stepM = steps[steps.length - 1];
-  for (const s of steps) if (s / span * (st.x1 - st.x0) >= 160) { stepM = s; break; }
-  g.textBaseline = 'middle'; g.font = '24px ' + font;
+  for (const s of steps) if (s / span_ * (st.x1 - st.x0) >= 160) { stepM = s; break; }
+  g.globalAlpha = 1; g.font = '24px ' + font; g.fillStyle = st.col.dim;
   for (let m = Math.ceil(st.a / stepM) * stepM; m <= st.b; m += stepM) {
-    const x = Math.round(xOf(m)) + 0.5;
-    g.globalAlpha = 1; g.strokeStyle = st.col.line; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
-    g.fillStyle = st.col.dim; g.textAlign = x < st.x0 + 60 ? 'left' : x > st.x1 - 60 ? 'right' : 'center';
+    const xc = Math.round(X(m));
+    rect(Math.min(xc, PW - 1), Math.min(xc, PW - 1) + Math.max(1, Math.round(dpr)), full0, full1, C.line, C.line[3], full0, full1);
+    const x = xOf(m);
+    g.textAlign = x < st.x0 + 60 ? 'left' : x > st.x1 - 60 ? 'right' : 'center';
     g.fillText(m + ' m', x, bottom + AXIS_H / 2 + 2);
   }
 
-  const i0 = Math.max(0, Math.floor(st.a / st.step) - 1), i1 = Math.min(st.n - 1, Math.ceil(st.b / st.step) + 1);
   st.rows.forEach((r, k) => {
-    const b = st.box[k], yr = st.yr[k], yOf = v => b.y1 - (v - yr[0]) / (yr[1] - yr[0]) * (b.y1 - b.y0);
-    g.save(); g.beginPath(); g.rect(st.x0, b.y0, st.x1 - st.x0, b.y1 - b.y0); g.clip();
+    const b = st.box[k], yr = st.yr[k];
+    const cy0 = (b.y0 - top) * dpr, cy1 = (b.y1 - top) * dpr;
+    const Y = v => (b.y1 - top - (v - yr[0]) / (yr[1] - yr[0]) * (b.y1 - b.y0)) * dpr;   // value -> buffer row
     // the row's floor, and zero where zero means something (delta, steering)
-    g.globalAlpha = 1; g.fillStyle = st.col.line; g.fillRect(st.x0, Math.round(b.y1) - 1, st.x1 - st.x0, 1);
-    if (yr[0] < 0 && yr[1] > 0) { g.fillStyle = st.col.dim; g.fillRect(st.x0, Math.round(yOf(0)), st.x1 - st.x0, 1); }
-    if (r.key === 'delta' && r.series[0]) { columns(r.series[0].data, r.kind); shadeDelta(g, yOf); }
+    rect(0, PW, cy1 - dpr, cy1, C.line, C.line[3], cy0, cy1);
+    if (yr[0] < 0 && yr[1] > 0) { const z = Y(0); rect(0, PW, z - dpr / 2, z + dpr / 2, C.dim, C.dim[3], cy0, cy1); }
+    // the delta row: the stretch where this lap is behind is shaded loss red down to zero, ahead gain green
+    if (r.key === 'delta' && r.series[0] && r.series[0].data) {
+      columns(r.series[0].data);
+      const z = Y(0), lo = st.cLo, hi = st.cHi;
+      for (let c = 0; c < PW; c++) {
+        const v = (lo[c] + hi[c]) / 2; if (v !== v) continue;
+        const y = Y(v);
+        if (v > 0) span(c, y, z, C.loss, 0.28, cy0, cy1); else if (v < 0) span(c, z, y, C.gain, 0.28, cy0, cy1);
+      }
+    }
     r.series.forEach((s, j) => {
       if (!s.data) return;
-      g.globalAlpha = s.alpha != null ? s.alpha : 1;
-      const col = colourOf(s.color || (j ? 'ink' : 'gold')), wid = s.width || (r.key === 'delta' ? 4 : j % 2 ? 2.2 : 2.8);
-      if (r.kind === 'step') { g.strokeStyle = col; g.lineWidth = wid; g.lineJoin = 'miter'; g.beginPath(); pathStep(g, s.data, i0, i1, yOf); g.stroke(); return; }
-      columns(s.data, r.kind);
-      g.fillStyle = col; ribbon(g, yOf, wid / 2); g.fill();
+      const nm = tokName(s.color || (j ? 'ink' : 'gold')), col = C[nm] || (C[nm] = rgbaOf(colourOf(nm)));
+      const a = (s.alpha != null ? s.alpha : 1) * col[3];
+      const half = (s.width || (r.key === 'delta' ? 4 : j % 2 ? 2.2 : 2.8)) / 2 * dpr;
+      if (r.kind === 'step') { stepTrace(s.data, X, Y, half, col, a, cy0, cy1); return; }
+      columns(s.data);
+      const lo = st.cLo, hi = st.cHi;
+      // each column also takes its neighbours' range, so a steep edge (a pedal going down) is as thick as a flat line
+      const rad = Math.max(1, Math.round(half));
+      for (let c = 0; c < PW; c++) {
+        let l = lo[c], hh = hi[c]; if (l !== l) continue;
+        for (let q = Math.max(0, c - rad), e = Math.min(PW - 1, c + rad); q <= e; q++) { const v = lo[q]; if (v !== v) continue; if (v < l) l = v; if (hi[q] > hh) hh = hi[q]; }
+        span(c, Y(hh) - half, Y(l) + half, col, a, cy0, cy1);
+      }
     });
-    g.restore();
   });
-  g.globalAlpha = 1;
+  L.getContext('2d').putImageData(st.img, OX, OY);
+  P = null;
   st.layerDirty = false; st.layers++;
   st.layerMs = performance.now() - t0;
 }
 
-// A trace is drawn as a ribbon, one filled shape per lap: for every pixel column the lowest and highest value the lap takes in it
-// (interpolated at the column's two edges plus every sample between), widened by half the line width. Exact peaks at any zoom, and
-// one fill instead of thousands of stroked joins: a stroked 4000-point lap with sensor noise cost 9 ms a frame here, the ribbon a
-// fraction of that. A NaN (a part lap that was not driven there) leaves a gap.
-function columns(d, kind) {
-  const W = Math.max(1, Math.ceil(st.x1 - st.x0));
-  if (!st.cLo || st.cLo.length < W) { st.cLo = new Float32Array(W); st.cHi = new Float32Array(W); }
-  const lo = st.cLo, hi = st.cHi, mpp = (st.b - st.a) / (st.x1 - st.x0), n = d.length;
-  const at = f => { if (f <= 0) return d[0]; if (f >= n - 1) return d[n - 1]; const i = Math.floor(f), a = d[i]; return a + (d[i + 1] - a) * (f - i); };
-  let fA = st.a / st.step, vA = at(fA);
-  for (let c = 0; c < W; c++) {
-    const fB = (st.a + (c + 1) * mpp) / st.step, vB = at(fB);
-    let l = vA < vB ? vA : vB, h = vA < vB ? vB : vA;
-    for (let i = Math.max(0, Math.ceil(fA)), e = Math.min(n - 1, Math.floor(fB)); i <= e; i++) { const v = d[i]; if (v < l) l = v; else if (v > h) h = v; else if (v !== v) l = NaN; }
-    if (vA !== vA || vB !== vB) l = NaN;
-    lo[c] = l; hi[c] = h; fA = fB; vA = vB;
-  }
-  st.cW = W;
-}
-function ribbon(g, yOf, half) {
-  const lo = st.cLo, hi = st.cHi, W = st.cW, x0 = st.x0;
-  g.beginPath();
-  let c = 0;
-  while (c < W) {
-    while (c < W && lo[c] !== lo[c]) c++;
-    if (c >= W) break;
-    let e = c; while (e + 1 < W && lo[e + 1] === lo[e + 1]) e++;
-    g.moveTo(x0 + c, yOf(hi[c]) - half);
-    for (let k = c; k <= e; k++) g.lineTo(x0 + k + 0.5, yOf(hi[k]) - half);
-    g.lineTo(x0 + e + 1, yOf(hi[e]) - half); g.lineTo(x0 + e + 1, yOf(lo[e]) + half);
-    for (let k = e; k >= c; k--) g.lineTo(x0 + k + 0.5, yOf(lo[k]) + half);
-    g.lineTo(x0 + c, yOf(lo[c]) + half); g.closePath();
-    c = e + 1;
-  }
-}
-
-function pathStep(g, d, i0, i1, yOf) {
-  let prev = NaN, pen = false;
-  for (let i = i0; i <= i1; i++) {
-    const v = d[i]; if (!fin(v)) { pen = false; prev = NaN; continue; }
-    if (v === prev && i !== i1) continue;
-    const x = xOf(i * st.step), y = yOf(v);
-    if (!pen) { g.moveTo(x, y); pen = true; } else { g.lineTo(x, yOf(prev)); g.lineTo(x, y); }
-    prev = v;
-  }
-}
-// where this lap is behind (delta above zero) the band down to zero is loss red, where it is ahead gain green (from columns())
-function shadeDelta(g, yOf) {
-  const lo = st.cLo, hi = st.cHi, W = st.cW, x0 = st.x0, z = yOf(0);
-  g.globalAlpha = 0.28;
-  for (const [loss, col] of [[true, st.col.loss], [false, st.col.gain]]) {
-    g.beginPath(); g.moveTo(x0, z);
-    for (let c = 0; c < W; c++) {
-      const v = (lo[c] + hi[c]) / 2, y = v === v ? yOf(v) : z;
-      g.lineTo(x0 + c + 0.5, loss ? Math.min(y, z) : Math.max(y, z));
+// gear: flat runs and upright steps, each a span per column
+function stepTrace(d, X, Y, half, col, a, cy0, cy1) {
+  const i0 = Math.max(0, Math.floor(st.a / st.step) - 1), i1 = Math.min(d.length - 1, Math.ceil(st.b / st.step) + 1);
+  let i = i0;
+  while (i <= i1) {
+    const v = d[i]; let j = i;
+    while (j + 1 <= i1 && d[j + 1] === v) j++;
+    if (v === v) {
+      const xa = X(i * st.step), xb = X(Math.min(j + 1, i1) * st.step), y = Y(v);
+      rect(xa, Math.max(xa + 1, xb), y - half, y + half, col, a, cy0, cy1);
+      const nv = d[j + 1];
+      if (j + 1 <= i1 && nv === nv) { const y2 = Y(nv); rect(xb - half, xb + half, Math.min(y, y2) - half, Math.max(y, y2) + half, col, a, cy0, cy1); }
     }
-    g.lineTo(x0 + W, z); g.closePath();
-    g.fillStyle = col; g.fill();
+    i = j + 1;
   }
-  g.globalAlpha = 1;
 }
 
 // ---------- each frame: the layer plus the cursor ----------
@@ -252,8 +304,8 @@ const CSS = '.chro{position:relative;font-family:var(--font);font-variant-numeri
   '.chro-row{flex-direction:column;justify-content:center}' +
   '.chro-row.flat{flex-direction:row;align-items:center;justify-content:space-between;column-gap:16px}' +
   '.chro-l{font-size:var(--t-body);color:var(--muted);letter-spacing:var(--track);text-transform:uppercase;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
-  '.chro-l i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim);margin-left:8px}' +
-  '.chro-vals{display:grid;grid-template-columns:repeat(2,2.8em);column-gap:20px;justify-content:end;font-size:var(--t-read);flex:none}' +
+  '.chro-l i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;color:var(--dim);margin-left:8px}.chro-row.flat .chro-l i{display:none}' +
+  '.chro-vals{display:grid;grid-template-columns:repeat(2,2.6em);column-gap:20px;justify-content:end;font-size:var(--t-read);flex:none}' +
   '.chro-v{font-size:var(--t-read);line-height:1.15;text-align:right;white-space:nowrap}.chro-v.wide{grid-column:span 2}' +
   '.chro-key{bottom:0;align-items:center;justify-content:flex-end}' +
   '.chro-k{font-size:var(--t-body);text-align:right;letter-spacing:var(--track);text-transform:uppercase;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
@@ -311,7 +363,8 @@ function cornerAt(m) {
 }
 
 // ---------- scheduling: draw on change only, never while hidden ----------
-function shown() { return !document.hidden && st.cv.isConnected && st.cv.clientWidth > 0 && st.cv.clientHeight > 0; }
+// the size comes from a ResizeObserver: reading clientWidth here would force a page layout on every frame
+function shown() { return !document.hidden && st.cv.isConnected && st.size.w > 0 && st.size.h > 0; }
 function schedule() {
   if (!st || st.raf) return;
   st.raf = requestAnimationFrame(() => { if (st) { st.raf = 0; flush(); } });
@@ -320,7 +373,7 @@ function flush() {
   if (!st) return;
   if (!shown()) { st.waiting = true; return; }
   st.waiting = false;
-  if (st.cv.clientWidth !== st.w || st.cv.clientHeight !== st.h) { layout(); st.layerDirty = true; }
+  if (st.size.w !== st.w || st.size.h !== st.h) { layout(); st.layerDirty = true; }
   if (st.layerDirty) { renderLayer(); st.dirty = true; }
   if (st.dirty) compose();
 }
@@ -380,7 +433,9 @@ export const Chart = {
     cv.addEventListener('pointerup', st.h_up); cv.addEventListener('pointercancel', st.h_up);
     cv.addEventListener('wheel', st.h_wheel, { passive: false });
     document.addEventListener('visibilitychange', onVisible);
-    if (typeof ResizeObserver !== 'undefined') { st.ro_obs = new ResizeObserver(() => { if (st) { st.layerDirty = true; schedule(); } }); st.ro_obs.observe(el); }
+    st.size = { w: cv.clientWidth, h: cv.clientHeight };
+    st.ro_obs = new ResizeObserver(es => { const r = es[es.length - 1].contentRect; if (st && (r.width !== st.size.w || r.height !== st.size.h)) { st.size = { w: r.width, h: r.height }; st.layerDirty = true; schedule(); } });
+    st.ro_obs.observe(cv);
     layout();
     flush();
     return Chart;
