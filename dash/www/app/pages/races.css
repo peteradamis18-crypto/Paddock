@@ -1,0 +1,168 @@
+/* RACES page (W1-4; a shell page since W3-1): cards 600 x 300, three per row on the 1920 x 1080 top screen. Colours, type sizes and the button come
+   from ../design.css: no colour and no size of its own here (tests\design-lint-test.ps1). Every rule is under .rc: the shell's one
+   document holds every page, so a page's class names must never reach the shell or another page. CLOSE is the shell's (its header). */
+.rc { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; padding: 24px 36px 0; }
+.rc header.top { flex: none; }
+.rc .row1 { display: flex; align-items: center; gap: 48px; min-height: 72px; }
+.rc .store { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rc .store-line { font-size: var(--t-body); color: var(--muted); white-space: nowrap; display: flex; align-items: center; }
+.rc .store-bar { height: 6px; width: 100%; max-width: 760px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.rc .store-bar i { display: block; height: 100%; width: 0; background: var(--gold-dim); }
+.rc .store.low .store-bar i { background: var(--danger); }
+.rc .store.low .store-line > span:first-child { color: var(--ink); }
+
+/* a word-button inside a line of text: underlined gold caps, still a big target */
+.rc .link { background: none; border: 0; padding: 0 8px; min-height: 56px; color: var(--gold); font-size: var(--t-body); font-weight: 600;
+  letter-spacing: var(--track); text-transform: uppercase; text-decoration: underline; text-underline-offset: 6px; }
+.rc .link:hover, .rc .link:focus-visible { color: var(--ink); }
+
+.rc .row2 { display: flex; align-items: center; gap: 16px; margin-top: 14px; }
+.rc .tabs { display: flex; gap: 12px; }
+.rc .tab { min-height: 64px; padding: 0 28px; background: none; border: 2px solid var(--line); border-radius: 32px; font-size: var(--t-body); color: var(--ink);
+  letter-spacing: var(--track); text-transform: uppercase;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.rc .tab:hover { border-color: var(--gold-dim); }
+.rc .tab.on { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); font-weight: 600; }
+.rc #selShared { margin-left: 12px; }
+.rc .ytset { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: var(--t-body); color: var(--muted); }
+.rc .ytset .link { color: var(--muted); text-decoration-color: var(--dim); }
+.rc .ytset .link:hover, .rc .ytset .link:focus-visible { color: var(--ink); }
+.rc .ytset .sep { padding: 0 6px; color: var(--dim); }
+.rc .row3 { margin-top: 14px; font-size: var(--t-body); }
+
+.rc .banner { flex: none; margin-top: 16px; display: flex; align-items: center; gap: 24px; }
+.rc .banner span { flex: 1; }
+.rc .banner.signin { border-color: var(--gold); }
+.rc .banner.over { position: fixed; top: 96px; left: 36px; right: 36px; z-index: 30; margin: 0; }
+
+/* the grid: 3 x 600 + 2 x 24 = 1848 = 1920 - 2 x 36 */
+.rc .grid { flex: 1; min-height: 0; overflow-y: auto; margin-top: 18px; padding-bottom: 24px;
+  display: grid; grid-template-columns: repeat(3, 600px); grid-auto-rows: 300px; gap: 24px; align-content: start; justify-content: center; }
+.rc .grid::-webkit-scrollbar { width: 0; }
+.rc.selecting .grid { padding-bottom: 150px; }
+.rc .grid > .empty { grid-column: 1 / -1; }
+
+.rc .card { position: relative; width: 600px; height: 300px; border-radius: 8px; overflow: hidden; background: var(--panel); border: 2px solid var(--line);
+  cursor: pointer; transition: border-color var(--fast) var(--ease); }
+.rc .card:hover { border-color: var(--gold-dim); }
+.rc .card.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.rc .card .pic { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+.rc .card .shade { position: absolute; inset: 0;   /* a dark band at the top too: the date sits over the sky of a real race frame (live check 2026-11-14) */
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 80%, transparent) 0%, color-mix(in srgb, var(--bg) 45%, transparent) 24%, transparent 40%), linear-gradient(to top, var(--bg) 0%, color-mix(in srgb, var(--bg) 92%, transparent) 42%, color-mix(in srgb, var(--bg) 35%, transparent) 72%, transparent 100%); }
+.rc .card.nothumb .shade { display: none; }
+
+.rc .tick { position: absolute; top: 14px; left: 14px; width: 56px; height: 56px; border-radius: 8px; border: 3px solid var(--ink); background: color-mix(in srgb, var(--bg) 55%, transparent); padding: 0; }
+.rc .tick i { display: none; position: absolute; left: 17px; top: 7px; width: 14px; height: 26px; border: solid var(--gold-ink); border-width: 0 5px 5px 0; transform: rotate(45deg); }
+.rc .card.on .tick { background: var(--gold); border-color: var(--gold); }
+.rc .card.on .tick i { display: block; }
+.rc .tag { display: inline-block; font-size: var(--t-body); letter-spacing: var(--track); text-transform: uppercase; border: 2px solid var(--gold-dim); color: var(--gold);
+  background: color-mix(in srgb, var(--bg) 70%, transparent); border-radius: 4px; padding: 0 10px; line-height: 36px; }
+
+/* top row: tick, date (+ Kept), OPEN on the right; bottom: track, facts, the state line (the one thing read from the seat: 36 px) */
+.rc .card > .top { position: absolute; top: 14px; left: 86px; right: 186px; height: 56px; display: flex; align-items: center; gap: 14px; min-width: 0; text-shadow: 0 2px 6px var(--bg); }
+.rc .card > .top .when { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rc .card > .top .tag { flex: none; }
+.rc .card .open { position: absolute; top: 14px; right: 18px; min-width: 150px; }
+.rc .card .info { position: absolute; left: 22px; right: 22px; bottom: 14px; text-shadow: 0 2px 6px var(--bg); }
+.rc .when { font-size: var(--t-body); letter-spacing: var(--track); text-transform: uppercase; color: var(--gold); line-height: 1.2; }
+.rc .card .track { font-size: var(--t-read); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc .card .facts { font-size: var(--t-body); color: var(--muted); line-height: 1.25; margin-top: 4px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rc .card .info .state { margin-top: 6px; font-size: var(--t-read); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0; text-transform: none; }
+.rc .card .info .state.key { min-height: 0; display: block; width: 100%; }
+/* the one state line */
+.rc .state { font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; color: var(--ink); line-height: 1.3; }
+.rc .state.none { color: var(--muted); font-weight: 400; }
+.rc .state.wait { color: var(--gold); }
+.rc .state.done { color: var(--gain); }
+.rc .state.bad { color: var(--danger); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.rc .state.key { background: none; border: 0; padding: 0; min-height: 56px; text-align: left; color: var(--gold); text-decoration: underline; text-underline-offset: 6px; cursor: pointer; }
+
+/* select mode: the bar at the bottom, full width, 120 px */
+.rc .selbar { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; z-index: 20; display: flex; align-items: center; gap: 24px; padding: 0 36px;
+  background: var(--panel); border-top: 2px solid var(--gold); }
+.rc .selbar .count { flex: 1; font-size: var(--t-read); }
+.rc .selbar .btn { min-height: 80px; padding: 0 40px; }
+
+.rc .driving { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--t-display); color: var(--muted); }
+
+/* OPEN: one race over the grid */
+.rc .opencard, .rc .picker { position: fixed; inset: 0; z-index: 25; background: var(--bg); padding: 24px 36px; display: flex; flex-direction: column; }
+.rc .o-top { flex: none; min-height: 72px; display: flex; align-items: center; }
+.rc .o-main { flex: none; display: flex; gap: 48px; margin-top: 12px; }
+.rc .o-pic { position: relative; flex: none; width: 960px; height: 540px; border-radius: 8px; overflow: hidden; background: var(--panel); border: 2px solid var(--line); }
+.rc .o-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rc .o-pic .ghost { display: none; }
+.rc .o-pic.nothumb .ghost { display: flex; position: absolute; inset: 0; align-items: center; justify-content: center; font-size: var(--t-display); color: var(--dim);
+  letter-spacing: var(--track); text-transform: uppercase; text-align: center; padding: 0 40px; }
+.rc .o-facts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.rc .o-facts .when { display: flex; align-items: center; gap: 18px; }
+.rc .o-track { font-size: var(--t-title); line-height: 1.05; }
+.rc .o-config { font-size: var(--t-body); color: var(--muted); }
+.rc .o-car { font-size: var(--t-read); margin-top: 10px; }
+.rc .o-line { font-size: var(--t-body); color: var(--muted); }
+.rc .o-line b { color: var(--ink); }
+.rc .o-facts .state { margin-top: 18px; font-size: var(--t-read); }
+.rc .o-link { display: flex; gap: 12px; margin-top: 12px; }
+.rc .o-link input { flex: 1; min-width: 0; min-height: 64px; padding: 0 16px; background: var(--panel); border: 2px solid var(--line); border-radius: 6px; color: var(--ink);
+  font-family: inherit; font-size: var(--t-body); }
+
+.rc .o-keys { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; margin-top: 28px; align-items: start; }
+.rc .o-keys .btn { min-height: 72px; width: 100%; }
+.rc .o-keys .keylabel { min-height: 72px; display: flex; align-items: center; justify-content: center; border: 2px solid transparent; border-radius: 6px;
+  font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; }
+.rc .o-keys .keylabel.done { color: var(--gain); }
+.rc .o-keys .keylabel.wait { color: var(--gold); }
+
+/* W1-6 TALK OVER IT: the second state line (the version with his commentary) and, while he talks, one bar instead of the keys */
+.rc .o-talk { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 6px; }   /* the key under the line: never off the card */
+.rc .o-talk .state { font-size: var(--t-read); }
+.rc .o-keys .keylabel { text-align: center; line-height: 1.2; }
+.rc .o-talk .state.bad { font-size: var(--t-body); }
+.rc .talkbar { flex: none; margin-top: 28px; min-height: 112px; display: flex; align-items: center; gap: 36px; padding: 0 36px; border-radius: 8px;
+  background: var(--panel); border: 2px solid var(--line); }
+.rc .talkbar.talking { border-color: var(--danger); }
+.rc .talkbar.mixing { border-color: var(--gold-dim); }
+.rc .talkbar .rec { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--danger); }
+.rc .talkbar .t-main { flex: none; font-size: var(--t-title); line-height: 1; font-variant-numeric: tabular-nums; }
+.rc .talkbar.mixing .t-main { color: var(--gold); }
+.rc .talkbar .t-sub { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--t-body); color: var(--muted); }
+.rc .talkbar .t-warn { font-weight: 400; color: var(--amber); }
+.rc .btn.stop { flex: none; min-height: 88px; min-width: 280px; background: var(--danger); border-color: var(--danger); color: var(--bg); font-size: var(--t-read);
+  font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; }
+
+/* the race's moments: a rail with a dot per moment, then the moments in words with their time */
+.rc .o-time { flex: none; margin-top: 22px; }
+.rc .rail { position: relative; height: 28px; }
+.rc .rail::before { content: ''; position: absolute; left: 0; right: 0; top: 12px; height: 4px; background: var(--line); border-radius: 2px; }
+.rc .dot { position: absolute; top: 4px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--ink); border: 3px solid var(--bg); }
+.rc .chips { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 28px; font-size: var(--t-body); color: var(--muted); }
+.rc .chip { display: flex; align-items: center; gap: 10px; }
+.rc .chip::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); flex: none; }
+.rc .chip b { color: var(--ink); font-weight: 600; }
+.rc .k-start.dot, .rc .k-start::before { background: var(--ink); }
+.rc .k-incident.dot, .rc .k-incident::before { background: var(--danger); }
+.rc .k-pit.dot, .rc .k-pit::before { background: var(--cyan); }
+.rc .k-best.dot, .rc .k-best::before { background: var(--purple); }
+.rc .k-finish.dot, .rc .k-finish::before { background: var(--gold); }
+
+/* the five titles */
+.rc .picker h2 { margin: 12px 0 0; font-size: var(--t-title); font-weight: 400; }
+.rc .picker p { margin: 8px 0 0; font-size: var(--t-body); }
+.rc .pick { list-style: none; margin: 28px 0 0; padding: 0; display: flex; flex-direction: column; gap: 16px; max-width: 1500px; }
+.rc .pick-row { width: 100%; min-height: 88px; display: flex; align-items: center; gap: 24px; padding: 0 28px; text-align: left; background: var(--panel); border: 2px solid var(--line);
+  border-radius: 8px; color: var(--ink); font-size: var(--t-read); }
+.rc .pick-row span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc .pick-row:hover, .rc .pick-row:focus-visible { border-color: var(--gold-dim); }
+.rc .pick-row.on { border-color: var(--gold); }
+.rc .pick-row em { font-style: normal; font-size: var(--t-body); letter-spacing: var(--track); text-transform: uppercase; color: var(--gold); }
+
+/* the toast: "Deleted 3 races · UNDO", 8 s, above the bar */
+.rc .toast { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 12px; max-width: 1600px;
+  padding: 14px 18px 14px 32px; border-radius: 8px; background: var(--panel); border: 2px solid var(--gold); font-size: var(--t-read); color: var(--ink); white-space: nowrap; }
+.rc .toast.bad { border-color: var(--danger); }
+.rc .toast.up { bottom: 250px; }                 /* above the UNDO note, which keeps its 8 s */
+.rc .undo-toast { gap: 24px; }
+.rc .undo { min-height: 64px; padding: 0 28px; border-radius: 6px; border: 0; background: var(--gold); color: var(--gold-ink); font-size: var(--t-body); font-weight: 600;
+  letter-spacing: var(--track); text-transform: uppercase; }

@@ -702,6 +702,8 @@ namespace IRDash
                         var kq = ParseQuery(query); string kk, kt, kd;
                         kq.TryGetValue("key", out kk); kq.TryGetValue("text", out kt); kq.TryGetValue("kind", out kd);
                         string kept = KeyMsg.Set(kk, kt, kd);
+                        // W3-1: the deck's HOME key (rig-on) also means "HOME" on the top screen: whatever page is up closes
+                        if (kk == "rig-on") Nav.Set("home");
                         Send(s, kept.Length > 0 ? 200 : 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(kept.Length > 0 ? "ok" : "no text"));
                         return;
                     }
@@ -1782,7 +1784,7 @@ namespace IRDash
         public bool HideTaskbar = true;   // keep the dashboard and sim windows above the taskbar on their monitors
         public bool SyncSimIni = false;   // write iRacing's rendererDX11Monitor.ini window position (off: never touch iRacing files)
         public bool Watchdog = true;      // restart Stream Deck if it vanishes; clear a sim that froze while loading
-        public string Page = "";          // dashboard page under www: "" = version 1, "v2/" = version 2
+        public string Page = "app/";      // dashboard page under www (W3-1: the shell, app/index.html); "v2/index.html" = the old HOME
         public bool DeltaOn = true;       // native delta bar on the middle race screen (deltabar.cs)
         public string DeltaRef = "best";  // best | optimal | session
         public string DeltaPos = "auto";  // "auto" (centred) or "x,y" / "center,y": top-left on the middle screen
@@ -1858,7 +1860,9 @@ namespace IRDash
                     case "hide_taskbar": c.HideTaskbar = v != "0"; break;
                     case "sync_sim_ini": c.SyncSimIni = v == "1"; break;
                     case "watchdog": c.Watchdog = v != "0"; break;
-                    case "page": c.Page = Regex.IsMatch(v, "^[A-Za-z0-9_-]*/?$") ? v : ""; break;
+                    // W3-1: the shell is the top screen. An old irdash.ini says page=v2/ (or nothing): that is the shell now. To go back
+                    // to the old HOME for a day, write page=v2/index.html (the only way to name a file here).
+                    case "page": c.Page = (v == "" || v == "v2/" || v == "v2") ? "app/" : Regex.IsMatch(v, "^([A-Za-z0-9_-]+/)?([A-Za-z0-9_-]+/?|index\\.html)$") ? v : "app/"; break;
                     case "delta_bar": c.DeltaOn = v != "0"; break;
                     case "delta_ref": c.DeltaRef = v.ToLowerInvariant(); break;
                     case "delta_pos": c.DeltaPos = v; break;
@@ -2950,7 +2954,8 @@ namespace IRDash
             if (!DashScreenFound()) { Log.W("dashboard not opened: the dashboard monitor is not there (only the race screens are)"); return; }
             Rectangle b = PickScreen().Bounds;
             string profile = Path.Combine(Dir, "browser-profile");
-            string url = "http://localhost:" + cfg.Port + "/" + cfg.Page + query;
+            // the fake race (?demo=1) exists only on the old HOME (core.js + demo.js); the shell has none (W3-1)
+            string url = "http://localhost:" + cfg.Port + "/" + (query.StartsWith("?demo=", StringComparison.Ordinal) ? "v2/index.html" : cfg.Page) + query;
             string args =
                 "--user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check " +
                 "--hide-crash-restore-bubble --disable-session-crashed-bubble --disable-features=Translate " +

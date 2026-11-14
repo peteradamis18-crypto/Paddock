@@ -1,0 +1,51 @@
+/* The shell (W3-1): the header with the four doors, the one page area, the one banner, the race screen's layer.
+   Colours and sizes come from design.css only (tests\design-lint-test.ps1). The header is 88 px: its words sit on y 40 (PLAN 4.1).
+   The doors are --t-read (36 px): the card's 32 px is not on the type scale. The banner is --t-banner (48 px, PLAN 4.1). */
+.shell-top { position: fixed; top: 0; left: 0; right: 0; height: 88px; z-index: 50; display: flex; align-items: center; gap: 16px;
+  padding: 0 32px 0 48px; pointer-events: none; }
+.shell-top > * { pointer-events: auto; }
+.shell-top .brand { font-size: var(--t-body); font-weight: 600; letter-spacing: .24em; text-transform: uppercase; color: var(--ink); }
+.shell-top .dot { font-size: var(--t-body); color: var(--dim); }
+.shell-top .date { font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); }
+.doors { margin-left: auto; display: flex; gap: 8px; }
+.door { min-height: 64px; padding: 0 24px; background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0;
+  font-size: var(--t-read); font-weight: 400; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted);
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.door:hover, .door:focus-visible { color: var(--ink); }
+.door.on { color: var(--gold); border-bottom-color: var(--gold); }
+.shell-close { min-width: 168px; margin-left: 24px; }
+/* HOME has no CLOSE; its place is kept so the doors never move */
+body.at-home .shell-close { visibility: hidden; }
+/* under the doors: a hairline on the pages, nothing on HOME */
+body:not(.at-home) .shell-top { background: var(--bg); border-bottom: 2px solid var(--line); }
+
+/* the one page. HOME gets the whole 1920 x 1080 (its zones are PLAN 4.1's screen boxes; the header floats over its empty top);
+   every other page starts under the header. contain: layout makes a page's own fixed layers (a bottom bar, an open card) sit
+   inside this box, so they never cover the doors or CLOSE. */
+#page { position: fixed; inset: 0; z-index: 1; contain: layout; overflow: hidden; }
+body:not(.at-home) #page { top: 88px; }
+#page > .shell-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: var(--t-read); color: var(--muted); }
+#page iframe.host { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); }
+
+/* the one banner line, bottom centre: under HOME's RIG band and under the race screen's delta bar (y 1000), so it covers no text there.
+   Exactly one thing at a time (shell.js picks: offline, kids, tow, key message, the page's own line). */
+.shell-banner { position: fixed; left: 50%; bottom: 8px; z-index: 990; transform: translateX(-50%); max-width: 1880px; min-height: 76px;
+  display: flex; align-items: center; justify-content: center; padding: 0 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--t-banner); line-height: 1.2; pointer-events: none; box-shadow: 0 6px 28px var(--bg); }
+/* a page with its own bar at the bottom (RACES' select bar, 120 px) says so: the banner sits above it */
+body.page-bar .shell-banner { bottom: 136px; }
+.shell-banner.offline { border-color: var(--danger); }
+.shell-banner.kids { border-color: var(--gold); color: var(--gold); }
+.shell-banner.tow { border-color: var(--amber); color: var(--amber); }
+.shell-banner.key { border-color: var(--gold); }
+.shell-banner.key-wait { border-color: var(--amber); color: var(--amber); }
+.shell-banner.key-no { border-color: var(--danger); color: var(--danger); }
+
+#raceHost { position: fixed; inset: 0; z-index: 790; background: var(--bg); }
+#raceHost iframe { width: 100%; height: 100%; border: 0; display: block; }
+body.race-on .shell-top, body.race-on #page { visibility: hidden; }
+
+#startup { position: fixed; inset: 0; z-index: 1000; background: var(--bg); }
+/* Friends mode: over the pages and the race screen, under the banner */
+#guestHost { position: fixed; inset: 0; z-index: 930; }
+#guestHost iframe { width: 100%; height: 100%; border: 0; display: block; background: transparent; }

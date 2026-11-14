@@ -1,19 +1,61 @@
-'use strict';
-// RACES on the top screen (W1-4, docs/rework/cards/W1-4.md). Cards with the race's picture and one state line; tick cards and the
+// RACES on the top screen (W1-4, docs/rework/cards/W1-4.md; a page module of the shell since W3-1). Cards with the race's picture and one state line; tick cards and the
 // bar at the bottom shares or deletes them (no "are you sure": DELETE moves them to the trash and UNDO brings them back for 8 s);
 // OPEN shows one race with WATCH / SHARE TO YOUTUBE / TALK OVER IT / REVIEW / DELETE and its moments on a timeline.
 // irdash does the work (library.cs: racetrash, raceundo, raceempty, racefree, raceshare, ytsignin, ytprivacy, yttemplate;
 // vault.cs: racewatch; commentary.cs (W1-6): racetalk, racetalkstop, raceshare a=<id>:c). The list is /api/library, loaded again only when irdash says it changed (data.onList: no timer).
 // Tests: ?fixture=<url> reads the list from a file, ?dry=1 records every command in window.racesDone instead of sending it,
 // ?thumbs=<url prefix> takes the pictures from <prefix><id>.jpg.
+// The shell (app/shell.js) draws CLOSE, owns Esc at the top level (this page takes Esc only to close its own open card, list or
+// ticks) and shows "not running" in its banner; this page's own line goes through ctx.banner.
 const Q = new URLSearchParams(location.search), DRY = Q.get('dry') === '1', FIXTURE = Q.get('fixture') || '', THUMBS = Q.get('thumbs') || '';
 window.racesDone = [];
 const $ = id => document.getElementById(id);
+let data = null, ctx = null, root = null, offKey = null;
+const OWN_LINE = 'The dashboard is not answering. What you see may be out of date.';
+// the page (was v2/races.html's body); #rcBanner and #rcToast are this page's, #banner is the shell's
+const MARKUP =
+  '<header class="top">' +
+    '<div class="row1">' +
+      '<div class="store" id="store">' +
+        '<div class="store-line"><span id="storeLine">&nbsp;</span><span id="trashBit" hidden>&nbsp;·&nbsp;<span id="trashGb"></span> in trash&nbsp;·&nbsp;<button type="button" class="link" id="emptyNow">Empty now</button></span></div>' +
+        '<div class="store-bar" id="storeBar"><i id="storeFill"></i></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="row2">' +
+      '<div class="tabs" role="tablist">' +
+        '<button type="button" class="tab on" role="tab" aria-selected="true" data-tab="races">Races</button>' +
+        '<button type="button" class="tab" role="tab" aria-selected="false" data-tab="pq">Practice &amp; qualifying</button>' +
+        '<button type="button" class="tab" role="tab" aria-selected="false" data-tab="all">All</button>' +
+      '</div>' +
+      '<button type="button" class="btn" id="selShared" hidden>Select all shared</button>' +
+      '<div class="ytset" id="ytset">' +
+        '<span id="privWords">Uploads are private</span>' +
+        '<button type="button" class="link" id="privBtn">Make public</button>' +
+        '<span class="sep">·</span>' +
+        '<button type="button" class="link" id="titlesBtn">YouTube titles</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="row3" id="freeRow" hidden></div>' +
+  '</header>' +
+  '<div id="rcBanner" class="banner" role="status" hidden></div>' +
+  '<div id="grid" class="grid"></div>' +
+  '<div id="driving" class="driving" hidden>Back after your drive</div>' +
+  // select mode: the bar at the bottom
+  '<div id="bar" class="selbar" hidden>' +
+    '<div class="count" id="barCount"></div>' +
+    '<button type="button" class="btn gold" id="barShare"></button>' +
+    '<button type="button" class="btn danger" id="barDelete"></button>' +
+    '<button type="button" class="btn" id="barCancel">Cancel</button>' +
+  '</div>' +
+  // OPEN: one race over the grid; the five YouTube titles
+  '<section id="open" class="opencard" hidden></section>' +
+  '<section id="titles" class="picker" hidden></section>' +
+  '<div id="undo" class="toast undo-toast" role="status" hidden></div>' +
+  '<div id="rcToast" class="toast" role="status" hidden></div>';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
 const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x; };
 const TOAST_MS = 8000;
-const HAS_DATA = typeof data !== 'undefined' && data && typeof data.on === 'function';
 
 // a failure or a wait in a few words for the card (the open card shows the server's whole sentence)
 function shortWhy(text) {
@@ -80,7 +122,7 @@ const Races = {
   seenOnline: false, wasDriving: null, wasOffline: null, toastTimer: 0, undoTimer: 0, undoIds: null, signinWanted: false, sharing: false,
 
   init() {
-    document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => this.setTab(b.dataset.tab)));
+    root.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => this.setTab(b.dataset.tab)));
     $('grid').addEventListener('click', e => this.gridClick(e));
     $('selShared').addEventListener('click', () => this.selectShared());
     $('barShare').addEventListener('click', () => this.share([...this.ticks]));
@@ -89,29 +131,30 @@ const Races = {
     $('emptyNow').addEventListener('click', () => this.emptyNow());
     $('privBtn').addEventListener('click', () => this.togglePrivacy());
     $('titlesBtn').addEventListener('click', () => this.showPicker(true));
-    $('banner').addEventListener('click', e => { if (e.target.closest('[data-act="signin"]')) this.signIn(); });
+    $('rcBanner').addEventListener('click', e => { if (e.target.closest('[data-act="signin"]')) this.signIn(); });
     $('freeRow').addEventListener('click', e => { if (e.target.closest('[data-act="free"]')) this.freeUp(); });
     $('open').addEventListener('click', e => this.openClick(e));
     $('titles').addEventListener('click', e => this.pickerClick(e));
     $('undo').addEventListener('click', e => { const b = e.target.closest('[data-act="undo"]'); if (b) this.undo(b.dataset.batch); });
-    document.addEventListener('keydown', e => {
+    // Esc closes this page's own layer first (and stops there); with nothing open it goes on to the shell, which goes HOME
+    offKey = e => {
       if (e.key !== 'Escape') return;
       if (this.picker) this.showPicker(false);
       else if (this.openId) this.openRace('');
       else if (this.ticks.size) this.clearTicks();
-      else if (window.parent !== window) window.parent.postMessage({ irdash: 'races-close' }, location.origin);
-    });
-    if (HAS_DATA) {
-      // W0-5: no timer. The list loads again when irdash says it changed; the rig's state (driving, online) comes on the push.
-      if (data.onList) data.onList('races', () => this.load());
-      data.on('state', () => this.rigChanged());
-      data.on('online', () => this.rigChanged());
-    }
+      else return;
+      e.stopPropagation(); e.preventDefault();
+    };
+    document.addEventListener('keydown', offKey);
+    // W0-5: no timer. The list loads again when irdash says it changed; the rig's state (driving, online) comes on the push.
+    data.onList('races', () => this.load());
+    data.on('state', () => this.rigChanged());
+    data.on('online', () => this.rigChanged());
     this.rigChanged();
     this.load();
   },
 
-  rig() { return HAS_DATA && data.rig ? data.rig : { driving: false, online: true }; },
+  rig() { return data && data.rig ? data.rig : { driving: false, online: true }; },
   rigChanged() {
     const r = this.rig();
     if (r.online) this.seenOnline = true;
@@ -123,11 +166,12 @@ const Races = {
   },
 
   async load() {
+    const me = root;
     try {
-      const r = await fetch(FIXTURE || '/api/library', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      this.data = await r.json(); this.failed = false; this.loadedAt = performance.now();
-    } catch (e) { this.failed = true; }
+      const j = await data.json(FIXTURE || '/api/library', 0);
+      if (root !== me) return;                       // the page went meanwhile
+      this.data = j; this.failed = false; this.loadedAt = performance.now();
+    } catch (e) { if (root !== me) return; this.failed = true; }
     // ticks of races that are gone (deleted from the deck, say) go too
     const ids = new Set(this.races().map(r => r.id));
     [...this.ticks].forEach(id => { if (!ids.has(id)) this.ticks.delete(id); });
@@ -148,24 +192,26 @@ const Races = {
   // a tab shows other cards: the ticks go, so DELETE never takes a race he cannot see
   setTab(t) {
     this.tab = t; this.ticks.clear(); this.lastTick = '';
-    document.querySelectorAll('.tab').forEach(b => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    root.querySelectorAll('.tab').forEach(b => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
     this.draw();
   },
 
   // ---------------- drawing ----------------
   draw() {
+    if (!root) return;                             // an answer that came after the page went
     const driving = !!this.wasDriving;
     $('driving').hidden = !driving;
-    document.querySelector('header.top').hidden = driving;
+    root.querySelector('header.top').hidden = driving;
     $('grid').hidden = driving;
-    if (driving) { $('banner').hidden = true; $('bar').hidden = true; $('open').hidden = true; $('titles').hidden = true; return; }
+    if (driving) { $('rcBanner').hidden = true; ctx.banner(null); $('bar').hidden = true; $('open').hidden = true; $('titles').hidden = true; document.body.classList.remove('page-bar'); return; }
     this.drawHeader();
     this.drawGrid();
     this.drawBar();
     this.drawBanner();
     this.drawOpen();
     this.drawPicker();
-    $('toast').classList.toggle('up', !$('undo').hidden);
+    $('rcToast').classList.toggle('up', !$('undo').hidden);
+    document.body.classList.toggle('page-bar', !$('bar').hidden);     // the shell's banner moves above the select bar
   },
 
   drawHeader() {
@@ -223,7 +269,7 @@ const Races = {
   drawBar() {
     const n = this.ticks.size, bar = $('bar');
     bar.hidden = n === 0 || !!this.openId;
-    document.body.classList.toggle('selecting', n > 0);
+    root.classList.toggle('selecting', n > 0);
     if (!n) return;
     const picked = [...this.ticks].map(id => this.find(id)).filter(Boolean);
     const shareable = picked.filter(canShare).length, onYt = picked.filter(isShared).length;
@@ -233,10 +279,12 @@ const Races = {
     $('barDelete').textContent = 'Delete (' + n + ')';
   },
 
-  // one banner: offline, or the sign-in that sharing needs (only once a race is ticked or opened)
+  // offline is the shell's banner ("Paddock is not running"); a list that would not load while irdash answers is this page's one
+  // line (ctx.banner). Here only the sign-in that sharing needs (once a race is ticked or opened).
   drawBanner() {
-    const b = $('banner'), yt = this.youtube();
-    if (this.wasOffline) { b.className = 'banner bad'; b.innerHTML = 'The dashboard is not answering. What you see may be out of date.'; b.hidden = false; return; }
+    const b = $('rcBanner'), yt = this.youtube();
+    ctx.banner(this.wasOffline && this.failed ? OWN_LINE : null);
+    if (this.wasOffline) { b.hidden = true; return; }
     const wantShare = this.ticks.size > 0 || !!this.openId || this.signinWanted;
     if (this.data && !yt.signedIn && wantShare) {
       b.className = 'banner signin';
@@ -311,6 +359,7 @@ const Races = {
   // the counter runs on the page from the server's seconds (no request: the list reloads only when irdash says it changed)
   talkTick() {
     clearTimeout(this.talkTimer);
+    if (!root) return;
     const r = this.openId && this.find(this.openId);
     if (!r || talkOf(r).kind !== 'talking') return;
     const c = $('talkClock'); if (c) c.textContent = 'Talking ' + mmss(this.talkSec(talkOf(r)));
@@ -389,7 +438,7 @@ const Races = {
       return { ok: true, json: { ok: true, say: '' } };
     }
     try {
-      const f = HAS_DATA && data.fetch ? data.fetch : fetch;
+      const f = data.fetch;
       const r = await f(url, { cache: 'no-store' }), t = await r.text();
       let j = null; try { j = JSON.parse(t); } catch (e) { j = { say: r.status === 409 ? this.notNow(c) : t.length < 200 ? t : '' }; }
       return { ok: r.ok, status: r.status, json: j || {} };
@@ -452,7 +501,7 @@ const Races = {
   },
 
   // REVIEW: the Sessions page for now; the REVIEW door (wave 4) opens the drive from at=<startMs>
-  review(r) { location.href = 'sessions.html?embed=1&at=' + encodeURIComponent(r.startMs || 0); },
+  review(r) { ctx.go('review', { at: r.startMs || 0 }); },
 
   // W1-6 TALK OVER IT: irdash plays the race on the middle screen and records the microphone; STOP ends it and mixes
   async talk(r) {
@@ -515,15 +564,40 @@ const Races = {
     u.innerHTML = '<span>' + esc(say) + '</span><button type="button" class="undo" data-act="undo" data-batch="' + esc(batch) + '">Undo</button>';
     u.hidden = false; this.undoIds = ids;
     clearTimeout(this.undoTimer); this.undoTimer = setTimeout(() => this.hideUndo(), TOAST_MS);
-    $('toast').classList.add('up');
+    $('rcToast').classList.add('up');
   },
-  hideUndo() { $('undo').hidden = true; this.undoIds = null; clearTimeout(this.undoTimer); $('toast').classList.remove('up'); },
+  hideUndo() { clearTimeout(this.undoTimer); this.undoIds = null; if (!root) return; $('undo').hidden = true; $('rcToast').classList.remove('up'); },
   toast(html, bad) {
-    if (this.wasDriving) return;
-    const t = $('toast');
+    if (this.wasDriving || !root) return;
+    const t = $('rcToast');
     t.innerHTML = html; t.className = 'toast' + (bad ? ' bad' : '') + ($('undo').hidden ? '' : ' up'); t.hidden = false;
     clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => this.hideToast(), TOAST_MS);
   },
-  hideToast() { $('toast').hidden = true; clearTimeout(this.toastTimer); },
+  hideToast() { clearTimeout(this.toastTimer); if (root) $('rcToast').hidden = true; },
 };
-Races.init();
+const FRESH = { data: null, failed: false, tab: 'races', lastTick: '', openId: '', picker: false, seenOnline: false, wasDriving: null, wasOffline: null,
+  undoIds: null, signinWanted: false, sharing: false, loadedAt: 0 };
+window.Races = Races;                              // tests drive it (Races.load, Races.hideUndo)
+
+// the page module (W3-1 contract): mount into the shell's page area, unmount leaves nothing behind
+export default {
+  name: 'races', title: 'RACES',
+  mount(el, c) {
+    ctx = c; data = c.data;
+    if (!document.querySelector('link[data-page="races"]')) {
+      const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = new URL('races.css', import.meta.url).href; l.dataset.page = 'races';
+      document.head.appendChild(l);
+    }
+    Object.assign(Races, FRESH, { ticks: new Set(), deleting: new Set(), goneDry: new Set() });
+    root = document.createElement('div'); root.className = 'rc'; root.innerHTML = MARKUP;
+    el.appendChild(root);
+    Races.init();
+  },
+  unmount() {
+    if (offKey) document.removeEventListener('keydown', offKey);
+    offKey = null;
+    [Races.toastTimer, Races.undoTimer, Races.talkTimer].forEach(t => clearTimeout(t));
+    document.body.classList.remove('page-bar');
+    root = null; ctx = null;                         // the shell ends the subscriptions (ctx.data) and empties the page area
+  },
+};
