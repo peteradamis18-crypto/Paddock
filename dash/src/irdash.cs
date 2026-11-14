@@ -2956,6 +2956,7 @@ namespace IRDash
             string args =
                 "--user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check " +
                 "--hide-crash-restore-bubble --disable-session-crashed-bubble --disable-features=Translate " +
+                "--autoplay-policy=no-user-gesture-required " +   // W3-2: the start-up tones play with no click first
                 "--window-position=" + b.X + "," + b.Y + " --window-size=" + b.Width + "," + b.Height + " " +
                 (cfg.Kiosk ? "--kiosk " : "") + "--app=" + url;
             try
