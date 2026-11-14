@@ -12,7 +12,7 @@ $cfgFile = Join-Path $env:APPDATA 'irdashies\config.json'
 $pass = 0; $fail = 0
 function Check($what, $ok) { if ($ok) { $script:pass++; "  ok    $what" } else { $script:fail++; "  FAIL  $what" } }
 function J($path) { $r = Invoke-WebRequest -UseBasicParsing "$api$path" -TimeoutSec 8; [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json }
-function Api($c, $a) { $u = "$api/api/do?c=$c" + $(if ($a) { "&a=$a" } else { '' }); $null = Invoke-WebRequest -UseBasicParsing $u -TimeoutSec 8 }
+function Api($c, $a) { $u = "$api/api/do?c=$c" + $(if ($a) { "&a=$a" } else { '' }); $null = Invoke-WebRequest -UseBasicParsing $u -TimeoutSec 8; Start-Sleep -Milliseconds 850 }   # W0-1 repeat guard: the same command within 0.7 s counts as one press, so every press here is spaced
 function Widgets { (Get-Content $cfgFile -Raw | ConvertFrom-Json).dashboards.default.widgets }
 function IsOn($id) { [bool](@(Widgets | Where-Object { $_.id -eq $id })[0].enabled) }
 function Ini($key) { $m = Select-String -Path (Join-Path $root 'dash\irdash.ini') -Pattern "^$key=(.*)$" | Select-Object -First 1; if ($m) { $m.Matches[0].Groups[1].Value } else { $null } }
