@@ -276,7 +276,7 @@ const Races = {
           stateHtml(s) +
           (url ? '<div class="o-link"><input id="linkField" readonly value="' + esc(url) + '" aria-label="YouTube link"><button type="button" class="btn" data-act="copy">Copy link</button></div>' : '') +
           (tl ? '<div class="o-talk"><div class="state ' + tl.cls + '">' + esc(tl.text) + '</div>' +
-            (tl.share ? '<button type="button" class="btn gold" data-act="sharetalk">Share to YouTube</button>' : '') + '</div>' : '') +
+            (tl.share ? '<button type="button" class="btn gold" data-act="sharetalk">Share with commentary</button>' : '') + '</div>' : '') +
           (turl ? '<div class="o-link"><input id="talkLink" readonly value="' + esc(turl) + '" aria-label="YouTube link with commentary"><button type="button" class="btn" data-act="copytalk">Copy link</button></div>' : '') +
         '</div>' +
       '</div>' +

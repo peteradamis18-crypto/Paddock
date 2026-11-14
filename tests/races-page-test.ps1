@@ -223,7 +223,7 @@ $run = @'
   ok('4. five keys in one row: Watch, Share to YouTube, Talk over it, Review, Delete', keys.join('|') === 'Watch|Share to YouTube|Talk over it|Review|Delete', keys.join('|'));
   const kb = [...o.querySelectorAll('.o-keys .btn')], tops = kb.map(b => b.getBoundingClientRect().top);
   ok('4. the keys are 72 px high and on one row', kb.every(b => b.offsetHeight === 72) && tops.every(t => Math.abs(t - tops[0]) < 1), kb.map(b => b.offsetHeight).join(','));
-  ok('4. TALK OVER IT is greyed with "Comes with the commentary update"', kb[2].disabled && /Comes with the commentary update/.test(o.textContent));
+  ok('4. TALK OVER IT is a live key (W1-6: commentary-test covers what it does)', !kb[2].disabled && kb[2].dataset.act === 'talk' && !/Comes with the commentary update/.test(o.textContent));
   const chips = [...o.querySelectorAll('.chip')].map(c => c.textContent);
   ok('4. the timeline has every marker with its label and time', chips.join('|') === '0:00 Start|6:53 Incident +2x|10:55 Pit (lap 6)|13:00 Best lap 1:33.832 (lap 9)|20:48 Finish', chips.join('|'));
   ok('4. one dot per marker on the rail', o.querySelectorAll('.rail .dot').length === 5);

@@ -1,6 +1,7 @@
 /* Paddock's player (W1-6 TALK OVER IT) on the middle race screen (2560 x 1440). Colours and sizes from ../app/design.css only. */
 html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
-video { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; background: var(--bg); }
+/* the whole race picture stays above the bar (it would hide the bottom of the frame: mirrors, the car's own dash) */
+video { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh - 168px); object-fit: contain; background: var(--bg); }
 
 /* the bar at the bottom while he talks: the red dot, "Talking 3:12", the microphone and its level, one big STOP */
 .bar { position: fixed; left: 0; right: 0; bottom: 0; height: 168px; z-index: 10; display: flex; align-items: center; gap: 48px; padding: 0 72px;

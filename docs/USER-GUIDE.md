@@ -107,7 +107,7 @@ Paddock films every session you drive, start to finish, with the game and spotte
 the middle screen with the game sound, and Paddock records what you say from the same moment. The deck shows **TALKING 03:12**, your
 microphone's name and one big red **STOP**; the top screen shows the same. Talk as long as you like and press **STOP** (or let the race
 play to the end). Paddock then mixes it by itself in a few seconds: the game goes quieter while you talk. The race then says
-**With commentary: ready** with **SHARE TO YOUTUBE** (on the deck: **SHARE COMMENTARY**). One press puts it on YouTube as a second video
+**With commentary: ready** with **SHARE WITH COMMENTARY** (on the deck: **SHARE COMMENTARY**). One press puts it on YouTube as a second video
 named "... (with commentary)"; the first video stays as it is.
 - "No microphone found. Plug in the headset and press again." means Windows sees no microphone: plug it in and press TALK OVER IT again.
 - "The microphone is silent. Is it muted?" (amber) means it hears nothing for 5 seconds: check the mute button. The recording goes on.

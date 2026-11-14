@@ -1919,8 +1919,8 @@ const Races = new class extends Screen {
       else add(2, 0, 4, 1, 'MIXING NOW', '', null, null, 'banner', 0, { size: 26, noflash: true, parts: { main: ['MIXING', 'NOW'], sub: [] } });
       const mic = k === 'mixing' ? (t.note ? 'SESSION ON · WHAT YOU SAID IS KEPT' : 'YOUR COMMENTARY') : k === 'preparing' ? 'ON THE MIDDLE SCREEN' : raceMic(t.mic);
       add(2, 1, 4, 1, mic, '', null, null, 'hint', 0, { noflash: true, parts: { main: raceSplit(String(mic).toUpperCase(), 4, 7), sub: [] }, size: 18 });
-      if (k !== 'mixing') add(2, 2, 3, 2, 'STOP', 'ENDS AND MIXES', 'talkstop', talking.id, 'stop', 0, { size: 28, parts: { main: ['STOP'], sub: ['AND MIX'] } });
-      if (t.silent && k === 'talking') add(5, 2, 2, 1, 'MIC SILENT', 'IS IT MUTED?', null, null, 'amber', 0, { noflash: true, parts: { main: ['MIC', 'SILENT'], sub: ['IS IT', 'MUTED?'] } });
+      if (k !== 'mixing') add(2, 2, 3, 2, 'STOP', 'ENDS AND MIXES', 'talkstop', talking.id, 'stop', 0, { size: 28, parts: { main: ['STOP'], sub: [] } });
+      if (t.silent && k === 'talking') add(5, 2, 2, 1, 'MIC SILENT', 'IS IT MUTED?', null, null, 'amber', 0, { noflash: true, parts: { main: ['MIC', 'IS IT'], sub: ['SILENT', 'MUTED?'] } });   // each key reads on its own: MIC SILENT | IS IT MUTED?
       add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
       return R;
     }
