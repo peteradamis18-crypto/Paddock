@@ -179,8 +179,21 @@ var KEYART = (function () {
     if (r.paint) { r.paint(x, px, py, pw, ph, bg, fg); return; }                   // the screen draws this one itself
     if (r.w > 1) {
       // several keys wide: one run of words per key, never across a gap (W3-4: every screen, not only RACES)
-      var mt = String(r.text == null ? '' : r.text).toUpperCase(), st = r.sub ? String(r.sub) : '';
-      span({ main: splitRuns(mt, r.w), sub: splitRuns(st, r.w, 6) }, r.w, r.h, r.size, (pw + 6) / r.w)(x, px, py, pw, ph, bg, fg);
+      var mt = String(r.text == null ? '' : r.text).toUpperCase(), st = r.sub ? String(r.sub) : '', pitch = (pw + 6) / r.w;
+      var mr = splitRuns(mt, r.w), sr = st && r.h === 1 && r.w - mr.length >= 1 ? splitRuns(st, r.w - mr.length, 6) : null;
+      if (sr && sr.length) {
+        // one row of keys: the big words first, then the small ones in the keys after them, so it reads left to right
+        var all = mr.concat(sr), off = Math.floor((r.w - all.length) / 2), cell = pitch - 6;
+        x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = fg;
+        all.forEach(function (t, i) {
+          var small = i >= mr.length, s = small ? 15 : Math.min(r.size || 24, 24);
+          do { x.font = (small ? '400 ' : '600 ') + s + 'px ' + FONT; s--; } while (x.measureText(t).width > cell - 12 && s > 10);
+          x.globalAlpha = small ? .85 : 1; x.fillText(t, px + (off + i) * pitch + cell / 2, py + cell / 2);
+        });
+        x.globalAlpha = 1;
+        return;
+      }
+      span({ main: mr, sub: splitRuns(st, r.w, 6) }, r.w, r.h, r.size, pitch)(x, px, py, pw, ph, bg, fg);
       return;
     }
     x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
