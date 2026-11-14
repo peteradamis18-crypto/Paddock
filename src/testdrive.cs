@@ -626,7 +626,15 @@ namespace IRDeck
                     if (row == null) row = AiPickRow(modal, combo.Track + " - " + combo.Layout, false);
                     if (row == null) return AiStop("TRACK NOT FOUND", combo.Track + " is unavailable", window);
                     UEl layout = null;
-                    if (!WaitFor(delegate { List<UEl> menus = TdMenuItems(AiElements(modal), row); layout = menus.Find(u => Same(u.Name, combo.Layout)); return layout != null; }, 10000, 250, "TRACK NOT FOUND", "track layout")) return AiStop("TRACK NOT FOUND", combo.Track + " layout is unavailable", window);
+                    // 2026-11-14 (deck-v2-live, fail-airace.png): the layout menu (Full Course / Club / Short) pops up as MenuItems outside the wizard modal's
+                    // subtree, so the modal alone never saw it ("layout is unavailable" since 1 Nov): search the whole window, as START does
+                    if (!WaitFor(delegate { List<UEl> menus = TdMenuItems(AiElements(window), row); layout = menus.Find(u => Same(u.Name, combo.Layout)); return layout != null; }, 10000, 250, "TRACK NOT FOUND", "track layout"))
+                    {
+                        foreach (UEl u in AiElements(window))
+                            if (u.Type == ControlType.MenuItem || (u.Type == ControlType.Hyperlink && u.R.Y > row.R.Y && u.R.Height < 45))
+                                Log("airace layout candidate: " + u.Type.ProgrammaticName + " '" + u.Name + "' [" + (int)u.R.X + "," + (int)u.R.Y + " " + (int)u.R.Width + "x" + (int)u.R.Height + "] (row right " + (int)row.R.Right + ", bottom " + (int)row.R.Bottom + ")");
+                        return AiStop("TRACK NOT FOUND", combo.Track + " layout is unavailable", window);
+                    }
                     aiLayoutName = combo.Layout; aiAllowLayout = true;
                     bool layoutPressed = AiPress(new UEl { E = layout.E, Id = layout.Id, Name = layout.Name, Type = layout.Type, R = layout.R });
                     aiAllowLayout = false; aiLayoutName = "";
