@@ -26,5 +26,5 @@ try {
   $say = if ($m.Success) { $m.Groups[1].Value } else { $body }
 } catch { $say = "irdash did not answer: $($_.Exception.Message)" }
 $say
-if ($say -match 'installed and running') { exit 0 }
+if ($say -match 'installed and running|is already installed') { exit 0 }   # nothing to do is not a failure
 exit 1
