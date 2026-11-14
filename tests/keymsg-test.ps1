@@ -2,7 +2,7 @@
 # /keymsg routes in irdash.cs, dash\www\v2\keymsg.js + keymsg.css).
 #   1. offline, compiled copy of keymsg.cs: sanitising, 80 characters, kind, seq, valid JSON
 #   2. offline, static: the route is wired, keymsg.cs is in the build, index.html has the element, the css and the script
-#   3. offline, headless Chrome with irdash mocked (no network): in three layouts (HOME, Drive v1, old grid) the message appears with its
+#   3. offline, headless Chrome with irdash mocked (no network): on HOME the message appears (W2-2 retired Drive v1 and the old grid; the race screen's own test checks its place there) with its
 #      words, is >= 36 px, stays inside 1920 x 1080, covers none of the in-car blocks, fades away after ~4 s; a stale message never shows;
 #      a hidden page stops polling; prefers-reduced-motion switches the fade off. Pictures: tests\shots\keymsg-<layout>.png
 #   4. live, ONLY when the rig is free (sim not running, no START key in the last 10 min) and the running irdash already has the route
@@ -120,18 +120,6 @@ else {
   // ---- the layout under test, filled with typical words so the blocks have their real size
   document.getElementById('overlay').classList.remove('show');
   if (MODE === 'home') document.getElementById('overlay').classList.add('show');
-  if (MODE === 'drive') {
-    $('drive').hidden = false;
-    $('dSess').textContent = 'Race'; $('dTrack').textContent = 'Road America - Full Course'; $('dClock').textContent = '12:34';
-    var cells = { cPos: ['Position', 'P4', 'of 20'], cGap: ['Gap ahead', '+1.24', 'Smith #12'], cDelta: ['Delta', '-0.213', 'vs best'], cLeft: ['Laps left', '14', 'of 20'], cFuel: ['Fuel', '8.4 laps', 'enough'] };
-    Object.keys(cells).forEach(function(k){ var c = $(k); c.querySelector('.lbl').textContent = cells[k][0]; c.querySelector('.v').textContent = cells[k][1]; c.querySelector('.s').textContent = cells[k][2]; });
-    $('cDelta').querySelector('.dbar i').style.cssText = 'right:50%;width:20%;background:var(--gain)';
-    $('dLaps').innerHTML = 'Last <b>1:23.456</b> ' + String.fromCharCode(183) + ' Best <b>1:22.345</b>';
-    $('dRec').hidden = false; $('dRec').querySelector('span').textContent = 'REC PAUSED: DISK FULL';   // the widest pill there is
-    $('dTowerT').textContent = 'Battle'; $('dTowerG').textContent = 'Gap';
-    var rows = ''; for (var i = 0; i < 7; i++) rows += '<div class="trow' + (i === 3 ? ' me' : '') + '"><i class="cls"></i><span class="p">' + (i + 1) + '</span><span class="n">#' + (10 + i) + '</span><span class="nm">Driver Name ' + i + '</span><span class="g">+' + (i * 1.3).toFixed(1) + '</span></div>';
-    $('dRows').innerHTML = rows;
-  }
   // ---- irdash pushes the message (W0-5): the pretend data.js (before keymsg.js) hands it over; any request at all is counted
   var CALLS = 0;
   window.fetch = function(u){ CALLS++; return Promise.resolve({ ok: false, json: function(){ return Promise.resolve(null); } }); };
@@ -145,8 +133,6 @@ else {
   function box(s){ return Math.round(s.l) + ',' + Math.round(s.t) + '-' + Math.round(s.r) + ',' + Math.round(s.b); }
   // blocks that must stay uncovered, per layout (selectors; zero-size or hidden ones are skipped)
   var BLOCKS = {
-    drive: ['#dTop', '#dMap', '#dTower', '#dBand .dcell', '#dBand .dbar', '#dLaps', '#dRec:not([hidden])'],
-    grid: ['#strip', '#pStand', '#pRel', '#pMap', '#pCar', '.lapnow', '.deltabar', '.laprefs', '.sectors:not(:empty)', '.fuel'],
     home: ['.idle-top', '.home-hr', '#homeNext:not([hidden])', '#idleRig', '#homeRace', '#homeLast']
   };
   function overlaps(s){
@@ -199,7 +185,7 @@ else {
   setTimeout(function(){ var p = document.createElement('pre'); p.id = 'out'; p.style.display = 'none'; p.textContent = out.join('\n') + '\nDONE'; document.body.appendChild(p); }, 17000);
 })();
 '@
-  $modes = @('home', 'drive', 'grid')
+  $modes = @('home')
   function Run-Chrome($mode, $shot, $extra) {
     $js = $harness.Replace('__MODE__', $mode).Replace('__SHOT__', $(if ($shot) { 'true' } else { 'false' })).Replace('__NOANIM__', $(if ($extra) { 'false' } else { 'true' }))
     $fake = "<script>(function(){ var ls = []; window.data = { __paddock: true, state: {}, on: function(n, f){ if (n === 'state') ls.push(f); return function(){}; } }; window.__push = function(m){ var ch = {}; for (var k in m) { window.data.state[k] = m[k]; if (k !== 'now') ch[k] = true; } ls.forEach(function(f){ f(window.data.state, ch); }); }; })();</script>"
@@ -232,7 +218,7 @@ else {
   }
   # reduced motion: Chrome's own switch for the OS setting
   "  -- prefers-reduced-motion"
-  $r = Run-Chrome 'drive' $false @('--force-prefers-reduced-motion')
+  $r = Run-Chrome 'home' $false @('--force-prefers-reduced-motion')
   $tr = [regex]::Match($r.text, 'INFO transition (\S+)').Groups[1].Value
   Check "reduced motion: no fade (transition-duration '$tr')" ($r.text -match 'DONE' -and $tr -match '^0s(, 0s)*$')
   # pictures (a message on screen), 1920 x 1080

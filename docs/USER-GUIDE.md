@@ -148,7 +148,7 @@ Everything for the room AC on one page. A press shows on the keys at once; the A
 
 Before you get in the car, a short brief: the track, your best lap there, and how much fuel a lap usually takes. It fades when you get in.
 
-While you drive: the live dashboard. A coloured edge when a flag is out. A small frame-rate number next to the track name. One quiet amber line only when the frame rate is clearly under your usual for this car and track, with the likely reason. In a race it also shows the strength of the field and a rough iRating change. The turns on the map are numbered from the start line. A turn with a real name shows that name.
+While you drive: the race screen (below). A coloured edge when a flag is out.
 
 Afterwards: the review (the **REVIEW** key opens it). When you set a personal best, a small comparison sits with it: your lap against other iRacing drivers (once enough of them have driven it) and against real IMSA times.
 
@@ -161,6 +161,22 @@ The Corvette picture: until your own shot exists, Home shows a credited photo of
 **Sessions & laps.** Every session you have driven: date, car, track, how long, best lap. Filter by car or track. Tap a session to see the laps, then one lap against another: speed, throttle, brake, and where time went. Your best at each car and track is listed, with the same comparison against the field and real IMSA times.
 
 **Performance.** The last session's frame rate, the slowest places on the track, what else was using the PC, whether a change you made helped, and a short checklist of what is already right. Nothing on this page changes the graphics.
+
+## The race screen
+
+The top screen changes by itself the moment you drive out. Five or so seconds after you stop (a tow, a reset, the end of the session), Home comes back. You press nothing. In Friends mode your guest keeps their own screen.
+
+- **Top strip.** Your position (and your class position in a multiclass race), the lap and how many to go (or the time left), your incidents against the limit (the box turns amber when you are 3 or fewer from it), and the race clock. When a new flag comes out, the strip turns that flag's colour and says its name for 2 seconds. The light box and the coloured edge keep showing it after that. Under a caution the strip says **CAUTION** in amber for the whole caution.
+- **Gaps.** The car ahead and the car behind: the gap in seconds, their number and name. Green means it is going your way (closing on the car ahead, pulling away from the car behind), red means the other way. The small arrow is how much per lap, over the last 3 laps. Under a caution this becomes your gap to the leader.
+- **Fuel.** The big number is laps of fuel left against laps to go: **+1.7** (green) means you will finish with that much spare, **−0.6** (red) means you are short. One lap's worth is always kept back. Before 3 clean laps it says it is still measuring. When a stop is needed, a row of small blocks shows each lap left: green is the pit window, orange is too early, red is too late, white means no stop on that lap gets you to the end. When you are within a lap of making it, it tells you how much to save per lap. Under a caution it asks **PIT NOW?** with the fuel you need and the fuel you have.
+- **Your lap.** Your last lap (purple when it is your best), your best, and how far you are ahead (green) or behind (red) of your best right now, with a bar.
+- **Standings.** Your class only: the leader on top, then the 4 cars ahead of you, you in gold, and the 4 behind. Each car shows its class position, number, name and the gap to the car in front. Cars in the pits are grey with a **PIT** tag. Under a caution the gaps are to the leader.
+
+In the pits the gaps and your lap fold away; the fuel side shows what is in the tank. Once Paddock has measured how long a stop takes at this track, a gold row in the standings shows where you will come back out (**YOU REJOIN P7**).
+
+In practice and qualifying the standings become this session's laps (newest first, your best in purple, each with its gap to your best), and the gaps become your best lap and the best your sectors add up to.
+
+If the data stops, the screen stays, greyed, and the strip says how long it has had nothing. Numbers change at most four times a second, so nothing flickers. There are no tyres, no damage, no map and no radar on this screen.
 
 ## The delta bar
 

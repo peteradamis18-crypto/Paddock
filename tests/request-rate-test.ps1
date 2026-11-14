@@ -1,7 +1,7 @@
 # request-rate-test.ps1 - offline (W0-5): how many requests a second the top screen and the deck add-on make, measured on the W0-8 pretend
 # irdash (/__stats counts every request; ports 8299 and 8297, never 8199) with the real pages in headless Chrome, 30 s each:
 #   1. HOME idle (sim off)                        ceiling 2 / s
-#   2. HOME with rig.driving true and live frames ceiling 1 / s besides the stream (and the stream asks for the in-car variables at 15 Hz)
+#   2. HOME with rig.driving true and live frames ceiling 1 / s besides the stream (and the stream asks for the race set at 15 Hz)
 #   3. Analysis open over HOME                    ceiling 2 / s (and it uses HOME's one stream)
 #   4. the deck add-on idle on MAIN               ceiling 0.3 / s
 #   5. a state push reaches the page within 300 ms (pretend /__push -> the page's data.on('state') -> /__ack, both on the pretend's clock)
@@ -157,7 +157,8 @@ try {
     $null = Get-Json ('http://localhost:8298/__push?part=rig&json=' + [uri]::EscapeDataString('{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'))
     Cdp-Open 'http://localhost:8297/v2/index.html'
     ok 'the in-car layout is live (frames on the stream, the session from the state)' (Wait-Until 'typeof UI !== "undefined" && UI.live() && S.drivers.size > 1 && data.rig.driving' 15)
-    ok 'the stream asks for the in-car variables at 15 Hz (data.mode live)' ((Cdp-Eval 'data.mode + "|" + data.hz + "|" + (data.vars || []).length') -match '^live\|15\|\d{2,}$') (Cdp-Eval 'data.mode + "|" + data.hz')
+    # W2-2: in the car the race screen shows and the stream carries its named set (set=race, 24 channels)
+    ok 'the stream asks for the race screen''s set at 15 Hz (data.mode live, set=race)' (Wait-Until '(data.mode + "|" + data.hz + "|" + data.set) === "live|15|race" && /[?&]set=race/.test(data.url)' 8) (Cdp-Eval 'data.mode + "|" + data.hz + "|" + data.set')
     Start-Sleep -Seconds 6
     $m = Measure-Rate 8297
     $rates['HOME driving'] = $m.rate

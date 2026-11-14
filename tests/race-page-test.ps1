@@ -73,13 +73,14 @@ $stub = @'
   // what the screen shows, for the checks
   window.__look = function () {
     var vis = function (el) { if (!el || el.hidden) return false; var r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return false; var cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity > 0.05; };
-    var small = [], out = [], texts = [];
+    var small = [], out = [], texts = [], km = [];
     var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (walk.nextNode()) {
       var n = walk.currentNode, el = n.parentElement; if (!n.nodeValue.trim() || !vis(el)) continue;
       var anc = el, ok = true; while (anc && anc !== document.body) { if (!vis(anc)) { ok = false; break; } anc = anc.parentElement; } if (!ok) continue;
       var fs = parseFloat(getComputedStyle(el).fontSize), r = el.getBoundingClientRect();
       if (fs < 24) small.push(n.nodeValue.trim() + ' ' + fs);
+      if (r.left < 1380 && r.right > 540 && r.bottom > 1012 && r.top < 1070) km.push(n.nodeValue.trim());
       if (r.left < 0 || r.top < 0 || r.right > 1920.5 || r.bottom > 1080.5) out.push(n.nodeValue.trim());
       texts.push(n.nodeValue.trim());
     }
@@ -91,7 +92,7 @@ $stub = @'
         bg: getComputedStyle(r).backgroundColor }; });
     var root = getComputedStyle(document.documentElement);
     var tok = function (k) { var e = document.createElement('i'); e.style.color = 'var(' + k + ')'; document.body.appendChild(e); var c = getComputedStyle(e).color; e.remove(); return c; };
-    return { small: small, out: out, texts: texts.join(' | '), raceCls: document.getElementById('race').className, stripCls: document.getElementById('zA').className,
+    return { small: small, out: out, km: km, texts: texts.join(' | '), raceCls: document.getElementById('race').className, stripCls: document.getElementById('zA').className,
       stripBg: getComputedStyle(document.getElementById('zA')).backgroundColor,
       boxes: { A: box('zA'), B: box('zB'), C: box('zC'), D: box('zD'), E: box('zE') },
       A: { pos: txt('aPos'), of: txt('aOf'), cls: txt('aCls'), mid: txt('aMid'), inc: txt('aInc'), incNear: document.getElementById('aInc').className.indexOf('near') >= 0, clock: txt('aClock') },
@@ -142,6 +143,7 @@ try {
   ok "4. fuel ok: '+1.7 LAPS' in green, laps of fuel and to go, '+1 lap kept back', no window ($($l.C.num) $($l.C.unit) | $($l.C.line) | $($l.C.note))" `
     ($l.C.num -eq '+1.7' -and $l.C.unit -eq 'laps' -and $l.C.line -eq '22.7 laps of fuel · 21 to go' -and $l.C.note -eq '+1 lap kept back' -and $l.C.numColor -eq $l.tok.gain -and -not $l.C.win)
   ok "green: last lap, best, the delta bar and 'to best' -0.21 in green ($($l.D.last) / $($l.D.best) / $($l.D.num))" ($l.D.last -eq '1:33.832' -and $l.D.best -eq '1:33.412' -and $l.D.bar -and $l.D.num -eq '−0.21' -and $l.D.numColor -eq $l.tok.gain -and $l.D.lastColor -eq $l.tok.ink)
+  ok "green: the key message's place (x 540-1380, y 1012-1070, keymsg.css) covers no text for its 4 s ($($l.km -join ', '))" ($l.km.Count -eq 0)
   ok 'green: ten rows, no class header in a one-class race' ($l.rows.Count -eq 10 -and @($l.rows | Where-Object { $_.cls -match 'head' }).Count -eq 0) ($l.rows.Count)
   ok 'green: the page asked irdash for nothing (no fetch)' ($l.req -eq 0) $l.req
   ok "green: its own connection would ask for the race set ('$($l.set)')" ($l.set -eq 'race')
