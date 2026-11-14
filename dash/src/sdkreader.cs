@@ -115,6 +115,7 @@ namespace IRDash
                 s.LapRace = row != null ? row.Laps > 0 : s.LapsRemain < 32767;
                 if (ss != null) { Fuel.Live.TankL = ss.FuelMaxL; Fuel.Live.EstLap = ss.EstLap; }
                 Fuel.Live.Feed(s);
+                if (ss != null) { try { PitLoss.Feed(s.Time, s.OnPitRoad, s.Lap, f.Num("LapDistPct"), unchecked((int)s.Flags), s.OnTrack, s.Surface, Has(f, "PitstopActive") && f.Num("PitstopActive") != 0, ss.Track, ss.Config, s.SessionNum); } catch (Exception ex) { RigState.LogOnce("sdk pitloss", "sdk: pit loss: " + ex.Message); } }   // W2-3: time lost in the pits, learned per track (the ghost row)
             }
             catch (Exception ex) { RigState.LogOnce("sdk fuel", "sdk: fuel: " + ex.Message); }
         }
