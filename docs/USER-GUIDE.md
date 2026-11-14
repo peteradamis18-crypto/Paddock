@@ -6,12 +6,12 @@ Every key is one press. No key asks you to press twice. Each key works out where
 Every key looks the same way: a black key with one picture and one word. The colour says the job: **gold** is the one you most likely want (DRIVE), **green** starts something, **red** ends something, **grey** is a setting.
 Every press shows one short line on the top screen, so you can see it was heard and what it did. A short low beep means the key was heard but nothing could happen (for example, no session is running).
 The keys that end things are not on the main page. They are on the **LEAVE** page. QUIT TO MENU is one press there. SHUT DOWN PC and SLEEP PC ask once more: press YES within 5 seconds.
-Every screen that opens on the deck has its red **EXIT** in the same place: bottom right.
+Every screen that opens on the deck has its red **EXIT** in the same place: bottom right. Right after the deck changes page, it ignores presses for a moment, so a key that sends its press twice never presses the key underneath on the new page.
 
 ## Main page, row 1 — before you drive
 | Key | What it does |
 |---|---|
-| **HOME** | Starts anything the rig needs that is not running yet (Stream Deck, the dashboard, wheel and haptics apps, the iRacing app) and puts the iRacing app on the middle screen. The PC does this by itself at start-up, so you only need it if something did not come up. During a session it does nothing, so it cannot cover the sim. It is also the second key to unlock **KIDS**. |
+| **HOME** | Starts anything the rig needs that is not running yet (Stream Deck, the dashboard, wheel and haptics apps, the iRacing app) and puts the iRacing app on the middle screen. The PC does this by itself at start-up, so you only need it if something did not come up. It also brings the top screen back to its HOME page. During a session it does nothing, so it cannot cover the sim. It is also the second key to unlock **KIDS**. |
 | **DRIVE** | Always gets you in the car. If nothing is running, it starts your last drive (a Test Drive with the car and track chosen on the AI RACE screen). If you are on the session screen or watching a replay, it presses Drive. If you are in the car already, it does nothing. |
 | **AI RACE** | Opens the AI RACE screen on the deck: the car, the track, how hard the AI is, and one big green **START** (below). |
 | **OFFICIAL** | Opens the iRacing app on its Official racing page. It does nothing while a session is running. |
@@ -26,7 +26,7 @@ Every screen that opens on the deck has its red **EXIT** in the same place: bott
 | **GET OUT** | Gets you out of the car. If the car is still rolling, it waits for it to stop (up to 15 seconds), then gets out. |
 | **RESET CAR** | If the car is still moving, waits until it stops, then tows you to the pits and back into the car. Instant in practice. In a race, iRacing adds its tow time. |
 | **RESTART** | Restarts the AI race and puts you back in the car. In a Test Drive it takes you back to the pits instead. Official sessions cannot be restarted. |
-| **TO THE RACE** | One press to the race. In an AI race weekend (practice or qualifying) it goes straight to the race session and puts you in the car; in the race itself it just gets you in. In a Test Drive (which has no race) it ends the drive and takes you back to the menu. Official sessions cannot be skipped, and it says so. |
+| **TO THE RACE** | One press to the race. In an AI race weekend (practice or qualifying) it goes straight to the race session and puts you in the car; in the race itself it just gets you in. A Test Drive has no race: the key says so and the drive goes on (to finish it, use QUIT TO MENU on the LEAVE page). Official sessions cannot be skipped, and it says so. |
 | **PAUSE** | Freezes an AI race or a Test Drive. Press again to carry on. The top screen says Paused or Running again. iRacing does not allow it online, and the key says so. |
 | **SAVE SPOT** | Test Drive practice loop. Remembers exactly where the car is: speed, gear, fuel, tyres (iRacing's Active Reset). Press it just before the corner you want to work on. |
 | **BACK TO SPOT** | Puts the car straight back at the saved spot, as many times as you like. Paddock times every try from the spot to the exit of the corner, and the top screen says it: Try 3: 9.82 s - best 9.61 (+0.21). Saving a new spot starts the count over. Works in a Test Drive only. |
@@ -75,12 +75,12 @@ Everything for an AI race on one page. Nothing starts until you press **START**.
 
 | Key | What it does |
 |---|---|
-| top row, first key | Your last drive (car and track). One press chooses it again. |
-| **RECENT**, **CARS**, **TRACKS**, **FAVOURITES** | Lists, one key per car, track or drive. Pick a car and the tracks come up; pick a track (and its layout, if it has more than one) and you are back on this page. **BACK** (top left in a list) comes back without choosing. Nothing to type. |
+| **RECENT**, **CARS**, **TRACKS**, **FAVOURITES** | Lists, one key per car, track or drive. RECENT starts with your last drive. Pick a car and the tracks come up; pick a track (and its layout, if it has more than one) and you are back on this page. **BACK** (top left in a list) comes back without choosing. Nothing to type. |
 | the car, the track, **LAYOUT** | What is chosen now. |
 | **DAMAGE** | Damage on or off for the drive. |
-| **AI LEVEL**: **LOW**, **MEDIUM**, **HIGH** | How hard the AI pushes you in the next AI race (iRacing's Adaptive AI: it follows your pace and keeps the race close). The gold one is what the race will use. If a fixed skill range was set before, the AI LEVEL key says RANGE and its numbers until you press one of the three. |
-| **START** (big, green) | Starts the AI race with that car, track and level, and puts you in the car. The deck goes back to the main page, where TO THE RACE and GET OUT are. |
+| **AI LEVEL**: **LOW**, **MEDIUM**, **HIGH** | How hard the AI pushes you in the next AI race (iRacing's Adaptive AI: it follows your pace and keeps the race close). The gold one is what the race will use. |
+| **RANGE** | Instead of Adaptive AI, a fixed skill range: each press steps 25-50, 50-75, 75-100, then back to off (Adaptive). The AI LEVEL key says which one the race will use. |
+| **START** (big, green) | Starts the AI race with that car, track and level, and puts you in the car. If the iRacing app is closed, it opens it first. The deck goes back to the main page a moment later, where TO THE RACE and GET OUT are. In kids mode the screen only says KIDS MODE IS ON. |
 | **EXIT** | Back to your keys. |
 The same car and track are what **DRIVE** starts when nothing is running.
 

@@ -230,11 +230,11 @@ try {
   Check 'the clip loaded: it plays in Chrome (960x540, the length of the pretend clip) and the sidecar offset is the one in the sidecar' ($v.lap.ok -and $v.lap.w -eq 960 -and $v.lap.h -eq 540 -and (Near $v.lap.dur $dur 0.1) -and (Near $v.lap.off $lead 0.0001))
   Check 'the SMALL VIDEO chip is offered on DRIVER (and not on the VIDEO page)' ((Cdp-Eval 'document.getElementById("pipbtn").style.display') -eq '')
   # deck: the page list the ANALYSIS screen builds its page keys from
-  Start-Sleep -Milliseconds 900
+  # deck: the page list irdash keeps for the deck (the deck's ANALYSIS screen is gone since W3-4; the route stays)
   $ds = Invoke-RestMethod "$api/workbench/state" -TimeoutSec 8
   Check 'the deck is told about the 7th page (/workbench/state pages)' (@($ds.pages) -contains 'video')
   $plug = Get-Content (Join-Path $root 'deck-intro\plugin.html') -Raw
-  Check 'deck-intro\plugin.html lays out the ANALYSIS page row by the current rule (more than 8 pages: the first 7 + a PAGES key; 8 or fewer: all shown, filled to 8 keys) and names an unknown page by its upper-case id (VIDEO)' ($plug -match 'const all = a\.pages \|\| \[\]' -and $plug -match 'more = all\.length > WB_ROW' -and $plug -match 'pages = more \? all\.slice\(0, WB_ROW - 1\) : all' -and $plug -match 'wide = more \? 0 : Math\.min\(pages\.length, 8 - pages\.length\)' -and $plug -match "add\(WB_ROW - 1, 3, 1, 1, 'PAGES'" -and $plug -match 'WB_PAGES\[id\] \|\| String\(id\)\.toUpperCase\(\)')
+  Check 'the deck has no ANALYSIS screen any more (W3-4 review: REVIEW on the top screen has it), so nothing there to lay out' ($plug -notmatch 'const Analysis = new class' -and $plug -notmatch 'WB_ROW')
   # a lap WITHOUT a clip: no tab, no chip, no dead button
   Open-Wb "id=$(Q $openId)&lap=8&page=driver"
   $err8 = Cdp-Eval 'WB.error || ""'

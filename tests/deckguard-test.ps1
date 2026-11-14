@@ -43,6 +43,8 @@ static class T {
     C("on/off keys: MUTE SPOTTER 1.0 s apart is one run, 1.6 s apart two", Runs("mute-spotter", "appvol mute spotter", 1000) == 1 && Runs("mute-spotter", "appvol mute spotter", 1600) == 2);
     C("pit toggles and AC on/off keep 1.5 s", DeckGuard.GapMs("pit-tires", A("pittoggle tires")) == 1500 && DeckGuard.GapMs("ac", A("ac toggle")) == 1500);
     C("W3-4: SPOTTER (spotter-tap, mute / unmute) is an on/off key: 1.0 s apart is one run, 1.6 s apart two", Runs("spotter-tap", "spotter-tap", 1000) == 1 && Runs("spotter-tap", "spotter-tap", 1600) == 2 && !DeckGuard.IsFastKey("spotter-tap"));
+    C("W3-4 review: the kids lock refuses the AI RACE screen's START (ailevel start) and MY DRIVE's start (mdstart) through irdash", DeckGuard.KidsBlocks("ailevel", "start") && DeckGuard.KidsBlocks("mdstart", "") && DeckGuard.KidsBlocks("AILEVEL", " START "));
+    C("... but not the level keys, the RANGE key or a pick (they start nothing)", !DeckGuard.KidsBlocks("ailevel", "high") && !DeckGuard.KidsBlocks("ailevel", "cycle") && !DeckGuard.KidsBlocks("mdpick", "r1") && !DeckGuard.KidsBlocks(null, null));
     C("W3-4: TO THE RACE (to-the-race) 0.3 s apart gives one run, and it waits for a copy still running", Runs("to-the-race", "to-the-race", 300) == 1 && DeckGuard.UsesMutex("to-the-race"));
     C("only names make a key fast: a key called something else running appvol game +5 is 0.7 s", DeckGuard.GapMs("other", A("appvol game +5")) == 700);
     C("a key still running (mutex taken) never runs twice", !DeckGuard.KeyRuns("get-out", A("getout"), 0, 638000000000000000L, false));

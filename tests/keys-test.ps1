@@ -123,7 +123,7 @@ foreach ($pos in $approved.Keys) {
 }
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
 Check 'MAIN is PLAN 4.6''s map, cell by cell (6,2 and 7,2 are the two spares)' ($bad.Count -eq 0) ($bad -join '; ')
-$moreWant = [ordered]@{ '0,0' = 'BACK'; '1,0' = 'THANKS'; '3,0' = 'AC COOLER'; '4,0' = 'AC WARMER'; '7,0' = 'LOCK' }   # W3-4: the rest went (PLAN 4.6)
+$moreWant = [ordered]@{ '0,0' = 'BACK'; '1,0' = 'THANKS'; '3,0' = 'AC COOLER'; '4,0' = 'AC WARMER'; '7,3' = 'LOCK' }   # LOCK off 7,0: a doubled MORE press lands there (W3-4 review)   # W3-4: the rest went (PLAN 4.6)
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -288,7 +288,7 @@ Check 'the practice loop and PAUSE: SAVE SPOT is spot save, BACK TO SPOT is spot
 Check 'the dead keys are gone: LAPS TO EMPTY, POSITION, INCIDENTS, INSTANT REPLAY, and RELATIVE is not on MAIN' (@($main | Where-Object { $_.label -match 'LAPS TO|POSITION|INCIDENTS|INSTANT|RELATIVE' -or $_.what -match 'live' }).Count -eq 0)
 Check 'KEEP LAP, SAVE, TV, TEST DRIVE, MY DRIVE, SKIP SESSION and QUIT are no longer keys on any page' (@($deck | Where-Object { $_.label -in 'KEEP LAP', 'SAVE', 'TV', 'TEST DRIVE', 'MY DRIVE', 'SKIP SESSION', 'QUIT' }).Count -eq 0)
 Check 'HOME is a real command and sits at 0,0 (the up key on every screen)' ((Cmd-Of 'HOME*') -eq 'rigon' -and @($main | Where-Object { $_.col -eq 0 -and $_.row -eq 0 -and $_.label -like 'HOME*' }).Count -eq 1)
-Check 'AI RACE opens the one AI RACE screen (W3-4: car / track / level / START); its START sends ailevel start, which runs airace start' (@($deck | Where-Object { $_.label -eq 'AI RACE' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1 -and $plug -match "this\.cmd\('ailevel', 'start'\)" -and (ReadText 'dash\src\ailevel.cs') -match '"airace start"' -and $irSrc -match 'case "airace"')
+Check 'AI RACE opens the one AI RACE screen (W3-4: car / track / level / START); its START sends ailevel start, which runs airace start' (@($deck | Where-Object { $_.label -eq 'AI RACE' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1 -and $plug -match "sendCmd\('/api/do\?c=ailevel&a=start'\)" -and (ReadText 'dash\src\ailevel.cs') -match '"airace start"' -and $irSrc -match 'case "airace"')
 # DK-2b (Peter): OFFICIAL and CAR TRACK. OFFICIAL runs the `official` command irdeck already has (K-03 builds the on-deck
 # screen later; not PENDING, the command exists). CAR TRACK reuses the MY DRIVE key, whose home screen IS the car/track step
 # (plugin.html MyDrive.open resets to it; there is no deeper step to open), so it changes the car & track AI RACE / TEST DRIVE use.
@@ -394,10 +394,8 @@ $screens = @(
      fields = 'widgets', 'presets', 'saveTo', 'running', 'waiting', 'pending', 'busy', 'editing', 'onCount', 'msg', 'msgAge', 'delta', 'driving' },
   @{ name = 'MY DRIVE'; start = 'const MyDrive = new class extends Screen';  end = '// ---------------- Replay screen';         guest = $false; route = '/mydrive';  own = 'dash\src\mydrive.cs'
      fields = 'ready', 'session', 'busy', 'msg', 'phase', 'recent', 'all', 'favs', 'choice', 'current', 'results', 'driving', 'last', 'speedtest' },
-  @{ name = 'REPLAY';   start = 'const Replay = new class extends Screen';   end = '// ---------------- Analysis screen'; guest = $false; route = '/replay';   own = 'dash\src\replay.cs'
+  @{ name = 'REPLAY';   start = 'const Replay = new class extends Screen';   end = '// ---------------- Sound screen'; guest = $false; route = '/replay';   own = 'dash\src\replay.cs'
      fields = 'ready', 'inSession', 'driving', 'mode', 'raw', 'live', 'session', 'watch', 'nextSession', 'camera', 'me', 'ahead', 'behind', 'leader', 'cars', 'photo', 'replays', 'multiClass' },
-  @{ name = 'ANALYSIS'; start = 'const Analysis = new class extends Screen'; end = '// ---------------- Sound screen';           guest = $false; route = '/workbench/state'; own = 'dash\src\deckfeed.cs'
-     fields = 'open', 'driving', 'page', 'pages', 'playing', 'speed', 'tile', 'mapColour', 'zoomed', 'offset', 'id', 'lap', 'ref', 'laps', 'events', 'corners', 'lapTime', 'refTime' },
   @{ name = 'SOUND';    start = 'const Sound = new class extends Screen';    end = '// ---------------- AC screen'; guest = $false; route = '/sound'; own = @('src\sound.cs', 'dash\src\sound.cs')
      fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' },
   @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = '// ---------------- the RIG key'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
@@ -575,7 +573,7 @@ Check 'HOME (rigon without --boot) does nothing while a session runs' ($rig -mat
 # 9d. add-on: doubled presses, a frozen screen, the CAR TRACK picture
 $onceM = [regex]::Match($plug, 'const ONCE_ACTS = new Set\(\[([^\]]*)\]\)')
 $onceActs = @([regex]::Matches($onceM.Groups[1].Value, "'([\w-]+)'") | ForEach-Object { $_.Groups[1].Value })
-$flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour'
+$flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv'
 $missingOnce = @($flip | Where-Object { $onceActs -notcontains $_ })
 Check 'every on/off key of the add-on screens ignores a doubled press (ONCE_ACTS)' ($onceM.Success -and $missingOnce.Count -eq 0 -and $plug -match 'r\.once \|\| ONCE_ACTS\.has\(r\.act\)') ($missingOnce -join ', ')
 Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'if \(down && !this\.offline\)' -and $plug -match 'if \(this\.offline\) \{ if \(col === EXIT_AT\[0\] && row === EXIT_AT\[1\]\) this\.exit\(\)')

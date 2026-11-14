@@ -46,7 +46,7 @@ $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html
 $h = [IO.File]::ReadAllText($html)
 $h2 = $h.Replace("const API = 'http://localhost:8199';", "const API = 'http://localhost:$port';")
 # every add-on screen gets an opener key on the pretend page (the mock only has FRIENDS, OVERLAYS, MY DRIVE and the two CONFIRM keys)
-$h2 = $h2.Replace("TILE.RigConfirm = 'confirm';", "TILE.RigConfirm = 'confirm'; OPEN.push(['k-replay', 'com.peter.rigintro.replay', 0, 0], ['k-analysis', 'com.peter.rigintro.analysis', 1, 0], ['k-sound', 'com.peter.rigintro.sound', 2, 0], ['k-ac', 'com.peter.rigintro.ac', 3, 0], ['k-races', 'com.peter.rigintro.races', 5, 0]); Object.assign(TILE, { RigReplay: 'replay', RigAnalysis: 'analysis', RigSound: 'sound', RigAC: 'ac', RigRaces: 'races' });")
+$h2 = $h2.Replace("TILE.RigConfirm = 'confirm';", "TILE.RigConfirm = 'confirm'; OPEN.push(['k-replay', 'com.peter.rigintro.replay', 0, 0], ['k-sound', 'com.peter.rigintro.sound', 2, 0], ['k-ac', 'com.peter.rigintro.ac', 3, 0], ['k-races', 'com.peter.rigintro.races', 5, 0]); Object.assign(TILE, { RigReplay: 'replay', RigSound: 'sound', RigAC: 'ac', RigRaces: 'races' });")
 Check 'the add-on page talks to the pretend irdash only' ($h2.Contains("const API = 'http://localhost:$port';") -and -not $h2.Contains("const API = 'http://localhost:8199';"))
 [IO.File]::WriteAllText($html, $h2, (New-Object Text.UTF8Encoding($false)))
 
@@ -91,7 +91,7 @@ try {
   Assert-RigFree -Where '4. every screen'
   ''; '4. every add-on screen while irdash hangs (SOUND, AC, AI LEVEL and RACES used to say NOT READY instead)'
   Set-Content $mode 'hang'
-  foreach ($s in @(@('friends', 'Friends'), @('overlays', 'Overlays'), @('mydrive', 'MyDrive'), @('replay', 'Replay'), @('analysis', 'Analysis'), @('sound', 'Sound'), @('ac', 'Ac'), @('races', 'Races'))) {
+  foreach ($s in @(@('friends', 'Friends'), @('overlays', 'Overlays'), @('mydrive', 'MyDrive'), @('replay', 'Replay'), @('sound', 'Sound'), @('ac', 'Ac'), @('races', 'Races'))) {
     $key = $s[0]; $obj = $s[1]
     Assert-RigFree -Where "4. $key"
     $t0 = Get-Date

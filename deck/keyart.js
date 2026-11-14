@@ -187,7 +187,7 @@ var KEYART = (function () {
     if (r.w > 1) {
       // several keys wide: one run of words per key, never across a gap (W3-4: every screen, not only RACES)
       var mt = String(r.text == null ? '' : r.text).toUpperCase(), st = r.sub ? String(r.sub) : '', pitch = (pw + 6) / r.w;
-      var mr = splitRuns(mt, r.w), sr = st && r.h === 1 && r.w - mr.length >= 1 ? splitRuns(st, r.w - mr.length, 6) : null;
+      var mr = splitRuns(mt, r.w, 7), sr = st && r.h === 1 && r.w - mr.length >= 1 ? splitRuns(st, r.w - mr.length, 6) : null;
       if (sr && sr.length && sr.every(function (t) { return t.length <= 10; })) {   // only when every small run still fits one key
         // one row of keys: the big words first, then the small ones in the keys after them, so it reads left to right
         var all = mr.concat(sr), off = Math.floor((r.w - all.length) / 2), cell = pitch - 6;

@@ -2,7 +2,7 @@
 # (both made again by every build) and pictures in tests\shots\rework.
 #   1. tools\deck-render.ps1 makes one 144 px PNG per key of deck\layout.json (MAIN, MORE, LEAVE) and the three preview sheets
 #   2. the colour says the job: a gold key is gold, a grey key grey, a red key red, a green key green, a plain key black (pixels sampled)
-#   3. every label is 20 px or more on the 96 px key and fits the key (measured by render.html as it draws)
+#   3. every label is 26 px or more on the 144 px picture (30 on one line, 2 x 26 on two) and fits the key; every glyph is 50 % of the key or more
 #   4. the add-on draws with the same function: its EXIT key on the RACES screen is byte-equal to render.html's EXIT, and an opener key
 #      (FRIENDS) the add-on paints is byte-equal to the picture build-deck.ps1 packs for that key
 #   powershell -ExecutionPolicy Bypass -File tests\deck-render-test.ps1
@@ -61,16 +61,19 @@ Check 'only one gold key on MAIN (the one thing he most likely wants now: DRIVE)
 
 Section '3. labels: 20 px or more on the key, and they fit'
 $m = [IO.File]::ReadAllText((Join-Path $deck 'keys\measure.json')) | ConvertFrom-Json
-$small = @(); $nofit = @(); $noglyph = @(); $n = 0
+$small = @(); $nofit = @(); $noglyph = @(); $smallGlyph = @(); $n = 0
 foreach ($p in $m.measure.PSObject.Properties) { foreach ($k in $p.Value.PSObject.Properties) {
   $n++
-  foreach ($px in @($k.Value.labelPx)) { if ([double]$px -lt 20) { $small += "$($p.Name) $($k.Name) $px px" } }
+  foreach ($px in @($k.Value.labelPx)) { if ([double]$px -lt 26) { $small += "$($p.Name) $($k.Name) $px px" } }
   if (-not $k.Value.fits) { $nofit += "$($p.Name) $($k.Name)" }
-  if (-not $k.Value.glyph) { $noglyph += "$($p.Name) $($k.Name)" }
+  $spec = $L.pages.($p.Name) | Where-Object { "$($_.c),$($_.r)" -eq $k.Name } | Select-Object -First 1
+  if (-not $k.Value.glyph -and $spec.show -ne 'label') { $noglyph += "$($p.Name) $($k.Name)" }
+  if ($k.Value.glyph -and [int]$k.Value.glyphPct -lt 50) { $smallGlyph += "$($p.Name) $($k.Name) $($k.Value.glyphPct) %" }
 } }
-Check "every label line is 20 px or more on the 96 px key ($n keys measured)" ($n -eq $want -and $small.Count -eq 0) ($small -join '; ')
+Check "every label line is 26 px or more on the 144 px picture: 30 on one line, 2 x 26 on two ($n keys measured)" ($n -eq $want -and $small.Count -eq 0) ($small -join '; ')
 Check 'every label fits inside its key at that size' ($nofit.Count -eq 0) ($nofit -join '; ')
-Check 'every key has its glyph (a name from the glyph set in keyart.js)' ($noglyph.Count -eq 0) ($noglyph -join '; ')
+Check 'every key has its glyph (a name from the glyph set in keyart.js; the words-only half of QUIT TO MENU has none)' ($noglyph.Count -eq 0) ($noglyph -join '; ')
+Check 'every glyph is 50 % of the key or more, also on two-line keys (W3-4 review)' ($smallGlyph.Count -eq 0) ($smallGlyph -join '; ')
 
 Section '4. the add-on draws with the same function'
 $fx = @{ '/guest' = @{}; '/overlays' = @{}; '/replay' = @{ ready = $false }; '/doctor' = @{}; '/showcase' = @{ seq = 0; play = $false; driving = $false }; '/api/library' = @{ races = @(); storage = @{ freeGb = 280 } } }

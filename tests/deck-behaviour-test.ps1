@@ -44,7 +44,7 @@ class Driver {
       case "qual": Console.WriteLine(DeckRules.IsQualify(a[1])); break;
       case "race": Console.WriteLine(DeckRules.IsRaceType(S(a[1]))); break;
       case "ahead": Console.WriteLine(DeckRules.RaceAhead(S(a[1]).Length == 0 ? new string[0] : a[1].Split('|'), int.Parse(a[2]))); break;
-      case "totherace": Console.WriteLine(DeckRules.ToTheRacePlan(B(a[1]), B(a[2]))); break;
+      case "totherace": Console.WriteLine(DeckRules.ToTheRacePlan(B(a[1]), B(a[2]), a.Length > 3 && B(a[3]))); break;
     }
   }
 }
@@ -114,7 +114,8 @@ Check 'RACE NOW: Race is the race; Practice, Open Qualify, Warmup are not' ((Rul
 Check 'TO THE RACE: an AI weekend in practice with its race still to come -> race now' ((Rule ahead '0:Practice|1:Qualify|2:Race' 0) -eq 'True' -and (Rule totherace 1 1) -eq 'racenow')
 Check 'TO THE RACE: already in the race session -> race now (it only gets him in the car)' ((Rule ahead '0:Practice|1:Race' 1) -eq 'True')
 Check 'TO THE RACE: the race is over (a session after it is on) -> no race ahead -> next session' ((Rule ahead '0:Practice|1:Race|2:Heat' 2) -eq 'False' -and (Rule totherace 1 0) -eq 'skip')
-Check 'TO THE RACE: a Test Drive (no race in the event) -> next session (it ends the drive, as NEXT SESSION did)' ((Rule ahead '0:Testing' 0) -eq 'False' -and (Rule totherace 0 0) -eq 'skip')
+Check 'TO THE RACE: a Test Drive (no race in the event) -> refused (none): one green press must not quit the drive (W3-4 review)' ((Rule ahead '0:Testing' 0) -eq 'False' -and (Rule totherace 0 0 1) -eq 'none')
+Check 'TO THE RACE: an AI race weekend is never treated as a Test Drive' ((Rule totherace 1 1 1) -eq 'racenow')
 Check 'TO THE RACE: an official race is not an AI weekend -> next session, which refuses it in plain words' ((Rule totherace 0 1) -eq 'skip')
 Check 'TO THE RACE: no session list at all -> next session' ((Rule ahead '<empty>' 0) -eq 'False')
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
@@ -162,7 +163,7 @@ Check 'racenow: skips until the session is the race (at most DeckRules.RaceHopsM
 Check 'racenow: refuses test drives and official sessions in plain words; waits for a rolling car' ($rn -match '!s\.Ai' -and $rn -match 'Test Drive has no race' -and $rn -match 'WaitCarStopped\("racenow"')
 Check 'racenow runs one at a time' ((Body $ir 'static int CmdRaceNow()') -match 'WithNamedLock\("Local\\\\irdeck-racenow"')
 $ttr = Body $ir 'static int CmdToTheRace(string[] a)'
-Check 'to-the-race is a command: the plan from DeckRules on the loaded event''s sessions, then the existing RACE NOW or NEXT SESSION path' ($ir -match 'case "to-the-race": return CmdToTheRace\(Slice\(a, 1\)\)' -and $ttr -match 'DeckRules\.ToTheRacePlan\(s\.Ai, DeckRules\.RaceAhead\(s\.Sessions\.ToArray\(\), s\.Num\)\)' -and $ttr -match 'plan == "racenow" \? CmdRaceNow\(\) : CmdSkip\(\)')
+Check 'to-the-race is a command: the plan from DeckRules on the loaded event''s sessions, then the existing RACE NOW or NEXT SESSION path' ($ir -match 'case "to-the-race": return CmdToTheRace\(Slice\(a, 1\)\)' -and $ttr -match 'DeckRules\.ToTheRacePlan\(s\.Ai, DeckRules\.RaceAhead\(s\.Sessions\.ToArray\(\), s\.Num\), test\)' -and $ttr -match 'if \(plan == "none"\) \{[^}]*Say\("no", "A Test Drive has no race\. QUIT TO MENU is on LEAVE\."\); return 3; \}' -and $ttr -match 'plan == "racenow" \? CmdRaceNow\(\) : CmdSkip\(\)')
 Check 'spotter-tap is a command: the spotter mute toggle (CrewChief''s own mixer entry), with a dry form' ($ir -match 'case "spotter-tap": return CmdSpotterTap\(Slice\(a, 1\)\)' -and (Body $ir 'static int CmdSpotterTap(string[] a)') -match 'AppMuteToggle\("spotter", Array\.IndexOf\(a, "--dry"\) >= 0\)' -and $ir -match 'if \(!dry\) \{ Guid g = Guid\.Empty; v\.SetMute\(target, ref g\); \}')
 
 Section '4. chat, OFFICIAL, Test Drive setup'
@@ -228,10 +229,27 @@ if ($state -match 'sim=False') {
   Check 'to-the-race --dry with no session: rc 3 too, nothing done' ($r.rc -eq 3 -and $r.out -match 'no session is running') $r.out
   $r = Ir to-the-race --fake '0:Practice,1:Qualify,2:Race' 0 1
   Check 'to-the-race --fake: an AI weekend in practice -> RACE NOW' ($r.rc -eq 0 -and $r.out -match 'to-the-race \(fake\): RACE NOW') $r.out
-  $r = Ir to-the-race --fake '0:Testing' 0 0
-  Check 'to-the-race --fake: a Test Drive -> NEXT SESSION' ($r.rc -eq 0 -and $r.out -match 'to-the-race \(fake\): NEXT SESSION') $r.out
+  $r = Ir to-the-race --fake '0:Testing' 0 0 1
+  Check 'to-the-race --fake: a Test Drive -> refused (it never quits the drive)' ($r.rc -eq 0 -and $r.out -match 'A Test Drive has no race \(refused\)') $r.out
+  $r = Ir to-the-race --fake '0:Practice,1:Race' 1 0 0
+  Check 'to-the-race --fake: an official race (not AI, not a Test Drive) -> NEXT SESSION, which refuses it' ($r.rc -eq 0 -and $r.out -match 'to-the-race \(fake\): NEXT SESSION') $r.out
   $r = Ir spotter-tap --dry
   Check 'spotter-tap --dry says what a tap would do and changes nothing (or that the spotter is not making sound)' (($r.rc -eq 0 -and $r.out -match 'a tap would (mute|turn the sound back on for) CrewChiefV4.*nothing changed') -or ($r.rc -eq 3 -and $r.out -match 'CrewChiefV4 is not making sound right now')) $r.out
+  # HOME (rigon) tells the top screen to go HOME (W3-4 review): a pretend dashboard on a spare port records the request
+  $tl = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $tl.Start(); $port = $tl.LocalEndpoint.Port
+  $env:IRDECK_DASH = "http://127.0.0.1:$port"
+  $psi = New-Object Diagnostics.ProcessStartInfo($cli, 'rigon --nav-only'); $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true
+  $proc = [Diagnostics.Process]::Start($psi)
+  $req = ''; $sw = [Diagnostics.Stopwatch]::StartNew()
+  while (-not $tl.Pending() -and $sw.ElapsedMilliseconds -lt 8000) { Start-Sleep -Milliseconds 50 }
+  if ($tl.Pending()) {
+    $cl = $tl.AcceptTcpClient(); $ns = $cl.GetStream(); $ns.ReadTimeout = 3000; $buf = New-Object byte[] 4096; $n = $ns.Read($buf, 0, $buf.Length); $req = [Text.Encoding]::ASCII.GetString($buf, 0, $n)
+    $resp = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: 11`r`nConnection: close`r`n`r`n{`"ok`":true}"); $ns.Write($resp, 0, $resp.Length); $ns.Flush(); $cl.Close()
+  }
+  $null = $proc.WaitForExit(8000); $nout = $proc.StandardOutput.ReadToEnd(); $tl.Stop(); Remove-Item Env:\IRDECK_DASH -ErrorAction SilentlyContinue
+  Check 'HOME (rigon) asks the dashboard for /api/nav?to=home with X-Paddock, and logs it' ($req -match '^GET /api/nav\?to=home HTTP' -and $req -match '(?im)^X-Paddock: 1' -and $proc.ExitCode -eq 0 -and $nout -match 'rigon: the top screen goes HOME') ($req.Split("`n")[0] + ' | ' + $nout)
+  $rg = Body $ir 'static int CmdRigOn(string[] a)'
+  Check 'HOME never tells the top screen anything in a session (the session check comes first)' ($rg.IndexOf('!boot && SessionActive()') -ge 0 -and $rg.IndexOf('!boot && SessionActive()') -lt $rg.IndexOf('NavHome()'))
   $r = Ir tow --pretend 0.4
   Check 'tow --pretend still works (the tow wait is untouched)' ($r.rc -eq 0 -and $r.out -match 'stationary') $r.out
 }
