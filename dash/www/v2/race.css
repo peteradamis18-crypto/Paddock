@@ -1,0 +1,149 @@
+/* THE RACE SCREEN (W2-2, PLAN 4.2): the 1920 x 1080 top screen while he drives. Read from the seat at about 1 m:
+   nothing under 24 px (--t-body), headline numbers 96 px (--t-display). Colours and sizes come only from design.css.
+   Boxes are the PLAN's table: A 24,24,1872,96 / B 24,136,912,288 / C 24,440,912,360 / D 24,816,912,240 / E 952,136,944,920.
+   The bottom 70 px in the middle stay quiet where possible: the key message (keymsg.css) shows there for 4 s. */
+body { background: var(--bg); }
+.race { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+.race label { display: block; font-size: var(--t-body); line-height: 1.2; letter-spacing: var(--track); text-transform: uppercase;
+  font-weight: 600; color: var(--muted); white-space: nowrap; }
+.zone { position: absolute; background: var(--panel); border: 2px solid var(--line); border-radius: 6px; overflow: hidden;
+  transition: opacity var(--enter) var(--ease); }
+.zone b { font-weight: 600; }
+
+/* ---------- A: the strip ---------- */
+.strip { left: 24px; top: 24px; width: 1872px; height: 96px; display: flex; align-items: center; gap: 40px; padding: 0 32px;
+  white-space: nowrap; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.a-pos { display: flex; align-items: baseline; gap: 16px; }
+.a-pos b { font-size: var(--t-title); line-height: 1; color: var(--gold); }
+.a-pos span { font-size: var(--t-read); color: var(--muted); }
+.a-pos .a-cls { color: var(--ink); }
+.a-mid { flex: 1; font-size: var(--t-read); color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.a-mid .word { font-size: var(--t-title); line-height: 1; font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; }
+.a-pos .a-cls:not(:empty)::before { content: '\00b7'; margin-right: 16px; color: var(--muted); }
+.a-inc { font-size: var(--t-read); padding: 4px 20px; border: 2px solid var(--line); border-radius: 6px; color: var(--ink); }
+.a-inc.near { border-color: var(--amber); color: var(--amber); }
+.a-clock { font-size: var(--t-read); color: var(--muted); min-width: 150px; text-align: right; }
+/* under caution the whole strip is amber for as long as the caution lasts */
+.race.caution .strip { border-color: var(--amber); }
+.race.caution .a-mid { color: var(--amber); }
+/* a new flag: the strip takes the flag's colour for 2 s (the light box and the edge glow carry it after that) */
+.strip.flash { color: var(--gold-ink); border-color: transparent; }
+.strip.flash .a-pos b, .strip.flash .a-pos span, .strip.flash .a-mid, .strip.flash .a-clock { color: var(--gold-ink); }
+.strip.flash .a-inc { border-color: var(--gold-ink); color: var(--gold-ink); }
+.strip.f-yellow, .strip.f-orange { background: var(--amber); }
+.strip.f-green { background: var(--gain); }
+.strip.f-blue { background: var(--cyan); }
+.strip.f-red { background: var(--loss); }
+.strip.f-white, .strip.f-checkered { background: var(--ink); }
+.strip.f-black, .strip.f-warning { background: var(--bg); border-color: var(--ink); }
+.strip.f-black .a-pos b, .strip.f-black .a-pos span, .strip.f-black .a-mid, .strip.f-black .a-clock,
+.strip.f-warning .a-pos b, .strip.f-warning .a-pos span, .strip.f-warning .a-mid, .strip.f-warning .a-clock { color: var(--ink); }
+
+/* ---------- B: gaps ---------- */
+.gaps { left: 24px; top: 136px; width: 912px; height: 288px; display: grid; grid-template-columns: 1fr 1fr; }
+.gap { padding: 28px 32px; min-width: 0; }
+.gap + .gap { border-left: 2px solid var(--line); }
+.g-row { display: flex; align-items: baseline; gap: 16px; margin-top: 8px; }
+.g-n { font-size: var(--t-display); line-height: 1; letter-spacing: -.01em; color: var(--ink); transition: color var(--fast) var(--ease); }
+.g-t { font-style: normal; font-size: var(--t-read); color: var(--muted); }
+.g-who { margin-top: 16px; font-size: var(--t-read); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-who b { color: var(--ink); font-weight: 600; margin-right: 12px; }
+.gap.good .g-n, .gap.good .g-t { color: var(--gain); }
+.gap.bad .g-n, .gap.bad .g-t { color: var(--loss); }
+.gap.lead .g-n { color: var(--gold); font-size: var(--t-title); }
+.b-one { grid-column: 1 / -1; padding: 28px 32px; }
+.b-one b { display: block; margin-top: 8px; font-size: var(--t-display); line-height: 1; }
+.b-sub { margin-top: 16px; font-size: var(--t-read); color: var(--muted); }
+.gaps.one .gap { display: none; }
+
+/* ---------- C: fuel ---------- */
+.fuel { left: 24px; top: 440px; width: 912px; height: 360px; padding: 28px 32px; }
+.c-big { display: flex; align-items: baseline; gap: 16px; margin-top: 8px; white-space: nowrap; }
+.c-big b { font-size: var(--t-display); line-height: 1; }
+.c-big span { font-size: var(--t-read); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; }
+.c-big.small b { font-size: var(--t-title); }
+.fuel.ok .c-big b { color: var(--gain); }
+.fuel.short .c-big b { color: var(--loss); }
+.fuel.save .c-big b { color: var(--amber); }
+.c-line { margin-top: 16px; font-size: var(--t-read); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-line em { font-style: normal; color: var(--muted); }
+.c-win { display: flex; gap: 4px; margin-top: 24px; height: 40px; }
+.c-win i { flex: none; width: 24px; height: 40px; border-radius: 3px; }
+.c-win i.white { background: var(--ink); }
+.c-win i.red { background: var(--loss); }
+.c-win i.orange { background: var(--amber); }
+.c-win i.green { background: var(--gain); }
+.c-win .more { font-size: var(--t-body); color: var(--muted); align-self: center; margin-left: 8px; }
+.c-note { margin-top: 16px; font-size: var(--t-body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-note.save { font-size: var(--t-read); color: var(--amber); }
+.c-note.win { font-size: var(--t-read); color: var(--ink); }
+
+/* ---------- D: the lap ---------- */
+.lap { left: 24px; top: 816px; width: 912px; height: 240px; padding: 24px 32px; }
+.d-times { display: flex; align-items: flex-end; gap: 56px; }
+.d-last b { font-size: var(--t-title); line-height: 1.1; }
+.d-last b.best { color: var(--purple); }
+.d-best b { font-size: var(--t-read); line-height: 1.2; color: var(--muted); }
+/* the delta bar: iRacing's own delta to his best lap; green half left = ahead, red half right = behind (2 s = the end) */
+.d-bar { position: relative; height: 48px; margin-top: 20px; border-radius: 4px; background: var(--bg); }
+.d-bar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 50%; transform-origin: left center; transform: scaleX(0);
+  transition: transform .25s linear; background: var(--loss); }
+.d-bar.ahead i { left: auto; right: 50%; transform-origin: right center; background: var(--gain); }
+.d-bar em { position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px; margin-left: -1px; background: var(--muted); }
+.d-bar.off { visibility: hidden; }
+.d-delta { margin-left: auto; text-align: right; }
+.d-delta b { font-size: var(--t-title); line-height: 1.1; color: var(--ink); }
+.d-delta.ahead b { color: var(--gain); }
+.d-delta.behind b { color: var(--loss); }
+.race.caution .lap { opacity: .35; }
+
+/* ---------- E: standings ---------- */
+.stand { left: 952px; top: 136px; width: 944px; height: 920px; }
+.row { position: relative; display: grid; grid-template-columns: 96px 112px minmax(0, 1fr) 200px; align-items: center; height: 80px;
+  padding: 0 24px 0 0; border-bottom: 2px solid var(--line); font-size: var(--t-read); white-space: nowrap; }
+.row .p { text-align: center; color: var(--muted); }
+.row .n { display: grid; place-items: center; height: 48px; margin-right: 24px; border-radius: 4px; background: var(--cls, var(--dim));
+  color: var(--gold-ink); font-weight: 600; }
+.row .n.lightink { color: var(--ink); }
+.row .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .iv { text-align: right; color: var(--ink); }
+.row .iv.word { font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; }
+.row .chip { position: absolute; right: 228px; top: 50%; transform: translateY(-50%); padding: 2px 12px; border-radius: 4px;
+  font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); background: var(--muted); color: var(--gold-ink); }
+.row.pit { color: var(--muted); }
+.row.pit .nm, .row.pit .iv { color: var(--muted); }
+.row.me { height: 104px; background: color-mix(in srgb, var(--gold) 14%, transparent); box-shadow: inset 6px 0 0 var(--gold); }
+.row.me .p, .row.me .nm { color: var(--gold); font-size: var(--t-title); font-weight: 600; }
+.row.me .iv { color: var(--gold); }
+.row.ghost { color: var(--gold); background: transparent; box-shadow: inset 0 0 0 2px var(--gold-dim); }
+.row.ghost .nm { color: var(--gold); letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; }
+.row.ghost .p { color: var(--gold); }
+.row.cut { height: 24px; border-bottom: 2px solid var(--line); }
+.row.cut::before { content: ''; }
+.row.head { height: 56px; grid-template-columns: 1fr; padding: 0 24px; font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track);
+  text-transform: uppercase; font-weight: 600; box-shadow: inset 6px 0 0 var(--cls, var(--dim)); }
+.row.lapr { grid-template-columns: 160px minmax(0, 1fr) 240px; padding: 0 24px; }
+.row.lapr .p { text-align: left; }
+.row.lapr .d { text-align: right; }
+.row.lapr .iv, .row.head .n, .row.head .nm, .row.head .iv, .row.cut > span { display: none; }
+.row.head .p { text-align: left; color: var(--muted); }
+.row.lapr .t { text-align: left; }
+.row.lapr.best .t { color: var(--purple); }
+.row.lapr.dirty .t { color: var(--muted); }
+.row.lapr.thead { height: 56px; font-size: var(--t-body); color: var(--muted); letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; }
+.e-empty { padding: 28px 32px; font-size: var(--t-read); color: var(--muted); }
+
+/* ---------- on pit road: B and D fold away, fuel takes the left column ---------- */
+.race.pit .gaps, .race.pit .lap { opacity: 0; visibility: hidden; }
+.race.pit .fuel { top: 136px; height: 920px; display: flex; flex-direction: column; justify-content: center; padding: 0 56px; }
+.race.pit .fuel > label { font-size: var(--t-title); color: var(--gold); letter-spacing: var(--track); }
+.race.pit .c-big { margin-top: 40px; }
+.race.pit .c-line { margin-top: 24px; }
+
+/* ---------- the feed stopped: the screen stays, greyed, and says how long ---------- */
+.race.stale .zone, .race.stale .zone * { color: var(--dim) !important; }
+.race.stale .row.me { background: transparent; box-shadow: inset 6px 0 0 var(--dim); }
+.race.stale .row .n, .race.stale .c-win i, .race.stale .d-bar i { background: var(--dim) !important; }
+.race.stale .a-clock { color: var(--amber) !important; min-width: 0; }
+
+@media (prefers-reduced-motion: reduce) { .zone, .strip, .g-n, .d-bar i { transition: none; } }

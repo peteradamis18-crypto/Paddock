@@ -12,116 +12,17 @@
 <link rel="stylesheet" href="data.css">
 <link rel="stylesheet" href="mydrive.css">
 <link rel="stylesheet" href="home.css">
-<link rel="stylesheet" href="drive.css">
 <link rel="stylesheet" href="keymsg.css">
+<style>#raceHost { position: fixed; inset: 0; z-index: 790; } #raceHost iframe { width: 100%; height: 100%; border: 0; display: block; }</style><!-- under the flag glow (800); HOME hides while it shows -->
 </head>
 <body>
-<header id="strip">
-  <div class="flag" id="flag"><span id="flagTxt">–</span></div>
-  <div class="cell"><label id="sessType">Session</label><b id="sessRemain">–</b><small id="sessSub">&nbsp;</small></div>
-  <div class="cell"><label>Position</label><b><span id="hPos">–</span><em id="hPosOf"></em></b><small id="hCls">&nbsp;</small></div>
-  <div class="cell"><label>Lap</label><b><span id="hLap">–</span><em id="hLapOf"></em></b><small id="hLapSub">&nbsp;</small></div>
-  <div class="cell" id="incBox"><label>Incidents</label><b><span id="hInc">–</span><em id="hIncLim"></em></b><small id="hIncSub">&nbsp;</small></div>
-  <div class="cell" id="fuelBox"><label>Fuel laps</label><b id="hFuel">–</b><small id="hFuelSub">&nbsp;</small></div>
-  <div class="cell" id="wxBox"><label>Track</label><b id="hWet">–</b><small id="hWx">&nbsp;</small></div>
-  <div class="meta">
-    <div class="mrow"><span class="trk" id="trackName">Waiting for iRacing</span><span class="clock" id="clock">–</span><i class="conn" id="conn" title="connection"></i></div>
-    <div class="mrow sub"><span id="trackSub"></span></div>
-    <div class="health" id="health" aria-label="Rig health"></div>
-  </div>
-</header>
-
-<main>
-  <section class="panel" id="pStand">
-    <h2>Standings <span class="sub" id="standSub"></span>
-      <span class="sof" id="sofBox" hidden></span>
-      <button class="chip" id="standMode" title="Class filter">All classes</button></h2>
-    <div class="tbl" id="standings"></div>
-  </section>
-
-  <div class="col">
-    <section class="panel" id="pRel">
-      <h2>Relative <span class="sub" id="relSub"></span></h2>
-      <div class="relwrap">
-        <div class="clr l" id="clrL" aria-hidden="true"><i></i><i></i></div>
-        <div class="rel" id="relative"></div>
-        <div class="clr r" id="clrR" aria-hidden="true"><i></i><i></i></div>
-      </div>
-    </section>
-    <section class="panel" id="pTime">
-      <div class="lapnow">
-        <div class="deltabox"><label id="deltaLbl">Delta to best</label><b id="tDelta">–</b></div>
-        <div class="cur"><label>Current lap</label><b id="tCur">–</b></div>
-      </div>
-      <div class="deltabar"><i id="deltaBar"></i></div>
-      <div class="laprefs">
-        <div><label>Last</label><b id="tLast">–</b></div>
-        <div><label>Best</label><b id="tBest">–</b></div>
-        <div><label>Optimal</label><b id="tOpt">–</b></div>
-        <div><label>Class best</label><b id="tSess">–</b></div>
-      </div>
-      <div class="sectors" id="sectors"></div>
-      <div class="fuel">
-        <div class="fuelbar"><i id="fuelFill"></i><span id="fuelLvl">–</span></div>
-        <div><label>Per lap</label><b id="fPer">–</b></div>
-        <div><label>Race laps left</label><b id="fLeft">–</b></div>
-        <div><label id="fAddLbl">Add to finish</label><b id="fAdd">–</b></div>
-      </div>
-      <div class="laps" id="lapList"></div>
-    </section>
-  </div>
-
-  <div class="col">
-    <section class="panel" id="pMap">
-      <h2>Track <span class="sub" id="mapStatus"></span></h2>
-      <div class="cv" id="mapBox"><canvas id="map"></canvas>
-        <div class="wind" id="wind"><svg viewBox="-20 -20 40 40" aria-hidden="true"><circle r="17" class="wring"/><path id="windArrow" d="M0 -14 L7 4 L0 0 L-7 4 Z"/></svg><span><label>Wind</label><b id="windTxt">–</b></span></div>
-      </div>
-    </section>
-    <section class="panel" id="pCar">
-      <h2>Car <span class="badge" id="limiter">PIT LIMITER</span><span class="sub" id="engWarn"></span></h2>
-      <div class="drive">
-        <div class="gear" id="gear">–</div>
-        <div class="speed"><b id="speed">–</b><span id="speedUnit">km/h</span></div>
-        <div class="rpm"><div class="rpmbar" id="rpmbar"></div><div class="rpmtxt"><b id="rpm">–</b> rpm</div></div>
-      </div>
-      <div class="inputs">
-        <div class="pedals">
-          <div class="pedal"><div class="fill clu" id="barClu"></div><span>C</span></div>
-          <div class="pedal"><div class="fill brk" id="barBrk"></div><span>B</span></div>
-          <div class="pedal"><div class="fill thr" id="barThr"></div><span>T</span></div>
-        </div>
-        <div class="cv trace" id="traceBox"><canvas id="trace"></canvas></div>
-        <div class="wheel"><svg viewBox="-50 -50 100 100" id="wheel"><circle r="40" class="rim"/><line y1="-40" y2="-28" class="mark"/><line x1="-38" x2="-12" class="spoke"/><line x1="12" x2="38" class="spoke"/><line y1="12" y2="38" class="spoke"/></svg><span id="steerDeg">0°</span></div>
-      </div>
-      <div class="carrow">
-        <div class="kv" id="carKv"></div>
-      </div>
-    </section>
-  </div>
-</main>
-
-<!-- Drive v1 (drive.js; design docs\design\drive-v1\spec.md): the in-car "eye-line pit wall". Glance band at the bottom, the complete
-     map upper left (TV VIEW swaps in the broadcast camera there), a 7-row battle tower centred on Peter upper right. -->
-<section id="drive" hidden>
-  <div id="dTop"><span id="dSess"></span><span id="dTrack"></span><span id="dStale" hidden></span><span id="dClock"></span></div>
-  <div id="dMap"><canvas id="dMapCv"></canvas><canvas id="tvHero"></canvas>
-    <div class="tv-live" id="tvLive"><i></i><em>LIVE</em><b id="tvCam">HELICOPTER</b></div><div id="dMapNote"></div></div>
-  <section id="dTower" aria-label="Battle tower"><div id="dTowerHead" class="lbl"><span id="dTowerT"></span><span id="dTowerG"></span></div><div id="dRows"></div></section>
-  <div class="hr"></div>
-  <div id="dBand">
-    <div class="dcell" id="cPos"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
-    <div class="dcell" id="cGap"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
-    <div class="dcell" id="cDelta"><span class="lbl"></span><span class="v"></span><div class="dbar"><i></i><b></b></div><span class="s"></span></div>
-    <div class="dcell" id="cLeft"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
-    <div class="dcell" id="cFuel"><span class="lbl"></span><span class="v"></span><span class="s"></span></div>
-  </div>
-  <div id="dFoot"><span id="dLaps"></span><span id="dRec" hidden><i></i><span></span></span></div>
-</section>
+<!-- THE RACE SCREEN (W2-2; race.html, app/pages/race.js): covers HOME while he drives. ui.js RaceSwitch puts the page in here
+     (after data.js has run, so it borrows this page's one stream) and shows or hides it. -->
+<div id="raceHost" hidden></div>
 <div id="toast" role="status" hidden></div>
 <div id="keyMsg" role="status" aria-live="polite"></div><!-- keymsg.js: what the last deck key did, 4 s, bottom-centre -->
 
-<!-- shown whenever no session is live: covers the whole screen, so no empty race boxes -->
+<!-- HOME: shown whenever he is not driving (the race screen covers it then) -->
 <div id="overlay" class="show">
   <!-- HOME v3 (home.js; design docs\design\home-v3\spec.md): band A the one action, his car, is the rig ready; band B next race,
        last outing and the week's numbers; band C what to watch. Hidden with the rest of #overlay the moment a session is live. -->
@@ -153,13 +54,11 @@
 <script src="pagehost.js"></script><!-- one manager for the pages over the dashboard (Sessions, Vault, Performance) -->
 <script src="nav.js"></script>
 <script src="brief.js"></script>
-<script src="race.js"></script>
 <script src="flaglow.js"></script>
 <script src="perflive.js"></script>
 <script src="vaultlive.js"></script>
 <script src="mydrive.js"></script>
 <script src="intro.js"></script>
-<script src="drive.js"></script>
 <script src="keymsg.js"></script>
 </body>
 </html>
