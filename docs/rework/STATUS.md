@@ -101,3 +101,15 @@ Cards `W3-1.md` (shell + router, Opus), `W3-2.md` (clock + start-up + tones, Opu
 | W3-3 HOME | merged 554efbc, deployed 2026-11-14 12:42; live: "official: Peter's series: Toyota GR86 Cup by SIMAGIC" (his real series, PLAN 9 C1 confirmed), HOME showed the dial with the gold ring nearly closed and NEXT GREEN FLAG 0:02:34 for the 12:45 GR86 Cup race, tomorrow's 18:15 race, MY RACES (yesterday's three, no positions yet: old sidecars), Rig ready, DRIVE | review: 14 findings fixed; home 145/0, official 191/0 on main (the live season.json is there), library 188/0, design-lint 37/0, dead-code 62/0; his series kept in data/official/mine.txt (a wrong one stays until the file is deleted: check the log line live); FIX IT sends doctorcheck |
 | W3-4 Deck | merged c0aec9d, shipped 2026-11-14 13:21: irdeck rebuilt (46 key copies), irdash deployed (kids gate), add-on 1.9.5.0 self-installed in 5 s, deck-refresh "deck is whole" (MAIN 30 keys, MORE 5, LEAVE 5, 40 key exes) | review: 14 findings fixed + BACK at 0,3; deck-layout 55/0, deck-render 21/0, deck-airace 36/0, deck-screens 101/0, deckguard 39/0, deck-behaviour 140/0, deck-refresh 9/0, ailevel 39/0; owed live: tests/deck-v2-live.ps1 (starts the sim; Peter away), HOME/RIG/AI RACE by hand on the real deck |
 | W3-5 Pictures, deck preview, ship | done 2026-11-14 13:21 | shell/HOME/start-up live 12:42, the deck 13:21; contact sheets: HOME and the deck previews to Peter next |
+
+## Wave 4: REVIEW (started 2026-11-14 13:50)
+Facts for the builders: `docs/rework/evidence/15-wave4-facts.md`. Cards `W4-1.md` (the Review engine behind one API, Opus), `W4-2.md` (lib/chart.js + lib/map.js, Opus), `W4-3.md` (screen 1: the card, Opus), `W4-4.md` (screen 2: the laps, Opus), `W4-5.md` (screen 3: MORE DATA trimmed from the workbench, Sonnet), `W4-6.md` (progress + the Pi check, Sonnet); W4-7 is the lead's pictures. The `/api/review` JSON and the Chart/Map APIs are contracts in the cards; stub `review.cs` is in `dash/build.ps1`.
+| Card | State | Notes |
+|---|---|---|
+| W4-1 Review engine | building (Opus, worktree) | /api/review cached, built as a whenFree job; one reference rule; the wording lint |
+| W4-2 chart.js + map.js | building (Opus, worktree) | one trace engine, the readout column, deck zoom; the map wrapper |
+| W4-3 Screen 1: the card | building (Opus, worktree) | three cards, the race story, the plan line |
+| W4-4 Screen 2: the laps | building (Opus, worktree) | the stack, the corner table with definitions, the theoretical best |
+| W4-5 Screen 3: MORE DATA | building (Sonnet, worktree) | DRIVER / RACE / BRAKING / SPLITS; PRO, CAREER, TYRES, SUSPENSION and the Vault detail view go |
+| W4-6 Progress + Pi check | building (Sonnet, worktree) | dots, corner trend, iRating estimate; evidence/16-pi-check.md |
+| W4-7 Pictures, contact sheet | lead | after W4-1..6 |

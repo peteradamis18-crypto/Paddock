@@ -17,6 +17,7 @@ $src += @("$d\src\statebuilder.cs")   # W0-5: the one state push (/state, /strea
 $src += @("$d\src\library.cs", "$d\src\youtube.cs", "$d\src\cuts.cs")   # W1: the RACES library, YouTube sign-in + upload, the trim/chapters/titles rules
 $src += @("$d\src\commentary.cs", "$d\src\addon.cs")   # W1-6 TALK OVER IT; W1-8 the add-on installs itself (no Install click)
 $src += @("$d\src\sdkreader.cs", "$d\src\fuel.cs", "$d\src\pitloss.cs")   # W2: the SDK reader on its own, the fuel / pit-window maths, time lost in the pits
+$src += @("$d\src\review.cs")   # W4-1: the Review engine behind one API (/api/review, traces, corners, progress)
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/out:$tmp\irdash.exe" `
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.Security.dll `
   @src
