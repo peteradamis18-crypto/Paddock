@@ -43,6 +43,11 @@ namespace IRDash
 
         // the test sets this to pretend the disk is nearly full
         public static Func<string, long> FreeBytes = DiskFree;
+        // W1-4 review: the cut runs through the recorder's tool runner (BelowNormal, very low disk priority, killed when a session starts).
+        // args, timeoutMs -> exit code; Yielded = stopped because a session started (the caller queues it again); -1 = timed out. null = run it here.
+        public static Func<string, int, int> Ffmpeg;
+        public static Func<string, int, string> Ffprobe;     // args, timeoutMs -> what it printed, null = it failed (tests); null hook = run it here
+        public const int Yielded = -2;
         static long DiskFree(string dir)
         {
             try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dir))).AvailableFreeSpace; } catch { return long.MaxValue; }
@@ -276,17 +281,22 @@ namespace IRDash
             try
             {
                 if (!File.Exists(inPath)) return "The race video is missing.";
-                if (!File.Exists(ffmpegPath)) return "The video tool is missing.";
+                if (Ffmpeg == null && !File.Exists(ffmpegPath)) return "The video tool is missing.";
                 Directory.CreateDirectory(outDir);
                 if (FreeBytes(outDir) < NeedFreeBytes) return "Not enough space for the cut (needs 10 GB free)";
                 try { if (File.Exists(outPath)) File.Delete(outPath); } catch { }
 
-                string err;
-                int code = Exec(ffmpegPath, FfmpegArgs(inPath, outPath, p), 30 * 60 * 1000, true, out err);
+                string err = "";
+                Func<string, int, int> run = Ffmpeg;
+                int code = run != null ? run(FfmpegArgs(inPath, outPath, p), 30 * 60 * 1000) : Exec(ffmpegPath, FfmpegArgs(inPath, outPath, p), 30 * 60 * 1000, true, out err);
+                if (code == Yielded) { TryDelete(outPath); return "YIELD"; }
+                if (code == -1) { TryDelete(outPath); return "The cut took too long, so it was not used."; }
                 if (code != 0 || !File.Exists(outPath)) { TryDelete(outPath); return "The cut did not work (the video tool stopped)."; }
 
                 string probe;
-                int pc = Exec(ffprobePath, "-v error -show_entries format=duration -of default=nw=1:nk=1 \"" + outPath + "\"", 60 * 1000, false, out probe);
+                string pargs = "-v error -show_entries format=duration -of default=nw=1:nk=1 \"" + outPath + "\"";
+                Func<string, int, string> pr = Ffprobe;
+                int pc; if (pr != null) { probe = pr(pargs, 60 * 1000); pc = probe == null ? 1 : 0; } else pc = Exec(ffprobePath, pargs, 60 * 1000, false, out probe);
                 double got;
                 if (pc != 0 || !double.TryParse((probe ?? "").Trim().Split('\n')[0].Trim(), NumberStyles.Float, Inv, out got))
                 { TryDelete(outPath); return "The cut could not be checked, so it was not used."; }

@@ -9,19 +9,27 @@
 const Q = new URLSearchParams(location.search), DRY = Q.get('dry') === '1', FIXTURE = Q.get('fixture') || '', THUMBS = Q.get('thumbs') || '';
 window.racesDone = [];
 const $ = id => document.getElementById(id);
-const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
 const mmss = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x; };
 const TOAST_MS = 8000;
+const HAS_DATA = typeof data !== 'undefined' && data && typeof data.on === 'function';
 
-// the one state line of a card, from state.kind (the server's words for failed / offline / sign-in)
-function stateLine(r) {
+// a failure or a wait in a few words for the card (the open card shows the server's whole sentence)
+function shortWhy(text) {
+  const t = String(text || '');
+  if (/upload limit|daily limit/i.test(t)) return 'YouTube limit: trying again after 9';
+  if (/no internet/i.test(t)) return 'No internet, waiting';
+  return t.split(/\.\s/)[0].replace(/\.$/, '') || 'Could not share it';
+}
+// the one state line, from state.kind. full = the open card (the whole sentence)
+function stateLine(r, full) {
   const s = r.state || { kind: 'none' };
   switch (s.kind) {
-    case 'queued': return { text: 'Waiting to share', cls: 'wait' };
+    case 'queued': return s.error ? { text: full ? s.error : shortWhy(s.error), cls: 'wait' } : { text: 'Waiting to share', cls: 'wait' };
     case 'sharing': return { text: 'Sharing ' + (s.pct | 0) + '%', cls: 'wait' };
     case 'shared': return s.privacy === 'public' ? { text: 'On YouTube', cls: 'done' } : { text: 'On YouTube (private)', cls: 'done' };
-    case 'failed': return { text: s.error || 'Could not share it', cls: 'bad' };
+    case 'failed': return { text: full ? (s.error || 'Could not share it') : shortWhy(s.error), cls: 'bad' };
     case 'signin': return { text: 'Sign in to YouTube', cls: 'key', act: 'signin' };
     case 'offline': return { text: 'No internet, waiting', cls: 'wait' };
   }
@@ -29,6 +37,10 @@ function stateLine(r) {
 }
 const isShared = r => r.state && r.state.kind === 'shared';
 const busySharing = r => r.state && /^(queued|sharing|offline|signin)$/.test(r.state.kind);
+const canShare = r => !isShared(r) && !busySharing(r);
+function stateHtml(s) {
+  return s.act ? '<button type="button" class="state key" data-act="signin">' + esc(s.text) + '</button>' : '<div class="state ' + s.cls + '">' + esc(s.text) + '</div>';
+}
 
 // "Toyota GR86 · 21 min · 10 laps · best 1:33.832 · 1.1 GB" (best 0 = no lap iRacing counted)
 function facts(r) {
@@ -44,8 +56,9 @@ function facts(r) {
 const thumbUrl = r => THUMBS ? THUMBS + encodeURIComponent(r.id) + '.jpg' : '/api/library/thumb?id=' + encodeURIComponent(r.id) + '&w=600';
 
 const Races = {
-  data: null, failed: false, tab: 'races', ticks: new Set(), lastTick: '', hidden: new Set(), openId: '', picker: false,
-  seenOnline: false, wasDriving: null, wasOffline: null, toastTimer: 0, signinWanted: false,
+  data: null, failed: false, tab: 'races', ticks: new Set(), lastTick: '', openId: '', picker: false,
+  deleting: new Set(), goneDry: new Set(),      // cards hidden while their DELETE is on its way (and, in ?dry=1, for good)
+  seenOnline: false, wasDriving: null, wasOffline: null, toastTimer: 0, undoTimer: 0, undoIds: null, signinWanted: false, sharing: false,
 
   init() {
     document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => this.setTab(b.dataset.tab)));
@@ -61,7 +74,7 @@ const Races = {
     $('freeRow').addEventListener('click', e => { if (e.target.closest('[data-act="free"]')) this.freeUp(); });
     $('open').addEventListener('click', e => this.openClick(e));
     $('titles').addEventListener('click', e => this.pickerClick(e));
-    $('toast').addEventListener('click', e => { const b = e.target.closest('[data-act="undo"]'); if (b) this.undo(b.dataset.batch); });
+    $('undo').addEventListener('click', e => { const b = e.target.closest('[data-act="undo"]'); if (b) this.undo(b.dataset.batch); });
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
       if (this.picker) this.showPicker(false);
@@ -69,23 +82,24 @@ const Races = {
       else if (this.ticks.size) this.clearTicks();
       else if (window.parent !== window) window.parent.postMessage({ irdash: 'races-close' }, location.origin);
     });
-    if (typeof data !== 'undefined') {
+    if (HAS_DATA) {
       // W0-5: no timer. The list loads again when irdash says it changed; the rig's state (driving, online) comes on the push.
-      data.onList('races', () => this.load());
+      if (data.onList) data.onList('races', () => this.load());
       data.on('state', () => this.rigChanged());
-      if (data.on) data.on('online', () => this.rigChanged());
+      data.on('online', () => this.rigChanged());
     }
     this.rigChanged();
     this.load();
   },
 
-  rig() { return typeof data !== 'undefined' && data.rig ? data.rig : { driving: false, online: true }; },
+  rig() { return HAS_DATA && data.rig ? data.rig : { driving: false, online: true }; },
   rigChanged() {
     const r = this.rig();
     if (r.online) this.seenOnline = true;
     const driving = !!r.driving, offline = this.failed || (this.seenOnline && !r.online);
     if (driving === this.wasDriving && offline === this.wasOffline) return;
     this.wasDriving = driving; this.wasOffline = offline;
+    if (driving) { this.hideToast(); this.hideUndo(); }
     this.draw();
   },
 
@@ -95,12 +109,16 @@ const Races = {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       this.data = await r.json(); this.failed = false;
     } catch (e) { this.failed = true; }
+    // ticks of races that are gone (deleted from the deck, say) go too
+    const ids = new Set(this.races().map(r => r.id));
+    [...this.ticks].forEach(id => { if (!ids.has(id)) this.ticks.delete(id); });
     this.wasOffline = null; this.rigChanged();
     this.draw();
   },
 
-  // newest first (the server sends them so; sorted again so a card put back by UNDO lands in its place)
-  races() { return ((this.data && this.data.races) || []).filter(r => !this.hidden.has(r.id)).sort((a, b) => (b.startMs || 0) - (a.startMs || 0)); },
+  // newest first (the server sends them so; sorted again so a card put back by UNDO lands in its place). The list is what irdash
+  // says, minus only the cards whose DELETE is still on its way: a refusal or an UNDO from the deck shows on the next load.
+  races() { return ((this.data && this.data.races) || []).filter(r => !this.deleting.has(r.id) && !this.goneDry.has(r.id)).sort((a, b) => (b.startMs || 0) - (a.startMs || 0)); },
   shown() {
     const all = this.races();
     return this.tab === 'all' ? all : this.tab === 'pq' ? all.filter(r => !r.isRace) : all.filter(r => r.isRace);
@@ -108,9 +126,10 @@ const Races = {
   find(id) { return this.races().find(r => r.id === id); },
   youtube() { return (this.data && this.data.youtube) || { signedIn: false, privacy: 'private', template: 1 }; },
 
+  // a tab shows other cards: the ticks go, so DELETE never takes a race he cannot see
   setTab(t) {
-    this.tab = t;
-    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    this.tab = t; this.ticks.clear(); this.lastTick = '';
+    document.querySelectorAll('.tab').forEach(b => { const on = b.dataset.tab === t; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
     this.draw();
   },
 
@@ -127,6 +146,7 @@ const Races = {
     this.drawBanner();
     this.drawOpen();
     this.drawPicker();
+    $('toast').classList.toggle('up', !$('undo').hidden);
   },
 
   drawHeader() {
@@ -139,12 +159,13 @@ const Races = {
       $('trashBit').hidden = !((st.trashGb || 0) >= 1);
       $('trashGb').textContent = (st.trashGb | 0) + ' GB';
     } else { $('storeLine').innerHTML = '&nbsp;'; $('trashBit').hidden = true; $('storeFill').style.width = '0'; }
+    $('storeBar').hidden = !st || !(st.usedGb >= 1);          // nothing used: no empty bar
     const fr = $('freeRow');
     if (st && st.lowSpace) {
       const fu = st.freeUp || { count: 0, gb: 0 };
       fr.innerHTML = fu.count > 0
         ? '<button type="button" class="btn gold" data-act="free">Free up space: delete the ' + (fu.count === 1 ? 'oldest shared race' : fu.count + ' oldest shared races') + ' (' + Math.max(1, Math.round(fu.gb)) + ' GB)</button>'
-        : '<span class="muted">The disk is nearly full. Nothing shared yet to free.</span>';
+        : '<span class="muted">The disk is nearly full. Share some races, then FREE UP SPACE can delete the shared ones.</span>';
       fr.hidden = false;
     } else fr.hidden = true;
     $('selShared').hidden = !this.shown().some(isShared);
@@ -156,27 +177,26 @@ const Races = {
   drawGrid() {
     const g = $('grid'), show = this.shown();
     g.classList.toggle('selecting', this.ticks.size > 0);
-    if (!this.data) { g.innerHTML = this.failed ? '' : ''; return; }
+    if (!this.data) { g.innerHTML = ''; return; }
     if (!show.length) {
-      g.innerHTML = '<div class="empty">' + (this.races().length === 0 || this.tab === 'races'
-        ? (this.tab === 'pq' ? 'No practice or qualifying recorded.' : 'No races yet. Every race longer than 5 minutes lands here by itself.')
-        : this.tab === 'pq' ? 'No practice or qualifying recorded.' : 'Nothing recorded yet.') + '</div>';
+      g.innerHTML = '<div class="empty">' + (this.tab === 'pq' ? 'No practice or qualifying recorded.'
+        : this.tab === 'all' && this.races().length === 0 ? 'Nothing recorded yet.'
+        : 'No races yet. Every race longer than 5 minutes lands here by itself.') + '</div>';
       return;
     }
     g.innerHTML = show.map(r => {
-      const id = esc(r.id), on = this.ticks.has(r.id), s = stateLine(r);
+      const id = esc(r.id), on = this.ticks.has(r.id);
       const kind = r.isRace ? '' : ' · ' + esc(Fmt.sessionName(r.type));
       return '<article class="card' + (on ? ' on' : '') + (r.thumb ? '' : ' nothumb') + '" data-id="' + id + '">' +
         (r.thumb ? '<img class="pic" alt="" loading="lazy" src="' + esc(thumbUrl(r)) + '" onerror="this.parentNode.classList.add(\'nothumb\');this.remove()">' : '') +
         '<div class="shade"></div>' +
         '<button type="button" class="tick" data-act="tick" aria-pressed="' + on + '" aria-label="Tick this race"><i></i></button>' +
-        '<div class="when">' + esc(Fmt.whenRel(r.startMs)) + kind + '</div>' +
-        (r.kept ? '<span class="tag">Kept</span>' : '') +
+        '<div class="top"><span class="when">' + esc(Fmt.whenRel(r.startMs)) + kind + '</span>' + (r.kept ? '<span class="tag">Kept</span>' : '') + '</div>' +
+        '<button type="button" class="btn gold open" data-act="open">Open</button>' +
         '<div class="info">' +
         '<div class="track">' + esc(r.track) + '</div>' +
-        '<div class="facts">' + facts(r) + '</div></div>' +
-        '<div class="foot">' + (s.act ? '<button type="button" class="state key" data-act="signin">' + esc(s.text) + '</button>' : '<div class="state ' + s.cls + '">' + esc(s.text) + '</div>') +
-        '<button type="button" class="btn gold open" data-act="open">Open</button></div>' +
+        '<div class="facts">' + facts(r) + '</div>' +
+        stateHtml(stateLine(r, false)) + '</div>' +
         '</article>';
     }).join('');
   },
@@ -186,8 +206,9 @@ const Races = {
     bar.hidden = n === 0 || !!this.openId;
     document.body.classList.toggle('selecting', n > 0);
     if (!n) return;
-    $('barCount').textContent = plural(n, 'race') + ' ticked';
-    const shareable = [...this.ticks].filter(id => { const r = this.find(id); return r && !isShared(r) && !busySharing(r); }).length;
+    const picked = [...this.ticks].map(id => this.find(id)).filter(Boolean);
+    const shareable = picked.filter(canShare).length, onYt = picked.filter(isShared).length;
+    $('barCount').textContent = plural(n, 'race') + ' ticked' + (onYt ? ' · ' + onYt + ' already on YouTube' : '');
     $('barShare').textContent = 'Share to YouTube (' + shareable + ')';
     $('barShare').disabled = shareable === 0;
     $('barDelete').textContent = 'Delete (' + n + ')';
@@ -200,7 +221,7 @@ const Races = {
     const wantShare = this.ticks.size > 0 || !!this.openId || this.signinWanted;
     if (this.data && !yt.signedIn && wantShare) {
       b.className = 'banner signin';
-      b.innerHTML = '<span>YouTube is not signed in yet. Sign in once and the races you share go up by themselves.</span>' +
+      b.innerHTML = '<span>YouTube is not signed in yet. Sign in once, then press SHARE and the race goes up by itself.</span>' +
         '<button type="button" class="btn gold" data-act="signin">' + (yt.signingIn ? 'Sign-in is open in the browser' : 'Sign in to YouTube') + '</button>';
       b.hidden = false;
       // the open card sits over the page: the banner goes on top of it
@@ -213,13 +234,16 @@ const Races = {
   drawOpen() {
     const o = $('open'), r = this.openId ? this.find(this.openId) : null;
     if (!r) { o.hidden = true; if (this.openId) this.openId = ''; return; }
-    const s = stateLine(r), shared = isShared(r), canShare = !shared && !busySharing(r);
+    const s = stateLine(r, true);
     const total = r.sec > 0 ? r.sec : Math.max(1, ...(r.markers || []).map(m => m.sec));
     const marks = (r.markers || []).slice().sort((a, b) => a.sec - b.sec);
     const dots = marks.map(m => '<i class="dot k-' + esc(m.kind) + '" style="left:' + Math.max(0, Math.min(100, 100 * m.sec / total)).toFixed(2) + '%"></i>').join('');
     const chips = marks.map(m => '<li class="chip k-' + esc(m.kind) + '"><b>' + mmss(m.sec) + '</b> ' + esc(m.label) + '</li>').join('');
-    const url = shared && r.state.url ? r.state.url : '';
+    const url = isShared(r) && r.state.url ? r.state.url : '';
     const kind = r.isRace ? '' : ' · ' + esc(Fmt.sessionName(r.type));
+    // shared or on its way: a plain label where the key was (a dim key reads as broken)
+    const shareKey = canShare(r) ? '<button type="button" class="btn gold" data-act="share">Share to YouTube</button>'
+      : '<div class="keylabel ' + (isShared(r) ? 'done' : 'wait') + '">' + (isShared(r) ? 'On YouTube' : 'Waiting to share') + '</div>';
     o.innerHTML =
       '<div class="o-top"><button type="button" class="btn" data-act="close">Back to all races</button></div>' +
       '<div class="o-main">' +
@@ -231,13 +255,13 @@ const Races = {
           '<div class="o-car">' + esc(r.car) + '</div>' +
           '<div class="o-line">' + Fmt.dur(r.sec) + ' · ' + plural(r.laps || 0, 'lap') + (r.counted ? ' · ' + r.counted + ' counted' : '') + '</div>' +
           '<div class="o-line">' + (r.best > 0 ? 'Best lap <b>' + Fmt.lap(r.best) + '</b>' + (r.bestLap ? ' (lap ' + r.bestLap + ')' : '') : 'No clean lap') + ' · ' + Fmt.size((r.mb || 0) * 1048576) + '</div>' +
-          (s.act ? '<button type="button" class="state key" data-act="signin">' + esc(s.text) + '</button>' : '<div class="state ' + s.cls + '">' + esc(s.text) + '</div>') +
+          stateHtml(s) +
           (url ? '<div class="o-link"><input id="linkField" readonly value="' + esc(url) + '" aria-label="YouTube link"><button type="button" class="btn" data-act="copy">Copy link</button></div>' : '') +
         '</div>' +
       '</div>' +
       '<div class="o-keys">' +
         '<button type="button" class="btn" data-act="watch">Watch</button>' +
-        '<button type="button" class="btn gold" data-act="share"' + (canShare ? '' : ' disabled') + '>Share to YouTube</button>' +
+        shareKey +
         '<div class="soon"><button type="button" class="btn" disabled>Talk over it</button><span>Comes with the commentary update</span></div>' +
         '<button type="button" class="btn" data-act="review">Review</button>' +
         '<button type="button" class="btn danger" data-act="delete">Delete</button>' +
@@ -252,7 +276,7 @@ const Races = {
     const t = (this.data && this.data.titles) || [], cur = this.youtube().template || 1, curT = t[cur - 1] || '';
     // each look once: with no finishing place known, two templates read the same (2 falls back to 1)
     const rows = []; t.forEach((x, i) => { if (x && !rows.some(r => r.t === x)) rows.push({ n: i + 1, t: x }); });
-    p.innerHTML = '<div class="o-top"><button type="button" class="btn" data-act="close">Back</button></div>' +
+    p.innerHTML = '<div class="o-top"><button type="button" class="btn" data-act="close">Back to all races</button></div>' +
       '<h2>How your races are named on YouTube</h2><p class="muted">Press one. Every race you share gets a name like it.</p>' +
       '<ol class="pick">' + rows.map(x => '<li><button type="button" class="pick-row' + (x.t === curT ? ' on' : '') + '" data-n="' + x.n + '">' +
         '<span>' + esc(x.t) + '</span>' + (x.t === curT ? '<em>In use</em>' : '') + '</button></li>').join('') + '</ol>';
@@ -314,7 +338,7 @@ const Races = {
       return { ok: true, json: { ok: true, say: '' } };
     }
     try {
-      const f = typeof data !== 'undefined' && data.fetch ? data.fetch : fetch;
+      const f = HAS_DATA && data.fetch ? data.fetch : fetch;
       const r = await f(url, { cache: 'no-store' }), t = await r.text();
       let j = null; try { j = JSON.parse(t); } catch (e) { j = { say: r.status === 409 ? this.notNow(c) : t.length < 200 ? t : '' }; }
       return { ok: r.ok, status: r.status, json: j || {} };
@@ -331,46 +355,52 @@ const Races = {
 
   async del(ids) {
     ids = ids.filter(id => this.find(id)); if (!ids.length) return;
-    // the cards leave at once; the server's answer brings them back if it could not
-    ids.forEach(id => this.hidden.add(id));
+    // the cards leave at once; what irdash then lists decides (a race it could not move comes back)
+    ids.forEach(id => this.deleting.add(id));
     this.ticks.clear(); this.openId = ''; this.draw();
     const r = await this.cmd('racetrash', ids.join('|'));
+    ids.forEach(id => this.deleting.delete(id));
+    if (DRY && r.ok) ids.forEach(id => this.goneDry.add(id));
     if (r.ok && r.json.batch) {
-      this.toast(esc(r.json.say || ('Deleted ' + plural(ids.length, 'race'))) + ' · <button type="button" class="undo" data-act="undo" data-batch="' + esc(r.json.batch) + '">Undo</button>', false, ids);
-    } else {
-      ids.forEach(id => this.hidden.delete(id)); this.draw();
-      this.toast(esc(r.json.say || 'Could not delete that.'), true);
-    }
+      this.showUndo(r.json.say || ('Deleted ' + plural(ids.length, 'race')), r.json.batch, ids);
+      if (/not deleted/i.test(r.json.say || '')) this.toast(esc(r.json.say), true);
+    } else this.toast(esc(r.json.say || 'Could not delete that.'), true);
+    if (!DRY) await this.load(); else this.draw();
   },
   async undo(batch) {
-    const ids = this.toastIds || [];
-    this.hideToast();
+    const ids = this.undoIds || [];
+    this.hideUndo();
     const r = await this.cmd('raceundo', batch);
-    if (r.ok) { ids.forEach(id => this.hidden.delete(id)); this.draw(); this.toast(esc(r.json.say || 'Back again')); if (!DRY) this.load(); }
+    if (r.ok) { ids.forEach(id => this.goneDry.delete(id)); this.toast(esc(r.json.say || 'Back again')); }
     else this.toast(esc(r.json.say || 'Could not undo.'), true);
+    if (!DRY) await this.load(); else this.draw();
   },
 
   async share(ids) {
-    ids = ids.filter(id => { const r = this.find(id); return r && !isShared(r) && !busySharing(r); });
+    if (this.sharing) return;                       // a second click before the answer is the same press
+    ids = ids.filter(id => { const r = this.find(id); return r && canShare(r); });
     if (!ids.length) return this.toast('Already on YouTube');
-    const r = await this.cmd('raceshare', ids.join('|'));
-    if (r.ok) {
-      // the card says "Waiting to share" at once; the next list from irdash carries the real state
-      ids.forEach(id => { const x = this.find(id); if (x && (!x.state || x.state.kind === 'none' || x.state.kind === 'failed')) x.state = { kind: 'queued', pct: 0 }; });
-      this.ticks.clear();
-      if (r.json.signin) this.signinWanted = true;
+    this.sharing = true;
+    try {
+      const r = await this.cmd('raceshare', ids.join('|'));
+      if (r.json.signin) this.signinWanted = true;   // not signed in: nothing was cut; the banner's key comes first
+      if (r.ok && !r.json.signin) {
+        // the card says "Waiting to share" at once; the next list from irdash carries the real state
+        ids.forEach(id => { const x = this.find(id); if (x && canShare(x)) x.state = { kind: 'queued', pct: 0 }; });
+        this.ticks.clear();
+      }
       this.draw();
-    }
-    this.toast(esc(r.json.say || (r.ok ? 'Sharing ' + plural(ids.length, 'race') : 'Could not share that.')), !r.ok);
+      this.toast(esc(r.json.say || (r.ok ? 'Sharing ' + plural(ids.length, 'race') : 'Could not share that.')), !r.ok && !r.json.signin);
+    } finally { this.sharing = false; }
   },
 
   async watch(id) {
     const r = await this.cmd('racewatch', id);
-    this.toast(r.ok ? 'Playing on the middle screen.' : r.status === 409 && r.json.say ? esc(r.json.say) : 'Could not play that one.', !r.ok);
+    this.toast(r.ok ? 'Playing on the middle screen.' : esc(r.json.say || 'Could not play that one.'), !r.ok);
   },
 
-  // REVIEW: the Sessions page (the REVIEW door comes in wave 4; it cannot open one drive by its video yet)
-  review() { location.href = 'sessions.html?embed=1'; },
+  // REVIEW: the Sessions page for now; the REVIEW door (wave 4) opens the drive from at=<startMs>
+  review(r) { location.href = 'sessions.html?embed=1&at=' + encodeURIComponent(r.startMs || 0); },
 
   copy() {
     const f = $('linkField'); if (!f) return;
@@ -406,13 +436,22 @@ const Races = {
     this.toast(esc(r.json.say || (r.ok ? 'Space freed' : 'Nothing freed.')), !r.ok);
   },
 
-  // ---------------- the toast (8 s) ----------------
-  toast(html, bad, ids) {
+  // ---------------- messages: the UNDO note keeps its own 8 s; other messages sit above it; none while driving ----------------
+  showUndo(say, batch, ids) {
+    if (this.wasDriving) return;
+    const u = $('undo');
+    u.innerHTML = '<span>' + esc(say) + '</span><button type="button" class="undo" data-act="undo" data-batch="' + esc(batch) + '">Undo</button>';
+    u.hidden = false; this.undoIds = ids;
+    clearTimeout(this.undoTimer); this.undoTimer = setTimeout(() => this.hideUndo(), TOAST_MS);
+    $('toast').classList.add('up');
+  },
+  hideUndo() { $('undo').hidden = true; this.undoIds = null; clearTimeout(this.undoTimer); $('toast').classList.remove('up'); },
+  toast(html, bad) {
+    if (this.wasDriving) return;
     const t = $('toast');
-    t.innerHTML = html; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false;
-    this.toastIds = ids || null;
+    t.innerHTML = html; t.className = 'toast' + (bad ? ' bad' : '') + ($('undo').hidden ? '' : ' up'); t.hidden = false;
     clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => this.hideToast(), TOAST_MS);
   },
-  hideToast() { $('toast').hidden = true; this.toastIds = null; clearTimeout(this.toastTimer); },
+  hideToast() { $('toast').hidden = true; clearTimeout(this.toastTimer); },
 };
 Races.init();

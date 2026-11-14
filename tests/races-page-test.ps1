@@ -45,10 +45,11 @@ $races = @(
   (Race 'r3' ($now - 2 * $d) '{"kind":"sharing","pct":41}' -thumb -track 'Road America' -car 'Porsche 718 Cayman GT4 Clubsport MR'),
   (Race 'r4' ($now - 3 * $d) '{"kind":"shared","pct":100,"privacy":"private","url":"https://youtu.be/abc123"}' -thumb -markers $mk),
   (Race 'r5' ($now - 4 * $d) '{"kind":"shared","pct":100,"privacy":"public","url":"https://youtu.be/def456"}' -thumb -track 'Lime Rock Park'),
-  (Race 'r6' ($now - 5 * $d) ('{"kind":"failed","error":"YouTube says today''s upload limit is reached. I''ll try again after 9 in the morning"}') -thumb),
+  (Race 'r6' ($now - 5 * $d) ('{"kind":"queued","pct":0,"error":"YouTube''s daily limit is reached. Trying again after 9 in the morning"}') -thumb),
   (Race 'r7' ($now - 6 * $d) '{"kind":"signin","error":"Sign in to YouTube again"}' -track 'Okayama'),
   (Race 'r8' ($now - 7 * $d) '{"kind":"offline","error":"No internet, waiting"}' -track 'Summit Point'),
   (Race 'r9' ($now - 8 * $d) '{"kind":"none"}' -best 0 -track 'Oulton Park'),
+  (Race 'r10' ($now - 9 * $d) '{"kind":"failed","error":"YouTube turned the video down. Press SHARE to try again."}' -track 'Brands Hatch \"GP\" & Indy''s <b>'),
   (Race 'p1' ($now - 2 * $h) '{"kind":"none"}' -type 'Practice' -thumb),
   (Race 'p2' ($now - 3 * $h) '{"kind":"none"}' -type 'Lone Qualify'))
 $titles = '["Toyota GR86 at Road Atlanta · 13 Nov 2026","Toyota GR86 at Road Atlanta · 13 Nov 2026","Road Atlanta in the Toyota GR86","Road Atlanta Toyota GR86 full race · 13 Nov 2026","Full race: Road Atlanta (Toyota GR86)"]'
@@ -70,11 +71,15 @@ window.fetch = (url) => { url = String(url); window.__req.push(url);
   if (/^\/api\/library$/.test(url)) return j(JSON.parse(JSON.stringify(window.__fx)));
   const m = /^\/api\/do\?c=([a-z]+)(?:&a=(.*))?$/.exec(url); if (!m) return j('{}', 404);
   const c = m[1], a = decodeURIComponent(m[2] || ''), ids = a.split('|').filter(Boolean);
-  if (c === 'racetrash') { const gone = window.__fx.races.filter(r => ids.includes(r.id)); window.__fx.races = window.__fx.races.filter(r => !ids.includes(r.id)); window.__trash.b1 = gone;
-    return j({ batch: 'b1', count: gone.length, mb: 2202, say: 'Deleted ' + gone.length + ' race' + (gone.length === 1 ? '' : 's') }); }
+  if (c === 'racetrash') { const busy = ids.filter(id => (window.__inUse || []).includes(id)), go = ids.filter(id => !busy.includes(id));
+    const gone = window.__fx.races.filter(r => go.includes(r.id)); window.__fx.races = window.__fx.races.filter(r => !go.includes(r.id)); window.__trash.b1 = gone;
+    if (!gone.length) return j({ batch: '', count: 0, mb: 0, say: 'Not deleted: it is in use. Try again in a minute' }, 409);
+    return j({ batch: 'b1', count: gone.length, mb: 2202, say: 'Deleted ' + gone.length + ' race' + (gone.length === 1 ? '' : 's') + (busy.length ? '. ' + busy.length + ' not deleted: it is in use. Try again in a minute' : '') }); }
   if (c === 'raceundo') { const back = window.__trash[a] || []; window.__fx.races = window.__fx.races.concat(back).sort((x, y) => y.startMs - x.startMs); delete window.__trash[a];
     return back.length ? j({ ok: true, count: back.length, say: back.length + ' races are back' }) : j({ ok: false, count: 0, say: 'Nothing to undo' }, 409); }
-  if (c === 'raceshare') return j({ ok: true, count: ids.length, already: 0, signin: !window.__fx.youtube.signedIn, say: window.__fx.youtube.signedIn ? 'Sharing ' + ids.length + ' races' : 'Sign in to YouTube first' });
+  if (c === 'raceshare') { const ans = window.__fx.youtube.signedIn ? j({ ok: true, count: ids.length, already: 0, signin: false, say: 'Sharing ' + ids.length + ' races' })
+      : j({ ok: false, count: 0, already: 0, signin: true, say: 'Sign in to YouTube first' }, 409);
+    return new Promise(res => setTimeout(() => res(ans), 300)); }      // a slow answer: a second click lands before it
   if (c === 'ytprivacy') return j({ ok: true, privacy: a, say: a === 'public' ? 'New uploads are public' : 'New uploads are private' });
   if (c === 'yttemplate') return j({ ok: true, template: +a, say: 'Titles will look like this from now on' });
   if (c === 'ytsignin') return j({ ok: true, say: 'Google sign-in opened in the browser' });
@@ -94,7 +99,7 @@ $run = @'
   const $ = id => document.getElementById(id);
   const card = id => document.querySelector('.card[data-id="' + id + '"]');
   const cards = () => [...document.querySelectorAll('.card')].map(c => c.dataset.id);
-  const facts = id => card(id).querySelector('.facts').textContent.replace(/ /g, ' ');
+  const facts = id => card(id).querySelector('.facts').textContent.replace(/\u00a0/g, ' ');
   const state = id => { const s = card(id) && card(id).querySelector('.state'); return s ? s.textContent : '(none)'; };
   const vis = el => !!el && !el.hidden && el.getClientRects().length > 0;
   const req = () => window.__req.slice();
@@ -102,12 +107,17 @@ $run = @'
   const click = (el, shift) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: !!shift }));
   const tick = (id, shift) => click(card(id).querySelector('.tick'), shift);
   const toast = () => vis($('toast')) ? $('toast').textContent : '';
+  const undoNote = () => vis($('undo')) ? $('undo').querySelector('span').textContent : '';
+  const tabOn = () => [...document.querySelectorAll('.tab.on')].map(b => b.dataset.tab).join(',');
   await sleep(600);
 
   // 1. state lines
   const want = { r1: 'Not shared', r2: 'Waiting to share', r3: 'Sharing 41%', r4: 'On YouTube (private)', r5: 'On YouTube',
-    r6: "YouTube says today's upload limit is reached. I'll try again after 9 in the morning", r7: 'Sign in to YouTube', r8: 'No internet, waiting', r9: 'Not shared' };
+    r6: 'YouTube limit: trying again after 9', r7: 'Sign in to YouTube', r8: 'No internet, waiting', r9: 'Not shared', r10: 'YouTube turned the video down' };
   for (const id in want) ok('1. ' + id + ' says "' + want[id] + '"', state(id) === want[id], state(id));
+  ok('1. the daily limit is gold (waiting), a failure red', card('r6').querySelector('.state').classList.contains('wait') && card('r10').querySelector('.state').classList.contains('bad'));
+  ok('1. the state line is the 36 px token, date and facts 24', getComputedStyle(card('r1').querySelector('.state')).fontSize === '36px' && getComputedStyle(card('r1').querySelector('.when')).fontSize === '24px' && getComputedStyle(card('r1').querySelector('.facts')).fontSize === '24px', getComputedStyle(card('r1').querySelector('.state')).fontSize);
+  ok('1. the state line stays on one line', cards().every(id => card(id).querySelector('.state').getBoundingClientRect().height < 50));
   ok('1. the sign-in line is one key', card('r7').querySelector('.state').tagName === 'BUTTON');
   window.__req.length = 0; click(card('r7').querySelector('.state')); await sleep(150);
   ok('1. pressing it sends ytsignin', cmds().join(' ') === '/api/do?c=ytsignin', cmds().join(' '));
@@ -118,26 +128,31 @@ $run = @'
   ok('1. every card has one OPEN and one tick box', cards().every(id => card(id).querySelectorAll('[data-act="open"]').length === 1 && card(id).querySelectorAll('.tick').length === 1));
   ok('1. a picture when thumb is true, the track name when not', !!card('r1').querySelector('img.pic') && !card('r2').querySelector('img') && card('r2').classList.contains('nothumb'));
   ok('1. the picture is the thumbnail of that race', /r1\.jpg$/.test(card('r1').querySelector('img.pic').getAttribute('src')));
+  ok('1. a track name with quotes, & and <b> shows as written (no markup)', card('r10').querySelector('.track').textContent === 'Brands Hatch "GP" & Indy\'s <b>' && !card('r10').querySelector('.track b'), card('r10').querySelector('.track').innerHTML);
 
   // 2. tabs
-  ok('2. RACES shows the races only, newest first', cards().join(',') === 'r1,r2,r3,r4,r5,r6,r7,r8,r9', cards().join(','));
+  ok('2. RACES shows the races only, newest first; its tab is the gold one', cards().join(',') === 'r1,r2,r3,r4,r5,r6,r7,r8,r9,r10' && tabOn() === 'races', cards().join(',') + ' / ' + tabOn());
   click(document.querySelector('.tab[data-tab="pq"]')); await sleep(50);
-  ok('2. PRACTICE & QUALIFYING shows the other two', cards().join(',') === 'p1,p2', cards().join(','));
+  ok('2. PRACTICE & QUALIFYING shows the other two, and only its tab is gold', cards().join(',') === 'p1,p2' && tabOn() === 'pq', cards().join(',') + ' / ' + tabOn());
   ok('2. a practice says what it is', /Practice/.test(card('p1').querySelector('.when').textContent));
   click(document.querySelector('.tab[data-tab="all"]')); await sleep(50);
-  ok('2. ALL shows all 11, newest first', cards().length === 11 && cards()[0] === 'r1' && cards()[1] === 'p1', cards().join(','));
+  ok('2. ALL shows all 12, newest first; only ALL is gold', cards().length === 12 && cards()[0] === 'r1' && cards()[1] === 'p1' && tabOn() === 'all', cards().join(','));
   click(document.querySelector('.tab[data-tab="races"]')); await sleep(50);
 
   // 3. select mode
   ok('3. no bar before a tick', !vis($('bar')));
   window.__req.length = 0;
   tick('r1'); await sleep(50);
-  ok('3. one tick: the bar shows', vis($('bar')) && $('bar').offsetHeight === 120, $('bar').offsetHeight);
+  ok('3. one tick: the bar shows, 120 px', vis($('bar')) && $('bar').offsetHeight === 120, $('bar').offsetHeight);
   ok('3. the bar says 1 race, Share to YouTube (1), Delete (1)', $('barCount').textContent === '1 race ticked' && $('barShare').textContent === 'Share to YouTube (1)' && $('barDelete').textContent === 'Delete (1)', $('bar').textContent);
   tick('r4', true); await sleep(50);
   ok('3. SHIFT-click ticks the range r1..r4', ['r1', 'r2', 'r3', 'r4'].every(id => card(id).classList.contains('on')) && !card('r5').classList.contains('on'));
-  ok('3. the counts follow: Delete (4); Share counts only those not already sharing or shared (1)', $('barDelete').textContent === 'Delete (4)' && $('barShare').textContent === 'Share to YouTube (1)', $('bar').textContent);
-  click($('barCancel')); await sleep(50);
+  ok('3. the counts follow: "4 races ticked · 1 already on YouTube", Delete (4), Share (1)', $('barCount').textContent === '4 races ticked · 1 already on YouTube' && $('barDelete').textContent === 'Delete (4)' && $('barShare').textContent === 'Share to YouTube (1)', $('bar').textContent);
+  click(document.querySelector('.tab[data-tab="pq"]')); await sleep(50);
+  ok('3. a tab switch clears the ticks: no bar, nothing ticked anywhere', !vis($('bar')) && !document.querySelector('.card.on'));
+  click(document.querySelector('.tab[data-tab="races"]')); await sleep(50);
+  ok('3. back on RACES nothing is ticked either', !document.querySelector('.card.on') && !vis($('bar')));
+  tick('r1'); click($('barCancel')); await sleep(50);
   ok('3. CANCEL clears the ticks and the bar', !vis($('bar')) && !document.querySelector('.card.on'));
   ok('3. SELECT ALL SHARED is there (two races are shared)', vis($('selShared')));
   click($('selShared')); await sleep(50);
@@ -145,32 +160,61 @@ $run = @'
   ok('3. nothing was sent while ticking', cmds().length === 0, cmds().join(' '));
   click($('barCancel')); await sleep(50);
 
+  // share, not signed in: nothing is cut, the banner asks for the sign-in
   tick('r1'); tick('r9'); await sleep(50);
   window.__req.length = 0;
-  click($('barShare')); await sleep(200);
-  ok('3. SHARE sends raceshare a=r1|r9, once', cmds().join(' ') === '/api/do?c=raceshare&a=r1|r9', cmds().join(' '));
-  ok('3. both say Waiting to share at once, the ticks are gone', state('r1') === 'Waiting to share' && state('r9') === 'Waiting to share' && !vis($('bar')));
-  ok('3. the answer shows: Sign in to YouTube first', /Sign in to YouTube first/.test(toast()), toast());
+  click($('barShare')); click($('barShare')); await sleep(600);
+  ok('3. two quick clicks on SHARE send one raceshare a=r1|r9', cmds().join(' ') === '/api/do?c=raceshare&a=r1|r9', cmds().join(' '));
+  ok('3. not signed in: "Sign in to YouTube first", the cards stay Not shared, the banner shows', /Sign in to YouTube first/.test(toast()) && state('r1') === 'Not shared' && vis($('banner')) && /Sign in once/.test($('banner').textContent), toast() + ' | ' + state('r1') + ' | ' + vis($('banner')) + ' | ' + $('banner').textContent);
+  click($('barCancel')); await sleep(50);
+  window.__fx.youtube.signedIn = true; await Races.load();
+  tick('r1'); tick('r9'); await sleep(50);
+  window.__req.length = 0;
+  click($('barShare')); await sleep(500);
+  ok('3. signed in: SHARE sends raceshare a=r1|r9 once; both say Waiting to share; the ticks are gone', cmds().join(' ') === '/api/do?c=raceshare&a=r1|r9' && state('r1') === 'Waiting to share' && state('r9') === 'Waiting to share' && !vis($('bar')), cmds().join(' '));
+  await Races.load();
 
   tick('r6'); tick('r7'); await sleep(50);
+  ok('3. a race waiting for the daily limit is not counted for SHARE', $('barShare').textContent === 'Share to YouTube (0)' && $('barShare').disabled);
   window.__req.length = 0;
   click($('barDelete')); await sleep(10);
   ok('3. DELETE: the cards leave at once', !card('r6') && !card('r7'));
   await sleep(200);
-  ok('3. DELETE sends racetrash a=r6|r7, once, nothing else', cmds().join(' ') === '/api/do?c=racetrash&a=r6|r7', cmds().join(' '));
-  ok('3. the toast says "Deleted 2 races · Undo"', /^Deleted 2 races · Undo$/.test(toast()), toast());
+  ok('3. DELETE sends racetrash a=r6|r7, once, nothing else but the list', cmds().join(' ') === '/api/do?c=racetrash&a=r6|r7', cmds().join(' '));
+  ok('3. the note says "Deleted 2 races" with UNDO (no dangling dot)', undoNote() === 'Deleted 2 races' && !!$('undo').querySelector('[data-act="undo"]'), undoNote());
   ok('3. no "are you sure", no second press: the bar is gone', !vis($('bar')));
   window.__req.length = 0;
-  click($('toast').querySelector('[data-act="undo"]')); await sleep(300);
+  click($('undo').querySelector('[data-act="undo"]')); await sleep(300);
   ok('3. UNDO sends raceundo a=b1', cmds()[0] === '/api/do?c=raceundo&a=b1', cmds().join(' '));
   ok('3. the cards come back', !!card('r6') && !!card('r7'), cards().join(','));
-  tick('r9'); await sleep(20);
-  click($('barDelete')); await sleep(200);
-  const t0 = toast();
+
+  // a partial refusal: one of the two is in use; it comes back on the next list, the other stays gone
+  window.__inUse = ['r7'];
+  tick('r6'); tick('r7'); click($('barDelete')); await sleep(400);
+  ok('3. one in use: it is back on the page, the other is gone', !!card('r7') && !card('r6'), cards().join(','));
+  ok('3. the note says what happened', undoNote() === 'Deleted 1 race. 1 not deleted: it is in use. Try again in a minute', undoNote());
+  window.__inUse = [];
+  click($('undo').querySelector('[data-act="undo"]')); await sleep(300);
+  ok('3. UNDO brings r6 back', !!card('r6'));
+
+  // an UNDO made on the deck: the next list brings the card back without a page UNDO
+  tick('r8'); click($('barDelete')); await sleep(300);
+  ok('3. (r8 deleted)', !card('r8'));
+  window.__fx.races = window.__fx.races.concat(window.__trash.b1).sort((x, y) => y.startMs - x.startMs);
+  (window.__ls['list:races'] || []).forEach(f => f()); await sleep(200);
+  ok('3. an UNDO from the deck shows on the next list', !!card('r8'));
+  Races.hideUndo();
+
+  tick('r9'); click($('barDelete')); await sleep(200);
+  const t0 = undoNote();
+  click($('privBtn')); await sleep(200);
+  ok('3. a later message does not replace the UNDO note', undoNote() === t0 && /New uploads/.test(toast()), undoNote() + ' / ' + toast());
+  click($('privBtn')); await sleep(200);
   await sleep(8300);
-  ok('3. the toast stays 8 s, then goes', /Deleted 1 race/.test(t0) && toast() === '', t0 + ' / ' + toast());
+  ok('3. the UNDO note stays 8 s, then goes', /Deleted 1 race/.test(t0) && undoNote() === '', t0 + ' / ' + undoNote());
 
   // 4. the open card
+  window.__fx.youtube.signedIn = false; await Races.load();
   window.__req.length = 0;
   click(card('r1').querySelector('[data-act="open"]')); await sleep(80);
   const o = $('open');
@@ -191,43 +235,53 @@ $run = @'
   ok('4. Esc returns to the grid', !vis(o) && cards().length > 0);
   click(card('r4').querySelector('[data-act="open"]')); await sleep(80);
   ok('4. shared: the link and COPY LINK', !!o.querySelector('[data-act="copy"]') && $('linkField').value === 'https://youtu.be/abc123');
-  ok('4. shared: SHARE TO YOUTUBE is greyed (never twice)', o.querySelector('[data-act="share"]').disabled);
+  ok('4. shared: "On YouTube" is a plain label where SHARE was (never twice)', !o.querySelector('[data-act="share"]') && o.querySelector('.o-keys .keylabel').textContent === 'On YouTube');
+  click(o.querySelector('[data-act="close"]')); await sleep(50);
+  click(card('r6').querySelector('[data-act="open"]')); await sleep(80);
+  ok('4. the daily limit: the whole sentence on the open card, "Waiting to share" instead of SHARE', o.querySelector('.o-facts .state').textContent === "YouTube's daily limit is reached. Trying again after 9 in the morning" && o.querySelector('.o-keys .keylabel').textContent === 'Waiting to share' && !o.querySelector('[data-act="share"]'));
+  click(o.querySelector('[data-act="close"]')); await sleep(50);
+  click(card('r4').querySelector('[data-act="open"]')); await sleep(80);
   window.__req.length = 0;
-  click(o.querySelector('[data-act="delete"]')); await sleep(200);
+  click(o.querySelector('[data-act="delete"]')); await sleep(300);
   ok('4. DELETE on the open card trashes that race and closes the card', cmds().join(' ') === '/api/do?c=racetrash&a=r4' && !vis(o) && !card('r4'), cmds().join(' '));
-  click($('toast').querySelector('[data-act="undo"]')); await sleep(300);
+  click($('undo').querySelector('[data-act="undo"]')); await sleep(300);
   click(card('r1').querySelector('[data-act="open"]')); await sleep(80);
   click(o.querySelector('[data-act="close"]')); await sleep(50);
   ok('4. BACK TO ALL RACES closes it too', !vis(o));
 
   // 5. the storage line
   ok('5. the storage line', $('storeLine').textContent === '412 GB used · 280 GB free · about 38 more races', $('storeLine').textContent);
-  ok('5. the bar is used / (used + free) = 60 %', $('storeFill').style.width === '60%', $('storeFill').style.width);
+  ok('5. the bar is used / (used + free) = 60 %', $('storeFill').style.width === '60%' && vis($('storeBar')), $('storeFill').style.width);
   ok('5. 14 GB in trash · EMPTY NOW (trash >= 1 GB)', vis($('trashBit')) && /14 GB in trash/.test($('trashBit').textContent));
   window.__req.length = 0; click($('emptyNow')); await sleep(150);
   ok('5. EMPTY NOW sends raceempty', cmds().join(' ') === '/api/do?c=raceempty', cmds().join(' '));
   ok('5. no free-up key while there is space', !vis($('freeRow')));
-  window.__fx.storage = { usedGb: 1, freeGb: 100, trashGb: 0.4, moreRaces: 1, lowSpace: false }; await Races.load();
-  ok('5. under 1 GB in the trash: no EMPTY NOW; "about 1 more race"', !vis($('trashBit')) && /about 1 more race$/.test($('storeLine').textContent), $('storeLine').textContent);
+  window.__fx.storage = { usedGb: 0, freeGb: 100, trashGb: 0.4, moreRaces: 1, lowSpace: false }; await Races.load();
+  ok('5. under 1 GB in the trash: no EMPTY NOW; "about 1 more race"; nothing used: no bar', !vis($('trashBit')) && /about 1 more race$/.test($('storeLine').textContent) && !vis($('storeBar')), $('storeLine').textContent);
   window.__fx.storage = { usedGb: 800, freeGb: 90, trashGb: 0, moreRaces: 70, lowSpace: true, freeUp: { count: 6, gb: 7.2 } }; await Races.load();
   ok('5. low space: one gold key "Free up space: delete the 6 oldest shared races (7 GB)"', vis($('freeRow')) && $('freeRow').querySelector('.btn.gold').textContent === 'Free up space: delete the 6 oldest shared races (7 GB)', $('freeRow').textContent);
   window.__req.length = 0; click($('freeRow').querySelector('.btn')); await sleep(150);
   ok('5. it sends racefree', cmds().join(' ') === '/api/do?c=racefree', cmds().join(' '));
   window.__fx.storage.freeUp = { count: 0, gb: 0 }; await Races.load();
-  ok('5. nothing shared to free: no key, "Nothing shared yet to free"', !$('freeRow').querySelector('.btn') && /Nothing shared yet to free/.test($('freeRow').textContent));
+  ok('5. nothing shared to free: no key, says what to do', !$('freeRow').querySelector('.btn') && /Share some races, then FREE UP SPACE can delete the shared ones/.test($('freeRow').textContent));
   window.__fx.storage = { usedGb: 412, freeGb: 280, trashGb: 14, moreRaces: 38, lowSpace: false }; await Races.load();
 
   // 6. offline, driving, sign-in, settings
+  const n6 = cards().length;
   window.__rig.online = false; window.__emit('online'); await sleep(50);
   ok('6. offline: one banner', vis($('banner')) && /not answering/.test($('banner').textContent));
-  ok('6. offline: nothing else changes (the cards stay)', cards().length === 8 && vis($('grid')));
+  ok('6. offline: nothing else changes (the cards stay)', cards().length === n6 && n6 === 9 && vis($('grid')), n6);
   window.__rig.online = true; window.__emit('online'); await sleep(50);
   ok('6. back online: the banner goes', !vis($('banner')));
+  click($('privBtn')); await sleep(150);
   window.__rig.driving = true; window.__emit('state'); await sleep(50);
   const shown = [...document.querySelectorAll('button')].filter(vis);
-  ok('6. driving: "Back after your drive" and not one key', vis($('driving')) && $('driving').textContent === 'Back after your drive' && shown.length === 0, shown.map(b => b.textContent).join('|'));
+  ok('6. driving: "Back after your drive", not one key, no message', vis($('driving')) && $('driving').textContent === 'Back after your drive' && shown.length === 0 && !vis($('toast')) && !vis($('undo')), shown.map(b => b.textContent).join('|'));
+  Races.toast('test'); await sleep(20);
+  ok('6. driving: a message that arrives now is not shown', !vis($('toast')));
   window.__rig.driving = false; window.__emit('state'); await sleep(50);
-  ok('6. after the drive the grid is back', vis($('grid')) && cards().length === 8);
+  ok('6. after the drive the grid is back', vis($('grid')) && cards().length === 9);
+  click($('privBtn')); await sleep(150);
   ok('6. not signed in, nothing ticked: no sign-in banner', !vis($('banner')));
   tick('r1'); await sleep(50);
   ok('6. not signed in and a race ticked: the banner with SIGN IN TO YOUTUBE', vis($('banner')) && $('banner').querySelector('.btn').textContent === 'Sign in to YouTube');
@@ -244,6 +298,7 @@ $run = @'
   const rows = [...document.querySelectorAll('#titles .pick-row span')].map(s => s.textContent);
   ok('6. the example titles from the latest race, each look once (1 and 2 read the same here)', rows.length === 4 && rows.join('|') === [...new Set(window.__fx.titles)].join('|'), rows.join('|'));
   ok('6. the one in use is marked', document.querySelector('#titles .pick-row.on').dataset.n === '1' && /In use/.test(document.querySelector('#titles .pick-row.on').textContent));
+  ok('6. its back key says BACK TO ALL RACES', $('titles').querySelector('[data-act="close"]').textContent === 'Back to all races');
   window.__req.length = 0; click(document.querySelector('#titles .pick-row[data-n="3"]')); await sleep(150);
   ok('6. pressing the third sends yttemplate a=3 and closes the list', cmds().join(' ') === '/api/do?c=yttemplate&a=3' && !vis($('titles')), cmds().join(' '));
   click($('titlesBtn')); await sleep(50);
@@ -252,7 +307,7 @@ $run = @'
   ok('6. Esc closes the list', !vis($('titles')));
 
   // 7. nothing on a timer
-  window.__req.length = 0; await sleep(5000);
+  await sleep(8500); window.__req.length = 0; await sleep(5000);
   ok('7. the open page sends nothing for 5 s', req().length === 0, req().join(' '));
   (window.__ls['list:races'] || []).forEach(f => f()); await sleep(100);
   ok('7. it loads the list again when irdash says it changed (data.onList)', req().join(' ') === '/api/library', req().join(' '));
@@ -276,7 +331,7 @@ function Page([string]$name, [string]$head, [string]$body) {
 
 Assert-RigFree -Where '1-7. page'
 $url = Page 't' '' $run
-$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=60000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
+$p = Start-Process -FilePath $chrome -ArgumentList ($common + @('--virtual-time-budget=120000', '--dump-dom', $url)) -NoNewWindow -PassThru -RedirectStandardOutput "$tmp\out.txt" -RedirectStandardError "$tmp\err.txt" -Wait
 $dom = Get-Content "$tmp\out.txt" -Raw -ErrorAction SilentlyContinue
 $m = [regex]::Match([string]$dom, '(?s)<pre id="out">(.*?)</pre>')
 $text = [Net.WebUtility]::HtmlDecode($m.Groups[1].Value)
@@ -288,6 +343,7 @@ if ($text -notmatch 'DONE') { '  FAIL  the page test did not finish'; $fail++ }
 Assert-RigFree -Where '7. source'
 $js = [IO.File]::ReadAllText((Join-Path $www 'races.js'))
 if ($js -notmatch 'setInterval' -and $js.Contains("data.onList('races'")) { $pass++; '  ok    7. races.js has no setInterval and reloads on data.onList(''races'')' } else { $fail++; '  FAIL  7. races.js polls or does not use data.onList' }
+if ($js.Contains("'sessions.html?embed=1&at='")) { $pass++; '  ok    4. REVIEW opens sessions.html?embed=1&at=<startMs> (the Review door, wave 4, reads at=)' } else { $fail++; '  FAIL  4. REVIEW link' }
 
 # ---------------- one picture per state ----------------
 Assert-RigFree -Where 'pictures'

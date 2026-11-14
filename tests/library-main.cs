@@ -97,7 +97,8 @@ namespace IRDash
 
         static int Main(string[] a)
         {
-            if (Environment.CommandLine.Contains("--mock ")) return RecMock.Run();
+            // a race id with "slowcut" in it makes the pretend ffmpeg take 6 s (test 9.12: a session starts mid-cut and the runner kills it)
+            if (Environment.CommandLine.Contains("--mock ")) { if (Environment.CommandLine.Contains("slowcut") && !Environment.CommandLine.Contains("--mock ffprobe")) Thread.Sleep(6000); return RecMock.Run(); }
             Program.TestMode = true; Recorder.Mock = true;
             Root = Program.RootDir; Vlt = Path.Combine(Root, "vault");
             Sess = Path.Combine(Vlt, "sessions"); Saved = Path.Combine(Vlt, "saved"); Trash = Path.Combine(Vlt, "trash"); Thumbs = Path.Combine(Vlt, "thumbs"); Videos = Path.Combine(Root, "videos");
@@ -547,92 +548,187 @@ namespace IRDash
             bool allThere = true; for (int i = 0; i < 5; i++) if (!In(Sess, "keep" + i)) allThere = false;
             Ok("8.14 RetainSessions (not the sandbox) with keep=1 and a 0-byte budget deletes nothing", allThere && Recorder.LibFinished().Count == 5);
         }
+        // W1-4: SHARE TO YOUTUBE (raceshare) through the real Cuts.Run and the recorder's tool runner (the pretend ffmpeg, --mock), the
+        // real YouTube class with its folder in the scratch and its upload job paused (Enqueue records; nothing reaches Google), plus the
+        // three settings commands.
+        static string Yt { get { return Path.Combine(Root, "yt"); } }
+        static void YtReload(string uploadsJson)
+        {
+            if (uploadsJson != null) File.WriteAllText(Path.Combine(Yt, "uploads.json"), uploadsJson, new UTF8Encoding(false));
+            YouTube.Reset(); typeof(YouTube).GetField("paused", Any).SetValue(null, true);
+        }
+        static HashSet<string> Pending() { return (HashSet<string>)typeof(Library).GetField("pendingShare", Any).GetValue(null); }
 
-        // W1-4: SHARE TO YOUTUBE (raceshare) against the recorder's pretend ffmpeg and the real YouTube class with its folder in the
-        // scratch and its upload job paused (Enqueue records; nothing reaches Google), plus the three settings commands.
         static void ShareChain()
         {
             Console.WriteLine("-- 9. share to YouTube");
-            string yt = Path.Combine(Root, "yt"), ini = Path.Combine(Root, "irdash.ini"), cuts = Path.Combine(Vlt, "cuts");
-            try { if (Directory.Exists(yt)) Directory.Delete(yt, true); if (Directory.Exists(cuts)) Directory.Delete(cuts, true); File.Delete(ini); } catch { }
-            YouTube.Dir = yt; YouTube.IniFile = ini;
+            string ini = Path.Combine(Root, "irdash.ini"), cuts = Path.Combine(Vlt, "cuts"), pend = Path.Combine(cuts, "pending.txt");
+            try { if (Directory.Exists(Yt)) Directory.Delete(Yt, true); if (Directory.Exists(cuts)) Directory.Delete(cuts, true); File.Delete(ini); } catch { }
+            Directory.CreateDirectory(Yt);
+            YouTube.Dir = Yt; YouTube.IniFile = ini;
             YouTube.AuthUrl = YouTube.TokenUrl = YouTube.UploadUrl = YouTube.ApiUrl = "http://127.0.0.1:9/nothing";
             YouTube.OpenBrowser = delegate (string u) { Console.WriteLine("FAIL 9. a browser was opened"); };
-            typeof(YouTube).GetField("paused", Any).SetValue(null, true);       // the upload job returns at once: the record stays "queued"
-            Library.ShareState = YouTube.StateJson; Library.YouTubeJson = YouTube.Json;
+            YtReload(null);
+            bool signed = false;
+            Library.ShareState = YouTube.StateJson;
+            Library.YouTubeJson = delegate { string j = YouTube.Json(); return signed ? j.Replace("\"signedIn\":false", "\"signedIn\":true") : j; };
+            // the pretend ffprobe answers the length the plan asked for (the real tool would measure the file)
+            Cuts.Ffmpeg = null;
+            Cuts.Ffprobe = delegate (string args, int ms)
+            {
+                string id = Regex.Match(args, "\\\\([^\\\\\"]+)-cut\\.mp4\"").Groups[1].Value;
+                RaceInfo r = SessionIndex.Get(id); if (r == null) return null;
+                CutPlan p = Cuts.Plan(File.ReadAllText(r.Sidecar), r.Sec);
+                return (p.EndSec - p.StartSec).ToString("0.000", Inv);
+            };
             List<string[]> seen = new List<string[]>();
+            Func<string, string[]> Seen = delegate (string id) { lock (seen) foreach (string[] x in seen) if (x[0] == id) return x; return null; };
             Library.Enqueued = delegate (string id, string file, string title, string desc, string priv, string thumb) { lock (seen) seen.Add(new string[] { id, file, title, desc, priv, thumb }); };
             try
             {
                 Three();
                 Fix(Saved, "r-two", "Race", now - 5 * 3600000, 1300, (long)(1.2 * Gb), true, RaceLaps(), "", now - 5 * 3600000);
+                Fix(Saved, "d-del", "Race", now - 6 * 3600000, 1300, (long)(1.2 * Gb), true, RaceLaps(), "", now - 6 * 3600000);
+                Fix(Saved, "slowcut1", "Race", now - 7 * 3600000, 1300, (long)(1.2 * Gb), true, RaceLaps(), "", now - 7 * 3600000);
                 Reload();
                 int code; string j;
-                sessionOn = true;       // the press is answered while the work waits for the session to end
+
+                // 1. not signed in: nothing is cut, the answer asks for the sign-in
+                j = D("raceshare", "r-race", out code);
+                Ok("9.1 not signed in: 409 \"Sign in to YouTube first\", signin true, nothing queued, no cut", code == 409 && j.Contains("\"say\":\"Sign in to YouTube first\"") && j.Contains("\"signin\":true") && Pending().Count == 0 && !Directory.Exists(cuts) && Library.Json().Contains("\"id\":\"r-race\"") && Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"none\""), j);
+                signed = true;
+
+                // 2. the press answers at once; the work waits for the session to end; the list is on disk
+                sessionOn = true;
                 j = D("raceshare", "r-race|r-two|r-race|../x", out code);
                 Dictionary<string, object> d = Parse(j);
-                Ok("9.1 raceshare answers at once: 2 races, \"Sign in to YouTube first\" (not signed in)", code == 200 && d != null && Convert.ToInt32(d["count"]) == 2 && (bool)d["signin"] && (string)d["say"] == "Sign in to YouTube first", j);
-                Ok("9.1 both say \"queued\" from the press, before any cut", Library.Json().Contains("\"id\":\"r-race\"") && Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"queued\"") && Regex.IsMatch(Library.Json(), "\"id\":\"r-two\"[^\\]]*?\"state\":\\{\"kind\":\"queued\""));
+                Ok("9.2 raceshare answers at once: 2 races, \"Sharing 2 races\"", code == 200 && d != null && Convert.ToInt32(d["count"]) == 2 && (string)d["say"] == "Sharing 2 races", j);
+                Ok("9.2 both say \"queued\" from the press", Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"queued\"") && Regex.IsMatch(Library.Json(), "\"id\":\"r-two\"[^\\]]*?\"state\":\\{\"kind\":\"queued\""));
+                Ok("9.2 the pressed races are on disk (vault\\cuts\\pending.txt)", File.Exists(pend) && File.ReadAllText(pend).Contains("r-race") && File.ReadAllText(pend).Contains("r-two"));
                 Thread.Sleep(300);
-                Ok("9.1 nothing is cut while the session is on", seen.Count == 0 && !Directory.Exists(cuts));
+                Ok("9.2 nothing is cut while the session is on", seen.Count == 0 && Directory.GetFiles(cuts, "*.mp4").Length == 0);
+
+                // 3. a restart between the press and YouTube's queue: a new irdash reads the list and queues them again
+                Pending().Clear();
+                Ok("9.3 (a restart forgets the presses held in memory)", Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"none\""));
+                int back = Library.ResumeShares();
+                Ok("9.3 Library.Start's ResumeShares queues both again from the file", back == 2 && Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"queued\""), back.ToString());
+
                 sessionOn = false;
-                Ok("9.2 after the session both are cut and queued for YouTube", Wait(delegate { lock (seen) return seen.Count == 2; }, 15000), seen.Count + " queued");
-                string[] q = null; lock (seen) foreach (string[] x in seen) if (x[0] == "r-race") q = x;
-                Ok("9.2 the cut is vault\\cuts\\r-race-cut.mp4 and exists (the pretend ffmpeg wrote it)", q != null && q[1] == Path.Combine(cuts, "r-race-cut.mp4") && File.Exists(q[1]), q == null ? "none" : q[1]);
-                Ok("9.2 the title is template 1 with the race's facts (no series known)", q != null && q[2].StartsWith("Toyota GR86 at Road Atlanta") && !q[2].Contains("{") && q[2].Length < 70, q == null ? "" : q[2]);
-                Ok("9.2 the description starts with the facts and has the chapters from 0:00 Start", q != null && q[3].StartsWith("Toyota GR86 at Road Atlanta") && q[3].Contains("\n0:00 Start") && q[3].Contains("Recorded with Paddock"), q == null ? "" : q[3]);
-                Ok("9.2 privacy private (the default), no thumbnail made yet", q != null && q[4] == "private" && q[5] == "");
-                Ok("9.3 YouTube's own record says queued (uploads.json)", YouTube.StateJson("r-race").Contains("\"kind\":\"queued\"") && File.ReadAllText(Path.Combine(yt, "uploads.json")).Contains("r-race"));
-                Ok("9.3 the page's state is still queued", Regex.IsMatch(Library.Json(), "\"id\":\"r-race\"[^\\]]*?\"state\":\\{\"kind\":\"queued\""));
+                Ok("9.4 after the session both are cut (real Cuts.Run, the pretend ffmpeg) and queued for YouTube", Wait(delegate { lock (seen) return seen.Count == 2; }, 20000), seen.Count + " queued");
+                string[] q = Seen("r-race");
+                Ok("9.4 the cut is vault\\cuts\\r-race-cut.mp4 and exists", q != null && q[1] == Path.Combine(cuts, "r-race-cut.mp4") && File.Exists(q[1]), q == null ? "none" : q[1]);
+                Ok("9.4 the title is template 1 with the race's facts (no series known)", q != null && q[2].StartsWith("Toyota GR86 at Road Atlanta") && !q[2].Contains("{") && q[2].Length < 70, q == null ? "" : q[2]);
+                Ok("9.4 the description starts with the facts and has the chapters from 0:00 Start", q != null && q[3].StartsWith("Toyota GR86 at Road Atlanta") && q[3].Contains("\n0:00 Start") && q[3].Contains("Recorded with Paddock"), q == null ? "" : q[3]);
+                Ok("9.4 privacy private (the default), no thumbnail made yet", q != null && q[4] == "private" && q[5] == "");
+                Ok("9.4 YouTube's own record says queued; the list on disk is empty again", YouTube.StateJson("r-race").Contains("\"kind\":\"queued\"") && !File.Exists(pend));
 
                 lock (seen) seen.Clear();
                 j = D("raceshare", "r-race", out code);
                 Thread.Sleep(500);
-                Ok("9.4 a second press of a queued race: no second cut", code == 200 && seen.Count == 0, j);
+                Ok("9.5 a second press of a waiting race: \"Already waiting for YouTube\", no second cut", code == 200 && j.Contains("\"say\":\"Already waiting for YouTube\"") && seen.Count == 0, j);
                 j = Library.Do("raceshare", "r-race", out code); string j2 = Library.Do("raceshare", "r-race", out code);
-                Ok("9.4 the same press twice within 2 s gets the same answer", j == j2);
+                Ok("9.5 the same press twice within 2 s gets the same answer", j == j2);
+
+                // 6. the daily limit: a failed record with a retry time shows as waiting (gold), SHARE does not cut it again or move the retry
+                long retry = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds + 6 * 3600000L;
+                YtReload("{\"r-two\":{\"kind\":\"failed\",\"error\":" + Json_.S(YouTube.MsgQuota) + ",\"retryAtMs\":" + retry + ",\"file\":" + Json_.S(Path.Combine(cuts, "r-two-cut.mp4")) + "}}");
+                Ok("9.6 a daily-limit record reads queued with the plain words", YouTube.StateJson("r-two") == "{\"kind\":\"queued\",\"pct\":0,\"error\":\"YouTube's daily limit is reached. Trying again after 9 in the morning\"}", YouTube.StateJson("r-two"));
+                DateTime before = YouTube.RetryAt("r-two");
+                j = D("raceshare", "r-two", out code); Thread.Sleep(300);
+                Ok("9.6 SHARE on it: \"Already waiting for YouTube\", no cut, the retry time unchanged", j.Contains("Already waiting for YouTube") && seen.Count == 0 && YouTube.RetryAt("r-two") == before, j);
+
+                // 7. a second press on an offline (or signed-out) race reaches YouTube.Enqueue with the cut it has
+                YtReload("{\"r-two\":{\"kind\":\"offline\",\"error\":\"No internet, waiting\",\"retryAtMs\":" + retry + ",\"file\":" + Json_.S(Path.Combine(cuts, "r-two-cut.mp4")) + "}}");
+                j = D("raceshare", "r-two", out code);
+                string[] o2 = Seen("r-two");
+                Ok("9.7 offline + SHARE: Enqueue again with the existing cut, no new cut", code == 200 && o2 != null && o2[1] == Path.Combine(cuts, "r-two-cut.mp4") && j.Contains("Sharing 1 race"), j);
+                YtReload("{}");
 
                 Library.ShareState = delegate (string id) { return id == "r-race" ? "{\"kind\":\"shared\",\"pct\":100,\"privacy\":\"private\",\"url\":\"https://youtu.be/x\"}" : id == "r-two" ? "{\"kind\":\"sharing\",\"pct\":41}" : "{\"kind\":\"none\"}"; };
+                lock (seen) seen.Clear();
                 j = D("raceshare", "r-race|r-two", out code);
-                Ok("9.5 a shared or sharing race: 409 \"Already on YouTube\", nothing cut", code == 409 && j.Contains("\"say\":\"Already on YouTube\"") && seen.Count == 0, j);
+                Ok("9.8 a shared or sharing race: 409 \"Already on YouTube\", nothing cut", code == 409 && j.Contains("\"say\":\"Already on YouTube\"") && seen.Count == 0, j);
 
+                // 9. the cuts: counted in the storage line, removed when shared / nothing waits / failed for good after 2 days
+                long used0 = Library.Storage().Used;
+                File.WriteAllBytes(Path.Combine(cuts, "x-big-cut.mp4"), new byte[1048576]);
+                Ok("9.9 the cuts in vault\\cuts count in the storage line's \"used\"", Library.Storage().Used - used0 == 1048576, (Library.Storage().Used - used0).ToString());
+                File.Delete(Path.Combine(cuts, "x-big-cut.mp4"));
                 File.SetLastWriteTimeUtc(Path.Combine(cuts, "r-two-cut.mp4"), DateTime.UtcNow.AddHours(-2));
-                Library.Tidy();
-                Ok("9.6 the tidy removes the cut of a shared race and keeps the one still uploading", !File.Exists(Path.Combine(cuts, "r-race-cut.mp4")) && File.Exists(Path.Combine(cuts, "r-two-cut.mp4")));
-                Library.ShareState = delegate (string id) { return "{\"kind\":\"none\"}"; };
-                Library.Tidy();
-                Ok("9.6 an old cut nothing waits for goes too", !File.Exists(Path.Combine(cuts, "r-two-cut.mp4")));
+                Library.TidyCuts();
+                Ok("9.9 the tidy removes the cut of a shared race and keeps the one still uploading", !File.Exists(Path.Combine(cuts, "r-race-cut.mp4")) && File.Exists(Path.Combine(cuts, "r-two-cut.mp4")));
+                Library.ShareState = delegate (string id) { return id == "r-two" ? "{\"kind\":\"failed\",\"error\":\"YouTube said no\"}" : "{\"kind\":\"none\"}"; };
+                File.SetLastWriteTimeUtc(Path.Combine(cuts, "r-two-cut.mp4"), DateTime.UtcNow.AddHours(-30));
+                Library.TidyCuts();
+                Ok("9.9 failed for good: the cut stays for 2 days", File.Exists(Path.Combine(cuts, "r-two-cut.mp4")));
+                File.SetLastWriteTimeUtc(Path.Combine(cuts, "r-two-cut.mp4"), DateTime.UtcNow.AddHours(-50));
+                Library.TidyCuts();
+                Ok("9.9 failed for good after 2 days: the cut goes", !File.Exists(Path.Combine(cuts, "r-two-cut.mp4")));
+                Library.ShareState = YouTube.StateJson;
 
-                Library.YouTubeJson = delegate { return "{\"signedIn\":true,\"privacy\":\"public\",\"template\":4}"; };
+                // 10. settings change the template and privacy of the next share
+                Config.SetKey(ini, "youtube_template", "4"); Config.SetKey(ini, "youtube_privacy", "public");
+                lock (seen) seen.Clear();
                 j = D("raceshare", "q-lone", out code);
-                Ok("9.7 signed in: \"Sharing 1 race\"", code == 200 && j.Contains("\"say\":\"Sharing 1 race\""), j);
-                Ok("9.7 template 4 and public from the settings", Wait(delegate { lock (seen) return seen.Count == 1; }, 15000) && seen[0][2].StartsWith("Road Atlanta Toyota GR86 full race") && seen[0][4] == "public", seen.Count > 0 ? seen[0][2] + " / " + seen[0][4] : "none");
+                Ok("9.10 \"Sharing 1 race\"; template 4 and public from the settings", code == 200 && j.Contains("\"say\":\"Sharing 1 race\"") && Wait(delegate { return Seen("q-lone") != null; }, 15000) && Seen("q-lone")[2].StartsWith("Road Atlanta Toyota GR86 full race") && Seen("q-lone")[4] == "public", Seen("q-lone") != null ? Seen("q-lone")[2] + " / " + Seen("q-lone")[4] : j);
+                Config.SetKey(ini, "youtube_privacy", "private");
+
+                // 11. DELETE stops a share: a press not yet cut, and a record still queued
+                Ok("9.11 (q-lone is queued at YouTube with its cut)", YouTube.StateJson("q-lone").Contains("\"kind\":\"queued\"") && File.Exists(Path.Combine(cuts, "q-lone-cut.mp4")));
+                j = D("racetrash", "q-lone", out code);
+                Ok("9.11 DELETE of a queued race: YouTube's record goes (Cancel), the cut goes", code == 200 && YouTube.StateJson("q-lone") == "{\"kind\":\"none\"}" && !File.Exists(Path.Combine(cuts, "q-lone-cut.mp4")), YouTube.StateJson("q-lone"));
+                sessionOn = true; lock (seen) seen.Clear();
+                j = D("raceshare", "d-del", out code);
+                Ok("9.11 (d-del pressed, waiting for the session to end)", Pending().Contains("d-del") && File.ReadAllText(pend).Contains("d-del"), j);
+                j = D("racetrash", "d-del", out code);
+                Ok("9.11 DELETE of a pressed race: off the list and off the file", !Pending().Contains("d-del") && !File.Exists(pend), j);
+                sessionOn = false; Thread.Sleep(1500);
+                Ok("9.11 after the session nothing of d-del is cut or queued", Seen("d-del") == null && !File.Exists(Path.Combine(cuts, "d-del-cut.mp4")) && YouTube.StateJson("d-del") == "{\"kind\":\"none\"}");
+                int un; Library.Do("raceundo", Regex.Match(j, "\"batch\":\"([^\"]+)\"").Groups[1].Value, out un);
+                Ok("9.11 UNDO brings d-del back as Not shared", Regex.IsMatch(Library.Json(), "\"id\":\"d-del\"[^\\]]*?\"state\":\\{\"kind\":\"none\""));
+
+                // 12. a cut stopped by a session (the recorder's runner kills the pretend ffmpeg) is queued again; a timed-out cut is reported
+                lock (seen) seen.Clear();
+                j = D("raceshare", "slowcut1", out code);
+                Thread.Sleep(1500);
+                sessionOn = true;
+                Thread.Sleep(2500);
+                Ok("9.12 a session starts mid-cut: the cut stops, nothing queued, the race still says queued", Seen("slowcut1") == null && !File.Exists(Path.Combine(cuts, "slowcut1-cut.mp4")) && Regex.IsMatch(Library.Json(), "\"id\":\"slowcut1\"[^\\]]*?\"state\":\\{\"kind\":\"queued\""));
+                sessionOn = false;
+                Ok("9.12 after the session it is cut again and queued", Wait(delegate { return Seen("slowcut1") != null; }, 30000) && File.Exists(Path.Combine(cuts, "slowcut1-cut.mp4")));
+                Cuts.Ffmpeg = delegate (string a2, int ms) { return -1; };
+                j = D("raceshare", "p-prac", out code);
+                Ok("9.12 a cut that times out: failed with the reason, not queued again", Wait(delegate { return Library.Json().Contains("\"kind\":\"failed\",\"error\":\"The cut took too long, so it was not used.\""); }, 15000) && !Pending().Contains("p-prac"));
+                Cuts.Ffmpeg = null;
 
                 lock (seen) seen.Clear();
                 Library.CutTool = delegate (string mp4, string outDir, CutPlan p, out string outPath) { outPath = ""; return "Not enough space for the cut (needs 10 GB free)"; };
                 j = D("raceshare", "p-prac", out code);
-                Ok("9.8 a cut that fails: the race says failed with the reason in plain words", Wait(delegate { return Library.Json().Contains("\"kind\":\"failed\",\"error\":\"Not enough space for the cut (needs 10 GB free)\""); }, 15000) && seen.Count == 0, Library.Json());
+                Ok("9.13 a cut that fails: the race says failed with the reason in plain words", Wait(delegate { return Library.Json().Contains("\"kind\":\"failed\",\"error\":\"Not enough space for the cut (needs 10 GB free)\""); }, 15000) && seen.Count == 0, Library.Json());
                 Library.CutTool = null;
-                Library.ShareState = YouTube.StateJson; Library.YouTubeJson = YouTube.Json;
+
+                j = D("raceshare", "r-race:c", out code);
+                Ok("9.14 raceshare a=<id>:c (W1-6): 409 \"Comes with the commentary update\"", code == 409 && j.Contains("\"say\":\"Comes with the commentary update\""), j);
 
                 j = D("ytprivacy", "public", out code);
-                Ok("9.9 ytprivacy a=public: saved as youtube_privacy=public, \"New uploads are public\"", code == 200 && j.Contains("New uploads are public") && File.ReadAllText(ini).Contains("youtube_privacy=public") && YouTube.Json().Contains("\"privacy\":\"public\""), j);
+                Ok("9.15 ytprivacy a=public: saved as youtube_privacy=public, \"New uploads are public\"", code == 200 && j.Contains("New uploads are public") && File.ReadAllText(ini).Contains("youtube_privacy=public") && YouTube.Json().Contains("\"privacy\":\"public\""), j);
                 j = D("ytprivacy", "everyone", out code);
-                Ok("9.9 ytprivacy with a wrong word: 400, nothing changed", code == 400 && YouTube.Privacy == "public", j);
+                Ok("9.15 ytprivacy with a wrong word: 400, nothing changed", code == 400 && YouTube.Privacy == "public", j);
                 j = D("ytprivacy", "private", out code);
-                Ok("9.9 ytprivacy a=private: back to private", code == 200 && YouTube.Privacy == "private");
+                Ok("9.15 ytprivacy a=private: back to private", code == 200 && YouTube.Privacy == "private");
                 j = D("yttemplate", "3", out code);
-                Ok("9.9 yttemplate a=3: template 3", code == 200 && YouTube.Template == 3 && YouTube.Json().Contains("\"template\":3"), j);
+                Ok("9.15 yttemplate a=3: template 3", code == 200 && YouTube.Template == 3 && YouTube.Json().Contains("\"template\":3"), j);
                 j = D("yttemplate", "9", out code);
-                Ok("9.9 yttemplate a=9: 400, still 3", code == 400 && YouTube.Template == 3, j);
+                Ok("9.15 yttemplate a=9: 400, still 3", code == 400 && YouTube.Template == 3, j);
                 j = D("ytsignin", "", out code);
-                Ok("9.9 ytsignin with no client.json: 409 and the set-up words, no browser", code == 409 && j.Contains("Set up YouTube first"), j);
+                Ok("9.15 ytsignin with no client.json: 409 and the set-up words, no browser", code == 409 && j.Contains("Set up YouTube first"), j);
 
                 Dictionary<string, object> lj = Parse(Library.Json());
                 object[] titles = lj == null ? null : lj["titles"] as object[];
-                Ok("9.10 /api/library has the five titles for the newest race", titles != null && titles.Length == 5 && ((string)titles[0]).StartsWith("Toyota GR86 at Road Atlanta") && ((string)titles[3]).StartsWith("Road Atlanta Toyota GR86 full race"), titles == null ? "none" : string.Join(" | ", Array.ConvertAll(titles, o => (string)o)));
+                Ok("9.16 /api/library has the five titles for the newest race", titles != null && titles.Length == 5 && ((string)titles[0]).StartsWith("Toyota GR86 at Road Atlanta") && ((string)titles[3]).StartsWith("Road Atlanta Toyota GR86 full race"), titles == null ? "none" : string.Join(" | ", Array.ConvertAll(titles, o => (string)o)));
 
-                Ok("9.11 raceshare and ytsignin wait for the session to end; the two settings do not", Gate.IsGuardedDo("raceshare", "x") && Gate.IsGuardedDo("ytsignin", "") && !Gate.IsGuardedDo("ytprivacy", "public") && !Gate.IsGuardedDo("yttemplate", "3"));
+                Ok("9.17 raceshare and ytsignin wait for the session to end; the two settings do not", Gate.IsGuardedDo("raceshare", "x") && Gate.IsGuardedDo("ytsignin", "") && !Gate.IsGuardedDo("ytprivacy", "public") && !Gate.IsGuardedDo("yttemplate", "3"));
 
                 // FREE UP SPACE says what it would delete: 100 GB free of 1000 (under 15 %), two old shared races of 5 GB, one kept
                 Clean();
@@ -644,14 +740,14 @@ namespace IRDash
                 Library.ShareState = delegate (string id) { return "{\"kind\":\"shared\"}"; };
                 Dictionary<string, object> fs = Parse(Library.Json())["storage"] as Dictionary<string, object>;
                 Dictionary<string, object> fu = fs == null ? null : fs["freeUp"] as Dictionary<string, object>;
-                Ok("9.12 low space: storage.freeUp = 2 races, 10.0 GB (not the kept one)", fu != null && Convert.ToInt32(fu["count"]) == 2 && Math.Abs(Convert.ToDouble(fu["gb"]) - 10.0) < 0.05, fu == null ? "none" : fu["count"] + " / " + fu["gb"]);
+                Ok("9.18 low space: storage.freeUp = 2 races, 10.0 GB (not the kept one)", fu != null && Convert.ToInt32(fu["count"]) == 2 && Math.Abs(Convert.ToDouble(fu["gb"]) - 10.0) < 0.05, fu == null ? "none" : fu["count"] + " / " + fu["gb"]);
                 DiskFrom(500, 1000, true);
                 fs = Parse(Library.Json())["storage"] as Dictionary<string, object>;
-                Ok("9.12 enough space: no freeUp", fs != null && !fs.ContainsKey("freeUp"));
+                Ok("9.18 enough space: no freeUp", fs != null && !fs.ContainsKey("freeUp"));
             }
             finally
             {
-                Library.ShareState = null; Library.YouTubeJson = null; Library.Enqueued = null; Library.CutTool = null; sessionOn = false;
+                Library.ShareState = null; Library.YouTubeJson = null; Library.Enqueued = null; Library.CutTool = null; Cuts.Ffmpeg = null; Cuts.Ffprobe = null; sessionOn = false;
                 DiskFrom(500, 1000, true);
             }
         }
