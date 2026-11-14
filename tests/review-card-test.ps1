@@ -225,6 +225,20 @@ window.__run = async () => {
   window.__offline(false); await sleep(300);
   ok('1. ... and back: asked again, no longer grey', !q('.rv').classList.contains('stale') && window.__req.indexOf('/api/review?id=last') >= 0, window.__req.join(' '));
 
+  // MORE DATA on every state that has a session: left of SHOW ME, outlined (not gold), pressable, a press opens screen 3
+  for (const st of ['card-practice-8', 'card-practice-2', 'card-race']) {
+    await use(st); const jj = FX[st], mb = q('.acts .more'), sb = q('.acts .show');
+    ok('3. ' + st + ': MORE DATA is on the bottom bar, left of SHOW ME, 64 px, outlined (not gold), 24 px type, still one gold fill', !!mb && vis(mb) && !!sb && box(mb).r <= box(sb).l && mb.offsetHeight >= 64 && getComputedStyle(mb).backgroundColor !== GOLD && parseFloat(getComputedStyle(mb).fontSize) >= 24 && golds().length === 1);
+    ok('3. ' + st + ': the three buttons fit the bar, and the plan and reference lines stop before them', (() => { const a = box('.acts'), pb = box('.plan-box'); return a.r <= 1920 - 63 && pb.r <= a.l + 1 && box(mb).r <= box(q('.acts .watch')).l + 1; })());
+    mb.click();
+    const gm = window.__go.filter(g => g[0] === 'review' && g[1] && g[1].screen === 'more');
+    ok('3. ' + st + ': MORE DATA calls ctx.go("review", {screen:"more", at and id = the session})', gm.length === 1 && gm[0][1].at === jj.session.id && gm[0][1].id === jj.session.id, JSON.stringify(window.__go));
+  }
+  await use('card-practice-8', {}, () => { window.__fail = true; });
+  ok('3. the greyed (stale) card still shows MORE DATA, not pressable', !!q('.acts .more') && q('.acts .more').disabled && q('.rv').classList.contains('stale'));
+  await use('card-working');
+  ok('3. working: no MORE DATA', !q('.more'));
+
   // ---------------- 3. the presses ----------------
   await use('card-practice-8'); j = FX['card-practice-8'];
   q('.show').click();
