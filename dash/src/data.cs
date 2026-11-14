@@ -36,7 +36,8 @@ namespace IRDash
                 case "/nav": body = Utf8(Nav.Json()); return true;
                 case "/api/nav":
                     q.TryGetValue("to", out v);
-                    if (!Nav.Set(v == "sessions" ? "sessions" : v == "coach" ? "coach" : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
+                    // W3-1: the four doors (races, review, rig; home = none) and the old names the deck keys still send
+                    if (!Nav.Set(v == "sessions" || v == "coach" || v == "races" || v == "review" || v == "rig" ? v : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
                     body = Utf8("{\"ok\":true}"); return true;
                 case "/api/sessions/open":
                     if (!Nav.Set("sessions")) { Err(out code, out type, out body, 409, "not while driving"); return true; }

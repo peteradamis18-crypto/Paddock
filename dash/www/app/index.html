@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iRacing Dash</title><!-- irdash finds the top screen's window by this title (irdash.cs WindowTitle): keep it -->
+<link rel="stylesheet" href="design.css">
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<!-- THE TOP SCREEN (W3-1, docs/rework/PLAN.md 3 and 4.1): one page at a time behind four doors, one banner line, the race
+     screen while he drives. shell.js is the router; the pages are app/pages/*.js (mount / unmount). -->
+<header id="shellTop" class="shell-top">
+  <span class="brand">Paddock</span><span class="dot" aria-hidden="true">&middot;</span><span id="shellDate" class="date"></span>
+  <nav class="doors" aria-label="Pages">
+    <button type="button" class="door" data-door="home">Home</button>
+    <button type="button" class="door" data-door="races">Races</button>
+    <button type="button" class="door" data-door="review">Review</button>
+    <button type="button" class="door" data-door="rig">Rig</button>
+  </nav>
+  <button type="button" id="shellClose" class="btn shell-close">Close</button>
+</header>
+<main id="page"></main>
+<div id="banner" class="banner shell-banner" role="status" aria-live="polite" hidden></div>
+<div id="raceHost" hidden></div><!-- the race screen (v2/race.html, W2-2): full screen while he drives -->
+<div id="flagGlow" aria-hidden="true"></div>
+<div id="startup" hidden></div><!-- the start-up (W3-2, app/pages/startup.js) plays in here; the shell only shows and hides it -->
+
+<script src="lib/data.js"></script><!-- the one connection to irdash (plain script: the race screen's frame borrows it) -->
+<script src="lib/format.js"></script>
+<script type="module" src="shell.js"></script>
+</body>
+</html>

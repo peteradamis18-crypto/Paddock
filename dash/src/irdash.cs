@@ -1782,7 +1782,7 @@ namespace IRDash
         public bool HideTaskbar = true;   // keep the dashboard and sim windows above the taskbar on their monitors
         public bool SyncSimIni = false;   // write iRacing's rendererDX11Monitor.ini window position (off: never touch iRacing files)
         public bool Watchdog = true;      // restart Stream Deck if it vanishes; clear a sim that froze while loading
-        public string Page = "";          // dashboard page under www: "" = version 1, "v2/" = version 2
+        public string Page = "app/";      // dashboard page under www (W3-1: the shell, app/index.html); "v2/index.html" = the old HOME
         public bool DeltaOn = true;       // native delta bar on the middle race screen (deltabar.cs)
         public string DeltaRef = "best";  // best | optimal | session
         public string DeltaPos = "auto";  // "auto" (centred) or "x,y" / "center,y": top-left on the middle screen
@@ -1858,7 +1858,9 @@ namespace IRDash
                     case "hide_taskbar": c.HideTaskbar = v != "0"; break;
                     case "sync_sim_ini": c.SyncSimIni = v == "1"; break;
                     case "watchdog": c.Watchdog = v != "0"; break;
-                    case "page": c.Page = Regex.IsMatch(v, "^[A-Za-z0-9_-]*/?$") ? v : ""; break;
+                    // W3-1: the shell is the top screen. An old irdash.ini says page=v2/ (or nothing): that is the shell now. To go back
+                    // to the old HOME for a day, write page=v2/index.html (the only way to name a file here).
+                    case "page": c.Page = (v == "" || v == "v2/" || v == "v2") ? "app/" : Regex.IsMatch(v, "^([A-Za-z0-9_-]+/)?([A-Za-z0-9_-]+/?|index\\.html)$") ? v : "app/"; break;
                     case "delta_bar": c.DeltaOn = v != "0"; break;
                     case "delta_ref": c.DeltaRef = v.ToLowerInvariant(); break;
                     case "delta_pos": c.DeltaPos = v; break;
