@@ -342,7 +342,9 @@ document.addEventListener('keydown', e => {
   const tg = e.target && e.target.tagName;
   if (tg === 'TEXTAREA' || (tg === 'INPUT' && e.target.type !== 'range')) { if (e.key === 'Escape') e.target.blur(); return; }
   if (e.key === 'Escape') {
-    if (!$('pop').hidden) { closePop(); return; }
+    // Esc used inside the Vault is marked, so the top screen's shell does not also take it to HOME (W3-1)
+    if (!$('pop').hidden) { e.preventDefault(); closePop(); return; }
+    if ($('wbHost') || V.id) e.preventDefault();
     if ($('wbHost')) closeRace(); else if (V.id && theaterOn()) setTheater(false); else if (V.id) location.hash = ''; else closeMe();
     return;
   }

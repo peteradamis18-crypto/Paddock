@@ -203,7 +203,7 @@ const Races = {
     $('driving').hidden = !driving;
     root.querySelector('header.top').hidden = driving;
     $('grid').hidden = driving;
-    if (driving) { $('rcBanner').hidden = true; ctx.banner(null); $('bar').hidden = true; $('open').hidden = true; $('titles').hidden = true; return; }
+    if (driving) { $('rcBanner').hidden = true; ctx.banner(null); $('bar').hidden = true; $('open').hidden = true; $('titles').hidden = true; document.body.classList.remove('page-bar'); return; }
     this.drawHeader();
     this.drawGrid();
     this.drawBar();
@@ -211,6 +211,7 @@ const Races = {
     this.drawOpen();
     this.drawPicker();
     $('rcToast').classList.toggle('up', !$('undo').hidden);
+    document.body.classList.toggle('page-bar', !$('bar').hidden);     // the shell's banner moves above the select bar
   },
 
   drawHeader() {
@@ -596,6 +597,7 @@ export default {
     if (offKey) document.removeEventListener('keydown', offKey);
     offKey = null;
     [Races.toastTimer, Races.undoTimer, Races.talkTimer].forEach(t => clearTimeout(t));
+    document.body.classList.remove('page-bar');
     root = null; ctx = null;                         // the shell ends the subscriptions (ctx.data) and empties the page area
   },
 };

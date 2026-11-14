@@ -76,7 +76,7 @@ function play(el, opts) {
 
   let resolve;
   const promise = new Promise(function (r) { resolve = r; });
-  running = { promise: promise, st: st, el: el };
+  running = { promise: promise, st: st, el: el, cancel: null };
   const at = function (ms, f) { st.timers.push(setTimeout(f, Math.max(0, ms - (performance.now() - st.t0)))); };
   const stopTimers = function () { st.timers.forEach(clearTimeout); st.timers = []; };
 
@@ -97,8 +97,10 @@ function play(el, opts) {
     // hold the full dial, then fade the layer away over HOME (whose dial sits in the same place)
     const left = how === 'skipped' ? 600 : Math.max(0, FULL_MS - (performance.now() - st.t0));
     setTimeout(function () {
+      if (st.cancelled) return;
       el.classList.add('gone');
       setTimeout(function () {
+        if (st.cancelled) return;
         if (st.clock) st.clock.unmount();
         if (st.ctx && st.ctx.close && st.ctx.state !== 'closed') { try { st.ctx.close().catch(function () { }); } catch (e) { } }
         el.innerHTML = ''; el.hidden = true;
@@ -109,6 +111,18 @@ function play(el, opts) {
   }
   function onSkip() { finish('skipped'); }
   skipOn.forEach(function (n) { window.addEventListener(n, onSkip, true); });
+  // W3-1: he got in the car (or the shell must clear the screen): everything stops at once, the tones too
+  running.cancel = function () {
+    st.cancelled = true;
+    stopTimers();
+    skipOn.forEach(function (n) { window.removeEventListener(n, onSkip, true); });
+    if (st.clock) { try { st.clock.unmount(); } catch (e) { } st.clock = null; }
+    if (st.ctx && st.ctx.close && st.ctx.state !== 'closed') { try { st.ctx.close().catch(function () { }); } catch (e) { } }
+    el.innerHTML = ''; el.hidden = true;
+    el.classList.remove('gone', 'out', 'dial-up', 'skip', 'held');
+    if (!st.result) { st.result = 'stopped'; resolve('stopped'); }
+    if (running && running.st === st) running = null;
+  };
 
   for (let i = 0; i < 5; i++) {
     at((i + 1) * LIGHT_MS, function () {
@@ -129,10 +143,18 @@ async function init(el, o) {
   o = o || {};
   const data = o.data || window.data;
   const force = /[?&]intro=1/.test(location.search);
+  // W3-1: a guest in the car, or o.blocked() (the shell's race screen / a fresh frame on track) count as driving too
   const driving = function (st) {
     const r = (data && data.rig) || {};
-    return !!r.driving || !!(st && st.showcase && st.showcase.driving);
+    return !!r.driving || !!(st && st.showcase && st.showcase.driving) || !!(st && st.guest && st.guest.active) || !!(o.blocked && o.blocked());
   };
+  // a window opened mid-race (KeepDash, a deploy) must know he is driving before it decides: wait for irdash's first state
+  if (data && data.on && typeof data.seq === 'number' && data.seq < 0) {     // data.js says -1 until its first state
+    await new Promise(function (res) {
+      let off = null; const t = setTimeout(function () { if (off) off(); res(); }, 5000);
+      off = data.on('state', function () { clearTimeout(t); setTimeout(function () { if (off) off(); }, 0); res(); });
+    });
+  }
   const go = function () {
     if (o.onStart) o.onStart();
     const p = play(el, { sound: true, quiet: isQuietHours(), skipOn: ['keydown', 'pointerdown'] });
@@ -153,9 +175,13 @@ async function init(el, o) {
   }
 }
 
+// W3-1: stop at once (lights, dial, tones); the play's Promise resolves 'stopped'
+function stop() { if (running && running.cancel) running.cancel(); }
+
 export const Startup = {
   play: play,
   init: init,
+  stop: stop,
   isQuietHours: isQuietHours,
   get running() { return !!running; },
   TIMES: { light: LIGHT_MS, out: OUT_MS, done: DONE_MS, full: FULL_MS }

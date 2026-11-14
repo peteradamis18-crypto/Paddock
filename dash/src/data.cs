@@ -36,9 +36,9 @@ namespace IRDash
                 case "/nav": body = Utf8(Nav.Json()); return true;
                 case "/api/nav":
                     q.TryGetValue("to", out v);
-                    // W3-1: the four doors (races, review, rig; home = none) and the old names the deck keys still send
-                    if (!Nav.Set(v == "sessions" || v == "coach" || v == "races" || v == "review" || v == "rig" ? v : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
-                    body = Utf8("{\"ok\":true}"); return true;
+                    // W3-1: the four doors (home is said out loud: the shell closes any page on it) and the old names the deck keys still send
+                    if (!Nav.Set(v == "home" || v == "sessions" || v == "coach" || v == "races" || v == "review" || v == "rig" ? v : "")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
+                    body = Utf8("{\"ok\":true,\"seq\":" + Nav.Seq + "}"); return true;     // the shell knows its own echo by this seq
                 case "/api/sessions/open":
                     if (!Nav.Set("sessions")) { Err(out code, out type, out body, 409, "not while driving"); return true; }
                     body = Utf8("{\"ok\":true}"); return true;
@@ -868,6 +868,7 @@ namespace IRDash
                 if (want != "" && (driving || (DateTime.Now - since).TotalMinutes > 30)) { want = ""; seq++; }
         }
 
+        public static int Seq { get { lock (gate) return seq; } }
         public static string Json() { lock (gate) return "{\"to\":" + Json_.S(want) + ",\"seq\":" + seq + ",\"driving\":" + (Program.IsDriving ? "true" : "false") + "}"; }
     }
 

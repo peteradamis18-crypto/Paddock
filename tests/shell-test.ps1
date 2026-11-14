@@ -7,6 +7,9 @@
 #   3. driving: rig.driving + fresh frames -> the race screen, the page unmounted (listeners counted); a replay, stale frames or
 #      no frames do not; 5 s after driving ends HOME is mounted; the stream asks for the race set
 #   4. request rate: HOME idle <= 2 / s, driving <= 1 / s besides the stream
+#   5-7. ?page= / ?race=1; Friends mode (its layer, pages closed while a guest drives, the clean-lap call); the start-up (never on a
+#      window opened while he drives, stopped with its tones when he gets in). Echoes, the deck's HOME, stale messages and Esc in an
+#      open session are in 1; every move is checked against Shell.log (which push or message did it).
 # Pictures: tests\shots\rework\shell-<state>.png. Frames are made in the page (data.emit): no .ibt and no iRacing needed.
 #   powershell -ExecutionPolicy Bypass -File tests\shell-test.ps1
 . (Join-Path $PSScriptRoot 'guard.ps1')
@@ -91,7 +94,8 @@ try {
   $null = Cdp-Eval '(() => { Shell.msgs.length = 0; const f = document.querySelector("#page iframe"); f.focus(); f.contentWindow.focus(); return 1; })()'
   Key
   $r = (Wait-Until 'Shell.cur === "home"' 3) -and ((Cdp-Eval 'Shell.msgs.includes("esc")') -eq $true)
-  ok "Esc pressed inside REVIEW's frame goes HOME (messages: $(Cdp-Eval 'Shell.msgs.join()'); moves: $(Cdp-Eval 'Shell.log.slice(-3).join(" ")'))" $r
+  $r = (Wait-Until 'Shell.cur === "home" && /^home:press:(sessions-close|esc-frame)$/.test(Shell.log.slice(-1)[0])' 3)
+  ok "Esc pressed inside REVIEW's frame goes HOME (messages: $(Cdp-Eval 'Shell.msgs.join()'); moves: $(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" $r
   Door 'rig'
   ok "RIG: the Performance page in its frame (v2/perf.html?embed=1)" (Wait-Until "Shell.cur === 'rig' && $one && /v2\/perf\.html\?embed=1/.test((document.querySelector('#page iframe') || {}).src || '') && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15) "(moves: $(Cdp-Eval 'Shell.log.join(" ")'))"
   Start-Sleep -Milliseconds 800
@@ -103,15 +107,16 @@ try {
   $r = (Wait-Until 'Shell.cur === "home"' 3) -and ((Cdp-Eval 'Shell.msgs.includes("esc")') -eq $true)
   ok "Esc inside a frame inside RIG's frame goes HOME too (messages: $(Cdp-Eval 'Shell.msgs.join()'))" $r
   ok "after REVIEW and RIG: still $base listeners (their frames' subscriptions ended)" ([int](Cdp-Eval $listeners) -eq $base) (Cdp-Eval $listeners)
-  Start-Sleep -Milliseconds 3200       # past the echo window of this page's own requests
   $told0 = [int](Cdp-Eval 'Shell.told.length')
   Push 'nav' '{"to":"races","seq":50,"driving":false}'
   ok 'the deck asks RACES (nav push, seq rising): RACES opens' (Wait-Until "Shell.cur === 'races' && location.hash === '#/races' && $one" 5)
+  ok "the log says which push opened it ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ((Cdp-Eval 'Shell.log.slice(-1)[0]') -eq 'races:nav:nav#50')
   ok 'a page irdash asked for is not told back to irdash' ([int](Cdp-Eval 'Shell.told.length') -eq $told0)
   Push 'nav' '{"to":"coach","seq":51,"driving":false}'
   ok 'the old DEBRIEF request (to=coach) opens REVIEW' (Wait-Until "Shell.cur === 'review'" 5)
   Push 'nav' '{"to":"","seq":52,"driving":false}'
   ok 'irdash ends the request (to="", 30 min or a drive): HOME' (Wait-Until "Shell.cur === 'home'" 5)
+  ok "the log names that push ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ((Cdp-Eval 'Shell.log.slice(-1)[0]') -eq 'home:nav:nav#52')
   Push 'perfNav' '{"to":"perf","seq":9,"driving":false}'
   ok 'the old PERFORMANCE request (perfNav) opens RIG' (Wait-Until "Shell.cur === 'rig'" 5)
   $null = Cdp-Eval '(() => { document.getElementById("shellClose").click(); return 1; })()'
@@ -121,6 +126,51 @@ try {
   ok 'the hash leads too: #/review mounts REVIEW' (Wait-Until "Shell.cur === 'review' && $one" 5)
   $null = Cdp-Eval '(() => { location.hash = "#/nothing"; return 1; })()'
   ok 'an unknown door is HOME' (Wait-Until "Shell.cur === 'home' && location.hash === '#/home'" 5)
+
+  # the echo: irdash says back what this page told it; that is not a new request. A real deck press right after is.
+  # (irdash answers /api/nav with the seq it made, data.cs; the pretend answers these two from fixtures)
+  $u8 = New-Object Text.UTF8Encoding($false)
+  [IO.File]::WriteAllText((Join-Path $fx 'api_nav~to=races.json'), '{"ok":true,"seq":70}', $u8)
+  [IO.File]::WriteAllText((Join-Path $fx 'api_nav~to=home.json'), '{"ok":true,"seq":71}', $u8)
+  Door 'races'; $null = Wait-Until "Shell.cur === 'races'" 3
+  $null = Cdp-Eval '(() => { document.getElementById("shellClose").click(); return 1; })()'
+  $null = Wait-Until "Shell.cur === 'home'" 3
+  Push 'nav' '{"to":"races","seq":70,"driving":false}'      # the echo of the RACES press (irdash is slower than this page)
+  Push 'nav' '{"to":"home","seq":71,"driving":false}'       # the echo of CLOSE
+  Start-Sleep -Milliseconds 500
+  ok "the echoes of RACES and CLOSE move nothing ($(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" ((Cdp-Eval "Shell.cur === 'home' && Shell.log.slice(-2).join('|') === 'echo races:nav#70|echo home:nav#71'") -eq $true)
+  Remove-Item (Join-Path $fx 'api_nav~to=*.json')
+  Push 'nav' '{"to":"review","seq":72,"driving":false}'     # the deck's REVIEW, less than 3 s after CLOSE
+  ok "a deck press within 3 s of CLOSE opens its page ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'review' && Shell.log.slice(-1)[0] === 'review:nav:nav#72'" 4)
+  Push 'nav' '{"to":"home","seq":73,"driving":false}'
+  ok "the deck's HOME (to:home) closes it ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home' && Shell.log.slice(-1)[0] === 'home:nav:nav#73'" 4)
+  $null = Cdp-Eval 'Shell.echo.length = 0; 1'
+  Door 'rig'; $null = Wait-Until "Shell.cur === 'rig'" 3
+  $null = Cdp-Eval 'Shell.echo.length = 0; 1'
+  Push 'nav' '{"to":"home","seq":74,"driving":false}'
+  ok "the deck's HOME also closes a page opened by a door here ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home' && Shell.log.slice(-1)[0] === 'home:nav:nav#74'" 4)
+
+  # a stale close: a frame that is not the page up now (a page that has gone, anything else) is not believed
+  Door 'rig'; $null = Wait-Until "Shell.cur === 'rig' && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15
+  $null = Cdp-Eval '(() => { const s = document.createElement("iframe"); s.id = "stale"; s.srcdoc = "<script>parent.postMessage({ irdash: \"sessions-close\" }, \"*\"); parent.postMessage({ paddock: \"esc\", token: \"h-old\" }, \"*\");<\/script>"; document.body.appendChild(s); return 1; })()'
+  Start-Sleep -Milliseconds 700
+  ok "a stale sessions-close and an Esc with an old token are ignored: RIG stays ($(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" ((Cdp-Eval "Shell.cur === 'rig' && Shell.log.slice(-2).join('|') === 'ignored sessions-close (not the page up now)|ignored esc (not the page up now)'") -eq $true)
+  $null = Cdp-Eval 'document.getElementById("stale").remove(); 1'
+  $null = Cdp-Eval '(() => { const d = document.querySelector("#page iframe").contentDocument; d.dispatchEvent(new d.defaultView.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return 1; })()'
+  ok "the page up now closing itself is believed ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home' && /^home:press:(perf-close|sessions-close|esc-frame)$/.test(Shell.log.slice(-1)[0])" 3)
+
+  # Esc inside REVIEW with a session open: Sessions uses it (back to the list); only the next Esc goes HOME
+  Door 'review'; $null = Wait-Until "Shell.cur === 'review' && document.querySelector('#page iframe').contentDocument.readyState === 'complete' && !!document.querySelector('#page iframe').contentDocument.__paddockEsc" 15
+  $null = Cdp-Eval '(() => { const w = document.querySelector("#page iframe").contentWindow; w.location.hash = "a=" + encodeURIComponent("test.ibt"); return 1; })()'
+  $opened = Wait-Until '(() => { const d = document.querySelector("#page iframe").contentDocument; return !!d.getElementById("wbHost"); })()' 8
+  ok 'a session opened inside REVIEW' $opened
+  $null = Cdp-Eval '(() => { const f = document.querySelector("#page iframe"); f.focus(); f.contentWindow.focus(); f.contentDocument.body.focus(); return 1; })()'
+  Key
+  Start-Sleep -Milliseconds 600
+  ok "Esc with the session open goes back inside REVIEW, not HOME ($(Cdp-Eval 'Shell.cur + " / " + Shell.log.slice(-1)[0]'))" ((Cdp-Eval "Shell.cur === 'review' && document.querySelector('#page iframe').contentWindow.location.hash === ''") -eq $true)
+  $null = Cdp-Eval '(() => { const w = document.querySelector("#page iframe").contentWindow; const h = w.document.getElementById("wbHost"); if (h) h.remove(); w.focus(); return 1; })()'
+  Key
+  ok "the next Esc goes HOME ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home'" 3)
   $null = Cdp-Eval '(() => { Shell.go("races", { from: "press" }); Shell.go("review", { from: "press" }); Shell.go("rig", { from: "press" }); return 1; })()'
   ok 'three doors pressed in a row: only the last is mounted, one page' (Wait-Until "Shell.cur === 'rig' && $one && !document.querySelector('#page .rc')" 5)
   Door 'home'
@@ -202,12 +252,12 @@ try {
   Door 'races'
   Push 'nav' '{"to":"races","seq":60,"driving":true}'
   Start-Sleep -Milliseconds 500
-  ok 'while driving a door or a deck request opens nothing' ((Cdp-Eval "ShellRace.on && Shell.cur === '' && document.getElementById('page').children.length === 0") -eq $true)
+  ok "while driving a door or a deck request opens nothing (the request is kept: $(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ((Cdp-Eval "ShellRace.on && Shell.cur === '' && document.getElementById('page').children.length === 0 && Shell.pending === 'races'") -eq $true)
   $null = Cdp-Eval 'window.__fv.IsReplayPlaying = 1; 1'
   $t0 = Get-Date
-  $atHome = Wait-Until "!ShellRace.on && Shell.cur === 'home'" 9
+  $atHome = Wait-Until "!ShellRace.on && Shell.cur === 'races'" 9
   $took = ((Get-Date) - $t0).TotalSeconds
-  ok "a replay in the sim: HOME after the 5 s wait ($([math]::Round($took, 1)) s)" ($atHome -and $took -ge 4.3)
+  ok "a replay in the sim: after the 5 s wait the page the deck asked for while driving opens ($([math]::Round($took, 1)) s; $(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ($atHome -and $took -ge 4.3 -and (Cdp-Eval 'Shell.log.slice(-1)[0]') -eq 'races:drive:pending')
   $null = Cdp-Eval 'window.__fv.IsReplayPlaying = 0; 1'
   ok 'out of the replay: the race screen again' (Wait-Until 'ShellRace.on' 3)
   $null = Cdp-Eval 'clearInterval(window.__fr); 1'
@@ -221,7 +271,9 @@ try {
   Push 'rig' '{"driving":false,"sessionOn":true,"simRunning":true,"online":true}'
   Start-Sleep -Seconds 3
   ok '3 s after driving ends: still the race screen (a tow or a reset does not flick it)' ((Cdp-Eval 'ShellRace.on') -eq $true)
-  ok 'about 5 s after it ends HOME is mounted' (Wait-Until "!ShellRace.on && Shell.cur === 'home' && document.getElementById('raceHost').hidden && /HOME is being rebuilt/.test(document.getElementById('page').textContent)" 4)
+  Push 'nav' '{"to":"review","seq":61,"driving":false}'      # the deck's REVIEW during the 5 s wait (irdash already says not driving)
+  ok "5 s after it ends the deck's REVIEW from the wait opens ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "!ShellRace.on && Shell.cur === 'review' && document.getElementById('raceHost').hidden && Shell.log.slice(-1)[0] === 'review:drive:pending'" 4)
+  Door 'home'
   ok "out of the car the stream asks only the shell's four channels again ($(Cdp-Eval '(data.vars || []).join()'))" ((Cdp-Eval 'data.set === "" && (data.vars || []).join() === "SessionFlags,IsReplayPlaying,IsOnTrack,SessionNum"') -eq $true)
   $null = Cdp-Eval 'clearInterval(window.__fr); 1'
   ok "no page error ($(Cdp-Eval '__errs.join(" | ")'))" ((Cdp-Eval '__errs.length') -eq 0)
@@ -253,6 +305,65 @@ try {
   ok '?race=1 shows the race screen whatever the rig says, no page mounted' (Wait-Until "window.Shell && ShellRace.on && !document.getElementById('raceHost').hidden && Shell.cur === '' && data.set === 'race'" 10)
   Cdp-Shot (Join-Path $shots 'shell-race-forced.png')
   Cdp-Close
+
+  # ------------------------------------------------------------------ 6. Friends mode
+  Section '6. Friends mode: its layer, pages closed while a guest drives, the clean-lap call'
+  Push 'rig' '{"driving":false,"sessionOn":false,"simRunning":false,"online":true}'
+  Push 'guest' '{"active":false}'
+  Cdp-Open "http://localhost:$PORT/app/index.html?intro=0&page=races" -Port ($CDP + 3)
+  $null = Wait-Until "window.Shell && Shell.cur === 'races'" 10
+  $g = '{"active":true,"driver":"Sam","driverId":"sam","voiceDriver":true,"car":{"name":"GR86","full":"Toyota GR86","aids":""},"track":{"name":"Road Atlanta","full":"Road Atlanta Full Course"},"wheel":"light","line":true,"lineKey":true,"coach":true,"board":true,"times":[{"name":"Alex","time":93.2},{"name":"Sam","time":94.1}]}'
+  Push 'guest' $g
+  $gq = '(() => { const f = document.getElementById("guestFrame"); const d = f && f.contentDocument; const g = d && d.getElementById("guest"); return g ? g.className : ""; })()'
+  ok 'a guest is on: the Friends mode layer shows its setup card' (Wait-Until "!document.getElementById('guestHost').hidden && $gq === 'setup'" 10) (Cdp-Eval $gq)
+  ok 'with the guest only choosing, the page stays (under the layer)' ((Cdp-Eval "Shell.cur === 'races' && !Shell.block") -eq $true)
+  Start-Sleep -Milliseconds 500
+  Cdp-Shot (Join-Path $shots 'shell-guest.png')
+  $null = Cdp-Eval $frame
+  Push 'rig' '{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'
+  Push 'guest' $g.Replace('"coach":true', '"coach":false')       # irdash pushes the guest part again: the view redraws as the drive view
+  ok 'a guest drives: the page is closed, no race screen, the drive view shows' (Wait-Until "Shell.block && Shell.cur === '' && document.getElementById('page').children.length === 0 && document.getElementById('raceHost').hidden && !ShellRace.on && $gq === 'drive'" 8) "($(Cdp-Eval $gq) / $(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))"
+  Door 'review'
+  ok "a door during the guest drive is refused ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ((Cdp-Eval "Shell.cur === '' && Shell.log.slice(-1)[0] === 'refused review:press:door'") -eq $true)
+  ok "the stream asks for Friends mode's channels ($(Cdp-Eval 'data.set + "|" + (data.vars || []).length'))" ((Cdp-Eval 'data.set === "" && (data.vars || []).length > 20 && (data.vars || []).includes("LapCurrentLapTime")') -eq $true)
+  $null = Get-J "http://localhost:$CTL/__reset"
+  $null = Cdp-Eval '(() => { const w = document.getElementById("guestFrame").contentWindow; w.eval("L.laps.push({ n: 99, time: 93.512, clean: true })"); return 1; })()'
+  $lap = $false; for ($i = 0; $i -lt 12 -and -not $lap; $i++) { Start-Sleep -Milliseconds 250; $s = Get-J "http://localhost:$CTL/__stats"; $lap = [bool]($s.routes.PSObject.Properties | Where-Object { $_.Name -eq '/api/guest/lap' }) }
+  ok 'a clean guest lap is sent to irdash (/api/guest/lap: the friends leaderboard)' $lap
+  $null = Cdp-Eval 'window.__fv = Object.assign(window.__fv, { LapCurrentLapTime: 42.3, SessionTime: 500, Lap: 3, LapDistPct: 0.4, Throttle: 0.8, Brake: 0, LapLastLapTime: 94.1, LapBestLapTime: 93.9 }); 1'
+  Start-Sleep -Milliseconds 800
+  Cdp-Shot (Join-Path $shots 'shell-guest-drive.png')
+  Push 'nav' '{"to":"rig","seq":90,"driving":false}'
+  ok "a deck request during the guest drive is kept ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" ((Cdp-Eval "Shell.pending === 'rig'") -eq $true)
+  $null = Cdp-Eval 'clearInterval(window.__fr); 1'
+  Push 'rig' '{"driving":false,"sessionOn":false,"simRunning":false,"online":true}'
+  Push 'guest' '{"active":false}'
+  ok "the guest is gone: the layer goes and the kept request opens ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "document.getElementById('guestHost').hidden && !document.getElementById('guestFrame') && Shell.cur === 'rig'" 6)
+  Cdp-Close
+
+  # ------------------------------------------------------------------ 7. the start-up (W3-2's Startup.init)
+  Section '7. the start-up: never on a window opened while he drives; stopped when he gets in'
+  [IO.File]::WriteAllText((Join-Path $fx 'showcase~who=page.json'), '{"play":true,"seq":1,"driving":false}', (New-Object Text.UTF8Encoding($false)))
+  Push 'rig' '{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'
+  Cdp-Open "http://localhost:$PORT/app/index.html" -Port ($CDP + 4)
+  $null = Wait-Until 'window.Shell && data.seq >= 0' 10
+  Start-Sleep -Seconds 3
+  ok "a window opened while he drives: no start-up ($(Cdp-Eval 'Shell.log.join(" | ")'))" ((Cdp-Eval "!ShellStartup.running && document.getElementById('startup').hidden && !Shell.log.includes('startup')") -eq $true)
+  Cdp-Close
+  Push 'rig' '{"driving":false,"sessionOn":false,"simRunning":false,"online":true}'
+  Cdp-Open "http://localhost:$PORT/app/index.html" -Port ($CDP + 5)
+  ok 'not driving: irdash says play, the start-up plays' (Wait-Until "window.ShellStartup && ShellStartup.running && !document.getElementById('startup').hidden" 8)
+  $null = Cdp-Eval '(() => { const A = window.AudioContext; window.__acs = []; window.AudioContext = function () { const c = new A(); window.__acs.push(c); return c; }; return 1; })()'   # before the first light's tone (1 s)
+  Start-Sleep -Milliseconds 2600
+  Cdp-Shot (Join-Path $shots 'shell-startup.png')
+  $null = Cdp-Eval $frame
+  Push 'rig' '{"driving":true,"sessionOn":true,"simRunning":true,"online":true}'
+  ok "he gets in the car: the start-up stops at once, lights, dial and tones ($(Cdp-Eval 'Shell.log.slice(-3).join(" | ")'))" (Wait-Until "ShellRace.on && !ShellStartup.running && document.getElementById('startup').hidden && document.getElementById('startup').children.length === 0 && Shell.log.includes('startup stopped')" 4)
+  Start-Sleep -Milliseconds 300
+  ok "its tones are stopped too ($(Cdp-Eval 'window.__acs.map(c => c.state).join()') AudioContext)" ((Cdp-Eval 'window.__acs.length >= 1 && window.__acs.every(c => c.state === "closed")') -eq $true)
+  $null = Cdp-Eval 'clearInterval(window.__fr); 1'
+  Push 'rig' '{"driving":false,"sessionOn":false,"simRunning":false,"online":true}'
+  Cdp-Close
 } catch {
   $script:fail++; "  FAIL  the test stopped: $($_.Exception.Message) ($($_.InvocationInfo.PositionMessage))"
 } finally {
@@ -260,6 +371,6 @@ try {
   if ($pret) { Stop-Process -Id $pret.Id -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
-foreach ($s in 'home', 'races', 'review', 'rig', 'offline', 'kids', 'tow', 'keymsg', 'driving', 'race-forced') { ok "picture tests\shots\rework\shell-$s.png" (Test-Path (Join-Path $shots "shell-$s.png")) }
+foreach ($s in 'home', 'races', 'review', 'rig', 'offline', 'kids', 'tow', 'keymsg', 'driving', 'race-forced', 'guest', 'guest-drive', 'startup') { ok "picture tests\shots\rework\shell-$s.png" (Test-Path (Join-Path $shots "shell-$s.png")) }
 "shell-test: $($script:pass) ok, $($script:fail) FAIL"
 if ($script:fail -gt 0 -or $script:pass -eq 0) { exit 1 }

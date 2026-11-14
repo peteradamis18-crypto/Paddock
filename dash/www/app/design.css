@@ -14,7 +14,7 @@
   --gain: #4CD07D; --loss: #FF6B5E; --purple: #B36BFF; --amber: #FFA630; --cyan: #3CCBEA;
   --danger: #FF5A4D; --focus: #FFFFFF;
 
-  --t-hero: 240px; --t-display: 96px; --t-title: 56px; --t-read: 36px; --t-body: 24px; --t-label: 20px;
+  --t-hero: 240px; --t-display: 96px; --t-title: 56px; --t-banner: 48px; --t-read: 36px; --t-body: 24px; --t-label: 20px;   /* banner: the one line (PLAN 4.1) */
   --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
   --track: .08em;                              /* caps labels */
   --fast: .2s; --enter: .5s; --press: .7s;     /* state change / entrance / button press flash */

@@ -136,7 +136,8 @@ document.addEventListener('click', e => {
   if (row && !row.classList.contains('gone')) location.hash = 'a=' + encodeURIComponent(row.dataset.file);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (SX.file) location.hash = ''; else closeMe(); return; }
+  // Esc used here (back from a lap) is marked, so the top screen's shell does not also take it to HOME (W3-1)
+  if (e.key === 'Escape') { if (SX.file) { e.preventDefault(); location.hash = ''; } else closeMe(); return; }
   if (e.key === 'Enter' && document.activeElement && document.activeElement.dataset && document.activeElement.dataset.file) document.activeElement.click();
 });
 

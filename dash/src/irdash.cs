@@ -702,6 +702,8 @@ namespace IRDash
                         var kq = ParseQuery(query); string kk, kt, kd;
                         kq.TryGetValue("key", out kk); kq.TryGetValue("text", out kt); kq.TryGetValue("kind", out kd);
                         string kept = KeyMsg.Set(kk, kt, kd);
+                        // W3-1: the deck's HOME key (rig-on) also means "HOME" on the top screen: whatever page is up closes
+                        if (kk == "rig-on") Nav.Set("home");
                         Send(s, kept.Length > 0 ? 200 : 400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(kept.Length > 0 ? "ok" : "no text"));
                         return;
                     }
@@ -2952,7 +2954,8 @@ namespace IRDash
             if (!DashScreenFound()) { Log.W("dashboard not opened: the dashboard monitor is not there (only the race screens are)"); return; }
             Rectangle b = PickScreen().Bounds;
             string profile = Path.Combine(Dir, "browser-profile");
-            string url = "http://localhost:" + cfg.Port + "/" + cfg.Page + query;
+            // the fake race (?demo=1) exists only on the old HOME (core.js + demo.js); the shell has none (W3-1)
+            string url = "http://localhost:" + cfg.Port + "/" + (query.StartsWith("?demo=", StringComparison.Ordinal) ? "v2/index.html" : cfg.Page) + query;
             string args =
                 "--user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check " +
                 "--hide-crash-restore-bubble --disable-session-crashed-bubble --disable-features=Translate " +
