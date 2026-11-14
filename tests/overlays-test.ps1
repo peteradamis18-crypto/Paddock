@@ -52,7 +52,8 @@ $mid = [System.Windows.Forms.Screen]::AllScreens | Where-Object { $_.Bounds.X -e
 
 # ---- deck screen drawn by the real plugin.html code, in headless Chrome (DevTools protocol) ----
 function Render-Deck($profile, $extraJs, $outPng) {
-  $plugin = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\plugin.html'))
+  . (Join-Path $root 'tests\deck-harness.ps1')   # W3-4: the page loads keyart.js and layout.js; the harness puts both inside the copy
+  $plugin = Get-DeckPluginHtml (Join-Path $root 'deck-intro\plugin.html')
   $stub = "<script>window.__imgs = {}; window.WebSocket = class { constructor() { this.readyState = 1; window.__ws = this; setTimeout(() => this.onopen && this.onopen(), 10); } send(m) { const o = JSON.parse(m); if (o.event === 'setImage') window.__imgs[o.context] = o.payload.image; } };</script>"
   $driver = @'
 <script>

@@ -218,7 +218,8 @@ try {
   Check 'the hook is keyboard and mouse only (the wheel is not blocked)' ($kidsCs -match 'WH_KEYBOARD_LL' -and $kidsCs -match 'WH_MOUSE_LL' -and $kidsCs -notmatch 'BlockInput' -and $kidsCs -notmatch 'RegisterRawInputDevices')
   Check 'deck keys check the lock before they run' ($ir -match 'KidsLocked\(\)' -and $ir -match 'kids mode: ignored')
   Check 'the top screen says KIDS MODE and how to unlock (KIDS, then HOME)' ($ui.Contains('KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME') -and $dash.Contains('KIDS MODE  -  keyboard and deck locked  -  to unlock press KIDS, then HOME') -and $css -match '#kidsMode')
-  Check 'MAIN keeps a KIDS key at 6,0 that runs kids' ($deck -match "'6,0'\s*=\s*K 'KIDS'" -and $deck -match "\(L 'kids'\s+'kids'\)")
+  $lay = [IO.File]::ReadAllText((Join-Path $root 'deck\layout.json')) | ConvertFrom-Json   # W3-4: the deck layout lives in deck\layout.json
+  Check 'MAIN keeps a KIDS key (5,0 since W3-4) that runs kids, and HOME is rigon (the unlock)' (@($lay.pages.MAIN | Where-Object { $_.label[0] -eq 'KIDS' -and $_.action.args -eq 'kids' }).Count -eq 1 -and @($lay.pages.MAIN | Where-Object { $_.label[0] -eq 'HOME' -and $_.action.args -eq 'rigon' }).Count -eq 1)
   $page = $null; $cssPage = $null; $api = $null; $httpErr = ''
   try {
     $page = (Invoke-WebRequest 'http://localhost:8199/v2/ui.js' -UseBasicParsing -TimeoutSec 3).Content

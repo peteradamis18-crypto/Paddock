@@ -63,10 +63,20 @@ function Invoke-DeckJs($page, [string]$Expr) {
   return ($v | ConvertFrom-Json)
 }
 
+# plugin.html with the two files it loads next to it in the installed add-on (W3-4: deck\keyart.js and layout.js = deck\layout.json)
+# written into the page itself, so a copy of the page anywhere runs as installed
+function Get-DeckPluginHtml([string]$PluginPath) {
+  $html = [IO.File]::ReadAllText($PluginPath)
+  $deck = Join-Path (Split-Path -Parent $script:HarnessDir) 'deck'
+  $art = [IO.File]::ReadAllText((Join-Path $deck 'keyart.js'))
+  $lay = [IO.File]::ReadAllText((Join-Path $deck 'layout.json'), [Text.Encoding]::UTF8)
+  return $html.Replace('<script src="keyart.js"></script>', "<script>`n" + $art + "`n</script>").Replace('<script src="layout.js"></script>', "<script>window.DECK_LAYOUT = " + $lay + ";</script>")
+}
+
 # plugin.html + the pretend Stream Deck app, as one page the browser can open
 function Build-DeckHarness([string]$PluginPath, [string]$OutPath) {
   $mock = [IO.File]::ReadAllText((Join-Path $script:HarnessDir 'deck-mock.js'))
-  $html = [IO.File]::ReadAllText($PluginPath)
+  $html = Get-DeckPluginHtml $PluginPath
   $html = $html.Replace('<body>', "<body>`n<script>`n" + $mock + "`n</script>")
   [IO.File]::WriteAllText($OutPath, $html, (New-Object Text.UTF8Encoding($false)))
   'file:///' + ($OutPath -replace '\\', '/')

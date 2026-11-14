@@ -346,6 +346,8 @@ namespace IRDeck
                 case "restartrace": return CmdRestartRace();
                 case "skip": return CmdSkip();
                 case "racenow": return CmdRaceNow();   // from practice or qualify: keep skipping until the race, then get in the car
+                case "to-the-race": return CmdToTheRace(Slice(a, 1));   // W3-4: the TO THE RACE key = RACE NOW when the event has a race ahead, else NEXT SESSION
+                case "spotter-tap": return CmdSpotterTap(Slice(a, 1)); // W3-4: the SPOTTER key: one tap mutes / unmutes the spotter (its level is on SOUND)
                 case "pittoggle": return CmdPitToggle(Slice(a, 1));
                 case "replay": return CmdReplayIncident();
                 case "capture": return CmdCapture();
@@ -1292,6 +1294,39 @@ namespace IRDeck
             return WithNamedLock("Local\\irdeck-racenow", "racenow", delegate { return CmdRaceNowBody(); });
         }
 
+        // TO THE RACE (W3-4): one key for NEXT SESSION and RACE NOW (5 presses of NEXT SESSION used to be the way to the race).
+        // The loaded event has its race still ahead (an AI weekend): RACE NOW, which skips to it and gets in the car. Anything else:
+        // NEXT SESSION as before (a Test Drive ends back at the menu; an official session refuses in plain words).
+        //   to-the-race [--dry]                          --dry: say which it would do, do nothing
+        //   to-the-race --fake <num:type,...> <cur> <ai> [test 0|1]  the decision from given facts, no sim needed (tests\deck-behaviour-test.ps1)
+        static int CmdToTheRace(string[] a)
+        {
+            int fi = Array.IndexOf(a, "--fake");
+            if (fi >= 0)
+            {
+                if (a.Length < fi + 4) { Log("to-the-race --fake needs <num:type,...> <current num> <ai 0|1>"); return 1; }
+                string fp = DeckRules.ToTheRacePlan(a[fi + 3] == "1", DeckRules.RaceAhead(a[fi + 1].Split(','), int.Parse(a[fi + 2], CultureInfo.InvariantCulture)), a.Length > fi + 4 && a[fi + 4] == "1");
+                Log("to-the-race (fake): " + (fp == "racenow" ? "RACE NOW" : fp == "none" ? "A Test Drive has no race (refused)" : "NEXT SESSION"));
+                return 0;
+            }
+            bool dry = Array.IndexOf(a, "--dry") >= 0;
+            if (!SessionActive()) { Log("to-the-race: no session is running"); return 3; }
+            SessSnap s = Snap();
+            bool test = System.Text.RegularExpressions.Regex.IsMatch(s.Info, @"EventType:\s*Test");
+            string plan = DeckRules.ToTheRacePlan(s.Ai, DeckRules.RaceAhead(s.Sessions.ToArray(), s.Num), test);
+            if (plan == "none") { Log("to-the-race refused: a Test Drive has no race (QUIT TO MENU is on LEAVE)"); Say("no", "A Test Drive has no race. QUIT TO MENU is on LEAVE."); return 3; }
+            Log("to-the-race" + (dry ? " --dry" : "") + ": " + (s.Type.Length > 0 ? s.Type : "this session") + " -> " + (plan == "racenow" ? "RACE NOW" : "NEXT SESSION"));
+            if (dry) return 0;
+            return plan == "racenow" ? CmdRaceNow() : CmdSkip();
+        }
+
+        // SPOTTER (W3-4): one tap mutes or unmutes the spotter (CrewChief's own mixer entry); the level is on the SOUND screen.
+        //   spotter-tap [--dry]   --dry: say what a tap would do, change nothing
+        static int CmdSpotterTap(string[] a)
+        {
+            return AppMuteToggle("spotter", Array.IndexOf(a, "--dry") >= 0);
+        }
+
         static int CmdRaceNowBody()
         {
             if (!SessionActive()) { Log("racenow: no session is running"); return 3; }
@@ -1434,7 +1469,7 @@ namespace IRDeck
         // "--dry" only counts what it would change (tests\keys-test.ps1).
         // MUTE SPOTTER (deck v2): one press mutes CrewChief's voice in the Windows mixer, the next press brings it back.
         // Only that program's own mixer entry is touched; the sim, music and the PC volume stay as they are.
-        static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow" };
+        static readonly string[] SpotterVerbs = { "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow", "to-the-race" };
         const float SpotterMinLevel = 0.02f;   // SPOTTER - / + set the level; this only stops it being lost (Peter kept pressing - at 10% in a race, 2026-11-02)
 
         static void EnsureSpotter()
@@ -1519,7 +1554,8 @@ namespace IRDeck
             return changed;
         }
 
-        static int AppMuteToggle(string who)
+        static int AppMuteToggle(string who) { return AppMuteToggle(who, false); }
+        static int AppMuteToggle(string who, bool dry)
         {
             string proc = who.Equals("spotter", StringComparison.OrdinalIgnoreCase) ? "CrewChiefV4" : who;
             int touched = 0; bool nowMuted = false;
@@ -1543,12 +1579,14 @@ namespace IRDeck
                         if (!proc.Equals(pn, StringComparison.OrdinalIgnoreCase)) continue;
                         ISimpleAudioVolume v = (ISimpleAudioVolume)ctl;
                         if (!decided) { bool m; v.GetMute(out m); target = !m; decided = true; }   // every entry of the program follows the first one
-                        Guid g = Guid.Empty; v.SetMute(target, ref g); touched++; nowMuted = target;
+                        if (!dry) { Guid g = Guid.Empty; v.SetMute(target, ref g); }
+                        touched++; nowMuted = target;
                     }
                 }
             }
             catch (Exception ex) { Log("appvol mute error: " + ex.Message); return 1; }
-            if (touched == 0) { Log("appvol mute: " + proc + " is not making sound right now"); return 3; }
+            if (touched == 0) { Log("appvol mute" + (dry ? " (dry)" : "") + ": " + proc + " is not making sound right now"); return 3; }
+            if (dry) { Log("appvol mute (dry): a tap would " + (nowMuted ? "mute " : "turn the sound back on for ") + proc + " (" + touched + " session(s)); nothing changed"); return 0; }
             Log("appvol mute: " + proc + (nowMuted ? " muted" : " sound back on") + " (" + touched + " session(s))");
             return 0;
         }
@@ -1734,12 +1772,30 @@ namespace IRDeck
         // iRacing UI on the centre screen. (SimHub back 2026-11-01: it drives the two SSG DF-8 flag boxes.)
         // Also the rig launcher: the "iRacing Rig" logon task runs "rigon --boot". Order matters: Stream Deck first so
         // the keys work at once, then the dashboard, wheel and haptics apps, and the iRacing UI last.
+        // the top screen's HOME page: one short request to irdash (it says no while driving); irdash not running = nothing, no wait.
+        // IRDECK_DASH points it at a pretend dashboard in tests.
+        static bool NavHome()
+        {
+            string baseUrl = Environment.GetEnvironmentVariable("IRDECK_DASH"); if (string.IsNullOrEmpty(baseUrl)) baseUrl = "http://127.0.0.1:8199";
+            try
+            {
+                System.Net.HttpWebRequest req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(baseUrl + "/api/nav?to=home");
+                req.Proxy = null; req.Timeout = 1500; req.Headers["X-Paddock"] = "1";
+                using (System.Net.WebResponse resp = req.GetResponse()) { }
+                Log("rigon: the top screen goes HOME"); return true;
+            }
+            catch (Exception ex) { Log("rigon: top screen not told to go HOME (" + ex.Message + ")"); return false; }
+        }
+
         static int CmdRigOn(string[] a)
         {
             bool boot = Array.IndexOf(a, "--boot") >= 0;
             // The HOME key is this command. With the rig up and a session running it used to maximise the iRacing UI over the
             // sim on the middle screen and take the keyboard focus from the car. A press in a session now does nothing (short beep).
             if (!boot && SessionActive()) { Log("rigon: a session is running - not moving the iRacing UI over the sim"); return 3; }
+            // W3-4 review: HOME is also the door to the top screen's HOME page (the shell goes there on /api/nav?to=home). Never in a session (above).
+            if (!boot) NavHome();
+            if (Array.IndexOf(a, "--nav-only") >= 0) return 0;   // tests\deck-behaviour-test.ps1: only the HOME door, against a pretend dashboard
             { string pg = DeckProfile.SetCurrentToMain(DeckProfile.ProfileDir()); if (pg != "running") Log("[rigon] deck page: " + pg); }   // a Stream Deck that is not running yet opens on MAIN
             StartApp("StreamDeck", @"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe", false, "--runinbk");
             // At logon the Stream Deck app took 26-28 s to bring the deck up (3 boots on 2026-10-09; 3.5 s when started alone)

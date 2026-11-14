@@ -92,7 +92,7 @@ $prev = ''
 $t0 = Get-Date
 $o = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build-deck.ps1') -Preview 2>&1 | ForEach-Object { "$_" }
 $rc = $LASTEXITCODE
-$pm = [regex]::Match(($o -join ' '), 'preview written to (.+?) and docs\\deck\\main-preview\.png')
+$pm = [regex]::Match(($o -join ' '), 'preview written to (\S+)')   # W3-4: -Preview no longer rewrites docs\deck\main-preview.png
 if ($pm.Success) { $prev = $pm.Groups[1].Value.Trim() }
 Check 'build-deck.ps1 -Preview ran and wrote the layout' ($rc -eq 0 -and ($o -join ' ') -match 'preview written' -and (Test-Path "$prev\layout.tsv") -and (Get-Item "$prev\layout.tsv").LastWriteTime -ge $t0.AddSeconds(-2)) ($o -join ' ')
 $deck = @()
@@ -103,18 +103,15 @@ if (Test-Path "$prev\layout.tsv") {
   }
 }
 $main = @($deck | Where-Object { $_.page -eq 'MAIN' }); $more = @($deck | Where-Object { $_.page -eq 'MORE' }); $leave = @($deck | Where-Object { $_.page -eq 'LEAVE' })
-Check "MAIN has keys ($($main.Count)), MORE has keys ($($more.Count)) and LEAVE has keys ($($leave.Count))" ($main.Count -ge 20 -and $more.Count -ge 10 -and $leave.Count -eq 6)
+Check "MAIN has keys ($($main.Count)), MORE has keys ($($more.Count)) and LEAVE has keys ($($leave.Count))" ($main.Count -ge 20 -and $more.Count -ge 5 -and $leave.Count -eq 5)
 Check 'every key sits inside the 8 x 4 grid, one key per cell' (@($deck | Where-Object { $_.col -lt 0 -or $_.col -gt 7 -or $_.row -lt 0 -or $_.row -gt 3 }).Count -eq 0 -and @($deck | Group-Object { $_.page + ':' + $_.col + ',' + $_.row } | Where-Object { $_.Count -gt 1 }).Count -eq 0)
 
-# MAIN is the DECK v2 grid (docs\design\deck-v2\deck-plan.html, approved by Peter 2026-10-23): same cell, same word
-# AI LEVEL (an add-on screen) is on the deck only once the installed add-on has it; until then LAST DRIVE holds that cell (build-deck.ps1)
-$sdManifest = Join-Path $env:APPDATA 'Elgato\StreamDeck\Plugins\com.peter.rigintro.sdPlugin\manifest.json'
-$aiLevelOn = (Test-Path $sdManifest) -and ((Get-Content $sdManifest -Raw) -match 'rigintro\.ailevel') -and ((ReadText 'src\testdrive.cs') -match 'static \w+ AiApplyLevel\(')
+# MAIN is PLAN 4.6's map (W3-4, deck\layout.json; decided by the lead 2026-11-14 under Peter's "build everything"): same cell, same word
 $approved = [ordered]@{
-  '0,0' = 'HOME'; '1,0' = 'AI RACE'; '2,0' = $(if ($aiLevelOn) { 'AI LEVEL' } else { 'LAST DRIVE' }); '3,0' = 'CAR TRACK'; '4,0' = 'OFFICIAL'; '5,0' = 'FRIENDS'; '6,0' = 'KIDS'; '7,0' = 'MORE'
-  '0,1' = 'GET IN'; '1,1' = 'GET OUT'; '2,1' = 'RESET CAR'; '3,1' = 'RESTART'; '4,1' = 'NEXT SESSION'; '5,1' = 'RACE NOW'; '6,1' = 'PAUSE'; '7,1' = 'LEAVE'
-  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'OVERLAYS'; '5,2' = 'REVIEW'; '6,2' = 'RACES'; '7,2' = 'REPLAY'
-  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'MUTE SPOTTER'; '3,3' = 'SPOTTER -'; '4,3' = 'SPOTTER +'; '5,3' = 'SAVE SPOT'; '6,3' = 'BACK TO SPOT'; '7,3' = 'GHOST' }
+  '0,0' = 'HOME'; '1,0' = 'DRIVE'; '2,0' = 'AI RACE'; '3,0' = 'OFFICIAL'; '4,0' = 'FRIENDS'; '5,0' = 'KIDS'; '6,0' = 'AC'; '7,0' = 'MORE'
+  '0,1' = 'GET OUT'; '1,1' = 'RESET CAR'; '2,1' = 'RESTART'; '3,1' = 'TO THE RACE'; '4,1' = 'PAUSE'; '5,1' = 'SAVE SPOT'; '6,1' = 'BACK TO SPOT'; '7,1' = 'LEAVE'
+  '0,2' = 'FUEL TO FINISH'; '1,2' = 'TIRES'; '2,2' = 'FAST REPAIR'; '3,2' = 'CLEAR PIT'; '4,2' = 'BEST LAP CAR'; '5,2' = 'REPLAY'
+  '0,3' = 'VOL -'; '1,3' = 'VOL +'; '2,3' = 'SPOTTER'; '3,3' = 'SOUND'; '4,3' = 'OVERLAYS'; '5,3' = 'RACES'; '6,3' = 'REVIEW'; '7,3' = 'RIG' }
 $bad = @()
 foreach ($pos in $approved.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -125,12 +122,8 @@ foreach ($pos in $approved.Keys) {
   if ($got -ne $want) { $bad += "$pos is '$got', approved '$want'" }
 }
 foreach ($k in $main) { if (-not $approved.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not in the approved grid" } }
-Check 'MAIN is the approved DECK v2 grid, cell by cell (all 32 cells used)' ($bad.Count -eq 0) ($bad -join '; ')
-$moreWant = [ordered]@{ '0,0' = 'BACK'; '1,0' = 'SORRY'; '2,0' = 'GOOD RACE'; '3,0' = 'MUTE'; '4,0' = 'SHOWCASE'; '5,0' = 'SOUND'; '7,0' = 'LOCK'
-  '0,1' = 'RELATIVE'; '1,1' = 'THANKS'; '4,1' = 'WIPE'; '5,1' = 'SEAT LOWER'; '6,1' = 'SEAT HIGHER'
-  '0,2' = 'TIMING'; '1,2' = 'STANDINGS'; '2,2' = 'FUEL BOX'; '3,2' = 'TIRE BOX'; '4,2' = 'IN-CAR'; '5,2' = 'WEATHER'; '6,2' = 'ANALYSIS'; '3,3' = 'VAULT' }
-# the AC keys are on MORE's bottom row only once the AC is connected (ac\ac.json)
-if ((Test-Path (Join-Path $root 'ac\ac.json')) -or (Test-Path (Join-Path $root 'ac\cloud.bin'))) { $moreWant['0,3'] = 'AC'; $moreWant['1,3'] = 'AC COOLER'; $moreWant['2,3'] = 'AC WARMER' }   # AC opens the AC screen; COOLER / WARMER act at once
+Check 'MAIN is PLAN 4.6''s map, cell by cell (6,2 and 7,2 are the two spares)' ($bad.Count -eq 0) ($bad -join '; ')
+$moreWant = [ordered]@{ '0,3' = 'BACK'; '1,0' = 'THANKS'; '3,0' = 'AC COOLER'; '4,0' = 'AC WARMER'; '7,3' = 'LOCK' }   # LOCK off 7,0: a doubled MORE press lands there (W3-4 review)   # W3-4: the rest went (PLAN 4.6)
 $bad = @()
 foreach ($pos in $moreWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -139,10 +132,10 @@ foreach ($pos in $moreWant.Keys) {
   if ($k.label -ne $moreWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($moreWant[$pos])'" }
 }
 foreach ($k in $more) { if (-not $moreWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the MORE plan" } }
-Check 'MORE is the planned page, cell by cell (BACK in the corner, SLEEP and REPAIR gone, SAVE/BACK TO SPOT and REPLAY moved to MAIN, the AC keys on the bottom row)' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'MORE is the planned page, cell by cell (BACK, THANKS, AC COOLER, AC WARMER, LOCK)' ($bad.Count -eq 0) ($bad -join '; ')
 
 # LEAVE: the page before MAIN. Opening it is the check, so the keys that end things are one press here.
-$leaveWant = [ordered]@{ '0,0' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '0,3' = 'KIDS MODE'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
+$leaveWant = [ordered]@{ '0,3' = 'BACK'; '3,1' = 'QUIT TO MENU'; '4,1' = 'QUIT TO MENU'; '6,3' = 'SHUT DOWN PC'; '7,3' = 'SLEEP PC' }
 $bad = @()
 foreach ($pos in $leaveWant.Keys) {
   $c, $r = $pos.Split(',') | ForEach-Object { [int]$_ }
@@ -151,14 +144,14 @@ foreach ($pos in $leaveWant.Keys) {
   if ($k.label -ne $leaveWant[$pos]) { $bad += "$pos is '$($k.label)', wanted '$($leaveWant[$pos])'" }
 }
 foreach ($k in $leave) { if (-not $leaveWant.Contains("$($k.col),$($k.row)")) { $bad += "$($k.col),$($k.row) '$($k.label)' is not on the LEAVE plan" } }
-Check 'LEAVE is the planned page, cell by cell (BACK, QUIT TO MENU twice as wide, KIDS MODE, SHUT DOWN PC, SLEEP PC)' ($bad.Count -eq 0) ($bad -join '; ')
+Check 'LEAVE is the planned page, cell by cell (BACK, QUIT TO MENU twice as wide, SHUT DOWN PC, SLEEP PC)' ($bad.Count -eq 0) ($bad -join '; ')
 function Leave-At($c, $r) { $leave | Where-Object { $_.col -eq $c -and $_.row -eq $r } | Select-Object -First 1 }
-Check 'LEAVE: BACK at 0,0 is "next page" (back to MAIN); QUIT TO MENU at 3,1 and 4,1 is quitmain; SLEEP PC at 7,3 opens the Confirm screen (W0-1)' ((Leave-At 0 0).kind -eq 'page' -and (Leave-At 0 0).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main2=quitmain' -and (Leave-At 7 3).kind -eq 'plugin' -and (Leave-At 7 3).what -eq 'com.peter.rigintro.confirm')
+Check 'LEAVE: BACK at 0,3 is "next page" (back to MAIN; a doubled press lands on VOL -, not HOME); QUIT TO MENU at 3,1 and 4,1 is ONE exe (quit-main); SLEEP PC at 7,3 opens the Confirm screen (W0-1)' ((Leave-At 0 3).kind -eq 'page' -and (Leave-At 0 3).what -eq 'next' -and (Leave-At 3 1).what -eq 'quit-main=quitmain' -and (Leave-At 4 1).what -eq 'quit-main=quitmain' -and (Leave-At 7 3).kind -eq 'plugin' -and (Leave-At 7 3).what -eq 'com.peter.rigintro.confirm')
 Check 'MAIN has a MORE key (next page) and a LEAVE key (previous page); MORE has a BACK key (previous page)' (@($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'next' -and $_.label -eq 'MORE' }).Count -eq 1 -and @($main | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' -and $_.label -eq 'LEAVE' }).Count -eq 1 -and @($more | Where-Object { $_.kind -eq 'page' -and $_.what -eq 'previous' }).Count -eq 1)
 Check 'every key on the device is drawn on MAIN.png / MORE.png / LEAVE.png' ((Test-Path "$prev\MAIN.png") -and (Test-Path "$prev\MORE.png") -and (Test-Path "$prev\LEAVE.png") -and (Get-Item "$prev\MAIN.png").LastWriteTime -ge $t0.AddSeconds(-2))
 # page order in the profile: LEAVE, MAIN, MORE (a page key moves one step; the profile opens on MAIN)
 $bp = (ReadText 'build-deck.ps1')
-Check 'the profile manifest lists the pages in the order LEAVE, MAIN, MORE and opens on MAIN' ($bp -match 'Pages = @\(\$ids\.leave, \$ids\.main, \$ids\.more\)' -and $bp -match 'Current = \$ids\.main; Default = \$ids\.dflt' -and $bp -match "Write-Page \`$ids\.leave 'LEAVE' \`$leave")
+Check 'the profile manifest lists the pages in deck\layout.json''s order (LEAVE, MAIN, MORE) and opens on MAIN' ($bp.Contains('Pages = @($L.pageOrder | ForEach-Object { $ids[$_] })') -and $bp.Contains('Current = $ids.MAIN; Default = $ids.dflt') -and $bp.Contains('foreach ($p in $L.pageOrder) { Write-Page $p }') -and (((ReadText 'deck\layout.json') | ConvertFrom-Json).pageOrder -join ',') -eq 'LEAVE,MAIN,MORE')
 
 # Stream Deck's Default page is its own hidden empty page, never a listed one (MAIN as Default = "Failed to map default page", then MAIN pruned)
 Check 'the Default page is a separate empty page, not MAIN or any listed page' ($bp -match '\$ids\.dflt = G' -and $bp -match 'Profiles\\\$\(\$ids\.dflt\.ToUpper\(\)\)\\manifest\.json.{0,10}\{"Controllers":\[\{"Actions":null' -and $bp -notmatch 'Default = \$ids\.(main|more|leave)')
@@ -187,7 +180,7 @@ foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'off
 # the workbench's deck commands are /api/do?c=wb-<name>: its Allowed list (dash\src\workbench.cs)
 $wbm = [regex]::Match((ReadText 'dash\src\workbench.cs'), '(?s)string\[\] Allowed\s*=\s*\{(.*?)\};')
 foreach ($x in [regex]::Matches($wbm.Groups[1].Value, '"([a-z\-]+)"')) { $handled['wb-' + $x.Groups[1].Value] = 'workbench' }
-foreach ($f in 'irdash', 'data') {
+foreach ($f in 'irdash', 'data', 'ailevel') {   # ailevel: the AI RACE screen's level row and START (W3-4)
   foreach ($l in ((ReadText "dash\src\$f.cs") -split "`n")) { if ($l -match 'public static bool Handles\(string c\) \{ return c ==') { foreach ($x in [regex]::Matches($l, 'c == "(\w+)"')) { $handled[$x.Groups[1].Value] = $f } } }
 }
 $gi = $irdash.IndexOf('A press on the Stream Deck friends screen'); $gj = $irdash.IndexOf('default: return false;', $gi)
@@ -274,7 +267,7 @@ foreach ($k in $deck) {
 Check 'every key on MAIN, MORE and LEAVE resolves to a real irdeck command, add-on screen, page switch or live mode' ($bad.Count -eq 0) ($bad -join '; ')
 $later = @($deck | Where-Object { $_.kind -eq 'later' })
 Check "keys whose feature is not built are marked Later, so they stay OFF the device ($($later.Count): $((($later | ForEach-Object { $_.label }) -join ', ')))" ($later.Count -eq 0)   # nothing is waiting for a feature: INSTANT REPLAY was dropped (2026-10-23), every key on the device does something
-Check 'build-deck.ps1 leaves a not-built key out of the profile when it is not a preview' ($bp -match 'if \(-not \$Preview\) \{ continue \}')
+Check 'build-deck.ps1 leaves a key off the real deck when the INSTALLED add-on lacks its action (no dead key; -Preview shows the plan)' ($bp -match 'function ActionOn\(\$name\) \{ \$Preview -or' -and $bp -match 'if \(-not \(ActionOn \$an\)\)')
 
 # the lead's requirements, one by one
 $deckKeys = @($deck | Where-Object { $_.kind -eq 'key' })
@@ -284,18 +277,18 @@ $vd = (Cmd-Of 'VOL -*'), (Cmd-Of 'VOL +*')
 Check 'VOL - / VOL + are appvol game -5 / +5 (5 % a press), and game covers the sim and its menu, never CrewChief' ($vd[0] -eq 'appvol game -5' -and $vd[1] -eq 'appvol game +5' -and (Get-Body $irSrc 'static int CmdAppVol(string[] a)') -match '"iRacingSim64DX11", "iRacingUI" }')
 # deck v2 (2026-10-23): every key is one press from any state. Their behaviour is tested in tests\deck-behaviour-test.ps1;
 # here each key must point at the right command.
-Check 'GET IN is smart (any state: with no sim it starts the last drive), GET OUT is getout (waits for the car)' ((Cmd-Of 'GET IN') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and $irSrc -match 'case "mydrive"' -and ($aiLevelOn -or (Cmd-Of 'LAST DRIVE') -eq 'mydrive start') -and (Get-Body $irSrc 'static int SmartGetIn()') -match 'MdStart')
-Check 'RESTART is restartrace, NEXT SESSION is skip, RACE NOW is racenow: one press each' ((Cmd-Of 'RESTART') -eq 'restartrace' -and (Cmd-Of 'NEXT SESSION') -eq 'skip' -and (Cmd-Of 'RACE NOW') -eq 'racenow' -and $irSrc -match 'case "restartrace"' -and $irSrc -match 'case "racenow"')
-Check 'MUTE SPOTTER is appvol mute spotter, and irdeck mutes only CrewChief''s own mixer entry' ((Cmd-Of 'MUTE SPOTTER') -eq 'appvol mute spotter' -and $irSrc -match 'static int AppMuteToggle\(string who\)' -and $irSrc -match 'who\.Equals\("spotter"[^)]*\) \? "CrewChiefV4"')
-Check 'KIDS (6,0) is the kids command; HOME (0,0) is the second key of the unlock' ((Cmd-Of 'KIDS') -eq 'kids' -and @($main | Where-Object { $_.col -eq 6 -and $_.row -eq 0 -and $_.label -eq 'KIDS' }).Count -eq 1 -and $irSrc -match 'case "kids"')
+Check 'DRIVE is GET IN = smart (any state: with no sim it starts the last drive), GET OUT is getout (waits for the car)' ((Cmd-Of 'DRIVE') -eq 'smart' -and (Cmd-Of 'GET OUT') -eq 'getout' -and $irSrc -match 'case "mydrive"' -and (Get-Body $irSrc 'static int SmartGetIn()') -match 'MdStart')
+Check 'RESTART is restartrace; TO THE RACE (W3-4) is to-the-race, one press for what NEXT SESSION and RACE NOW did' ((Cmd-Of 'RESTART') -eq 'restartrace' -and (Cmd-Of 'TO THE RACE') -eq 'to-the-race' -and $irSrc -match 'case "restartrace"' -and $irSrc -match 'case "to-the-race"' -and $irSrc -match 'case "racenow"' -and $irSrc -match 'case "skip"')
+Check 'SPOTTER is spotter-tap (W3-4: a tap mutes / unmutes), and irdeck mutes only CrewChief''s own mixer entry' ((Cmd-Of 'SPOTTER') -eq 'spotter-tap' -and $irSrc -match 'static int AppMuteToggle\(string who\)' -and $irSrc -match 'who\.Equals\("spotter"[^)]*\) \? "CrewChiefV4"' -and $irSrc -match 'return AppMuteToggle\("spotter"')
+Check 'KIDS (5,0) is the kids command; HOME (0,0) is the second key of the unlock' ((Cmd-Of 'KIDS') -eq 'kids' -and @($main | Where-Object { $_.col -eq 5 -and $_.row -eq 0 -and $_.label -eq 'KIDS' }).Count -eq 1 -and $irSrc -match 'case "kids"')
 $ini = ReadText 'dash\irdash.ini'
 # KEEP LAP / SAVE / TV left the deck in v2. Their irdash commands stay (the Vault and the phone still use them).
 Check 'irdash still accepts vkkeep and recsave (the Vault is on, vault=1), although no deck key sends them now' ($handled['vkkeep'] -eq 'vault' -and $handled['recsave'] -eq 'vault' -and $ini -match '(?m)^\s*vault\s*=\s*1')
-Check 'the practice loop and PAUSE: SAVE SPOT is spot save, BACK TO SPOT is spot back, GHOST is Ctrl+C (iRacing reference car), PAUSE is pause' ((Cmd-Of 'SAVE SPOT') -eq 'spot save' -and (Cmd-Of 'BACK TO SPOT') -eq 'spot back' -and (Cmd-Of 'GHOST') -eq 'key --sim ctrl+c' -and (Cmd-Of 'PAUSE') -eq 'pause' -and $irSrc -match 'case "spot"' -and $irSrc -match 'case "pause"')
+Check 'the practice loop and PAUSE: SAVE SPOT is spot save, BACK TO SPOT is spot back, BEST LAP CAR (was GHOST) is Ctrl+C (iRacing reference car), PAUSE is pause' ((Cmd-Of 'SAVE SPOT') -eq 'spot save' -and (Cmd-Of 'BACK TO SPOT') -eq 'spot back' -and (Cmd-Of 'BEST LAP CAR') -eq 'key --sim ctrl+c' -and (Cmd-Of 'PAUSE') -eq 'pause' -and $irSrc -match 'case "spot"' -and $irSrc -match 'case "pause"')
 Check 'the dead keys are gone: LAPS TO EMPTY, POSITION, INCIDENTS, INSTANT REPLAY, and RELATIVE is not on MAIN' (@($main | Where-Object { $_.label -match 'LAPS TO|POSITION|INCIDENTS|INSTANT|RELATIVE' -or $_.what -match 'live' }).Count -eq 0)
 Check 'KEEP LAP, SAVE, TV, TEST DRIVE, MY DRIVE, SKIP SESSION and QUIT are no longer keys on any page' (@($deck | Where-Object { $_.label -in 'KEEP LAP', 'SAVE', 'TV', 'TEST DRIVE', 'MY DRIVE', 'SKIP SESSION', 'QUIT' }).Count -eq 0)
 Check 'HOME is a real command and sits at 0,0 (the up key on every screen)' ((Cmd-Of 'HOME*') -eq 'rigon' -and @($main | Where-Object { $_.col -eq 0 -and $_.row -eq 0 -and $_.label -like 'HOME*' }).Count -eq 1)
-Check 'AI RACE is the airace command the sim tree has' ((Cmd-Of 'AI RACE*') -eq 'airace start' -and $irSrc -match 'case "airace"')
+Check 'AI RACE opens the one AI RACE screen (W3-4: car / track / level / START); its START sends ailevel start, which runs airace start' (@($deck | Where-Object { $_.label -eq 'AI RACE' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1 -and $plug -match "sendCmd\('/api/do\?c=ailevel&a=start'\)" -and (ReadText 'dash\src\ailevel.cs') -match '"airace start"' -and $irSrc -match 'case "airace"')
 # DK-2b (Peter): OFFICIAL and CAR TRACK. OFFICIAL runs the `official` command irdeck already has (K-03 builds the on-deck
 # screen later; not PENDING, the command exists). CAR TRACK reuses the MY DRIVE key, whose home screen IS the car/track step
 # (plugin.html MyDrive.open resets to it; there is no deeper step to open), so it changes the car & track AI RACE / TEST DRIVE use.
@@ -303,14 +296,15 @@ Check 'OFFICIAL (DK-2b) runs the official command irdeck has' ((Cmd-Of 'OFFICIAL
 # 2026-10-18 audit: plain `official` (no arguments, which is what the key sends) printed a usage line and returned 1 = a dead key. It must open the Official page.
 $ofBody = Get-Body (ReadText 'src\official.cs') 'static int CmdOfficial(string[] a)'
 Check 'OFFICIAL with no arguments opens the Official page (CmdNav), it does not just print usage' ($ofBody -match '(?s)a\.Length == 0\)\s*\{.*?CmdNav\(new string\[\] \{ "--button", "Official" \}\)' -and $ofBody -notmatch 'if \(a\.Length == 0\) \{ Log\("official: list')
-Check 'CAR TRACK (DK-2b) opens the MY DRIVE add-on screen (its home IS the car/track step)' (@($deck | Where-Object { $_.label -like 'CAR TRACK*' -and $_.kind -eq 'plugin' -and $_.what -eq "$uuidBase.mydrive" }).Count -eq 1)
+Check 'AI LEVEL and CAR TRACK are no keys any more (folded into AI RACE)' (@($deck | Where-Object { $_.label -match '^(AI LEVEL|CAR TRACK|LAST DRIVE)$' }).Count -eq 0)
 Check 'REVIEW is dash debrief and irdash accepts it (opens the coach for the last outing)' ((Cmd-Of 'REVIEW*') -eq 'dash debrief' -and $handled.ContainsKey('debrief'))
-Check 'VAULT is dash vault and irdash accepts it (alias of vkopen, opens the Vault)' ((Cmd-Of 'VAULT*') -eq 'dash vault' -and $handled['vault'] -eq 'alias of vkopen')
+Check 'VAULT and ANALYSIS have no key (W3-4: the top screen''s REVIEW door has them); RIG opens the top screen''s RIG page' (@($deck | Where-Object { $_.label -match '^(VAULT|ANALYSIS)$' }).Count -eq 0 -and @($deck | Where-Object { $_.label -eq 'RIG' -and $_.what -eq "$uuidBase.rig" }).Count -eq 1)
 Check 'no key carries a static on / off subtitle (live state is drawn by the add-on, DK-4)' (@($deck | Where-Object { $_.t2 -match '(?i)\bon\s*/\s*off\b' }).Count -eq 0)
 
 # ================= 3. the old keys.map still works =================
 Section '3. keys\keys.map (the layout on the device today) still resolves'
 $mapFile = Join-Path $root 'keys\keys.map'
+if (-not (Test-Path $mapFile)) { Note 'no keys\keys.map here (a fresh checkout or worktree: build-deck.ps1 writes it); section 3 checks the plan only'; [IO.File]::WriteAllText(($mapFile = Join-Path $env:TEMP ('keys-test-empty-' + $PID + '.map')), '') }
 $deployed = [ordered]@{}
 foreach ($l in [IO.File]::ReadAllLines($mapFile)) { $i = $l.IndexOf('='); if ($i -gt 0) { $deployed[$l.Substring(0, $i).Trim()] = $l.Substring($i + 1) } }
 $bad = @(); $pend = @(); foreach ($n in $deployed.Keys) { $w = Test-IrCommand $deployed[$n]; if ($w -like 'pending: *') { $pend += $n } elseif ($w) { $bad += "$n = $($deployed[$n]): $w" } }
@@ -325,7 +319,9 @@ $noExeOther = @($noExe | Where-Object { -not $plan.Contains($_) })
 Check 'each key in keys.map has its exe, or a plan entry the lead''s real build writes' ($noExeOther.Count -eq 0) ($noExeOther -join ', ')
 $noExeNew = @($noExe | Where-Object { $plan.Contains($_) })
 if ($noExeNew.Count -gt 0) { Note "PENDING (lead): the real build-deck.ps1 run writes these keys\ exes: $($noExeNew -join ', ')" }
-Check "the plan has one exe name per key ($($plan.Count) names for $($deckKeys.Count) command keys)" ($plan.Count -eq $deckKeys.Count)
+$phoneOnly = @(((ReadText 'deck\layout.json') | ConvertFrom-Json).phoneOnly)
+$deckExes = @($deckKeys | ForEach-Object { ($_.what -split '=', 2)[0] } | Select-Object -Unique)
+Check "the plan has one exe name per command key, plus the $($phoneOnly.Count) the phone still offers ($($plan.Count) names; QUIT TO MENU is one exe over two cells)" ($plan.Count -eq $deckExes.Count + $phoneOnly.Count)
 $changed = @($plan.Keys | Where-Object { -not $deployed.Contains($_) -or $deployed[$_] -ne $plan[$_] })
 $gone = @($deployed.Keys | Where-Object { -not $plan.Contains($_) })
 Note "keys.map on the device differs from the plan in $($changed.Count) key(s) and has $($gone.Count) key(s) the plan drops: the real build-deck.ps1 run writes the new map (lead + Peter)"
@@ -394,17 +390,15 @@ Section '5. add-on screens (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND
 $screens = @(
   @{ name = 'FRIENDS';  start = 'const Friends = new class extends Screen';  end = '// ---------------- Rig Doctor key';        guest = $true;  route = '/guest';    own = 'dash\src\irdash.cs'
      fields = 'session', 'driving', 'driverId', 'drivers', 'driver', 'car', 'track', 'carList', 'trackList', 'wheel', 'line', 'coach', 'board', 'voiceDraft', 'event' },
-  @{ name = 'OVERLAYS'; start = 'const Overlays = new class extends Screen'; end = '// ---------------- My Drive screen';       guest = $false; route = '/overlays'; own = 'dash\src\overlays.cs'
+  @{ name = 'OVERLAYS'; start = 'const Overlays = new class extends Screen'; end = '// ---------------- AI RACE screen';       guest = $false; route = '/overlays'; own = 'dash\src\overlays.cs'
      fields = 'widgets', 'presets', 'saveTo', 'running', 'waiting', 'pending', 'busy', 'editing', 'onCount', 'msg', 'msgAge', 'delta', 'driving' },
   @{ name = 'MY DRIVE'; start = 'const MyDrive = new class extends Screen';  end = '// ---------------- Replay screen';         guest = $false; route = '/mydrive';  own = 'dash\src\mydrive.cs'
      fields = 'ready', 'session', 'busy', 'msg', 'phase', 'recent', 'all', 'favs', 'choice', 'current', 'results', 'driving', 'last', 'speedtest' },
-  @{ name = 'REPLAY';   start = 'const Replay = new class extends Screen';   end = '// ---------------- Analysis screen'; guest = $false; route = '/replay';   own = 'dash\src\replay.cs'
+  @{ name = 'REPLAY';   start = 'const Replay = new class extends Screen';   end = '// ---------------- Sound screen'; guest = $false; route = '/replay';   own = 'dash\src\replay.cs'
      fields = 'ready', 'inSession', 'driving', 'mode', 'raw', 'live', 'session', 'watch', 'nextSession', 'camera', 'me', 'ahead', 'behind', 'leader', 'cars', 'photo', 'replays', 'multiClass' },
-  @{ name = 'ANALYSIS'; start = 'const Analysis = new class extends Screen'; end = '// ---------------- Sound screen';           guest = $false; route = '/workbench/state'; own = 'dash\src\deckfeed.cs'
-     fields = 'open', 'driving', 'page', 'pages', 'playing', 'speed', 'tile', 'mapColour', 'zoomed', 'offset', 'id', 'lap', 'ref', 'laps', 'events', 'corners', 'lapTime', 'refTime' },
   @{ name = 'SOUND';    start = 'const Sound = new class extends Screen';    end = '// ---------------- AC screen'; guest = $false; route = '/sound'; own = @('src\sound.cs', 'dash\src\sound.cs')
      fields = 'ready', 'items', 'live', 'vol', 'mute', 'kind', 'using', 'default', 'preset' },
-  @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = 'const AiLevel = new class extends Screen'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
+  @{ name = 'AC';       start = 'const Ac = new class extends Screen';       end = '// ---------------- the RIG key'; guest = $false; route = '/ac'; own = 'dash\src\ac.cs'
      fields = 'connected', 'read', 'on', 'mode', 'fan', 'target_f', 'room_f', 'auto', 'paused', 'on_above_f', 'off_below_f', 'busy' },
   @{ name = 'RACES';    start = 'const Races = new class extends Screen';    end = '// ---------------- Confirm screen'; guest = $false; route = '/api/rec/races'; own = @('dash\src\recorder.cs', 'dash\src\vault.cs')
      fields = 'races', 'freeGb', 'track', 'car', 'type', 'startMs', 'min', 'laps', 'best', 'mb', 'saved', 'exported' } )
@@ -476,7 +470,8 @@ foreach ($sc in $screens) {
 # routes the add-on calls that are not screens
 $routes = @([regex]::Matches($plug, "'(/api/[a-z/]+)") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 $vaultRoutes = ReadText 'dash\src\vault.cs'
-$noRoute = @($routes | Where-Object { -not $irdash.Contains('"' + $_ + '"') -and -not $vaultRoutes.Contains('case "' + $_ + '"') })
+$dataRoutes = ReadText 'dash\src\data.cs'   # /api/nav (the RIG key, W3-4) is one of data.cs's routes
+$noRoute = @($routes | Where-Object { -not $irdash.Contains('"' + $_ + '"') -and -not $vaultRoutes.Contains('case "' + $_ + '"') -and -not $dataRoutes.Contains('case "' + $_ + '"') })
 Check "irdash has every /api route the add-on calls ($($routes -join ', '))" ($noRoute.Count -eq 0) ($noRoute -join ', ')
 $docCmd = [regex]::Matches($plug, "c=([a-z]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 $noCmd = @($docCmd | Where-Object { $unionCmds -notcontains $_ })
@@ -578,15 +573,12 @@ Check 'HOME (rigon without --boot) does nothing while a session runs' ($rig -mat
 # 9d. add-on: doubled presses, a frozen screen, the CAR TRACK picture
 $onceM = [regex]::Match($plug, 'const ONCE_ACTS = new Set\(\[([^\]]*)\]\)')
 $onceActs = @([regex]::Matches($onceM.Groups[1].Value, "'([\w-]+)'") | ForEach-Object { $_.Groups[1].Value })
-$flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour'
+$flip = 'ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv'
 $missingOnce = @($flip | Where-Object { $onceActs -notcontains $_ })
 Check 'every on/off key of the add-on screens ignores a doubled press (ONCE_ACTS)' ($onceM.Success -and $missingOnce.Count -eq 0 -and $plug -match 'r\.once \|\| ONCE_ACTS\.has\(r\.act\)') ($missingOnce -join ', ')
-Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'if \(down && !this\.offline\)' -and $plug -match 'if \(this\.offline\) \{ if \(col === COLS - 1 && row === ROWS - 1\) this\.exit\(\)')
-$ct = @($main | Where-Object { $_.label -like 'CAR TRACK*' } | Select-Object -First 1)
-$myd = $plug.Substring($plug.IndexOf('const MyDrive = new class extends Screen'))
-$myd = $myd.Substring(0, $myd.IndexOf('async keyTick()'))
-# deck v2: CAR TRACK moved from 6,2 to 3,0; the add-on paints its picture at '3,0' or '6,2' (6,2 is VAULT now and is never a MY DRIVE key)
-Check 'CAR TRACK (same add-on screen as MY DRIVE) gets its own picture, chosen by its place on the deck (3,0 or 6,2)' ($ct.Count -eq 1 -and @('3,0', '6,2') -contains "$($ct[0].col),$($ct[0].row)" -and $myd -match "keyPos\[ctx\] === '$($ct[0].col),$($ct[0].row)'" -and $myd -match "keyPos\[ctx\] === '6,2'" -and $myd -match "'CAR', 'TRACK'" -and $plug -match 'keyScreen\.keyPos\[e\.context\] = pos')
+Check 'an add-on screen whose irdash stops answering says so on its keys, and keeps an EXIT key' ($plug -match 'showOffline\(\) \{' -and $plug -match 'if \(down && !this\.offline\)' -and $plug -match 'if \(this\.offline\) \{ if \(col === EXIT_AT\[0\] && row === EXIT_AT\[1\]\) this\.exit\(\)')
+# W3-4: every opener key is the picture deck\layout.json describes (label, glyph, role), drawn by keyart.js like the static deck pictures
+Check 'the opener keys are painted from the layout (openerSpec + paintOpener with KEYART.keyPng); the willAppear handler remembers each key''s place and settings' ($plug -match 'openerSpec\(ctx\) \{' -and $plug -match 'KEYART\.openerSpec\(DECK, this\.name, s\.what\)' -and $plug -match 'KEYART\.keyPng\(Object\.assign\(\{\}, this\.openerSpec\(ctx\)' -and $plug -match 'keyScreen\.keyPos\[e\.context\] = pos')
 # 9e. docs\USER-GUIDE.md names every key on the deck, and none of the old names
 $guide = Ascii (ReadText 'docs\USER-GUIDE.md')
 $noGuide = @($deck | Where-Object { $_.kind -in 'key', 'plugin', 'later' } | ForEach-Object { ($_.label -replace '\s+x2$', '').ToUpperInvariant() } | Where-Object { $guide.ToUpperInvariant().IndexOf($_) -lt 0 })

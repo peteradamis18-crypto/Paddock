@@ -2,10 +2,13 @@
 <html>
 <head><meta charset="utf-8"><title>Paddock</title></head>
 <body>
+<!-- W3-4: the one key drawing and colour table (deck\keyart.js) and the deck layout (deck\layout.json as layout.js); install.ps1 puts both next to this page -->
+<script src="keyart.js"></script>
+<script src="layout.js"></script>
 <script>
 'use strict';
 // Paddock add-on (folder and UUID keep the old name "rigintro"): the startup flag sequence across all 32 keys, and the live
-// screens drawn on the deck: FRIENDS mode, OVERLAYS, MY DRIVE (race setup), REPLAY, ANALYSIS, SOUND (each a bundled one-page profile whose 32 tiles this page paints).
+// screens drawn on the deck: FRIENDS mode, OVERLAYS, AI RACE, REPLAY, SOUND, AC, RACES, CONFIRM (each a bundled one-page profile whose 32 tiles this page paints).
 // irdash decides when the intro plays (its showcase answer, in http://localhost:8199/deck/summary since W0-5): once per Windows start, again whenever
 // the SHOWCASE key / "Play intro" bumps seq, never while driving. Switches to the bundled RigIntro profile,
 // animates its 32 tiles, then switches back to the profile that was showing before.
@@ -17,17 +20,29 @@
 // only drawn and PNG-encoded once per distinct look (cache), and only keys whose picture changed are sent.
 // Timing lines ("perf ...") go to the plugin log: %APPDATA%\Elgato\StreamDeck\logs\com.peter.rigintro0.log.
 const COLS = 8, ROWS = 4, PX = 96, W = COLS * PX, H = ROWS * PX, FPS = 12;
-const GOLD = '#c9a24b', INK = '#f4f1ea', GREEN = '#1fbf5f';
+// every colour comes from keyart.js (one table for the deck pictures and every screen; W3-4)
+const C = KEYART.C, STYLE = KEYART.STYLE;
+const GOLD = C.gold, INK = C.ink, GREEN = C.green;
 const UUID = 'com.peter.rigintro';
 const API = 'http://localhost:8199';
 const PADDOCK_SECRET = '1';     // W0-2: deck-intro\install.ps1 puts the add-on's own secret here in the installed copy; sent as X-Paddock
-const FONT = 'Bahnschrift, "Segoe UI", sans-serif';
+const FONT = KEYART.FONT;
+// the deck layout (deck\layout.json): the words and glyphs of the opener keys, and where EXIT sits on every screen (7,3)
+const DECK = window.DECK_LAYOUT || null;
+const EXIT_AT = KEYART.exitAt(DECK);
+// the one EXIT key of every screen: same place, same red, same word, drawn by the same function as the deck pictures
+// W3-4 review: for 0.8 s after the deck changes page, presses are ignored (a doubled press used to land on the new page's key in the same
+// spot: SOUND -> MUTE, OVERLAYS -> MOVE, FRIENDS -> a driver, EXIT -> RIG ...). Every page change goes through Screen.switchTo or back().
+const SWITCH_DEAF_MS = 800;
+let switchedAt = -1e9;
+const deafNow = () => performance.now() - switchedAt < SWITCH_DEAF_MS;
+function exitRegion() { return { c: EXIT_AT[0], r: EXIT_AT[1], w: 1, h: 1, text: 'EXIT', sub: '', act: 'exit', arg: null, style: 'stop', wrap: 0, key: KEYART.EXIT }; }
 let ws = null, pluginUUID = '', deviceId = '', seq = null, playing = false;
 const tiles = {};               // intro profile: "col,row" -> context
 const docKeys = new Set();      // the RIG DOCTOR key(s), if you put one on a profile
 // Keys that FLIP something (on/off, play/pause). A press that reaches the add-on twice must not flip it back, so Screen.press() ignores a
 // second press of the same key within 0.7 s. Only a few keys carried "once: true"; the rest were missing (2026-10-18 audit).
-const ONCE_ACTS = new Set(['ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv', 'wb-map-colour']);
+const ONCE_ACTS = new Set(['ovtoggle', 'deltaon', 'mddamage', 'mdstar', 'line', 'coach', 'board', 'rpplay', 'rphideui', 'rpautotv']);
 
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function log(m) { send({ event: 'logMessage', payload: { message: 'rigintro: ' + m } }); }   // lands in the plugin log
@@ -64,18 +79,15 @@ const Health = {
     this.failed++;
     if (this.failed >= 3 && !this.grey) { this.grey = true; this.paintGrey(); }
   },
-  // the words on each opener key, in grey
-  greyPic(word, sub) {
-    const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d');
-    g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144); g.strokeStyle = '#3a3a3a'; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124);
-    g.textAlign = 'center'; g.fillStyle = '#6d6a63'; g.font = '600 24px ' + FONT; g.fillText(word, 72, 66, 120);
-    g.font = '400 17px ' + FONT; g.fillText(sub, 72, 98, 120);
-    return c.toDataURL('image/png');
+  // the opener key's own picture, greyed: its glyph and words dim, NOT ANSWERING under them (the key language of keyart.js)
+  greyPic(word, sub, spec) {
+    const base = spec || { label: String(word).split(' ').slice(0, 2), glyph: '' };
+    return KEYART.keyPng(Object.assign({}, base, { role: 'dead', note: sub, noteColor: 'faint', dot: null }));
   },
   paintGrey() {
     log('irdash not answering: opener keys grey');
-    for (const s of Object.values(SCREENS)) for (const ctx of s.keys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic(s.greyWord(ctx), 'NOT ANSWERING'), target: 0 } });
-    for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic('RIG DOCTOR', 'NOT ANSWERING'), target: 0 } });
+    for (const s of Object.values(SCREENS)) for (const ctx of s.keys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic(s.greyWord(ctx), 'NOT ANSWERING', s.openerSpec(ctx)), target: 0 } });
+    for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: this.greyPic('RIG DOCTOR', 'NOT ANSWERING', RigDoctor.spec), target: 0 } });
   },
   repaint() {
     log('irdash answering again: opener keys back');
@@ -101,8 +113,8 @@ const Perf = {
 // A region is { c, r, w, h, text, sub, act, arg, style, wrap }: the rectangle of keys it covers, what it says and does.
 // Every key has a "look" string (its region's text/style plus its place); the PNG for a look is made once and kept.
 class Screen {
-  constructor(name, colors) {
-    this.name = name; this.colors = colors;
+  constructor(name) {
+    this.name = name;
     this.keys = new Set();            // the screen's own opener key(s) on your profile
     this.tiles = {};                  // "col,row" -> context, for the keys that are on the deck right now
     this.shown = {};                  // "col,row" -> the look that is on that key now
@@ -126,8 +138,16 @@ class Screen {
   keyIcon(force) { }                  // the opener key's picture
 
   setKeyImage(url) { for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } }); }
-  greyWord(ctx) { return this.name.toUpperCase(); }   // the opener key's word while irdash is not answering (Health)
-  iconCanvas() { const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d'); g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144); g.strokeStyle = GOLD; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124); g.textAlign = 'center'; return [c, g]; }
+  // the opener key as deck\layout.json says it (label, glyph, role): the same picture build-deck.ps1 put on the key, drawn by keyart.js
+  openerSpec(ctx) {
+    const s = (ctx && this.keySettings[ctx]) || {};
+    return KEYART.openerSpec(DECK, this.name, s.what) || { label: [this.name.toUpperCase()], glyph: '', role: 'white' };
+  }
+  greyWord(ctx) { return (this.openerSpec(ctx).label || [this.name.toUpperCase()]).join(' '); }   // the opener key's word while irdash is not answering (Health)
+  // paint the opener key(s): the layout's picture plus one small live line (how many are on, the room temperature ...)
+  paintOpener(note, noteColor, extra) {
+    for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: KEYART.keyPng(Object.assign({}, this.openerSpec(ctx), { note: note || '', noteColor: noteColor || '' }, extra || {})), target: 0 } });
+  }
 
   // a key of this screen's profile appeared / went away
   appear(pos, ctx) {
@@ -179,51 +199,27 @@ class Screen {
     if (this.dirty) { this.drawCanvas(); this.dirty = false; }
     const [col, row] = pos.split(',').map(Number);
     const tg = this.tileCv.getContext('2d');
+    // a key-language key (EXIT): drawn straight onto the key by keyart.js, so it is the same picture deck\render.html makes for that spec
+    const r = this.regionAt(col, row);
+    if (r && r.key && r.w === 1 && r.h === 1 && !this.gsig()) { KEYART.drawKey(tg, 0, 0, PX, this.keySpec(r)); return this.tileCv.toDataURL('image/png'); }
     tg.drawImage(this.canvas, col * PX, row * PX, PX, PX, 0, 0, PX, PX);
     return this.tileCv.toDataURL('image/png');
   }
+  keySpec(r) { return this.pressedKey === r.c + ',' + r.r && !r.noflash ? Object.assign({}, r.key, { pressed: true }) : r.key; }
 
+  // every tile is drawn by keyart.js (drawRegion: the screens' text tiles; drawKey: the key-language keys such as EXIT), from its one colour table
   drawCanvas() {
     if (!this.canvas) { this.canvas = document.createElement('canvas'); this.canvas.width = W; this.canvas.height = H; this.tileCv = document.createElement('canvas'); this.tileCv.width = this.tileCv.height = PX; }
     const x = this.canvas.getContext('2d');
-    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    x.fillStyle = C.black; x.fillRect(0, 0, W, H);
     for (const r of this.regions) {
-      const px = r.c * PX + 3, py = r.r * PX + 3, pw = r.w * PX - 6, ph = r.h * PX - 6;
-      let [bg, fg] = this.colors[r.style] || this.colors[''];
-      if (this.pressedKey === r.c + ',' + r.r && !r.noflash) { bg = '#ffffff'; fg = '#000'; }
-      x.fillStyle = bg; x.fillRect(px, py, pw, ph);
-      if (r.style === 'label') { x.fillStyle = GOLD; x.fillRect(px, py + ph - 4, pw, 2); }
-      if (r.strip) { x.fillStyle = r.strip; x.fillRect(px, py, 6, ph); }
-      if (r.paint) { r.paint(x, px, py, pw, ph, bg, fg); continue; }                   // the screen draws this one itself
-      x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
-      const big = r.w * r.h > 1, cx = px + pw / 2, cy = py + ph / 2, main = String(r.text == null ? '' : r.text).toUpperCase(), sub = r.sub ? String(r.sub) : '';
-      if (r.wrap) {
-        // text over up to r.wrap lines (long car and track names), the small line under it
-        let size = r.size || (big ? 22 : 17), lines;
-        for (;;) { x.font = '600 ' + size + 'px ' + FONT; lines = r.single ? [main] : this.lines(x, main, pw - 12); if ((lines.length <= r.wrap && lines.every(l => x.measureText(l).width <= pw - 8)) || size <= 9) break; size--; }
-        let subSize = big ? 15 : 12, subLines = [];
-        if (sub) for (;;) { x.font = '400 ' + subSize + 'px ' + FONT; subLines = r.single ? [sub] : this.lines(x, sub, pw - 8); if ((subLines.length <= 2 && subLines.every(l => x.measureText(l).width <= pw - 6)) || subSize <= 9) break; subSize--; }
-        const lh = size * 1.12, sh = subSize * 1.15, total = lines.length * lh + (sub ? 4 + subLines.length * sh : 0);
-        let y = cy - total / 2 + lh / 2;
-        x.font = '600 ' + size + 'px ' + FONT;
-        for (const l of lines) { x.fillText(l, cx, y, pw - 8); y += lh; }
-        if (sub) { x.globalAlpha = .85; x.font = '400 ' + subSize + 'px ' + FONT; y += 4 - lh / 2 + sh / 2; for (const l of subLines) { x.fillText(l, cx, y, pw - 6); y += sh; } x.globalAlpha = 1; }
-      } else {
-        const fit = (text, size, weight, maxW) => { let s = size; do { x.font = weight + ' ' + s + 'px ' + FONT; s--; } while (x.measureText(text).width > maxW && s > 9); };
-        fit(main, r.size || (big ? 30 : 19), '600', pw - 10);
-        x.fillText(main, cx, sub ? cy - (big ? 14 : 10) : cy);
-        if (sub) { x.globalAlpha = .85; fit(sub, big ? 15 : 12, '400', pw - 8); x.fillText(sub, cx, cy + (big ? 20 : 14)); x.globalAlpha = 1; }
-      }
+      if (r.key && r.w === 1 && r.h === 1) { KEYART.drawKey(x, r.c * PX, r.r * PX, PX, this.keySpec(r)); continue; }
+      KEYART.drawRegion(x, r, r.c * PX + 3, r.r * PX + 3, r.w * PX - 6, r.h * PX - 6, this.pressedKey === r.c + ',' + r.r && !r.noflash);
     }
     this.paintOver(x);
   }
 
-  lines(x, text, maxW) {
-    const words = text.split(' '), out = []; let cur = '';
-    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (cur && x.measureText(t).width > maxW) { out.push(cur); cur = w; } else cur = t; }
-    if (cur) out.push(cur);
-    return out.length ? out : [''];
-  }
+  lines(x, text, maxW) { return KEYART.textLines(x, text, maxW); }
 
   // keep the state fresh while the screen is on the deck. A press makes it look faster for a few seconds.
   async run() {
@@ -256,13 +252,11 @@ class Screen {
   showOffline() {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
-    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
-    x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#d98b2b';
+    x.fillStyle = C.black; x.fillRect(0, 0, W, H);
+    x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = C.amber;
     x.font = '600 52px ' + FONT; x.fillText('DASHBOARD NOT ANSWERING', W / 2, 130, W - 40);
     x.fillStyle = INK; x.font = '400 30px ' + FONT; x.fillText('Wait a moment, this clears on its own.', W / 2, 205, W - 40);
-    const ex = (COLS - 1) * PX + 3, ey = (ROWS - 1) * PX + 3;
-    x.fillStyle = '#c62f2f'; x.fillRect(ex, ey, PX - 6, PX - 6);
-    x.fillStyle = '#fff'; x.font = '600 24px ' + FONT; x.fillText('EXIT', ex + (PX - 6) / 2, ey + (PX - 6) / 2, PX - 16);
+    KEYART.drawKey(x, EXIT_AT[0] * PX, EXIT_AT[1] * PX, PX, KEYART.EXIT);   // the same EXIT as on every screen
     const t = document.createElement('canvas'); t.width = t.height = PX; const tg = t.getContext('2d');
     for (const pos in this.tiles) {
       if (this.shown[pos] === 'offline') continue;
@@ -276,8 +270,10 @@ class Screen {
   regionAt(col, row) { return this.regions.find(x => col >= x.c && col < x.c + x.w && row >= x.r && row < x.r + x.h); }
 
   async press(col, row) {
+    // the deck just changed page: a press arriving 2-3 times (29 ms - 1 s apart) must not land on the key now in the same place
+    if (deafNow()) { log(this.name + ': press ignored (the deck changed page ' + Math.round(performance.now() - switchedAt) + ' ms ago)'); return; }
     // irdash is not answering (see run()): the keys say so; the bottom-right key still leaves the screen so nobody is stuck on it
-    if (this.offline) { if (col === COLS - 1 && row === ROWS - 1) this.exit(); return; }
+    if (this.offline) { if (col === EXIT_AT[0] && row === EXIT_AT[1]) this.exit(); return; }
     const r = this.regionAt(col, row);
     if (!r || !r.act) return;
     // one press can reach the add-on two or three times within a fraction of a second: a toggle (mute, play, tile ...) must not flip back.
@@ -298,7 +294,7 @@ class Screen {
     try { await sendCmd((base || '/api/do') + '?c=' + encodeURIComponent(c) + (a ? '&a=' + encodeURIComponent(a) : '')); }
     catch (e) { log(this.name + ': irdash not reachable'); }
   }
-  switchTo(profile) { send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
+  switchTo(profile) { switchedAt = performance.now(); send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: profile ? { profile } : {} }); }   // no name = your own keys
 }
 
 // ---------------- Friends mode screen ----------------
@@ -306,12 +302,10 @@ class Screen {
 // wheel strength and a big START. In the car (a session is running) it switches by itself to a few large keys:
 // RESET CAR, NEXT DRIVER, GET OUT. EXIT puts everything back and returns to your own keys.
 // Every press goes to irdash (/api/guest/do), which runs the matching irdeck command.
-const FCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'],
-                  gold: ['#8a6d17', '#fff'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'],
-                  stepOn: ['#3a2f08', GOLD], stepOn2: ['#1e1904', GOLD], goBright: ['#4be38a', '#03140a'], '': ['#1b1b1b', INK] };   // on/off toggles stay dark so gold means 'chosen'
+// (colours: KEYART.STYLE, the one table; on/off toggles stay dark so gold means 'chosen')
 const Friends = new class extends Screen {
   constructor() {
-    super('friends', FCOLORS);
+    super('friends');
     this.g = null;
     this.step = 'who';    // the step that glows: who -> car -> track -> start
     this.kb = null;       // the name being typed on the deck keyboard, or null
@@ -326,10 +320,7 @@ const Friends = new class extends Screen {
 
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('FRIENDS', 72, 66);
-    g.fillStyle = INK; g.font = '400 20px ' + FONT; g.fillText('MODE', 72, 96);
-    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+    this.keyShown = '1'; this.paintOpener();
   }
 
   // the opener key on your profile: keeps the last state at hand, so the screen can be drawn the moment it opens
@@ -406,15 +397,15 @@ const Friends = new class extends Screen {
       for (let i = 0; i < 24; i++) add(i % 8, Math.floor(i / 8), 1, 1, L[i], '', 'letter', L[i]);
       add(0, 3, 1, 1, 'Y', '', 'letter', 'Y'); add(1, 3, 1, 1, 'Z', '', 'letter', 'Z');
       add(2, 3, 1, 1, 'SPACE', '', 'space'); add(3, 3, 1, 1, '⌫', 'delete', 'bksp');
-      add(4, 3, 2, 1, this.kb.length ? this.kb : 'TYPE A NAME', g.voiceDraft ? 'spotter knows this name' : '', null, null, 'banner');
-      add(6, 3, 1, 1, 'CANCEL', '', 'cancel', null, 'grey');
-      add(7, 3, 1, 1, 'DONE', '', 'done', null, this.kb.trim().length ? 'go' : 'grey');
+      add(4, 3, 1, 1, this.kb.length ? this.kb.slice(-7) : 'TYPE', g.voiceDraft ? 'spotter knows it' : 'A NAME', null, null, 'banner', 2);
+      add(5, 3, 1, 1, 'CANCEL', '', 'cancel', null, 'grey');
+      add(6, 3, 1, 1, 'DONE', '', 'done', null, this.kb.trim().length ? 'go' : 'grey');
+      R.push(exitRegion());
       return R;
     }
     if (g.session) {
       // in a session: few, large keys
-      add(0, 0, 7, 1, driver, (carName || '') + '  ·  ' + (trackName || ''), null, null, 'banner');
-      add(7, 0, 1, 1, 'EXIT', 'FRIENDS', 'exit', null, 'stop');
+      add(0, 0, 8, 1, driver, (carName || '') + '  ·  ' + (trackName || ''), null, null, 'banner');
       add(0, 1, 2, 2, 'RESET CAR', '', 'reset', null, 'amber');
       add(2, 1, 2, 2, 'NEXT DRIVER', '', 'next', null, 'gold');
       add(4, 1, 2, 2, 'GET OUT', 'car must be stopped', 'getout', null, 'grey');
@@ -428,7 +419,8 @@ const Friends = new class extends Screen {
       add(3, 3, 1, 1, 'COACH', coach ? 'ON' : 'OFF', 'coach', null, coach ? 'on' : 'off');
       add(4, 3, 1, 1, 'VOL', '−', 'voldown');
       add(5, 3, 1, 1, 'VOL', '+', 'volup');
-      add(6, 3, 2, 1, 'DRIVE', g.driving ? 'in the car' : '', g.driving ? null : 'start', null, g.driving ? 'grey' : 'go');
+      add(6, 3, 1, 1, 'DRIVE', g.driving ? 'in the car' : '', g.driving ? null : 'start', null, g.driving ? 'grey' : 'go');
+      R.push(exitRegion());
     } else {
       // choosing: numbered steps; the step to do next glows, then START
       const step = (n, label, id) => add(0, n - 1, 1, 1, n + '  ' + label, '', null, null, this.step === id ? (this.blink ? 'stepOn' : 'stepOn2') : 'label');
@@ -437,7 +429,7 @@ const Friends = new class extends Screen {
       names.forEach((n, i) => add(1 + i, 0, 1, 1, n, '', 'driver', n.replace(/ /g, '_'), sel(driverId === n.toLowerCase())));
       add(1 + names.length, 0, 1, 1, 'GUEST', '', 'driver', 'guest', sel(driverId === 'guest'));
       add(2 + names.length, 0, 1, 1, '+ NEW', '', 'newdriver', null, 'grey');
-      add(7, 0, 1, 1, 'EXIT', 'FRIENDS', 'exit', null, 'stop');
+      add(7, 0, 1, 1, 'LINE', line ? 'ON' : 'OFF', 'line', null, line ? 'on' : 'off');   // W3-4: EXIT took 7,3 (the same place on every screen)
       step(2, 'CAR', 'car');
       (g.carList || []).slice(0, 7).forEach((x, i) => add(1 + i, 1, 1, 1, x.name, /abs|tc/i.test(x.aids) ? 'aids on' : 'no aids', 'car', x.key, sel(carKey === x.key)));
       step(3, 'TRACK', 'track');
@@ -446,7 +438,7 @@ const Friends = new class extends Screen {
       add(6, 2, 1, 1, 'MEDIUM', 'WHEEL', 'wheel', 'medium', sel(wheel === 'medium'));
       add(7, 2, 1, 1, 'FULL', 'WHEEL', 'wheel', 'full', sel(wheel === 'full'));
       add(0, 3, 7, 1, '4  START', driver + '  ·  ' + (carName || '') + ' at ' + (trackName || ''), 'start', null, this.step === 'start' && this.blink ? 'goBright' : 'go');
-      add(7, 3, 1, 1, 'LINE', line ? 'ON' : 'OFF', 'line', null, line ? 'on' : 'off');
+      R.push(exitRegion());
     }
     return R;
   }
@@ -454,8 +446,8 @@ const Friends = new class extends Screen {
   paintOver(x) {
     if (!(this.flash && Date.now() < this.flashUntil)) return;
     const f = this.flash, rec = f.kind === 'record';
-    x.fillStyle = this.blink ? (rec ? GOLD : GREEN) : '#000'; x.fillRect(0, 0, W, H);
-    x.fillStyle = this.blink ? '#111' : (rec ? GOLD : GREEN); x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = this.blink ? (rec ? GOLD : GREEN) : C.black; x.fillRect(0, 0, W, H);
+    x.fillStyle = this.blink ? C.goldInk : (rec ? GOLD : GREEN); x.textAlign = 'center'; x.textBaseline = 'middle';
     x.font = '700 64px ' + FONT; x.fillText(rec ? 'NEW RECORD' : 'PERSONAL BEST', W / 2, 120);
     x.font = '600 48px ' + FONT; x.fillText(String(f.name).toUpperCase() + '   ' + fmtTime(f.time), W / 2, 250);
   }
@@ -465,20 +457,14 @@ const Friends = new class extends Screen {
 // A key you can put on any page (action "Rig Doctor"): its dot shows the last check (green, amber, red);
 // pressing it checks the rig again and shows the list on the top screen. The OVERLAYS screen has the same button.
 const RigDoctor = {
-  d: null, shown: '',
+  d: null, shown: '', spec: { label: ['RIG', 'DOCTOR'], glyph: 'gauge', role: 'white' },
   icon(force) {
     if (!docKeys.size) return;
     const d = this.d, st = !d || !d.ranAt ? 'none' : d.bad > 0 ? 'bad' : d.warn > 0 ? 'warn' : 'ok';
     const label = !d || !d.ranAt ? 'CHECK' : d.bad + d.warn === 0 ? 'ALL GOOD' : (d.bad + d.warn) + ' TO SEE';
     if (!force && st + label === this.shown) return;
     this.shown = st + label;
-    const c = document.createElement('canvas'); c.width = c.height = 144; const g = c.getContext('2d');
-    g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, 144, 144);
-    g.strokeStyle = GOLD; g.lineWidth = 3; g.strokeRect(10, 10, 124, 124);
-    g.fillStyle = { ok: '#2fe07a', warn: '#ffb21e', bad: '#ff4d4d', none: '#55524c' }[st]; g.beginPath(); g.arc(72, 38, 11, 0, 7); g.fill();
-    g.fillStyle = GOLD; g.textAlign = 'center'; g.font = '600 26px ' + FONT; g.fillText('RIG', 72, 82);
-    g.fillText('DOCTOR', 72, 108);
-    const url = c.toDataURL('image/png');
+    const url = KEYART.keyPng(Object.assign({}, this.spec, { dot: st, note: label }));
     for (const ctx of docKeys) send({ event: 'setImage', context: ctx, payload: { image: url, target: 0 } });
   },
   async tick(sum) {
@@ -495,11 +481,9 @@ const RigDoctor = {
 // irdash /overlays says what is on; every press goes to irdash /api/do (a whitelist), which runs irdeck. Several quick
 // taps cost one restart of the overlays app (irdash waits 1.5 s after the last one). The screen shows a press at
 // once, before irdash has confirmed it.
-const OCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
-                  banner: ['#0b0b0b', GOLD], on: ['#1b1b1b', GOLD], off: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
 const Overlays = new class extends Screen {
   constructor() {
-    super('overlays', OCOLORS);
+    super('overlays');
     this.o = null;
     this.held = {};      // id -> { on, until }: what a press changed, shown until irdash confirms
     this.flashes = {};   // 'act' -> until: "SAVED" on the SAVE key for a moment
@@ -513,10 +497,7 @@ const Overlays = new class extends Screen {
     const n = this.o ? this.o.onCount : -1, label = n < 0 ? '' : n + ' ON';
     if (!force && label === this.keyShown) return;
     this.keyShown = label;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 25px ' + FONT; g.fillText('OVERLAYS', 72, 70);
-    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText(label || 'SCREEN', 72, 102);
-    this.setKeyImage(c.toDataURL('image/png'));
+    this.paintOpener(label);
   }
 
   async keyTick(sum) {
@@ -560,7 +541,7 @@ const Overlays = new class extends Screen {
     // rows 1-2: the overlays
     o.widgets.forEach((w, i) => {
       const on = this.on(w);
-      add(i % 8, Math.floor(i / 8), 1, 1, w.name, w.known ? (on ? 'ON' : 'OFF') : 'not in app', w.known ? 'ovtoggle' : null, w.id, w.known ? (on ? 'sel' : '') : 'off');
+      add(i % 8, Math.floor(i / 8), 1, 1, w.name, w.known ? (on ? 'ON' : 'OFF') : 'not in app', w.known ? 'ovtoggle' : null, w.id, w.known ? (on ? 'sel' : '') : 'dim');   // (was its own 'off' look: the same colours as dim)
     });
     // row 3: presets (gold = the overlays on now are exactly this preset), SAVE AS, status
     o.presets.forEach((p, i) => add(i, 2, 1, 1, p.name, p.match ? 'ON NOW' : (o.saveTo === p.id ? 'BASE' : ''), p.exists ? 'ovpreset' : null, p.id, p.match ? 'sel' : (o.saveTo === p.id ? 'on' : '')));
@@ -574,33 +555,31 @@ const Overlays = new class extends Screen {
     else { st = o.onCount + ' ON'; ss = o.msg && o.msgAge != null && o.msgAge < 8 ? o.msg : 'up to date'; }   // a note shows for a few seconds
     add(6, 2, 2, 1, st, ss, 'ovapply', null, style);
     // row 4
-    add(0, 3, 1, 1, 'EDIT', o.editing ? 'LOCK IT' : 'LAYOUT', o.driving ? null : 'ovedit', null, o.editing ? 'go' : (o.driving ? 'off' : 'grey'));
+    add(0, 3, 1, 1, 'EDIT', o.editing ? 'LOCK IT' : 'LAYOUT', o.driving ? null : 'ovedit', null, o.editing ? 'go' : (o.driving ? 'dim' : 'grey'));
     add(1, 3, 1, 1, 'ALL OFF', 'overlays', 'ovalloff', null, 'amber');
     add(2, 3, 1, 1, 'DELTA BAR', o.delta.on ? 'ON' : 'OFF', 'deltaon', null, o.delta.on ? 'sel' : '');
     add(3, 3, 1, 1, 'VS ' + o.delta.ref.toUpperCase(), '', 'deltaref', null, '');
     add(4, 3, 1, 1, 'MOVE ↑', 'delta bar', 'deltaup', null, '');
     add(5, 3, 1, 1, 'MOVE ↓', 'delta bar', 'deltadown', null, '');
     add(6, 3, 1, 1, 'RIG', 'DOCTOR', 'doctor', null, 'grey');
-    add(7, 3, 1, 1, 'EXIT', 'OVERLAYS', 'exit', null, 'stop');
+    R.push(exitRegion());
     return R;
   }
 };
 
-// ---------------- My Drive screen ----------------
-// RACE SETUP keeps the chosen car, track and layout on separate keys. Lists are the first path; search stays at the end of CARS/TRACKS.
-// START is the only key that runs the sim. In a session this screen switches to the existing driving keys.
-const MCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
-                  banner: ['#0b0b0b', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
+// ---------------- AI RACE screen (W3-4: MY DRIVE's car and track lists and AI LEVEL folded into one screen; profile RigMyDrive) ----------------
+// Opened by AI RACE on MAIN. One page: what to drive (LAST DRIVE, RECENT, CARS, TRACKS, FAVOURITES; the chosen car, track and layout), how
+// hard the AI is (LOW / MEDIUM / HIGH, kept by irdash dash\src\ailevel.cs, used by AI RACE in the wizard) and one big START that runs
+// AI RACE with them (irdash ailevel start -> irdeck airace start, which writes the start mark). Nothing goes to the sim before START.
+// Lists are one key per item: nothing to type (PLAN rule 6). The same choice is what DRIVE (GET IN) starts when nothing is loaded.
+// In a session the screen shows the driving keys instead. EXIT at 7,3 like every screen; BACK in a list returns to these keys.
 const MyDrive = new class extends Screen {
   constructor() {
-    super('mydrive', MCOLORS);
-    this.m = null;
-    this.kb = null; this.kbKind = ''; this.kbPage = 'abc';     // the search text being typed on the deck keyboard
+    super('mydrive');
+    this.m = null; this.lvl = null;                            // the last /mydrive and /ailevel
     this.local = {};                                           // what a press changed, shown until irdash confirms: key -> { v, until }
-    this.finding = null;                                       // { kind, t }: a search was just asked for
-    this.hiddenAt = null;                                      // the search result list (its time stamp) that BACK put away
-    this.stSeq = null; this.pinged = 0;
-    this.view = 'home'; this.page = 0;                         // RACE SETUP home or paged picker
+    this.stSeq = null; this.pinged = 0; this.listsAt = 0; this.lvlAt = 0;
+    this.view = 'home'; this.page = 0;                         // the AI RACE keys, or a paged list ('pick')
     this.pickPage = 'recent'; this.pickClass = 'GT3'; this.lists = null; this.pickTrack = null;
   }
   hasState() { return !!this.m && this.m.ready; }
@@ -609,26 +588,18 @@ const MyDrive = new class extends Screen {
   repaint() { this.shown = {}; this.relayout(); }
 
   keyIcon(force) {
-    // NO CHOICE (AI RACE pressed with no car chosen): the key says so. The screen never opens by itself any more (audit 11, A1:
-    // it used to switch the whole deck with no press, also while driving).
+    // NO CHOICE (AI RACE pressed with no car chosen): the key says so. The screen never opens by itself (audit 11, A1).
     const noChoice = !!(this.m && this.m.aiStatus === 'NO CHOICE' && !(this.m.choice && this.m.choice.has)), sig = noChoice ? 'nc' : 'ok';
     if (!this.keys.size || (!force && this.keyShown === sig)) return;
-    // Two keys open this screen: MY DRIVE and CAR TRACK (MAIN 6,2). setKeyImage() painted MY DRIVE on both, so CAR TRACK
-    // showed the wrong word. The CAR TRACK picture goes to the key at 6,2 only.
-    const pic = (a, b) => { const [c, g] = this.iconCanvas(); g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText(a, 72, noChoice ? 58 : 66); g.fillText(b, 72, noChoice ? 90 : 100); if (noChoice) { g.fillStyle = '#d98b2b'; g.font = '600 17px ' + FONT; g.fillText('CHOOSE ONE', 72, 120); } return c.toDataURL('image/png'); };
-    const mine = pic('MY', 'DRIVE'), carTrack = pic('CAR', 'TRACK');
     this.keyShown = sig;
-    for (const ctx of this.keys) send({ event: 'setImage', context: ctx, payload: { image: (this.keyPos[ctx] === '3,0' || this.keyPos[ctx] === '6,2') ? carTrack : mine   /* deck v2 (2026-10-23): CAR TRACK moved to 3,0 */, target: 0 } });
+    this.paintOpener(noChoice ? 'CHOOSE ONE' : '', noChoice ? 'amber' : '');
   }
-  greyWord(ctx) { return (this.keyPos[ctx] === '3,0' || this.keyPos[ctx] === '6,2') ? 'CAR TRACK' : 'MY DRIVE'; }
 
-  // runs always (even with no MY DRIVE key on a page): the state for instant drawing, and the speed-test request
+  // runs always (even with no AI RACE key on a page): the state for instant drawing, and the speed-test request
   async keyTick() {
-    // W0-5: from /deck/summary (the speed-test trigger and the auto-open flag ride in it); called with no summary it asks /mydrive itself
+    // W0-5: from /deck/summary (the speed-test trigger rides in it); called with no summary it asks /mydrive itself
     const sum = arguments[0], m = sum ? sum.mydrive : await this.get('/mydrive'); if (!m) return;
-    if (!this.live) {
-      this.m = m;
-    }
+    if (!this.live) this.m = m;
     const st = m.speedtest;
     if (st) {
       if (this.stSeq === null) this.stSeq = st.seq;
@@ -640,100 +611,71 @@ const MyDrive = new class extends Screen {
   async open(opts) {
     if (!deviceId) return;
     Perf.begin('mydrive');
-    this.kb = null; this.local = {}; this.finding = null; this.shown = {};
+    this.local = {}; this.shown = {};
     this.view = 'home'; this.pickPage = 'recent'; this.page = 0;
-    // the deck switches at once; the lists follow (a hung irdash used to hold the switch for the 2 s timeout, and the message came at ~4 s)
+    // the deck switches at once; the lists follow (a hung irdash used to hold the switch for the 2 s timeout)
     if (!this.lists) this.lists = { recent: [], cars: [], tracks: [] };
-    this.hiddenAt = this.m && this.m.results ? this.m.results.at : null;    // a search from last time stays away
     this.switchTo('RigMyDrive'); Perf.mark('mydrive', 'switchSent');
     this.fastUntil = performance.now() + 2500;
     if (!(opts && opts.test)) { this.pinged = performance.now(); this.cmd('mdopen'); this.cmd('mdclear'); }
     if (this.m && this.m.ready) this.warm();
-    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { }
+    try { this.lists = await this.get('/mydrive/lists'); this.listsAt = performance.now(); } catch (e) { }
+    try { this.lvl = await this.get('/ailevel'); this.lvlAt = performance.now(); } catch (e) { }
     const classes = this.classKeys(); if (classes.length && !classes.includes(this.pickClass)) this.pickClass = classes[0];
     if (this.m && this.m.ready) this.relayout();
   }
   exit(opts) {
-    if (!(opts && opts.test)) { this.cmd('mdclose'); this.cmd('mddraft'); }
-    this.kb = null; this.view = 'home'; this.page = 0;
+    if (!(opts && opts.test)) this.cmd('mdclose');
+    this.view = 'home'; this.page = 0;
     this.switchTo('');
   }
 
+  // /mydrive at the screen's pace; the lists every 10 s and the AI level every 5 s (or right after a press): they change rarely
   async poll() {
     this.m = await this.get('/mydrive');
-    try { this.lists = await this.get('/mydrive/lists'); } catch (e) { }
-    if (this.m.aiStatus === 'NO CHOICE' && this.view !== 'pick' && !this.m.choice.has) { this.view = 'pick'; this.pickPage = 'recent'; this.page = 0; this.relayout(); }
-    if (performance.now() - this.pinged > 60000) { this.pinged = performance.now(); this.cmd('mdopen'); }    // keeps the top screen's card up
+    const now = performance.now();
+    if (now - this.listsAt > 10000) { try { this.lists = await this.get('/mydrive/lists'); this.listsAt = now; } catch (e) { } }
+    if (now - this.lvlAt > 5000) { try { this.lvl = await this.get('/ailevel'); this.lvlAt = now; } catch (e) { } }
+    if (this.m.aiStatus === 'NO CHOICE' && this.view !== 'pick' && !this.m.choice.has) { this.view = 'pick'; this.pickPage = 'recent'; this.page = 0; }
+    if (now - this.pinged > 60000) { this.pinged = now; this.cmd('mdopen'); }    // keeps the top screen's card up
     this.relayout();
   }
 
-  draft() { this.cmd('mddraft', this.kb == null ? '' : this.kbKind + ':' + this.kb); }
-
   async act(r) {
     const m = this.m;
-    // local keys: the search keyboard and moving between views
-    if (r.act === 'letter') { if (this.kb.length < 24) this.kb += r.arg; this.draft(); this.relayout(); return; }
-    if (r.act === 'space') { if (this.kb.length && !this.kb.endsWith(' ')) this.kb += ' '; this.draft(); this.relayout(); return; }
-    if (r.act === 'bksp') { this.kb = this.kb.slice(0, -1); this.draft(); this.relayout(); return; }
-    if (r.act === 'allsessions') { this.all = !this.all; this.page = 0; this.relayout(); return; }
-    if (r.act === 'page') { this.kbPage = this.kbPage === 'abc' ? '123' : 'abc'; this.relayout(); return; }
-    if (r.act === 'cancel') { this.kb = null; this.draft(); this.relayout(); return; }
-    if (r.act === 'done') {
-      const text = this.kb.trim(); if (!text) return;
-      const kind = this.kbKind; this.kb = null; this.finding = { kind, t: Date.now() };
-      this.relayout();
-      await this.cmd(kind === 'car' ? 'mdfindcar' : 'mdfindtrack', text);
-      await this.refreshSoon(300);
-      return;
-    }
-    if (r.act === 'search') { this.kb = ''; this.kbKind = r.arg; this.kbPage = 'abc'; this.hiddenAt = m.results ? m.results.at : null; this.relayout(); return; }
-    if (r.act === 'retype') { this.kb = ''; this.kbKind = m.results ? m.results.kind : 'car'; if (this.kbKind === 'layout') this.kbKind = 'track'; this.kbPage = 'abc'; this.relayout(); return; }
-    if (r.act === 'back') { this.hiddenAt = m.results ? m.results.at : null; this.relayout(); await this.cmd('mdclear'); return; }
     if (r.act === 'exit') { this.exit(); return; }
-    if (r.act === 'leave') { this.exit(); return; }
+    // moving between the AI RACE keys and the lists (nothing is sent to irdash)
+    if (r.act === 'home') { this.view = 'home'; this.page = 0; this.pickTrack = null; this.repaint(); return; }
     if (r.act === 'picktab') { this.view = 'pick'; this.pickPage = r.arg; this.page = 0; this.repaint(); return; }
+    if (r.act === 'favs') { this.view = 'pick'; this.pickPage = 'favs'; this.page = 0; this.repaint(); return; }
     if (r.act === 'pickclass') { this.pickClass = r.arg; this.page = 0; this.repaint(); return; }
     if (r.act === 'pickpageprev' || r.act === 'pickpagenext') { this.page = Math.max(0, this.page + (r.act === 'pickpagenext' ? 1 : -1)); this.repaint(); return; }
-    if (r.act === 'pickcar') { this.selectedCar = true; await this.cmd('mdpick', r.arg); this.pickPage = 'tracks'; this.page = 0; this.repaint(); await this.refreshSoon(250); return; }
+    // a pick: the car goes on to the tracks; a track (or its layout) comes back to the AI RACE keys, where START is
+    if (r.act === 'pickcar') { await this.cmd('mdpick', r.arg); this.pickPage = 'tracks'; this.page = 0; this.repaint(); await this.refreshSoon(250); return; }
     if (r.act === 'picktrack') {
       const tr = (this.lists && this.lists.tracks || []).find(x => x.id === r.arg);
-      if (tr && tr.layouts && tr.layouts.length > 1) { await this.cmd('mdpick', r.arg); this.pickTrack = tr; this.pickPage = 'layouts'; this.page = 0; this.repaint(); return; }
-      await this.cmd('mdpick', r.arg); this.exit(); return;
+      await this.cmd('mdpick', r.arg);
+      if (tr && tr.layouts && tr.layouts.length > 1) { this.pickTrack = tr; this.pickPage = 'layouts'; this.page = 0; this.repaint(); return; }
+      this.view = 'home'; this.page = 0; this.repaint(); await this.refreshSoon(250); return;
     }
-    if (r.act === 'picklayout') { await this.cmd('mdpick', r.arg); this.pickTrack = null; this.exit(); return; }
-    // RACE SETUP: moving between the home keys and the lists of drives (nothing is sent to irdash)
-    if (r.act === 'home') { this.view = 'home'; this.page = 0; this.relayout(); return; }
-    if (r.act === 'favs') { this.view = 'pick'; this.pickPage = 'favs'; this.page = 0; this.repaint(); return; }
-    if (r.act === 'usual' || r.act === 'samecar' || r.act === 'sametrack') { this.view = r.act; this.page = 0; this.relayout(); return; }
-    if (r.act === 'pageprev' || r.act === 'pagenext') { this.page = Math.max(0, this.page + (r.act === 'pagenext' ? 1 : -1)); this.relayout(); return; }
-    if (r.act === 'surprise') {
-      // a drive you have done before that is not the one chosen now; press again for another
-      const others = (m.all || m.recent || []).filter(x => !this.isChosen(x));
-      if (!others.length) return;
-      const it = others[Math.floor(Math.random() * others.length)];
-      this.hold('choice', { car: it.car, carShort: it.carShort, track: it.track, trackShort: it.trackShort, layout: it.layout });
-      this.relayout();
-      await this.cmd('mdpick', it.id);
-      await this.refreshSoon(300);
-      return;
-    }
-    // the choice shows at once; irdash confirms a moment later
+    if (r.act === 'picklayout') { await this.cmd('mdpick', r.arg); this.pickTrack = null; this.view = 'home'; this.page = 0; this.repaint(); await this.refreshSoon(250); return; }
     if (r.act === 'mdpick') {
-      const picker = this.view === 'pick';
-      this.view = 'home'; this.page = 0;                                      // a pick from a list goes back to the home keys, where START is
-      const hit = m.results && m.results.items && m.results.items.find(x => x.id === r.arg);
-      const base = this.cur('choice', null) || { car: m.choice.car, carShort: m.choice.carShort, track: m.choice.track, trackShort: m.choice.trackShort, layout: m.choice.layout };
-      if (hit) {
-        // a search result: only that part of the choice changes
-        this.hiddenAt = m.results.at;
-        const k = m.results.kind;
-        this.hold('choice', k === 'car' ? { ...base, car: hit.name, carShort: hit.short } : k === 'track' ? { ...base, track: hit.name, trackShort: hit.short, layout: '' } : { ...base, layout: hit.name });
-      } else {
-        const item = [...(m.recent || []), ...(m.all || []), ...(m.favs || []), ...(m.gain ? [m.gain] : [])].find(x => x.id === r.arg);
-        if (item) this.hold('choice', { car: item.car, carShort: item.carShort, track: item.track, trackShort: item.trackShort, layout: item.layout });
-      }
-      if (picker && hit && m.results.kind === 'car') { await this.cmd('mdpick', r.arg); this.view = 'pick'; this.pickPage = 'tracks'; this.page = 0; await this.refreshSoon(300); return; }
-      if (picker) { await this.cmd('mdpick', r.arg); this.exit(); return; }
+      // LAST DRIVE, or a drive from RECENT / FAVOURITES: the whole choice changes at once (irdash confirms a moment later)
+      const item = [...(m.recent || []), ...(m.all || []), ...(m.favs || []), ...((this.lists && this.lists.recent) || [])].find(x => x.id === r.arg);
+      if (item) this.hold('choice', { car: item.car, carShort: item.carShort, track: item.track, trackShort: item.trackShort, layout: item.layout });
+      this.view = 'home'; this.page = 0; this.repaint();
+      await this.cmd('mdpick', r.arg); await this.refreshSoon(300); return;
+    }
+    if (r.act === 'ailevel') { if (r.arg !== 'cycle') this.hold('level', r.arg); else delete this.local.level; this.lvlAt = 0; this.relayout(); await this.cmd('ailevel', r.arg); await this.refreshSoon(250); return; }   // cycle = the RANGE key (irdash steps the preset)
+    if (r.act === 'aistart') {
+      // the AI race with this car, track and level; the deck goes back to MAIN (TO THE RACE, GET OUT ... are there), but only after 0.8 s:
+      // a doubled START press must land on START again (once), not on PAUSE / SAVE SPOT / BEST LAP CAR, the MAIN keys under it
+      if (this.lvl && this.lvl.kids) return;   // kids mode: the screen says so, nothing is sent (irdash refuses it too)
+      let ans = '';
+      try { const resp = await sendCmd('/api/do?c=ailevel&a=start'); ans = (await resp.text()).trim(); } catch (e) { log('mydrive: irdash not reachable'); }
+      if (ans === 'kids') { this.lvl = Object.assign({}, this.lvl || {}, { kids: true }); this.relayout(); return; }
+      await sleep(SWITCH_DEAF_MS);
+      this.exit(); return;
     }
     if (r.act === 'mddamage') this.hold('damage', this.cur('damage', m.choice.damage) === 'off' ? 'on' : 'off');
     if (r.act === 'mdstar') { const f = this.cur('fav', m.session && m.current ? m.current.fav : m.choice.fav); this.hold('fav', !f); }
@@ -742,10 +684,6 @@ const MyDrive = new class extends Screen {
     await this.refreshSoon(300);
   }
 
-  visibleResults() {
-    const m = this.m;
-    return m.results && m.results.at !== this.hiddenAt ? m.results : null;
-  }
   isChosen(x) {
     const c = this.cur('choice', null);
     return c ? (c.car === x.car && c.track === x.track && (x.layout === undefined || x.layout === c.layout)) : x.chosen;
@@ -753,171 +691,107 @@ const MyDrive = new class extends Screen {
 
   build() {
     const m = this.m, R = [];
-    const add = (c, r, w, h, text, sub, act, arg, style, wrap, single) => R.push({ c, r, w, h, text: String(text == null ? '' : text).toUpperCase(), sub: String(sub == null ? '' : sub).toUpperCase(), act, arg, style: style || '', wrap: wrap || 0, single: !!single });
-    if (this.kb != null) return this.buildKeyboard(R, add);
+    const add = (c, r, w, h, text, sub, act, arg, style, wrap, single, more) => { const o = { c, r, w, h, text: String(text == null ? '' : text).toUpperCase(), sub: String(sub == null ? '' : sub).toUpperCase(), act, arg, style: style || '', wrap: wrap || 0, single: !!single }; if (more) Object.assign(o, more); R.push(o); };
     if (m.session) return this.buildSession(R, add);
-    const res = this.visibleResults();
     if (m.busy === 'start') {
       // the sim is being set up: nothing to choose now (a pick would change the choice START already used)
       add(0, 0, 8, 3, 'STARTING', m.msg || '', null, null, 'amber', 2);
       add(0, 3, 6, 1, 'Please wait', '', null, null, 'dim');
       add(6, 3, 1, 1, 'CANCEL', '', 'mdcancel', null, 'stop');
-      add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+      R.push(exitRegion());
       return R;
     }
-    if (m.busy === 'find' || (this.finding && Date.now() - this.finding.t < 4000 && !res)) {
-      add(0, 0, 8, 3, 'SEARCHING', '', null, null, 'amber', 2);
-      add(0, 3, 6, 1, 'Please wait', '', null, null, 'dim');
-      add(6, 3, 1, 1, 'CANCEL', '', 'mdcancel', null, 'stop');
-      add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
-      return R;
-    }
-    if (res) return this.buildResults(R, add, res);
     if (this.view === 'pick') return this.buildPicker(R, add);
-    if (this.view !== 'home') return this.buildList(R, add);
-    return this.buildChoose(R, add);
+    return this.buildHome(R, add);
   }
 
+  // a list, one key per item: RECENT, FAVOURITES, CARS (by class), TRACKS, a track's LAYOUTS. BACK returns to the AI RACE keys.
   buildPicker(R, add) {
     const lists = this.lists || { recent: [], cars: [], tracks: [] };
-    const pageSize = 21;
-    add(0, 0, 1, 1, 'BACK', '', 'exit', null, 'grey');
+    add(0, 0, 1, 1, 'BACK', '', 'home', null, 'grey');
     if (this.pickPage !== 'layouts') {
-      add(1,0,1,1,'RECENT','','picktab','recent',this.pickPage==='recent'?'sel':'');
-      add(2,0,1,1,'CARS','','picktab','cars',this.pickPage==='cars'?'sel':'');
-      add(3,0,1,1,'TRACKS','','picktab','tracks',this.pickPage==='tracks'?'sel':'');
-      if (this.pickPage === 'favs') add(4,0,1,1,'FAVOURITES','','picktab','favs','sel');
-    } else add(1,0,1,1,'LAYOUT','',null,null,'banner');
-    const search = this.pickPage === 'cars' || this.pickPage === 'tracks';
-    let items = this.pickPage === 'recent' ? lists.recent : this.pickPage === 'favs' ? ((this.m && this.m.favs) || []) : this.pickPage === 'cars' ? (lists.cars || []).filter(x => !this.pickClass || x.class === this.pickClass) : this.pickPage === 'tracks' ? lists.tracks : (this.pickTrack ? this.pickTrack.layouts.map(x => ({name:this.shortLayout(x),id:'l'+this.hash(this.pickTrack.name+'|'+x)})) : []);
-    let per = search ? 18 : pageSize, pages = Math.max(1, Math.ceil(items.length/per));
-    if (pages > 1 && !search) { per = 19; pages = Math.max(1, Math.ceil(items.length/per)); }
-    this.page = Math.min(this.page,pages-1);
-    if (this.pickPage === 'cars') {
-      const classes = this.classKeys();
-      classes.forEach((cl,i) => add(i+4,0,1,1,cl,'','pickclass',cl,this.pickClass===cl?'sel':''));
-    }
-    const slots=[]; for(let y=1;y<4;y++) for(let x=0;x<7;x++) if (!(pages>1 && y===3 && x>=5) && !(search && y===3 && x===4)) slots.push([x,y]);
-    items.slice(this.page*per,this.page*per+per).forEach((it,i)=>{
-      const s=slots[i], car=this.carLines(it.name||it.car||it.short||''), main=this.pickPage==='recent'||this.pickPage==='favs' ? (it.carShort||this.carLines(it.car||'')[0]||it.car) : (this.pickPage==='cars' ? car[0] : (it.short||it.name||it.car));
-      const sub=this.pickPage==='recent'||this.pickPage==='favs' ? (it.trackShort||it.track) : (this.pickPage==='cars' ? car[1] : '');
-      const act=this.pickPage==='recent'||this.pickPage==='favs'?'mdpick':this.pickPage==='cars'?'pickcar':this.pickPage==='tracks'?'picktrack':'picklayout';
-      add(s[0],s[1],1,1,this.shortLine(main,12),this.shortLine(sub || '',14),act,it.id,'',2,true);
+      add(1, 0, 1, 1, 'RECENT', '', 'picktab', 'recent', this.pickPage === 'recent' ? 'sel' : '');
+      add(2, 0, 1, 1, 'CARS', '', 'picktab', 'cars', this.pickPage === 'cars' ? 'sel' : '');
+      add(3, 0, 1, 1, 'TRACKS', '', 'picktab', 'tracks', this.pickPage === 'tracks' ? 'sel' : '');
+      if (this.pickPage === 'favs') add(4, 0, 1, 1, 'FAVOURITES', '', 'picktab', 'favs', 'sel');
+    } else add(1, 0, 1, 1, 'LAYOUT', '', null, null, 'banner');
+    let items = this.pickPage === 'recent' ? lists.recent : this.pickPage === 'favs' ? ((this.m && this.m.favs) || []) : this.pickPage === 'cars' ? (lists.cars || []).filter(x => !this.pickClass || x.class === this.pickClass) : this.pickPage === 'tracks' ? lists.tracks : (this.pickTrack ? this.pickTrack.layouts.map(x => ({ name: this.shortLayout(x), id: 'l' + this.hash(this.pickTrack.name + '|' + x) })) : []);
+    items = items || [];
+    let per = 21, pages = Math.max(1, Math.ceil(items.length / per));
+    if (pages > 1) { per = 19; pages = Math.max(1, Math.ceil(items.length / per)); }
+    this.page = Math.min(this.page, pages - 1);
+    if (this.pickPage === 'cars') this.classKeys().forEach((cl, i) => add(i + 4, 0, 1, 1, cl, '', 'pickclass', cl, this.pickClass === cl ? 'sel' : ''));
+    const slots = []; for (let y = 1; y < 4; y++) for (let x = 0; x < 7; x++) if (!(pages > 1 && y === 3 && x >= 5)) slots.push([x, y]);
+    items.slice(this.page * per, this.page * per + per).forEach((it, i) => {
+      const s = slots[i], recentish = this.pickPage === 'recent' || this.pickPage === 'favs', car = this.carLines(it.name || it.car || it.short || '');
+      const main = recentish ? (it.carShort || this.carLines(it.car || '')[0] || it.car) : (this.pickPage === 'cars' ? car[0] : (it.short || it.name || it.car));
+      const sub = recentish ? (it.trackShort || it.track) : (this.pickPage === 'cars' ? car[1] : '');
+      const act = recentish ? 'mdpick' : this.pickPage === 'cars' ? 'pickcar' : this.pickPage === 'tracks' ? 'picktrack' : 'picklayout';
+      add(s[0], s[1], 1, 1, this.shortLine(main, 12), this.shortLine(sub || '', 14), act, it.id, '', 2, true);
     });
-    if (pages>1) { add(5,3,1,1,'PREV','',this.page?'pickpageprev':null,null,this.page?'grey':'dim'); add(6,3,1,1,'NEXT','',this.page<pages-1?'pickpagenext':null,null,this.page<pages-1?'grey':'dim'); }
-    if (search) add(4,3,1,1,'SEARCH','', 'search',this.pickPage==='cars'?'car':'track','grey');
-    add(7,3,1,1,'EXIT','', 'exit',null,'stop');
+    if (pages > 1) { add(5, 3, 1, 1, 'PREV', '', this.page ? 'pickpageprev' : null, null, this.page ? 'grey' : 'dim'); add(6, 3, 1, 1, 'NEXT', '', this.page < pages - 1 ? 'pickpagenext' : null, null, this.page < pages - 1 ? 'grey' : 'dim'); }
+    R.push(exitRegion());
     return R;
   }
-  shortLine(s,n) { s=String(s||'').toUpperCase(); return s.length>n ? s.slice(0,n).trim() : s; }
+  shortLine(s, n) { s = String(s || '').toUpperCase(); return s.length > n ? s.slice(0, n).trim() : s; }
   classKeys() {
-    const rows=(this.lists&&this.lists.cars)||[], found=[];
-    rows.forEach(x=>{ const c=String(x.class||'OTHER').toUpperCase(); if(!found.includes(c)) found.push(c); });
-    const order=['GT3','GTP/LMDH','GT4','OTHER'];
-    return order.filter(c=>found.includes(c));
+    const rows = (this.lists && this.lists.cars) || [], found = [];
+    rows.forEach(x => { const c = String(x.class || 'OTHER').toUpperCase(); if (!found.includes(c)) found.push(c); });
+    const order = ['GT3', 'GTP/LMDH', 'GT4', 'OTHER'];
+    return order.filter(c => found.includes(c));
   }
   carLines(s) {
-    const n=String(s||'').toUpperCase();
-    const fixed={'CHEVROLET CORVETTE Z06 GT3.R':['CORVETTE','Z06 GT3'],'FERRARI 296 GT3':['FERRARI','296 GT3']};
+    const n = String(s || '').toUpperCase();
+    const fixed = { 'CHEVROLET CORVETTE Z06 GT3.R': ['CORVETTE', 'Z06 GT3'], 'FERRARI 296 GT3': ['FERRARI', '296 GT3'] };
     if (fixed[n]) return fixed[n];
-    const clean=n.replace(/\s*\([^)]*\)/g,'').replace(/^(CHEVROLET|FERRARI|TOYOTA|PORSCHE|FORD|AUDI|BMW|MCLAREN|MERCEDES-AMG|LAMBORGHINI)\s+/,'');
-    return [this.shortLine(clean,12),this.shortLine(clean.slice(12).trim(),14)];
+    const clean = n.replace(/\s*\([^)]*\)/g, '').replace(/^(CHEVROLET|FERRARI|TOYOTA|PORSCHE|FORD|AUDI|BMW|MCLAREN|MERCEDES-AMG|LAMBORGHINI)\s+/, '');
+    return [this.shortLine(clean, 12), this.shortLine(clean.slice(12).trim(), 14)];
   }
-  shortLayout(s) { const t={'2K FULL':'2K FULL','FULL COURSE':'FULL COURSE','GRAND PRIX':'GRAND PRIX','SHORT COURSE':'SHORT COURSE'}; return t[String(s||'').toUpperCase()] || this.shortLine(s,12); }
-  hash(s) { let h=2166136261; for(const c of String(s).toLowerCase()) { h^=c.charCodeAt(0); h=Math.imul(h,16777619); } return ('00000000'+(h>>>0).toString(16)).slice(-8); }
+  shortLayout(s) { const t = { '2K FULL': '2K FULL', 'FULL COURSE': 'FULL COURSE', 'GRAND PRIX': 'GRAND PRIX', 'SHORT COURSE': 'SHORT COURSE' }; return t[String(s || '').toUpperCase()] || this.shortLine(s, 12); }
+  hash(s) { let h = 2166136261; for (const c of String(s).toLowerCase()) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ('00000000' + (h >>> 0).toString(16)).slice(-8); }
 
-  // RACE SETUP home: last drive and list entry points, separate chosen values, then one START key.
-  buildChoose(R, add) {
-    const m = this.m, ch = m.choice, held = this.cur('choice', null);
-    const car = held ? held.carShort : ch.carShort, track = held ? held.trackShort : ch.trackShort, layout = held ? held.layout : ch.layout, has = held ? true : ch.has;
+  // the AI RACE keys: car / track / level / START on one page
+  //   row 1: RECENT, CARS, TRACKS, FAVOURITES      row 2: the chosen CAR, TRACK, LAYOUT, DAMAGE      row 3: AI LEVEL, LOW, MEDIUM, HIGH
+  //   row 4: RANGE (under HIGH)      START: 3 x 2 keys, green (the only key that runs the sim)      EXIT: 7,3
+  // (no LAST DRIVE key: the chosen car is already on the CAR key, and RECENT starts with the last drive - W3-4 review)
+  buildHome(R, add) {
+    const m = this.m, ch = m.choice || {}, held = this.cur('choice', null);
+    const car = held ? held.carShort : ch.carShort, track = held ? held.trackShort : ch.trackShort, layout = held ? held.layout : ch.layout, has = held ? true : !!ch.has;
     const damage = this.cur('damage', ch.damage);
-    const failed = m.phase === 'failed';
     const recent = m.recent || [], favs = m.favs || [];
-    const last = recent[0];
     const ready = has || recent.length > 0;
-    add(0,0,1,1,'BACK','','leave',null,'grey');
-    if (last) add(1,0,1,1,this.shortLine(last.carShort||last.car,12),this.shortLine(last.trackShort||last.track,14),'mdpick',last.id,this.isChosen(last)?'sel':'',2,true); else add(1,0,1,1,'LAST DRIVE','','',null,'dim');
-    add(2,0,1,1,'RECENT','','picktab','recent','');
-    add(3,0,1,1,'CARS','','picktab','cars','');
-    add(4,0,1,1,'TRACKS','','picktab','tracks','');
-    add(5,0,1,1,'FAVOURITES','','favs',null,favs.length?'':'dim');
-    add(0,1,1,1,has?this.shortLine(car,12):'CAR','',null,null,has?'banner':'dim',2,true);
-    add(1,1,1,1,has?this.shortLine(track,12):'TRACK','',null,null,has?'banner':'dim',2,true);
-    add(2,1,1,1,'LAYOUT',layout?this.shortLine(this.shortLayout(layout),14):'',null,null,has?'banner':'dim',2,true);
-    add(3,1,1,1,'DAMAGE',damage==='off'?'OFF':'ON','mddamage',null,damage==='off'?'off':'on');
-    add(7,3,1,1,'EXIT','','exit',null,'stop');
-    // row 4: START (the only key that runs the sim)
-    if (failed) add(6,3,1,1,'RETRY','','mdstart',null,'stop');
-    else add(6,3,1,1,'START','',ready?'mdstart':null,null,ready?'go':'dim');
-    return R;
-  }
-
-  // drives in the same car at other tracks / at the same track in other cars: the ones driven most first
-  sameCarList(all, cc) { return all.filter(x => x.car === cc.car && x.track !== cc.track).sort((a, b) => (b.n || 0) - (a.n || 0)); }
-  sameTrackList(all, cc) { return all.filter(x => x.track === cc.track && x.car !== cc.car).sort((a, b) => (b.n || 0) - (a.n || 0)); }
-
-  // a list of drives (USUAL, FAVOURITES, SAME CAR, SAME TRACK): ten to a page, a tap picks one and goes back to the home keys
-  buildList(R, add) {
-    const m = this.m, held = this.cur('choice', null), cc = held || (m.choice.has ? m.choice : null), all = m.all || m.recent || [];
-    let items = [], title = '', first = (x) => x.carShort, second = (x) => x.trackShort + (x.layout ? ' · ' + x.layout : '');
-    if (this.view === 'usual') { title = 'USUAL'; items = all.slice().sort((a, b) => (b.n || 0) - (a.n || 0)); second = (x) => x.trackShort; }
-    else if (this.view === 'favs') { title = 'FAVOURITES'; items = m.favs || []; }
-    else if (this.view === 'samecar') { title = 'SAME CAR'; items = cc ? this.sameCarList(all, cc) : []; first = (x) => x.trackShort; second = (x) => (x.n || 1) + (x.n === 1 ? ' drive' : ' drives'); }
-    else { title = 'SAME TRACK'; items = cc ? this.sameTrackList(all, cc) : []; second = (x) => (x.n || 1) + (x.n === 1 ? ' drive' : ' drives'); }
-    const per = 10, pages = Math.max(1, Math.ceil(items.length / per));
-    this.page = Math.min(this.page, pages - 1);
-    const page = this.page;
-    add(0, 0, 1, 1, 'BACK', 'TO START', 'home', null, 'grey');
-    add(1, 0, pages > 1 ? 5 : 7, 1, title + (this.view === 'samecar' && cc ? ' · ' + cc.carShort : '') + (this.view === 'sametrack' && cc ? ' · ' + cc.trackShort : ''), items.length ? String(items.length) : '', null, null, 'banner', 2);
-    if (pages > 1) {
-      add(6, 0, 1, 1, '◀ PAGE', page + 1 + ' of ' + pages, page > 0 ? 'pageprev' : null, null, page > 0 ? 'grey' : 'dim', 2);
-      add(7, 0, 1, 1, 'PAGE ▶', page + 1 + ' of ' + pages, page < pages - 1 ? 'pagenext' : null, null, page < pages - 1 ? 'grey' : 'dim', 2);
+    const lv = this.lvl && this.lvl.ready ? this.lvl : null;
+    if (lv && lv.kids) {
+      // kids mode: nothing on this screen may start a drive (irdash refuses it as well); one plain message and EXIT
+      add(0, 0, 8, 3, 'KIDS MODE IS ON', 'Unlock first: KIDS, then HOME', null, null, 'amber', 2, false, { size: 38 });
+      R.push(exitRegion());
+      return R;
     }
-    const slots = [[0, 1], [2, 1], [4, 1], [6, 1], [0, 2], [2, 2], [4, 2], [6, 2], [0, 3], [2, 3]];
-    items.slice(page * per, page * per + per).forEach((x, i) => add(slots[i][0], slots[i][1], 2, 1, first(x), second(x), 'mdpick', x.id, this.isChosen(x) ? 'sel' : '', 2));
-    add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+    add(0, 0, 1, 1, 'RECENT', '', 'picktab', 'recent', '');
+    add(1, 0, 1, 1, 'CARS', '', 'picktab', 'cars', '');
+    add(2, 0, 1, 1, 'TRACKS', '', 'picktab', 'tracks', '');
+    add(3, 0, 1, 1, 'FAVOURITES', '', favs.length ? 'favs' : null, null, favs.length ? '' : 'dim');
+    add(0, 1, 1, 1, has ? this.shortLine(car, 12) : 'CAR', has ? '' : 'CHOOSE ONE', null, null, has ? 'banner' : 'dim', 2, true);
+    add(1, 1, 1, 1, has ? this.shortLine(track, 12) : 'TRACK', '', null, null, has ? 'banner' : 'dim', 2, true);
+    add(2, 1, 1, 1, 'LAYOUT', has && layout ? this.shortLine(this.shortLayout(layout), 14) : '—', null, null, has ? 'banner' : 'dim', 2, true);
+    add(3, 1, 1, 1, 'DAMAGE', damage === 'off' ? 'OFF' : 'ON', 'mddamage', null, damage === 'off' ? 'off' : 'on');
+    // how hard the AI is (irdash ailevel.cs): one press each, the lit one is what the next AI race gets; RANGE steps the fixed skill ranges
+    const range = !!(lv && lv.mode === 'range' && !this.cur('level', null));
+    const level = this.cur('level', lv ? lv.level : 'low');
+    add(0, 2, 1, 1, 'AI LEVEL', range ? 'RANGE ' + lv.min + '-' + lv.max : (lv ? 'NEXT RACE' : 'NOT READY'), null, null, 'label', 2);
+    [['low', 'LOW', 'EASIER'], ['medium', 'MEDIUM', ''], ['high', 'HIGH', 'HARDER']].forEach(([id, word, sub], i) =>
+      add(1 + i, 2, 1, 1, word, sub, lv ? 'ailevel' : null, id, !lv ? 'dim' : (!range && level === id ? 'sel' : ''), 0, false, { once: true }));
+    add(3, 3, 1, 1, 'RANGE', range ? lv.min + '-' + lv.max : 'OFF', lv ? 'ailevel' : null, 'cycle', !lv ? 'dim' : (range ? 'sel' : ''), 0, false, { once: true });
+    // START over 3 x 2 keys: each word sits in one key (a word across the gap between keys loses letters)
+    add(4, 1, 3, 2, 'START', 'AI RACE', ready ? 'aistart' : null, null, ready ? 'go' : 'dim', 0, false,
+      { once: true, paint: raceSpan({ main: [ready ? 'START' : 'CHOOSE'], sub: [ready ? 'AI RACE' : 'A CAR'] }, 3, 2, 30) });
+    R.push(exitRegion());
     return R;
   }
-
-  buildKeyboard(R, add) {
-    const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    if (this.kbPage === 'abc') {
-      for (let i = 0; i < 24; i++) add(i % 8, Math.floor(i / 8), 1, 1, L[i], '', 'letter', L[i]);
-      add(0, 3, 1, 1, 'Y', '', 'letter', 'Y'); add(1, 3, 1, 1, 'Z', '', 'letter', 'Z');
-      add(2, 3, 1, 1, '123', 'digits', 'page', null, 'grey');
-    } else {
-      '12345678'.split('').forEach((d, i) => add(i, 0, 1, 1, d, '', 'letter', d));
-      add(0, 1, 1, 1, '9', '', 'letter', '9'); add(1, 1, 1, 1, '0', '', 'letter', '0'); add(2, 1, 1, 1, '-', '', 'letter', '-');
-      add(2, 3, 1, 1, 'ABC', 'letters', 'page', null, 'grey');
-    }
-    add(3, 3, 1, 1, 'SPACE', '', 'space'); add(4, 3, 1, 1, '⌫', 'delete', 'bksp');
-    add(5, 3, 1, 1, this.kb.length ? this.kb.slice(-6) : 'TYPE', this.kbKind === 'car' ? 'THE CAR' : 'THE TRACK', null, null, 'banner');
-    add(6, 3, 1, 1, 'CANCEL', '', 'cancel', null, 'grey');
-    add(7, 3, 1, 1, 'DONE', '', 'done', null, this.kb.trim().length ? 'go' : 'grey');
-    return R;
-  }
-
-  buildResults(R, add, res) {
-    const title = res.kind === 'car' ? 'CAR' : res.kind === 'track' ? 'TRACK' : 'LAYOUT';
-    add(0, 0, 6, 1, title + (res.kind === 'layout' ? '' : ' · ' + String(res.q).toUpperCase()), res.items.length ? res.items.length + ' found' : '', null, null, 'banner');
-    if (res.kind === 'layout') add(6, 0, 1, 1, '', '', null, null, 'dim'); else add(6, 0, 1, 1, 'TYPE', 'AGAIN', 'retype', null, 'grey');
-    add(7, 0, 1, 1, 'BACK', '', 'back', null, 'grey');
-    if (!res.items.length) {
-      add(0, 1, 8, 2, res.ok ? 'NOTHING FOUND' : 'COULD NOT LOOK', res.msg || '', null, null, 'amber', 2);
-    } else {
-      const slots = [[0, 1], [2, 1], [4, 1], [6, 1], [0, 2], [2, 2], [4, 2], [6, 2]];
-      res.items.slice(0, 7).forEach((it, i) => add(slots[i][0], slots[i][1], 2, 1, it.short || it.name, '', 'mdpick', it.id, '', 3));
-    }
-    add(6, 3, 1, 1, 'START', 'CHOSEN CAR', 'mdstart', null, 'go', 2);
-    add(7, 3, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
-    return R;
-  }
-
   buildSession(R, add) {
     const m = this.m, c = m.current || { carShort: '', trackShort: '', layout: '', fav: false }, fav = this.cur('fav', c.fav);
     const joining = m.busy === 'start';
-    add(0, 0, 7, 1, joining ? 'STARTING' : c.carShort, joining ? (m.msg || '') : c.trackShort + (c.layout ? ' · ' + c.layout : ''), null, null, 'banner', 2);
-    add(7, 0, 1, 1, 'EXIT', 'MY DRIVE', 'exit', null, 'stop');
+    add(0, 0, 8, 1, joining ? 'STARTING' : c.carShort, joining ? (m.msg || '') : c.trackShort + (c.layout ? ' · ' + c.layout : ''), null, null, 'banner', 2);
     add(0, 1, 2, 2, fav ? '★ SAVED' : '★ SAVE', '', c.carShort ? 'mdstar' : null, null, fav ? 'sel' : 'amber', 2);
     add(2, 1, 2, 2, 'DRIVE', m.driving ? 'in the car' : (joining ? 'getting in' : ''), m.driving || joining ? null : 'mdstart', null, m.driving ? 'grey' : 'go');
     add(4, 1, 2, 2, 'GET OUT', 'car must be stopped', 'mdgetout', null, 'grey');
@@ -925,22 +799,20 @@ const MyDrive = new class extends Screen {
     add(0, 3, 2, 1, 'RESET CAR', '', 'mdtow', null, 'amber');
     add(2, 3, 1, 1, 'VOL', '−', 'voldown');
     add(3, 3, 1, 1, 'VOL', '+', 'volup');
+    R.push(exitRegion());
     return R;
   }
 };
 
 // ---------------- Replay screen ----------------
 // iRacing's replay without its menus. Plain big buttons that say what they do NOW; gold = on / chosen / where you are.
-//   row 1: BACK, the timeline (tap a fifth to jump there), SESSION, LIVE
+//   row 1: PHOTO, the timeline (tap a fifth to jump there), SESSION, LIVE
 //   row 2: START, LAP, REWIND, PLAY / PAUSE, FAST, LAP, SLOW MO, BACK 10 S  (REWIND / FAST become one-frame steps while paused)
 //   row 3: INCIDENT, INCIDENT, then which car: MY CAR, AHEAD, BEHIND, LEADER, PICK CAR (a list), MY LAST INCIDENT
-//   row 4: CAMERA (left half back, right half on), TV, COCKPIT, CHASE, AUTO TV, HIDE UI, PHOTO
+//   row 4: CAMERA (left half back, right half on), TV, COCKPIT, CHASE, AUTO TV, HIDE UI, EXIT (7,3 on every screen, W3-4; PHOTO moved to 0,0)
 // Out of a session: MY REPLAYS (the saved ones; iRacing opens those itself). While you are driving everything is dimmed.
 // irdash /replay says what is going on; every press goes to irdash /api/do, which sends iRacing's own SDK messages
 // (no clicks, no keys, nothing steals focus). Unicode is written as \u escapes so the file survives any editor.
-const RCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK],
-                  banner: ['#0b0b0b', GOLD], strip: ['#0b0b0b', INK], watch: ['#3a2f08', GOLD], label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD],
-                  off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
 const RP = { x: '×', minus: '−', left: '◀', right: '▶', dot: '·', arrow: '→', half: '½', quarter: '¼', eighth: '⅛' };
 const rpClock = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(x).padStart(2, '0'); };
 const rpSlow = raw => ({ 1: RP.half, 3: RP.quarter, 7: RP.eighth }[raw] || ('1/' + (raw + 1)));       // slow motion: raw N plays at 1 / (N + 1)
@@ -948,7 +820,7 @@ const rpNext = (cur, ladder) => { for (const v of ladder) if (v > cur) return v;
 const RP_FAST = [2, 4, 8, 16], RP_REW = [1, 2, 4, 8, 16], RP_SLOW = [1, 3, 7];
 const Replay = new class extends Screen {
   constructor() {
-    super('replay', RCOLORS);
+    super('replay');
     this.r = null;            // the last /replay answer
     this.pick = null;         // { page } while the PICK CAR list is showing
     this.interval = 600;
@@ -958,10 +830,7 @@ const Replay = new class extends Screen {
   // the REPLAY key on your own profile
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 26px ' + FONT; g.fillText('REPLAY', 72, 70);
-    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText('SCREEN', 72, 102);
-    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+    this.keyShown = '1'; this.paintOpener();
   }
 
   // while the opener key is on the deck: keep the last state at hand (not drawn: it changes every second, so it is only
@@ -990,7 +859,7 @@ const Replay = new class extends Screen {
 
   async act(r, col) {
     // keys that only move around on the deck
-    if (r.act === 'back') { this.exit(); return; }
+    if (r.act === 'exit' || r.act === 'back') { this.exit(); return; }
     if (r.act === 'pick') { this.pick = { page: 0 }; this.relayout(); return; }
     if (r.act === 'pickback') { this.pick = null; this.relayout(); return; }
     if (r.act === 'pickprev' || r.act === 'picknext') { this.pick.page = Math.max(0, this.pick.page + (r.act === 'picknext' ? 1 : -1)); this.relayout(); return; }
@@ -1019,7 +888,7 @@ const Replay = new class extends Screen {
   paintStrip(x, px, py, pw, ph, sn) {
     x.textBaseline = 'middle';
     if (sn.warn) {
-      x.textAlign = 'center'; x.fillStyle = '#d98b2b'; x.font = '600 22px ' + FONT;
+      x.textAlign = 'center'; x.fillStyle = C.amber; x.font = '600 22px ' + FONT;
       x.fillText(sn.warn[0], px + pw / 2, py + ph / 2 - 15); x.fillText(sn.warn[1], px + pw / 2, py + ph / 2 + 15);
       return;
     }
@@ -1028,7 +897,7 @@ const Replay = new class extends Screen {
     const cx = px + pw / 2;
     x.font = '600 34px ' + FONT; const bw0 = x.measureText(sn.big).width;
     x.textAlign = 'center'; x.fillStyle = sn.live ? GREEN : INK; x.fillText(sn.big, cx, py + 44);
-    if (sn.cap) { x.textAlign = 'left'; x.fillStyle = '#8d8a82'; x.font = '400 13px ' + FONT; x.fillText(sn.cap, cx + bw0 / 2 + 8, py + 47); }
+    if (sn.cap) { x.textAlign = 'left'; x.fillStyle = C.muted; x.font = '400 13px ' + FONT; x.fillText(sn.cap, cx + bw0 / 2 + 8, py + 47); }
     if (sn.spd) { x.textAlign = 'right'; x.fillStyle = GOLD; x.font = '600 22px ' + FONT; x.fillText(sn.spd, px + pw - 12, py + 44); }
     // the bar: five pieces, one per key (tap a piece to go there); gold up to where you are, a white marker on the spot
     const bx = px + 12, bw = pw - 24, by = py + ph - 17, seg = bw / 5;
@@ -1037,21 +906,21 @@ const Replay = new class extends Screen {
       x.fillStyle = colour; for (let i = 0; i < 5; i++) x.fillRect(bx + i * seg + 1.5, by, seg - 3, 6);
       x.restore();
     };
-    pieces('#2a2a2a', bx + bw + 2);
+    pieces(C.grey, bx + bw + 2);
     if (sn.p >= 0) {
       const mx = bx + bw * sn.p / 200;
       pieces(GOLD, mx);
       x.fillStyle = INK; x.fillRect(Math.min(mx, bx + bw - 3) - 1, by - 5, 3, 16);
-    } else { x.textAlign = 'center'; x.fillStyle = '#6d6a63'; x.font = '400 12px ' + FONT; x.fillText('LENGTH UNKNOWN', cx, by + 14); }
+    } else { x.textAlign = 'center'; x.fillStyle = C.faint; x.font = '400 12px ' + FONT; x.fillText('LENGTH UNKNOWN', cx, by + 14); }
   }
 
   // the two camera keys as one picture: the arrows say which half goes which way
   paintCamera(x, px, py, pw, ph, name, sub, dim) {
     x.textBaseline = 'middle'; x.textAlign = 'center';
-    x.fillStyle = dim ? '#55524c' : GOLD; x.font = '600 26px ' + FONT; x.fillText(RP.left, px + 20, py + ph / 2); x.fillText(RP.right, px + pw - 20, py + ph / 2);
+    x.fillStyle = dim ? C.fainter : GOLD; x.font = '600 26px ' + FONT; x.fillText(RP.left, px + 20, py + ph / 2); x.fillText(RP.right, px + pw - 20, py + ph / 2);
     x.font = '600 11px ' + FONT; x.fillText('CAMERA', px + pw / 2, py + 12);
     let s = 28; do { x.font = '600 ' + s + 'px ' + FONT; s--; } while (x.measureText(name).width > pw - 84 && s > 12);
-    x.fillStyle = dim ? '#55524c' : INK; x.fillText(name, px + pw / 2, py + ph / 2 + (sub ? -2 : 6));
+    x.fillStyle = dim ? C.fainter : INK; x.fillText(name, px + pw / 2, py + ph / 2 + (sub ? -2 : 6));
     if (sub) { x.globalAlpha = .85; x.font = '400 12px ' + FONT; x.fillText(sub, px + pw / 2, py + ph - 14); x.globalAlpha = 1; }
   }
 
@@ -1059,7 +928,7 @@ const Replay = new class extends Screen {
     const st = this.r, R = [];
     const dr = !!st.driving && st.inSession;
     if (!st.inSession || dr) this.pick = null;
-    // while driving every key is dimmed and does nothing (irdash refuses too); BACK always works
+    // while driving every key is dimmed and does nothing (irdash refuses too); EXIT always works
     const add = (c, row, w, h, text, sub, act, arg, style, wrap, more) => {
       const dead = dr && act !== 'back' && act !== 'pickback';
       const o = { c, r: row, w, h, text, sub, act: dead ? null : act, arg, style: dead ? 'dim' : (style || ''), wrap: wrap || 0 };
@@ -1070,7 +939,6 @@ const Replay = new class extends Screen {
     if (this.pick) return this.buildPick(R, add, st);
     const mode = st.mode, paused = mode === 'paused', cam = st.camera, s = st.session;
     // row 1: where am I
-    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
     const sn = this.stripSnap(st);
     add(1, 0, 5, 1, '', '', sn.p >= 0 ? 'rpjump' : null, null, 'strip', 0, { extra: JSON.stringify(sn), noflash: true, paint: (x, px, py, pw, ph) => this.paintStrip(x, px, py, pw, ph, sn) });
     if (st.nextSession) add(6, 0, 1, 1, 'SESSION', 'TAP FOR ' + st.nextSession.name, 'rpsession', null, '', 2);
@@ -1117,19 +985,21 @@ const Replay = new class extends Screen {
     add(4, 3, 1, 1, 'CHASE', cam.chase ? 'BEHIND THE CAR' : 'NOT HERE', cam.chase ? 'rpgroup' : null, 'chase', cam.onChase ? 'sel' : (cam.chase ? '' : 'dim'), 2);
     add(5, 3, 1, 1, 'AUTO TV', cam.autoTv ? 'ON' : '', 'rpautotv', null, cam.autoTv ? 'sel' : '', 2);
     add(6, 3, 1, 1, 'HIDE UI', cam.uiHidden ? 'HIDDEN' : '', 'rphideui', null, cam.uiHidden ? 'sel' : '', 2);
+    // PHOTO sits top-left (W3-4: EXIT took 7,3, the same place on every screen)
     const ph = st.photo || { state: 'idle' };
-    if (ph.capture === 0) add(7, 3, 1, 1, 'PHOTO', 'TURN ON IN IRACING', null, null, 'dim', 3);   // iRacing: Settings, Interface, Camera & Screen Capture (docs\replay.md)
-    else if (ph.state === 'working') add(7, 3, 1, 1, 'SNAP', 'TAKING IT', null, null, 'amber', 2);
-    else if (ph.state === 'saved') add(7, 3, 1, 1, 'SAVED', 'IN THE GALLERY', null, null, 'go', 2);
-    else if (ph.state === 'small') add(7, 3, 1, 1, 'TAKEN', 'TOO SMALL FOR GALLERY', 'rpphoto', null, 'amber', 2);
-    else if (ph.state === 'failed') add(7, 3, 1, 1, 'NO PHOTO', 'TAP TO RETRY', 'rpphoto', null, 'stop', 2);
-    else add(7, 3, 1, 1, 'PHOTO', 'NO MENUS', 'rpphoto', null, '', 2);
+    if (ph.capture === 0) add(0, 0, 1, 1, 'PHOTO', 'TURN ON IN IRACING', null, null, 'dim', 3);   // iRacing: Settings, Interface, Camera & Screen Capture (docs\replay.md)
+    else if (ph.state === 'working') add(0, 0, 1, 1, 'SNAP', 'TAKING IT', null, null, 'amber', 2);
+    else if (ph.state === 'saved') add(0, 0, 1, 1, 'SAVED', 'IN THE GALLERY', null, null, 'go', 2);
+    else if (ph.state === 'small') add(0, 0, 1, 1, 'TAKEN', 'TOO SMALL FOR GALLERY', 'rpphoto', null, 'amber', 2);
+    else if (ph.state === 'failed') add(0, 0, 1, 1, 'NO PHOTO', 'TAP TO RETRY', 'rpphoto', null, 'stop', 2);
+    else add(0, 0, 1, 1, 'PHOTO', 'NO MENUS', 'rpphoto', null, '', 2);
+    R.push(exitRegion());
     return R;
   }
 
   // the list of cars by position: Peter in gold, the car being watched in dark gold, a colour edge per class
   buildPick(R, add, st) {
-    const cars = st.cars || [], per = 24, pages = Math.max(1, Math.ceil(cars.length / per));
+    const cars = st.cars || [], per = 23, pages = Math.max(1, Math.ceil(cars.length / per));
     this.pick.page = Math.min(this.pick.page, pages - 1);
     const page = this.pick.page;
     add(0, 0, 1, 1, 'BACK', 'TO CONTROLS', 'pickback', null, 'grey', 2);
@@ -1139,220 +1009,18 @@ const Replay = new class extends Screen {
     cars.slice(page * per, page * per + per).forEach((d, i) => {
       add(i % 8, 1 + Math.floor(i / 8), 1, 1, d.pos > 0 ? 'P' + d.pos : '-', '#' + d.num + ' ' + d.name, 'rpcar', String(d.idx), d.me ? 'sel' : (d.watch ? 'watch' : ''), 2, st.multiClass && d.color ? { strip: d.color } : null);
     });
+    R.push(exitRegion());   // 23 cars a page: the 24th key is EXIT
     return R;
   }
 
   // out of a session: the saved replays. They can only be opened from iRacing's own Replay screen (docs\replay.md), so we say so.
   buildReplays(R, add, st) {
     const rp = st.replays || { count: 0, items: [] };
-    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
-    add(1, 0, 7, 1, 'MY REPLAYS', rp.count ? rp.count + ' SAVED' : 'NONE', null, null, 'banner');
+    add(0, 0, 8, 1, 'MY REPLAYS', rp.count ? rp.count + ' SAVED' : 'NONE', null, null, 'banner');
     if (!rp.count) add(0, 1, 8, 2, 'NO SAVED REPLAYS', 'Save one in the sim first', null, null, 'dim', 2);
     else rp.items.slice(0, 8).forEach((it, i) => add((i % 4) * 2, 1 + Math.floor(i / 4), 2, 1, it.name, it.when + (it.where ? ' ' + RP.dot + ' ' + it.where : ''), null, null, '', 2));
-    add(0, 3, 8, 1, 'TO WATCH ONE', 'Open it from the sim\'s Replay screen', null, null, 'banner', 2);
-    return R;
-  }
-};
-
-// ---------------- Analysis screen ----------------
-// The workbench (the analysis page on the top screen) driven from the deck, with no mouse: BACK, lap / corner / event steps, play, speed, zoom,
-// the reference lap, the pages. Every key is one /api/do?c=wb-<command> (irdash relays it to the page) and irdash tells us what the page shows
-// (/workbench/state), so the toggles show what is REALLY on. With no lap open it says so, and while he is in the car it does nothing.
-//   row 1: BACK, the lap on show, KEEP, COSWORTH     row 2: lap / corner / event steps, PLAY     row 3: zoom, speed, compare, align, tile, map colour     row 4: the pages
-// Unicode is written as \u escapes so the file survives any editor.
-const ACOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD],
-                  label: ['#000', '#8d8a82'], on: ['#1b1b1b', GOLD], off: ['#1b1b1b', '#6d6a63'], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
-const WB_SPEEDS = [0.5, 1, 2, 4];
-// short key labels (a narrow key holds about 7 capitals); the page names on the top screen are longer
-const WB_PAGES = { driver: 'DRIVER', grip: 'GRIP', braking: 'BRAKES', tyres: 'TYRES', suspension: 'SUSP.', splits: 'SPLITS', career: 'CAREER', pro: 'PRO' };
-const wbPageName = id => WB_PAGES[id] || String(id).toUpperCase().replace(/-/g, ' ');
-const WB_ROW = 8;   // the page row holds 8 keys: with more pages it shows 7 and a PAGES key that opens a picker with every page
-const wbLap = t => { t = +t; if (!isFinite(t) || t <= 0) return '–'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3); };
-const wbRef = ref => { ref = String(ref || 'pb'); const n = /:(\d+)$/.exec(ref); return ref === 'pb' ? 'PB' : ref === 'session' ? 'SESSION BEST' : ref === 'optimal' ? 'OPTIMAL' : n ? 'LAP ' + n[1] : ref.toUpperCase(); };
-const Analysis = new class extends Screen {
-  constructor() {
-    super('analysis', ACOLORS);
-    this.a = null;                                    // the last /workbench/state
-    this.db = null;                                   // the last /debrief/state (D-05: the debrief on the top screen)
-    this.dbCw = false; this.dbCwAt = 0;               // is Pi Toolbox installed (for the debrief COSWORTH key)
-    this.vt = null; this.vtId = ''; this.vtAt = 0;    // the Vault's view of the lap on show: is it in the Vault, kept, is Pi Toolbox installed
-    this.local = {};                                  // what a press changed, shown until the page confirms: key -> { v, until }
-    this.flashUntil = 0;
-    this.picker = false; this.pickerAt = -1e9;        // the page picker (more than 8 pages): shown, and when it last opened or closed
-    this.interval = 500;
-  }
-  hasState() { return !!this.a; }
-  cur(k, serverValue) { const h = this.local[k]; return h && Date.now() < h.until ? h.v : serverValue; }
-  hold(k, v) { this.local[k] = { v, until: Date.now() + 2500 }; }
-
-  // the ANALYSIS key on your own profile: says which lap is open
-  keyIcon(force) {
-    if (!this.keys.size) return;
-    const open = this.a && this.a.open && !this.a.driving, label = open ? 'LAP ' + this.a.lap : 'SCREEN';
-    if (!force && label === this.keyShown) return;
-    this.keyShown = label;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 24px ' + FONT; g.fillText('ANALYSIS', 72, 68);
-    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText(label, 72, 102);
-    this.setKeyImage(c.toDataURL('image/png'));
-  }
-
-  async readState() { try { this.a = await this.get('/workbench/state'); } catch (e) { this.a = { open: false, off: true, driving: false }; } }
-
-  // D-05: what the debrief on the top screen is, so the DEBRIEF row knows what each key can act on. The install flag
-  // of Pi Toolbox is read from the Vault at most every 6 s (only while a debrief is up).
-  async readDebrief() {
-    try { this.db = await this.get('/debrief/state'); } catch (e) { this.db = null; }
-    if (this.db && this.db.open && (!this.dbCwAt || performance.now() - this.dbCwAt > 6000)) {
-      this.dbCwAt = performance.now();
-      try { const v = await this.get('/vault'); this.dbCw = !!(v && v.cosworth && v.cosworth.installed); } catch (e) { }
-    }
-  }
-
-  // while the opener key is on the deck: the last state at hand, so the screen can be drawn the moment it opens
-  async keyTick(sum) {
-    if (!this.keys.size || this.live || !sum.workbench) return;
-    this.a = sum.workbench;            // /workbench/state, in the summary
-    this.keyIcon(false);
-    this.warm();
-  }
-
-  async open(opts) {
-    if (!deviceId) return;
-    Perf.begin('analysis');
-    this.local = {}; this.picker = false;
-    this.switchTo('RigAnalysis'); Perf.mark('analysis', 'switchSent');
-    this.fastUntil = performance.now() + 2500;
-    if (this.a) this.warm();
-  }
-  exit() { this.switchTo(''); }   // back to your own keys
-
-  async poll() {
-    await this.readState();
-    await this.readDebrief();
-    const a = this.a;
-    if (a.open && a.id && (a.id !== this.vtId || performance.now() - this.vtAt > 6000)) await this.readVault(a.id);
-    this.keyIcon(false);
-    this.relayout();
-  }
-
-  // is the lap in the Vault (then it can be kept and opened in Pi Toolbox), is it kept, is Pi Toolbox installed
-  async readVault(id) {
-    this.vtId = id; this.vtAt = performance.now();
-    let item = null, vault = null;
-    try { item = await this.get('/vault/item?id=' + encodeURIComponent(id)); } catch (e) { }
-    try { vault = await this.get('/vault'); } catch (e) { }
-    const m = item && item.m;
-    this.vt = { inVault: !!m, pinned: !!(m && m.pinned), keeper: !!(m && m.keeper), cosworth: !!((item && item.cosworth && item.cosworth.installed) || (vault && vault.cosworth && vault.cosworth.installed)) };
-  }
-
-  async act(r) {
-    const a = this.a;
-    // D-05: the DEBRIEF row on the ANALYSIS screen (SAVE / SHARE / COSWORTH / DEEP DIVE). The debrief id is the one the
-    // /debrief/state reply named; irdash refuses anything else and does nothing.
-    if (r.act && r.act.indexOf('db-') === 0) {
-      await this.cmd(r.act, this.db && this.db.id ? this.db.id : '');
-      await this.refreshSoon(400);
-      return;
-    }
-    // a press reaches the add-on two or three times: whatever arrives within 0.8 s of the picker opening or closing is the same press again,
-    // and on the other layout its key would be a different one (a page key in the picker is LAP / CORNER keys outside it)
-    if (r.act !== 'pagesback' && performance.now() - this.pickerAt < 800 && (this.picker ? r.act === 'wb-page' : true)) return;
-    if (r.act === 'back') { this.exit(); return; }
-    if (r.act === 'pages') { this.picker = true; this.pickerAt = performance.now(); this.relayout(); return; }
-    if (r.act === 'pagesback') { if (this.picker) { this.picker = false; this.pickerAt = performance.now(); this.relayout(); } return; }
-    if (r.act === 'keep') {
-      const want = !this.cur('pinned', this.vt ? this.vt.pinned : false);
-      this.hold('pinned', want); this.relayout();
-      await this.cmd('wbkeep', want ? '1' : '0');
-      await sleep(300); await this.readVault(a.id); this.relayout();
-      return;
-    }
-    if (r.act === 'cosworth') { this.flashUntil = Date.now() + 3000; this.relayout(); await this.cmd('wbcosworth'); return; }
-    // the workbench commands: the change shows at once, the page confirms a moment later
-    if (r.act === 'wb-toggle-play') this.hold('playing', !this.cur('playing', a.playing));
-    if (r.act === 'wb-tile') this.hold('tile', !this.cur('tile', a.tile));
-    if (r.act === 'wb-speed') { const i = WB_SPEEDS.indexOf(this.cur('speed', a.speed)); this.hold('speed', WB_SPEEDS[(i + 1) % WB_SPEEDS.length]); }
-    if (r.act === 'wb-page') { this.hold('page', r.arg); if (this.picker) { this.picker = false; this.pickerAt = performance.now(); } }   // a page picked in the picker closes it
-    if (r.act === 'wb-map-colour') this.hold('mc', this.cur('mc', a.mapColour) === 'gap' ? 'speed' : 'gap');
-    this.relayout();
-    await this.cmd(r.act, r.arg);
-    await this.refreshSoon(250);
-  }
-
-  build() {
-    const a = this.a, R = [];
-    const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 }; if (more) Object.assign(o, more); R.push(o); };
-    add(0, 0, 1, 1, 'BACK', 'TO KEYS', 'back', null, 'grey');
-    if (a.off || a.driving || !a.open) {
-      this.picker = false;
-      // nothing to drive: say why in plain words
-      const why = a.off ? ['NOT READY', 'Needs the dashboard update'] : a.driving ? ['GET OUT OF THE CAR', '']
-        : ['NO LAP OPEN', 'Press ANALYSIS in the session review, or open a lap from the Vault'];
-      add(1, 0, 7, 1, 'ANALYSIS', '', null, null, 'banner');
-      add(0, 1, 8, 1, why[0], '', null, null, 'amber', 0, { size: 44 });      // one row each: text across the gap between two rows of keys is hard to read
-      add(0, 2, 8, 1, why[1], '', null, null, 'amber', 2, { size: 22 });
-      // D-05: the DEBRIEF row (the bottom row): one press for each thing the debrief on the top screen offers.
-      // All four are dim until a debrief is showing; then each one is live only when its action is actually available.
-      const db = this.db, dd = (db && db.deepDive) || {}, dbOk = !!(db && db.open && db.id);
-      const canSave = dbOk && !!db.recId, canShare = dbOk && !!db.shareId, canCos = dbOk && this.dbCw && !!dd.id, canDeep = dbOk && !!dd.id && dd.cornerN > 0;
-      add(0, 3, 2, 1, dbOk && db.saved ? 'SAVED' : 'SAVE', '', canSave ? 'db-save' : null, null, canSave ? (db.saved ? 'sel' : '') : 'dim', 2);
-      add(2, 3, 2, 1, 'SHARE', '', canShare ? 'db-share' : null, null, canShare ? '' : 'dim', 2);
-      add(4, 3, 2, 1, 'COSWORTH', '', canCos ? 'db-cosworth' : null, null, canCos ? '' : 'dim', 2);
-      add(6, 3, 2, 1, 'DEEP DIVE', '', canDeep ? 'db-deepdive' : null, null, canDeep ? '' : 'dim', 2);
-      return R;
-    }
-    const gap = a.refTime != null ? a.lapTime - a.refTime : null;
-    add(1, 0, 5, 1, 'LAP ' + a.lap + '   ' + wbLap(a.lapTime), a.refTime != null ? 'vs ' + wbRef(a.ref) + ' ' + wbLap(a.refTime) + '   ' + (gap > 0 ? '+' : gap < 0 ? '−' : '') + Math.abs(gap).toFixed(3) : 'no reference lap', null, null, 'banner');
-    // KEEP the lap / open it in Pi Toolbox (only when it is installed). Both need the lap to be in the Vault.
-    const vt = this.vt, inVault = !!(vt && vt.inVault), pinned = this.cur('pinned', vt ? vt.pinned : false), kept = pinned || !!(vt && vt.keeper);
-    if (!inVault) add(6, 0, 1, 1, 'KEEP', vt ? 'NOT IN VAULT' : '', null, null, 'dim', 2);
-    else add(6, 0, 1, 1, kept ? 'KEPT' : 'KEEP', pinned ? 'TAP TO LET GO' : kept ? 'AUTO-KEPT' : 'THIS LAP', 'keep', null, kept ? 'sel' : '', 2, { once: true });
-    if (vt && vt.cosworth) {
-      if (Date.now() < this.flashUntil) add(7, 0, 1, 1, 'OPENING', 'COSWORTH', null, null, 'go', 2);
-      else add(7, 0, 1, 1, 'COSWORTH', inVault ? '' : 'NOT IN VAULT', inVault ? 'cosworth' : null, null, inVault ? '' : 'dim', 2, { once: true });
-    }
-    // row 2: move through the lap
-    const lapsOk = a.laps > 1, cornersOk = a.corners > 0, eventsOk = a.events > 0, playing = this.cur('playing', a.playing), speed = this.cur('speed', a.speed);
-    add(0, 1, 1, 1, '◀ LAP', lapsOk ? 'PREVIOUS' : 'ONLY ONE', lapsOk ? 'wb-lap-prev' : null, null, lapsOk ? '' : 'dim', 2);
-    add(1, 1, 1, 1, 'LAP ▶', lapsOk ? 'NEXT' : 'ONLY ONE', lapsOk ? 'wb-lap-next' : null, null, lapsOk ? '' : 'dim', 2);
-    add(2, 1, 1, 1, '◀ CORNER', cornersOk ? 'PREVIOUS' : 'NONE FOUND', cornersOk ? 'wb-prev-corner' : null, null, cornersOk ? '' : 'dim', 2);
-    add(3, 1, 1, 1, 'CORNER ▶', cornersOk ? 'NEXT' : 'NONE FOUND', cornersOk ? 'wb-next-corner' : null, null, cornersOk ? '' : 'dim', 2);
-    add(4, 1, 1, 1, '◀ EVENT', eventsOk ? 'PREVIOUS' : 'NONE FOUND', eventsOk ? 'wb-prev-event' : null, null, eventsOk ? '' : 'dim', 2);
-    add(5, 1, 1, 1, 'EVENT ▶', eventsOk ? 'NEXT' : 'NONE FOUND', eventsOk ? 'wb-next-event' : null, null, eventsOk ? '' : 'dim', 2);
-    add(6, 1, 2, 1, playing ? 'PAUSE' : 'PLAY', playing ? 'PLAYING ×' + speed : 'PAUSED', 'wb-toggle-play', null, playing ? '' : 'go', 0, { once: true });
-    // row 3: how it looks
-    const tile = this.cur('tile', a.tile), mc = this.cur('mc', a.mapColour);
-    add(0, 2, 1, 1, 'ZOOM −', 'OUT', 'wb-zoom-out', null, '', 2);
-    add(1, 2, 1, 1, 'ZOOM +', 'IN', 'wb-zoom-in', null, '', 2);
-    add(2, 2, 1, 1, 'WHOLE LAP', a.zoomed ? 'ZOOMED IN' : 'ALL IN VIEW', 'wb-zoom-reset', null, a.zoomed ? 'sel' : '', 2);
-    add(3, 2, 1, 1, 'SPEED', '×' + speed, 'wb-speed', null, speed !== 1 ? 'sel' : '', 2);
-    add(4, 2, 1, 1, 'COMPARE', wbRef(a.ref), 'wb-ref-cycle', null, '', 2);
-    add(5, 2, 1, 1, 'OFFSET AUTO', a.offset ? (a.offset > 0 ? '+' : '−') + Math.abs(a.offset) + ' M' : 'AUTO', 'wb-offset-auto', null, a.offset ? 'sel' : '', 2);
-    add(6, 2, 1, 1, 'TILE', tile ? 'ON' : 'OFF', 'wb-tile', null, tile ? 'on' : 'off', 0, { once: true });
-    add(7, 2, 1, 1, 'MAP COLOUR', String(mc).toUpperCase(), 'wb-map-colour', null, '', 2);
-    // row 4: the pages the workbench has (only when there is a choice). The row is filled: up to 4 pages are 2 keys wide; with 5 to 7
-    // the first pages are 2 wide and the rest 1 so that 8 keys are used (6 pages: DRIVER and GRIP wide, the other four narrow); 8 are all narrow.
-    // PL-1: with more than 8 pages (a clip and a race log make 10) the row shows the first 7 and a PAGES key; PAGES opens a screen with every page.
-    const all = a.pages || [], page = this.cur('page', a.page);
-    if (all.length > WB_ROW && this.picker) return this.buildPicker(all, page);
-    this.picker = false;
-    const more = all.length > WB_ROW, pages = more ? all.slice(0, WB_ROW - 1) : all, wide = more ? 0 : Math.min(pages.length, 8 - pages.length);
-    if (pages.length > 1) { let col = 0; pages.forEach((id, i) => { const w = i < wide ? 2 : 1; add(col, 3, w, 1, wbPageName(id), page === id ? 'SHOWING' : '', 'wb-page', id, page === id ? 'sel' : '', 2); col += w; }); }
-    if (more) {
-      const hiddenShowing = all.indexOf(page) >= WB_ROW - 1;       // the page on show is one of the pages behind the PAGES key: say which
-      add(WB_ROW - 1, 3, 1, 1, 'PAGES', hiddenShowing ? wbPageName(page) : 'ALL ' + all.length, 'pages', null, hiddenShowing ? 'sel' : '', 2);
-    }
-    return R;
-  }
-
-  // every page as a big key (2 keys wide, 4 to a row, rows 2 to 4), BACK returns to the analysis keys
-  buildPicker(all, page) {
-    const R = [], add = (c, r, w, h, text, sub, act, arg, style, wrap) => R.push({ c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 });
-    add(0, 0, 1, 1, 'BACK', 'TO ANALYSIS', 'pagesback', null, 'grey', 2);
-    add(1, 0, 7, 1, 'PAGES', '', null, null, 'banner');
-    const w = all.length <= 12 ? 2 : 1, per = 8 / w;
-    all.slice(0, per * 3).forEach((id, i) => add((i % per) * w, 1 + Math.floor(i / per), w, 1, wbPageName(id), page === id ? 'SHOWING' : '', 'wb-page', id, page === id ? 'sel' : '', 2));
+    add(0, 3, 7, 1, 'TO WATCH ONE', 'Open it from the sim\'s Replay screen', null, null, 'banner', 2);
+    R.push(exitRegion());
     return R;
   }
 };
@@ -1362,14 +1030,12 @@ const Analysis = new class extends Screen {
 // own level), BUTTKICKER (its own level). Top key: the level, + and - below it, MUTE at the bottom (red while muted). RACE / CRUISE / NIGHT set them all
 // at once. Windows' default output device and every other Windows setting are never changed. irdash /sound is what irdeck read from Windows; presses go
 // to /api/do (snd...). A sound that is not playing right now has no level to set: its keys are dim and say so.
-const SNDCOLORS = { sel: [GOLD, '#111'], go: [GREEN, '#03140a'], stop: ['#c62f2f', '#fff'], amber: ['#d98b2b', '#140b00'], grey: ['#2a2a2a', INK], banner: ['#0b0b0b', GOLD],
-                    strip: ['#0b0b0b', INK], dim: ['#101010', '#55524c'], '': ['#1b1b1b', INK] };
 const SND_IDS = ['sim', 'spotter', 'music', 'speakers', 'buttkicker'];
 const SND_PRESETS = [['race', 'RACE', 'spotter up, no music'], ['cruise', 'CRUISE', 'music on, spotter low'], ['night', 'NIGHT', 'everything lower']];
 const sndShort = n => { const m = /\((.*)\)/.exec(n || ''); return (m ? m[1] : (n || '')).toUpperCase(); };
 const Sound = new class extends Screen {
   constructor() {
-    super('sound', SNDCOLORS);
+    super('sound');
     this.s = null;                 // the last /sound
     this.local = {};               // what a press changed, shown until irdeck has done it: key -> { v, until }
     this.interval = 700;
@@ -1381,10 +1047,7 @@ const Sound = new class extends Screen {
   // the SOUND key on your own profile
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 28px ' + FONT; g.fillText('SOUND', 72, 68);
-    g.fillStyle = INK; g.font = '400 22px ' + FONT; g.fillText('SCREEN', 72, 102);
-    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+    this.keyShown = '1'; this.paintOpener();
   }
 
   // while the opener key is on the deck: the last known state (a peek: irdash does not ask Windows for it)
@@ -1428,15 +1091,15 @@ const Sound = new class extends Screen {
     x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillStyle = GOLD; x.font = '600 14px ' + FONT; x.fillText(it.name, px + pw / 2, py + 13);
     if (!it.live) {
-      x.fillStyle = '#6d6a63'; x.font = '600 16px ' + FONT;
+      x.fillStyle = C.faint; x.font = '600 16px ' + FONT;
       x.fillText('NOT', px + pw / 2, py + 40); x.fillText(it.kind === 'device' ? 'FOUND' : 'PLAYING', px + pw / 2, py + 60);
       return;
     }
-    x.fillStyle = mute ? '#6d6a63' : INK; x.font = '600 32px ' + FONT; x.fillText(vol + '%', px + pw / 2, py + 42);
-    if (mute) { x.fillStyle = '#ff6b6b'; x.font = '600 14px ' + FONT; x.fillText('MUTED', px + pw / 2, py + 64); }
+    x.fillStyle = mute ? C.faint : INK; x.font = '600 32px ' + FONT; x.fillText(vol + '%', px + pw / 2, py + 42);
+    if (mute) { x.fillStyle = C.redSoft; x.font = '600 14px ' + FONT; x.fillText('MUTED', px + pw / 2, py + 64); }
     const bx = px + 8, bw = pw - 16, by = py + ph - 14;
-    x.fillStyle = '#2a2a2a'; x.fillRect(bx, by, bw, 7);
-    x.fillStyle = mute ? '#6d6a63' : GOLD; x.fillRect(bx, by, bw * Math.max(0, Math.min(100, vol)) / 100, 7);
+    x.fillStyle = C.grey; x.fillRect(bx, by, bw, 7);
+    x.fillStyle = mute ? C.faint : GOLD; x.fillRect(bx, by, bw * Math.max(0, Math.min(100, vol)) / 100, 7);
   }
 
   build() {
@@ -1444,7 +1107,7 @@ const Sound = new class extends Screen {
     const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0 }; if (more) Object.assign(o, more); R.push(o); };
     if (!s.ready) {
       add(0, 0, 8, 3, 'SOUND NOT READY', s.off ? 'Needs the dashboard update' : 'Reading sound devices', null, null, 'amber', 2, { size: 38 });
-      add(7, 3, 1, 1, 'EXIT', 'SOUND', 'exit', null, 'stop');
+      R.push(exitRegion());
       return R;
     }
     const items = {}; (s.items || []).forEach(it => { items[it.id] = it; });
@@ -1459,7 +1122,7 @@ const Sound = new class extends Screen {
     add(5, 0, 3, 1, 'SOUND', s.using ? 'PLAYING ON ' + sndShort(s.using) : 'no output device found', null, null, 'banner', 2);
     SND_PRESETS.forEach((p, i) => add(5 + i, 1, 1, 1, p[1], p[2], 'sndpreset', p[0], s.preset === p[0] ? 'sel' : '', 2));
     if (s.default && s.default !== s.using) add(5, 2, 3, 1, 'WINDOWS DEFAULT', sndShort(s.default), null, null, 'dim', 2);
-    add(7, 3, 1, 1, 'EXIT', 'SOUND', 'exit', null, 'stop');
+    R.push(exitRegion());
     return R;
   }
 };
@@ -1473,7 +1136,7 @@ const ACFANS = [[40, 'low', 'LOW'], [60, 'medium', 'MEDIUM'], [80, 'high', 'HIGH
 const ACMODEWORD = { 1: 'AUTO', 2: 'COOLING', 3: 'DRYING', 4: 'HEATING', 5: 'FAN ONLY' };
 const Ac = new class extends Screen {
   constructor() {
-    super('ac', SNDCOLORS);
+    super('ac');
     this.s = null;                 // the last /ac
     this.interval = 700;
   }
@@ -1482,12 +1145,9 @@ const Ac = new class extends Screen {
   // the AC key on MORE: AC, and on / off with the room temperature once it is known
   keyIcon(force) {
     if (!this.keys.size) return;
-    const s = this.s || {}, sub = !s.connected ? 'SCREEN' : (s.on ? 'ON' : 'OFF') + (s.room_f != null ? '  ' + s.room_f + '°F' : '');
+    const s = this.s || {}, sub = !s.connected ? '' : (s.on ? 'ON' : 'OFF') + (s.room_f != null ? '  ' + s.room_f + '°F' : '');
     if (!force && this.keyShown === sub) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 40px ' + FONT; g.fillText('AC', 72, 66);
-    g.fillStyle = s.connected && s.on ? GREEN : INK; g.font = '400 22px ' + FONT; g.fillText(sub, 72, 102);
-    this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
+    this.keyShown = sub; this.paintOpener(sub, s.connected && s.on ? 'green' : '');
   }
 
   async keyTick(sum) {
@@ -1524,8 +1184,8 @@ const Ac = new class extends Screen {
     x.fillStyle = GOLD; x.font = '600 14px ' + FONT; x.fillText('ROOM', px + pw / 2, py + 15);
     x.fillStyle = INK; x.font = '600 40px ' + FONT; x.fillText(s.room_f != null ? s.room_f + '°F' : '--', px + pw / 2, py + ph / 2 + 2, pw - 8);
     x.font = '600 13px ' + FONT;
-    if (s.busy) { x.fillStyle = '#d98b2b'; x.fillText('SENDING…', px + pw / 2, py + ph - 15); }
-    else { x.fillStyle = s.on ? GREEN : '#8a867d'; x.fillText(s.on ? ACMODEWORD[s.mode] : 'AC OFF', px + pw / 2, py + ph - 15, pw - 8); }
+    if (s.busy) { x.fillStyle = C.amber; x.fillText('SENDING…', px + pw / 2, py + ph - 15); }
+    else { x.fillStyle = s.on ? GREEN : C.stone; x.fillText(s.on ? ACMODEWORD[s.mode] : 'AC OFF', px + pw / 2, py + ph - 15, pw - 8); }
   }
 
   build() {
@@ -1533,7 +1193,7 @@ const Ac = new class extends Screen {
     const add = (c, r, w, h, text, sub, act, arg, style, wrap, more) => { const o = { c, r, w, h, text, sub, act, arg, style: style || '', wrap: wrap || 0, once: true }; if (more) Object.assign(o, more); R.push(o); };
     if (!s.connected || !s.read) {
       add(0, 0, 8, 3, s.offline ? 'DASHBOARD NOT ANSWERING' : !s.connected ? 'AC NOT CONNECTED' : 'READING THE AC', s.connected ? 'One moment' : 'Run Connect AC once (ac folder)', null, null, 'amber', 2, { size: 38 });
-      add(7, 3, 1, 1, 'EXIT', 'AC', 'exit', null, 'stop');
+      R.push(exitRegion());
       return R;
     }
     // row 1, what is used most: power, the room, the target, the one-press presets
@@ -1554,62 +1214,33 @@ const Ac = new class extends Screen {
     add(1, 3, 1, 1, '−', 'START', 'acstart', '-1', s.auto ? '' : 'dim', 0, { size: 50 });
     add(2, 3, 1, 1, s.on_above_f + '°F', 'STARTS AT', null, null, 'banner', 0, { size: 36 });
     add(3, 3, 1, 1, '+', 'START', 'acstart', '+1', s.auto ? '' : 'dim', 0, { size: 50 });
-    add(7, 3, 1, 1, 'EXIT', 'AC', 'exit', null, 'stop');
+    R.push(exitRegion());
     return R;
   }
 };
-// ---------------- AI LEVEL screen (the AI LEVEL key on MAIN): how hard the AI is for the next AI RACE ----------------
-// A plain screen: irdash (dash\src\ailevel.cs) says what every key shows and does (GET /ailevel -> regions), this only paints them and sends
-// the presses back (/api/do?c=ailevel&a=<arg>). So changing the screen needs a dashboard update, not another add-on install.
-const AiLevel = new class extends Screen {
-  constructor() {
-    super('ailevel', FCOLORS);
-    this.s = null;                 // the last /ailevel
-    this.interval = 700;
-  }
-  hasState() { return !!this.s; }          // build() says so itself when irdash is not ready
-
+// ---------------- the RIG key (W3-4): a door to the top screen's RIG page, with the rig's state as a dot ----------------
+// No screen of its own: a press asks irdash to open RIG on the top screen (/api/nav?to=rig, the same door the screen's own tabs use).
+// The dot is the last Rig Doctor check (green all good, amber something to look at, red a fault, grey not checked), from /deck/summary.
+// HOME stays the key exe rig-on (it must work when nothing else runs), so the rig dot lives here, on the key that opens the rig page.
+const Rig = new class extends Screen {
+  constructor() { super('rig'); this.d = null; this.openedAt = 0; }
+  hasState() { return true; }
   keyIcon(force) {
-    if (!this.keys.size || (!force && this.keyShown)) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('AI', 72, 62);
-    g.fillStyle = INK; g.font = '600 26px ' + FONT; g.fillText('LEVEL', 72, 98);
-    this.keyShown = '1'; this.setKeyImage(c.toDataURL('image/png'));
+    if (!this.keys.size) return;
+    const d = this.d, st = !d || !d.ranAt ? 'none' : d.bad > 0 ? 'bad' : d.warn > 0 ? 'warn' : 'ok';
+    const note = !d || !d.ranAt ? '' : d.bad + d.warn === 0 ? 'ALL GOOD' : (d.bad + d.warn) + ' TO SEE';
+    if (!force && this.keyShown === st + note) return;
+    this.keyShown = st + note; this.paintOpener(note, st === 'ok' ? 'green' : st === 'none' ? '' : st === 'bad' ? 'redText' : 'amber', { dot: st });
   }
-  async keyTick() { this.keyIcon(false); }
-  greyWord() { return 'AI LEVEL'; }
-
+  async keyTick(sum) { if (!this.keys.size || !sum.doctor) return; this.d = sum.doctor; this.keyIcon(false); }
+  // a doubled press (29 ms - 1 s) is one press: the door is already open
   async open() {
-    if (!deviceId) return;
-    Perf.begin('ailevel');
-    this.switchTo('RigAiLevel'); Perf.mark('ailevel', 'switchSent');
-    this.fastUntil = performance.now() + 2500;
-    if (this.s) this.warm();
+    const now = performance.now(); if (now - this.openedAt < 700) return; this.openedAt = now;
+    try { await sendCmd('/api/nav?to=rig'); } catch (e) { log('rig: irdash not reachable'); }
   }
-  exit() { this.switchTo(''); }
-
-  async poll() {
-    try { this.s = await this.get('/ailevel'); } catch (e) { this.s = { ready: false, offline: true }; }
-    this.relayout();
-  }
-
-  async act(r) {
-    if (r.act === 'exit') { this.exit(); return; }
-    await this.cmd(r.act, r.arg);
-    await this.refreshSoon(150);
-  }
-
-  build() {
-    const s = this.s, R = [];
-    if (!s.ready) {
-      R.push({ c: 0, r: 0, w: 8, h: 3, text: 'AI LEVEL NOT READY', sub: 'Needs the dashboard update', style: 'amber', wrap: 2, size: 38 });
-      R.push({ c: 7, r: 3, w: 1, h: 1, text: 'EXIT', sub: 'AI LEVEL', act: 'exit', style: 'stop', wrap: 2 });
-      return R;
-    }
-    for (const g of (s.regions || [])) R.push({ c: g.c, r: g.r, w: g.w, h: g.h, text: g.text, sub: g.sub, act: g.act, arg: g.arg, style: g.style || '', wrap: g.wrap || 0, once: true });
-    return R;
-  }
+  exit() { }
 };
+
 // ---------------- RACES screen (W1-5: mirrors the library, dash\src\library.cs) ----------------
 // Peter: "full races ... delete when done so I don't nuke the hard drive, then export so I can easily go to YouTube". Paddock films every
 // session whole (dash\src\recorder.cs); irdash's library lists them with a picture and a state. This screen shows the same list:
@@ -1628,7 +1259,7 @@ const raceLap = t => { if (!(t > 0)) return '--'; const m = Math.floor(t / 60), 
 const isRace = x => x.isRace !== undefined ? !!x.isRace : /race/i.test(x.type || '') && !/qual|prac/i.test(x.type || '');
 const raceShortType = t => /race/i.test(t || '') ? '' : /qual/i.test(t || '') ? 'QUALI · ' : /prac|warm/i.test(t || '') ? 'PRACTICE · ' : /test|offline/i.test(t || '') ? 'TEST · ' : t ? String(t).toUpperCase() + ' · ' : '';
 const raceMin = x => Math.max(1, Math.round((x.sec != null ? x.sec : (x.min || 0) * 60) / 60));
-const RED = '#e0493f', AMBER = '#d98b2b';
+const RED = C.redText, AMBER = C.amber;
 // the one state line of a race, in the colour-by-job language: gold = busy, green = done, red = broke, amber = needs you, grey = nothing
 const raceState = x => {
   const st = x.state || {}, k = st.kind || 'none', pct = Math.round(st.pct || 0), err = String(st.error || '').trim();
@@ -1638,9 +1269,9 @@ const raceState = x => {
     case 'shared': return { k, word: 'ON YT', long: 'ON YOUTUBE' + (st.privacy === 'public' ? '' : ' (PRIVATE)'), col: GREEN, style: 'go' };
     case 'failed': return { k, word: (err.split(/\s+/)[0] || 'FAILED').toUpperCase().slice(0, 9), long: 'SHARE FAILED' + (err ? ': ' + err : ''), col: RED, style: 'stop' };
     case 'signin': return { k, word: 'SIGN IN', long: 'SIGN IN TO YOUTUBE', col: AMBER, style: 'amber' };
-    case 'offline': return { k, word: 'OFFLINE', long: 'NO INTERNET', col: '#8d8a82', style: 'grey' };
+    case 'offline': return { k, word: 'OFFLINE', long: 'NO INTERNET', col: C.muted, style: 'grey' };
   }
-  return { k: 'none', word: '', long: 'NOT SHARED', col: '#8d8a82', style: 'grey' };
+  return { k: 'none', word: '', long: 'NOT SHARED', col: C.muted, style: 'grey' };
 };
 // W1-6 TALK OVER IT: a race being talked over (the screen becomes the talking view), its counter, the microphone's name in short
 // ("Default - Microphone (2- Arctis Nova 7P)" -> "ARCTIS NOVA 7P")
@@ -1682,38 +1313,14 @@ const RaceThumbs = {
 };
 // Words per key. A key's picture is cut out of one sheet and the bezel hides the 6 px between keys, so a word drawn across two keys loses
 // letters ("NA|ME"). Every text over several keys is split into words, one short run per key, each centred in its own key (as CONFIRM does).
-const raceSplit = (text, n, maxc) => {
-  const words = String(text == null ? '' : text).replace(/\s*·\s*/g, ' ').trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
-  for (let m = maxc || 9; ; m++) {
-    const out = []; let cur = '';
-    for (const w of words) { if (cur && (cur + ' ' + w).length > m) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
-    out.push(cur);
-    if (out.length <= n || m > 40) { out.length = Math.min(out.length, n); return out; }
-  }
-};
-// a paint hook for a tile w keys wide: parts = { main: [one run per key], sub: [...] } (centred as a group), size = the main size
-const raceSpan = (parts, w, h, size) => (g, px, py, pw, ph, bg, fg) => {
-  const cell = PX - 6, rowMain = h < 3 ? 0 : 1;
-  const row = (arr, rw, weight, sz, alpha, dy) => {
-    const off = Math.floor((w - arr.length) / 2);
-    g.globalAlpha = alpha; g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
-    arr.forEach((t, i) => {
-      let s = sz; do { g.font = weight + ' ' + s + 'px ' + FONT; s--; } while (g.measureText(t).width > cell - 12 && s > 10);
-      g.fillText(t, px + (off + i) * PX + cell / 2, py + rw * PX + cell / 2 + dy);
-    });
-    g.globalAlpha = 1;
-  };
-  const sub = parts.sub || [];
-  if (h === 1) { row(parts.main, 0, '600', Math.min(size || 24, 24), 1, sub.length ? -11 : 0); if (sub.length) row(sub, 0, '400', 14, .85, 15); }
-  else { row(parts.main, rowMain, '600', Math.min(size || 28, 28), 1, 0); if (sub.length) row(sub, rowMain + 1, '400', 18, .85, 0); }
-};
-const RACOLORS = Object.assign({}, SNDCOLORS, { card: ['#0b0b0b', INK], hint: ['#101010', '#8d8a82'] });
+const raceSplit = KEYART.splitRuns;
+// a paint hook for a tile w keys wide: parts = { main: [one run per key], sub: [...] } (centred as a group), size = the main size (keyart.js)
+const raceSpan = (parts, w, h, size) => KEYART.span(parts, w, h, size, PX);
 const raceCover = (g, im, x, y, w, h) => { const s = Math.max(w / im.width, h / im.height), sw = w / s, sh = h / s; g.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, x, y, w, h); };
 const raceFrame = (g, x, y, w, h) => { g.strokeStyle = GOLD; g.lineWidth = 5; g.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5); };
 const Races = new class extends Screen {
   constructor() {
-    super('races', RACOLORS);
+    super('races');
     this.s = null; this.sel = null; this.page = 0; this.msg = null; this.all = false;
     this.ticks = new Set();            // ticked race ids
     this.hidden = new Map();           // id -> until: deleted here, gone from the list at once (irdash's next list confirms)
@@ -1725,12 +1332,9 @@ const Races = new class extends Screen {
 
   keyIcon(force) {
     if (!this.keys.size) return;
-    const s = this.s || {}, n = (s.races || []).filter(isRace).length, sub = s.races ? n + (n === 1 ? ' RACE' : ' RACES') : 'VIDEO';
+    const s = this.s || {}, n = (s.races || []).filter(isRace).length, sub = s.races ? n + (n === 1 ? ' RACE' : ' RACES') : '';
     if (!force && this.keyShown === sub) return;
-    const [c, g] = this.iconCanvas();
-    g.fillStyle = GOLD; g.font = '600 30px ' + FONT; g.fillText('RACES', 72, 66);
-    g.fillStyle = INK; g.font = '400 20px ' + FONT; g.fillText(sub, 72, 100);
-    this.keyShown = sub; this.setKeyImage(c.toDataURL('image/png'));
+    this.keyShown = sub; this.paintOpener(sub);
   }
   async keyTick(sum) {
     if (!this.keys.size || this.live) return;
@@ -1871,27 +1475,27 @@ const Races = new class extends Screen {
       paint: (g, px, py, pw, ph) => {
         if (bmp) raceCover(g, bmp, px, py, pw, ph);
         else {
-          g.fillStyle = '#0b0b0b'; g.fillRect(px, py, pw, ph); g.fillStyle = GOLD; g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.fillStyle = C.key; g.fillRect(px, py, pw, ph); g.fillStyle = GOLD; g.textAlign = 'center'; g.textBaseline = 'middle';
           let s = 24; do { g.font = '600 ' + s + 'px ' + FONT; s--; } while (g.measureText(word).width > pw - 10 && s > 10);
           g.fillText(word, px + pw / 2, py + ph / 2);
         }
         if (ticked) {
           raceFrame(g, px, py, pw, ph);
           g.fillStyle = GOLD; g.beginPath(); g.arc(px + 17, py + 17, 12, 0, 7); g.fill();
-          g.strokeStyle = '#111'; g.lineWidth = 3; g.beginPath(); g.moveTo(px + 11, py + 17); g.lineTo(px + 16, py + 22); g.lineTo(px + 24, py + 12); g.stroke();
+          g.strokeStyle = C.goldInk; g.lineWidth = 3; g.beginPath(); g.moveTo(px + 11, py + 17); g.lineTo(px + 16, py + 22); g.lineTo(px + 24, py + 12); g.stroke();
         }
       } });
     R.push({ c: col + 1, r: row, w: 1, h: 1, text: x.track || 'RACE', sub: raceDay(x.startMs) + ' · ' + raceMin(x) + ' MIN', act: 'tick', arg: x.id, style: 'card', once: true, noflash: true,
       extra: 'nm' + x.id + (ticked ? 'T' : '') + (x.kept ? 'K' : '') + st.word + st.style,
       paint: (g, px, py, pw, ph) => {
-        g.fillStyle = ticked ? '#2a2208' : '#141414'; g.fillRect(px, py, pw, ph);
+        g.fillStyle = ticked ? C.goldTick : C.card; g.fillRect(px, py, pw, ph);
         const lines = raceTrackLines(name), cx = px + pw / 2, total = lines.length * 22 + 16 + (st.word ? 16 : 0);
         let y = py + (ph - total) / 2 + (st.word ? 8 : 11);
         g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = INK; g.font = '700 20px ' + FONT;
         for (const l of lines) { g.fillText(l, cx, y, pw - 14); y += 22; }
         y += -3;
         const sub = raceDay(x.startMs) + ' · ' + raceMin(x) + ' MIN'; let s = 12; do { g.font = '400 ' + s + 'px ' + FONT; s--; } while (g.measureText(sub).width > pw - 8 && s > 9);
-        g.fillStyle = '#a8a59d'; g.fillText(sub, cx, y + 8, pw - 6); y += 16;
+        g.fillStyle = C.soft; g.fillText(sub, cx, y + 8, pw - 6); y += 16;
         if (st.word) { g.fillStyle = st.col; g.font = '700 13px ' + FONT; g.fillText(st.word, cx, y + 8, pw - 6); }
         if (x.kept) { g.fillStyle = GOLD; g.beginPath(); g.moveTo(px + pw, py); g.lineTo(px + pw - 20, py); g.lineTo(px + pw, py + 20); g.closePath(); g.fill(); }
         if (ticked) raceFrame(g, px, py, pw, ph);
@@ -1907,7 +1511,7 @@ const Races = new class extends Screen {
       }
       R.push(o); };
     const msg = this.msg && Date.now() < this.msg.until ? this.msg : null, undo = this.undo && Date.now() < this.undo.until ? this.undo : null;
-    if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop'); return R; }
+    if (s.offline) { add(0, 0, 8, 3, 'DASHBOARD NOT ANSWERING', 'One moment', null, null, 'amber', 2, { size: 38 }); R.push(exitRegion()); return R; }
     const every = this.list(), races = this.all ? every : every.filter(isRace), st = s.storage || {};
     // W1-6: while a race is being talked over, the whole screen is the talking view: the counter, the microphone, one STOP (EXIT does not stop it)
     const talking = every.find(raceTalking);
@@ -1922,7 +1526,7 @@ const Races = new class extends Screen {
       add(2, 1, 4, 1, k === 'talking' ? raceMic(t.mic) : row2.join(' '), '', null, null, 'hint', 0, { noflash: true, parts: { main: row2, sub: [] }, size: 18 });
       if (k !== 'mixing') add(2, 2, 3, 2, 'STOP', 'ENDS AND MIXES', 'talkstop', talking.id, 'stop', 0, { size: 28, parts: { main: ['STOP'], sub: [] } });
       if (t.silent && k === 'talking') add(5, 2, 2, 1, 'MIC SILENT', 'IS IT MUTED?', null, null, 'amber', 0, { noflash: true, parts: { main: ['MIC', 'IS IT'], sub: ['SILENT', 'MUTED?'] } });   // each key reads on its own: MIC SILENT | IS IT MUTED?
-      add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+      R.push(exitRegion());
       return R;
     }
     const race = this.sel && every.find(x => x.id === this.sel);
@@ -1947,7 +1551,7 @@ const Races = new class extends Screen {
         add(4, 3, 1, 1, 'SELECT ALL', 'SHARED', 'selshared', null, 'grey', 2);
         add(5, 3, 1, 1, 'CLEAR', 'TICKS', 'clear', null, 'grey', 2);
       }
-      add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+      R.push(exitRegion());
       return R;
     }
     // one race: the picture across 4 x 2 keys, the facts, its state, what to do with it
@@ -1958,8 +1562,8 @@ const Races = new class extends Screen {
         if (big) raceCover(g, big, px, py, pw, ph);
         else {
           // no picture yet: the name one word-run per key (the bezel hides the gap between keys: a word across it loses letters)
-          g.fillStyle = '#0b0b0b'; g.fillRect(px, py, pw, ph);
-          raceSpan({ main: raceSplit(name, 4, 8), sub: [] }, 4, 2, 28)(g, px, py, pw, ph, '#0b0b0b', GOLD);
+          g.fillStyle = C.key; g.fillRect(px, py, pw, ph);
+          raceSpan({ main: raceSplit(name, 4, 8), sub: [] }, 4, 2, 28)(g, px, py, pw, ph, C.key, GOLD);
         }
       } });
     add(4, 0, 1, 1, race.track || 'RECOVERED', race.car || '', null, null, 'banner', 2, { noflash: true });
@@ -1987,7 +1591,7 @@ const Races = new class extends Screen {
     add(0, 3, 1, 1, 'BACK', 'ALL RACES', 'back', null, 'grey', 2);
     if (undo) add(1, 3, 3, 1, 'DELETED ' + undo.n + ' · UNDO', '', 'undo', null, 'sel', 2, { size: 22 });
     if (msg) add(undo ? 4 : 1, 3, undo ? 3 : 6, 1, msg.text, '', null, null, msg.style, 2, { size: 22, noflash: true });
-    add(7, 3, 1, 1, 'EXIT', 'RACES', 'exit', null, 'stop');
+    R.push(exitRegion());
     return R;
   }
 };
@@ -2003,7 +1607,7 @@ const CONFIRM_WHAT = {
 };
 const Confirm = new class extends Screen {
   constructor() {
-    super('confirm', FCOLORS);
+    super('confirm');
     this.what = 'shutdown'; this.until = 0; this.sentAt = 0; this.token = 0;
     this.interval = 200;
   }
@@ -2012,12 +1616,7 @@ const Confirm = new class extends Screen {
   greyWord(ctx) { return CONFIRM_WHAT[this.whatOf(ctx)].key.join(' '); }
   keyIcon(force) {
     if (!this.keys.size || (!force && this.keyShown)) return;
-    for (const ctx of this.keys) {
-      const [c, g] = this.iconCanvas(), w = CONFIRM_WHAT[this.whatOf(ctx)].key;
-      g.fillStyle = '#e0493f'; g.font = '600 26px ' + FONT; g.fillText(w[0], 72, 70, 120);
-      g.fillStyle = INK; g.font = '600 24px ' + FONT; g.fillText(w[1], 72, 102, 120);
-      send({ event: 'setImage', context: ctx, payload: { image: c.toDataURL('image/png'), target: 0 } });
-    }
+    this.paintOpener();   // SHUT DOWN PC / SLEEP PC: each key's own layout entry (its settings say which)
     this.keyShown = '1';
   }
   async keyTick() { this.keyIcon(false); }
@@ -2074,23 +1673,27 @@ const Confirm = new class extends Screen {
       add(0, 0, 8, 3, w.doing, 'iRacing is closed first if it is open', null, 'amber', { wrap: 2, size: 44, noflash: true });
       return R;
     }
-    add(0, 0, 8, 1, w.ask, 'Press YES within 5 seconds. Nothing happens if you wait.', null, 'banner', { wrap: 1, size: 30, noflash: true });
+    // the question big on the top row; the rule small on the bottom row (two lines of runs on one row read out of order)
+    const hint = 'Press YES within 5 seconds. Nothing happens if you wait.';
+    add(0, 0, 8, 1, w.ask, hint, null, 'banner', { size: 30, noflash: true, paint: raceSpan({ main: raceSplit(w.ask.toUpperCase(), 8, 8), sub: [] }, 8, 1, 30) });
+    add(0, 3, 7, 1, hint, '', null, 'hint', { noflash: true, paint: raceSpan({ main: ['PRESS', 'YES IN', '5 SEC.', 'NOTHING', 'HAPPENS', 'IF YOU', 'WAIT'], sub: [] }, 7, 1, 18) });
     // the count is painted big on the YES key itself (sub carries it, so each second is a new look)
     const n = String(this.secondsLeft() || 1);
     // 3 keys wide: the count sits in the middle of one key (on a 4-wide key it fell on the gap), and a smaller target is harder to hit by accident
     add(2, 1, 3, 2, w.yes, n, 'yes', 'sel', { paint: (x, px, py, pw, ph, bg, fg) => {
+      // words on the top row, one word per key (W3-4: "YES, SHUT DOWN" used to cross the gaps), the count in the middle key below
+      raceSpan({ main: raceSplit(w.yes, 3, 5), sub: [] }, 3, 1, 34)(x, px, py, pw, PX - 6, bg, fg);
       x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
-      // words on the top row of keys, the count on the bottom row: neither is cut by the gap between the keys
-      x.font = '600 40px ' + FONT; x.fillText(w.yes, px + pw / 2, py + PX / 2 - 3, pw - 20);
-      x.font = '700 74px ' + FONT; x.fillText(n, px + pw / 2, py + PX + PX / 2 - 3);
+      x.font = '700 74px ' + FONT; x.fillText(n, px + PX + (PX - 6) / 2, py + PX + (PX - 6) / 2);
     } });
-    add(7, 3, 1, 1, 'EXIT', '', 'exit', 'stop');
+    R.push(exitRegion());
     return R;
   }
 };
 
 // The deck key presses and the profile tiles belong to one of the live screens (by action / by the tile's settings.p).
-const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, analysis: Analysis, sound: Sound, ac: Ac, ailevel: AiLevel, races: Races, confirm: Confirm };
+// W3-4: AI LEVEL folded into the AI RACE screen (mydrive); rig is the RIG door key; the ANALYSIS screen is gone (REVIEW on the top screen has it).
+const SCREENS = { friends: Friends, overlays: Overlays, mydrive: MyDrive, replay: Replay, sound: Sound, ac: Ac, races: Races, confirm: Confirm, rig: Rig };
 
 // ---------------- speed test (tests\deck-speed-test.ps1 -Live) ----------------
 // irdash's /mydrive says "run a test": open that screen once, time it (perf lines in the log), and go back. Nothing is changed.
@@ -2111,7 +1714,8 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
   ws.onmessage = m => {
     const e = JSON.parse(m.data);
     if (e.event === 'deviceDidConnect' && (!deviceId || (e.deviceInfo && e.deviceInfo.type === 2))) deviceId = e.device;
-    const keyScreen = Object.values(SCREENS).find(s => e.action === UUID + '.' + s.name);                 // a screen's opener key on your profile
+    // a screen's opener key on your profile; the hidden ailevel action (the old AI LEVEL key, one release) opens the AI RACE screen
+    const keyScreen = Object.values(SCREENS).find(s => e.action === UUID + '.' + s.name) || (e.action === UUID + '.ailevel' ? MyDrive : null);
     const p = e.payload && e.payload.settings && e.payload.settings.p;
     const tileScreen = !keyScreen && p && SCREENS[p];                                                     // a key of a screen's profile
     const isDocKey = e.action === UUID + '.doctor';
@@ -2119,7 +1723,7 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
     if (e.event === 'willAppear') {
       if (keyScreen) {
         keyScreen.keys.add(e.context); keyScreen.keyPos[e.context] = pos; keyScreen.keySettings[e.context] = (e.payload && e.payload.settings) || {}; keyScreen.keyIcon(true);
-        if (Health.grey) send({ event: 'setImage', context: e.context, payload: { image: Health.greyPic(keyScreen.greyWord(e.context), 'NOT ANSWERING'), target: 0 } });
+        if (Health.grey) send({ event: 'setImage', context: e.context, payload: { image: Health.greyPic(keyScreen.greyWord(e.context), 'NOT ANSWERING', keyScreen.openerSpec(e.context)), target: 0 } });
       }
       else if (tileScreen) tileScreen.appear(pos, e.context);
       else if (isDocKey) { docKeys.add(e.context); RigDoctor.icon(true); }
@@ -2132,6 +1736,7 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
       else if (pos) delete tiles[pos];
     }
     if (e.event === 'keyDown') {
+      if (keyScreen && deafNow()) { log('press ignored: the deck changed page ' + Math.round(performance.now() - switchedAt) + ' ms ago'); return; }
       if (keyScreen) keyScreen.open(keyScreen === Confirm ? { ctx: e.context } : undefined);
       else if (tileScreen) tileScreen.press(e.payload.coordinates.column, e.payload.coordinates.row);
       else if (isDocKey) RigDoctor.press();
@@ -2159,7 +1764,7 @@ async function pollLoop() {
       Health.tick(Health.lastOk > before && !!sum);
       if (sum) {
         try { poll(sum.showcase); } catch (e) { }
-        for (const s of [Overlays, Friends, MyDrive, Replay, Analysis, Sound, Ac, Races]) { try { await s.keyTick(sum); } catch (e) { } }
+        for (const s of [Overlays, Friends, MyDrive, Replay, Sound, Ac, Races, Confirm, Rig]) { try { await s.keyTick(sum); } catch (e) { } }
         try { await RigDoctor.tick(sum); } catch (e) { }
       }
     }
@@ -2176,7 +1781,7 @@ function poll(s) {
 }
 
 let blankUrl = null;
-function blank() { if (!blankUrl) { const c = document.createElement('canvas'); c.width = c.height = PX; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, PX, PX); blankUrl = c.toDataURL('image/png'); } return blankUrl; }
+function blank() { if (!blankUrl) { const c = document.createElement('canvas'); c.width = c.height = PX; const g = c.getContext('2d'); g.fillStyle = C.black; g.fillRect(0, 0, PX, PX); blankUrl = c.toDataURL('image/png'); } return blankUrl; }
 
 async function play() {
   if (playing) return;
@@ -2213,7 +1818,7 @@ async function play() {
 function back() {
   if (!playing) return;
   playing = false;
-  send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: {} });   // no name = the previous profile
+  switchedAt = performance.now(); send({ event: 'switchToProfile', context: pluginUUID, device: deviceId, payload: {} });   // no name = the previous profile
   log('back to the buttons');
 }
 
@@ -2222,7 +1827,7 @@ const fmtTime = t => { t = +t; const m = Math.floor(t / 60), s = t - m * 60; ret
 
 // The sequence, in seconds: gold hairline, driver card (4 / PETER), the green flag waves across, settle, fade.
 function draw(g, t) {
-  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.fillStyle = C.black; g.fillRect(0, 0, W, H);
   // 0.0-1.0 hairline draws left to right through the middle
   const hw = ease(t / 1.0) * W;
   // 0.8-3.4 driver card
@@ -2257,7 +1862,7 @@ function draw(g, t) {
     }
     if (t > 4.8 && t < 6.6) {
       g.globalAlpha = Math.min(1, (t - 4.8) / 0.4) * fade;
-      g.fillStyle = '#04150a'; g.font = '700 74px ' + FONT; g.textAlign = 'center';
+      g.fillStyle = C.greenNight; g.font = '700 74px ' + FONT; g.textAlign = 'center';
       g.fillText('G R E E N', W / 2, H / 2 + 26); g.textAlign = 'left'; g.globalAlpha = 1;
     }
   }

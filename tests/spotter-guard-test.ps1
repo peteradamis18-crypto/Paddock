@@ -20,7 +20,8 @@ Check 'VOL keys no longer move the spotter' ($ir -match 'which == "game" \? new 
 Check 'the spotter has a minimum level and is never lowered by it' ($ir -match 'SpotterMinLevel = 0\.02f' -and $ir -match 'if \(cur < floor\)')
 Check 'SPOTTER - / + keys move only CrewChief' ($ir -match 'which == "spotter" \? new string\[\] \{ "CrewChiefV4" \}')
 $bd = [IO.File]::ReadAllText((Join-Path $root 'build-deck.ps1'))
-Check 'the keys are on the deck, 5 % a press' ($bd -match "'appvol spotter -5'" -and $bd -match "'appvol spotter \+5'")
+$lay = [IO.File]::ReadAllText((Join-Path $root 'deck\layout.json')) | ConvertFrom-Json   # W3-4: SPOTTER is one key (tap = mute / unmute); its level is on the SOUND screen
+Check 'the SPOTTER key mutes / unmutes (spotter-tap) and the SOUND screen has the spotter level column' (@($lay.pages.MAIN | Where-Object { $_.action.args -eq 'spotter-tap' }).Count -eq 1 -and ([IO.File]::ReadAllText((Join-Path $root 'deck-intro\plugin.html')) -match "const SND_IDS = \['sim', 'spotter'"))
 Check 'the deck rules allow them' ([IO.File]::ReadAllText((Join-Path $root 'src\deckrules.cs')) -match '"spotter"')
 $top = [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\ui.js')) + [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\index.html')) + [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\core.js'))
 Check 'no tire panel on the top screen (Peter 2026-11-02)' ($top -notmatch 'tempCL|id="tires"|tires-note')

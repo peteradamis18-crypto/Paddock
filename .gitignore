@@ -117,3 +117,7 @@ __pycache__/
 # Peter's one-time YouTube sign-in file (client id and secret live here: never commit)
 dash/yt/
 /dash/data/laps/
+
+# W3-4: key pictures made by tools\deck-render.ps1 from deck\layout.json (build-deck.ps1 makes them again every build)
+/deck/keys/
+/deck/preview-*.png

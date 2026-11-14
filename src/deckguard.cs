@@ -24,13 +24,13 @@ namespace IRDeck
             return Array.IndexOf(FastKeys, keyName.Trim().ToLowerInvariant()) >= 0;
         }
 
-        // on/off keys: MUTE SPOTTER, the pit toggles, AC on/off
+        // on/off keys: SPOTTER (spotter-tap) and the old MUTE SPOTTER, the pit toggles, AC on/off
         public static bool IsToggle(string[] a)
         {
             if (a == null || a.Length == 0 || a[0] == null) return false;
             string v = a[0].ToLowerInvariant();
             string w = a.Length > 1 && a[1] != null ? a[1].ToLowerInvariant() : "";
-            return (v == "appvol" && w == "mute") || v == "pittoggle" || (v == "ac" && w == "toggle");
+            return (v == "appvol" && w == "mute") || v == "spotter-tap" || v == "pittoggle" || (v == "ac" && w == "toggle");
         }
 
         public static int GapMs(string keyName, string[] a)
@@ -78,6 +78,14 @@ namespace IRDeck
         public const int ArmMs = 5500;   // the screen gives Peter 5 s from opening; half a second for the requests themselves
 
         public static bool IsPowerCommand(string c) { return c == "shutdown" || c == "sleep"; }
+
+        // Kids mode (W3-4 review): the deck keys a child could press that START a drive through the iRacing UI. irdash refuses them while
+        // the kids lock is on (the key exes already obey DeckRules.KidsAllows; these come through /api/do from the add-on's screens).
+        public static bool KidsBlocks(string c, string a)
+        {
+            string v = (c ?? "").ToLowerInvariant(), w = (a ?? "").Trim().ToLowerInvariant();
+            return (v == "ailevel" && w == "start") || v == "mdstart";
+        }
 
         public sealed class PowerGate
         {

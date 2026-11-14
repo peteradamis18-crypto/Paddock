@@ -26,7 +26,7 @@ Check 'MUTE SPOTTER, the pit toggles and AC on/off ignore a second press within 
 
 ''; '3. the spotter is on every time'
 $es = Body $ir 'static void EnsureSpotter()'
-Check 'every key that puts Peter in a session checks the spotter (GET IN, RESTART, RACE NOW, NEXT SESSION, LAST DRIVE, RESET CAR)' ($ir -match 'SpotterVerbs = \{ "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow" \}' -and $ir -match 'Array\.IndexOf\(SpotterVerbs, a\[0\]\.ToLowerInvariant\(\)\) >= 0\) \{ string keep = LastLog; EnsureSpotter\(\); LastLog = keep; \}')
+Check 'every key that puts Peter in a session checks the spotter (GET IN, RESTART, RACE NOW, NEXT SESSION, LAST DRIVE, RESET CAR, TO THE RACE)' ($ir -match 'SpotterVerbs = \{ "smart", "go", "restartrace", "racenow", "skip", "mydrive", "startlast", "tow", "to-the-race" \}' -and $ir -match 'Array\.IndexOf\(SpotterVerbs, a\[0\]\.ToLowerInvariant\(\)\) >= 0\) \{ string keep = LastLog; EnsureSpotter\(\); LastLog = keep; \}')
 Check 'CrewChief not running: it is started' ($es -match 'GetProcessesByName\("CrewChiefV4"\)\.Length == 0' -and $es -match 'StartApp\("CrewChiefV4"')
 Check 'CrewChief muted in the Windows mixer: sound back on' ($es -match 'AppMuteSet\("CrewChiefV4", false\)')
 Check 'only during a session, and it never changes the top-screen message of the key itself' ($es -match 'if \(!SessionActive\(\)\) return;' -and $es -match 'Log\("\[spotter\]')

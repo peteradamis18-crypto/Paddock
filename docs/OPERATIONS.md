@@ -1,3 +1,4 @@
+**The deck's words and pictures live in `deck\layout.json`** (W3-4). `build-deck.ps1` draws the static keys from it, but the add-on paints its opener keys (AI RACE, FRIENDS, OVERLAYS, SOUND, RACES, RIG, AC, REPLAY, SHUT DOWN / SLEEP PC) from the copy packaged with it (`layout.js`, made by `install.ps1`). So a label, glyph or colour change needs BOTH: bump `$ver`, `tools\addon-update.ps1`, then `tools\deck-refresh.ps1`. Pictures to look at first: `deck\preview-MAIN.png`, `-MORE`, `-LEAVE` (`tools\deck-render.ps1`).
 # Paddock — operations
 
 Build, deploy, test and recover. Run every command from PowerShell on this PC. The repo is `C:\Users\peter\iRacingDeck`. Nothing here needs a download, an install, or a password.
@@ -295,7 +296,7 @@ powershell -ExecutionPolicy Bypass -File C:\Users\peter\iRacingDeck\build-deck.p
 Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe" --runinbk' }
 ```
 
-The CIM start keeps Stream Deck out of a packaged app's private AppData. Success is a line that starts with `built: MAIN`. Preview without touching the profile: `build-deck.ps1 -Preview` (writes `C:\Temp\preview\`).
+The CIM start keeps Stream Deck out of a packaged app's private AppData. Success is a line that starts with `built: LEAVE`. Preview without touching the profile: `build-deck.ps1 -Preview` (writes `deck\keys\`, `deck\preview-*.png` and `%TEMP%\PaddockPreview-*`).
 
 `-Preview` is the only deck command that is safe while he is in the car. The real build is not.
 
@@ -306,4 +307,4 @@ The CIM start keeps Stream Deck out of a packaged app's private AppData. Success
 - Do not deploy irdash except with `dash\build.ps1`.
 - Do not kill irdash, irdashies, CrewChief or Stream Deck by hand during a session. Section 9 is the recover path when the rig is free.
 - Do not run a test that fails `Assert-RigFree`. Exit 3 means stop.
-- Do not enter passwords, download tools, or change Windows security settings from a task. Peter already approved ffmpeg; it is in `vault\bin\`.
+**Use `powershell -ExecutionPolicy Bypass -File tools\deck-refresh.ps1`** for the deck pages (W3-4): it first makes the key pictures (`build-deck.ps1 -Preview`, headless Chrome) while Stream Deck still runs and stops with Stream Deck untouched if that fails; then it closes Stream Deck, runs `build-deck.ps1 -NoRender`, starts it, and CHECKS that the build printed `built:`, that the profile lists exactly the page ids the build printed (`pages:`), and that every page (LEAVE, MAIN, MORE) kept one picture per key (Stream Deck sometimes dropped the MAIN page at start; it retries up to 4 times). A `NOT DONE` line from build-deck (a key left off because the installed add-on lacks its action: run addon-update first) makes it exit 1.

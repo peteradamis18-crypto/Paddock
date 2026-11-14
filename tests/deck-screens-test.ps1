@@ -1,12 +1,12 @@
-# Deck screens test (C-42): the ANALYSIS screen, the SOUND screen (C-39), the RACE SETUP screen = MY DRIVE v2 (C-33), and what they stand on.
+# Deck screens test (C-42): the SOUND screen (C-39), the AI RACE screen's lists (W3-4), and what they stand on. (The ANALYSIS screen went in the W3-4 review.)
 # OFFLINE: nothing here talks to the running irdash, to iRacing or to the Stream Deck app, and nothing is deployed.
-#   1. ANALYSIS - the real add-on page (deck-intro\plugin.html) in headless Chrome with a pretend Stream Deck app and pretend irdash answers
+#   1. (gone: the ANALYSIS screen)
 #   2. SOUND    - the same for the SOUND screen
-#   3. RACE SETUP - the same for MY DRIVE: LAST DRIVE, USUAL, SAME CAR / TRACK, FAVOURITES, SURPRISE, START, no "coming later" key
+#   3. AI RACE - the lists of the folded AI RACE screen (W3-4): RECENT, CARS, TRACKS, LAYOUTS, FAVOURITES, one EXIT, nothing to type
 #   4. irdeck sound - the new command against a PRETEND list of audio devices and apps (PADDOCK_SOUND_PRETEND); Windows' audio is never touched
 #   5. irdash side - dash\src\sound.cs and dash\src\deckfeed.cs compiled with stand-ins and run: the report of the workbench page, the
 #      checks on what comes in, the SOUND key presses reaching irdeck (pretend list), KEEP / COSWORTH asking the Vault's own routes (a pretend local server)
-# Pictures go to tests\shots (deck-analysis*.png, deck-sound*.png, deck-racesetup*.png). A press that would reach the real irdash is impossible:
+# Pictures go to tests\shots (deck-sound*.png, deck-airace*.png). A press that would reach the real irdash is impossible:
 # every path the page asks for has a pretend answer, and anything else gets {}.
 #   powershell -ExecutionPolicy Bypass -File tests\deck-screens-test.ps1 [-NoBuild]     (-NoBuild: parts 4-5 use the irdeck already built in %TEMP%\ird)
 param([switch]$NoBuild)
@@ -43,9 +43,9 @@ $fx['/debrief/state'] = @{ open = $false }
 $html = Join-Path $env:TEMP 'deck-screens-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html
 $h = [IO.File]::ReadAllText($html)
-# the mock knows three opener keys: add ANALYSIS and SOUND and their profiles; whatever has no pretend answer gets {} (never the real irdash)
-$h2 = $h.Replace("['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1]];", "['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1], ['k-analysis', 'com.peter.rigintro.analysis', 4, 0], ['k-sound', 'com.peter.rigintro.sound', 5, 0]];").Replace("RigMyDrive: 'mydrive',", "RigMyDrive: 'mydrive', RigAnalysis: 'analysis', RigSound: 'sound',").Replace("return realFetch(url, opt);", "return Promise.resolve(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));")
-Check 'the pretend Stream Deck app got the ANALYSIS and SOUND keys and profiles, and cannot reach the real irdash' ($h2.Contains('RigAnalysis') -and $h2.Contains('RigSound') -and -not $h2.Contains('return realFetch(url, opt);'))
+# the mock knows three opener keys: add SOUND and its profile; whatever has no pretend answer gets {} (never the real irdash)
+$h2 = $h.Replace("['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1]];", "['k-mydrive', 'com.peter.rigintro.mydrive', 7, 1], ['k-sound', 'com.peter.rigintro.sound', 5, 0]];").Replace("RigMyDrive: 'mydrive',", "RigMyDrive: 'mydrive', RigSound: 'sound',").Replace("return realFetch(url, opt);", "return Promise.resolve(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));")
+Check 'the pretend Stream Deck app got the SOUND key and profile, and cannot reach the real irdash' ($h2.Contains('RigSound') -and -not $h2.Contains('return realFetch(url, opt);'))
 [IO.File]::WriteAllText($html, $h2, (New-Object Text.UTF8Encoding($false)))
 
 $b = Start-DeckBrowser 9360
@@ -72,263 +72,6 @@ try {
   function Cur { Invoke-DeckJs $page '__sd.cur' }
   function PickerQuality { Invoke-DeckJs $page "(() => { const a=MyDrive.regions, rows=a.filter(x=>['mdpick','pickcar','picktrack','picklayout'].includes(x.act)); return {single:a.every(x=>x.w===1&&x.h===1),twoLines:rows.every(x=>x.single),upper:a.every(x=>String(x.text||'')===String(x.text||'').toUpperCase()&&String(x.sub||'')===String(x.sub||'').toUpperCase()),lengths:a.every(x=>String(x.text||'').length<=12&&String(x.sub||'').length<=14),back:a.some(x=>x.c===0&&x.r===0&&x.text==='BACK'),exit:a.some(x=>x.c===7&&x.r===3&&x.text==='EXIT')}; })()" }
 
-  # ================= DK-8 PICK =================
-  try { Assert-RigFree -Where 'DK-8 PICK' } catch { "$_"; throw }
-  'DK-8c RACE SETUP home and list picker'
-  $pickOpen = Invoke-DeckJs $page "__sd.measureOpen('mydrive')"
-  Start-Sleep -Milliseconds 1200
-  Check 'MY DRIVE opens the RACE SETUP home with the five one-key choices' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -match 'CORVETTE' -and (Reg 'MyDrive' 2 0).t -eq 'RECENT' -and (Reg 'MyDrive' 3 0).t -eq 'CARS' -and (Reg 'MyDrive' 4 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 5 0).t -eq 'FAVOURITES')
-  $null = Sheet 'deck-pick-home'
-  Press 2 0 300
-  Check 'RECENT opens from the home row' ((Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 0 1).t -match 'CORVETTE')
-  $null = Sheet 'deck-pick-recent'
-  $q=PickerQuality; Check 'RECENT tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'RECENT pages forward and back' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT')
-  Press 6 3 300
-  Check 'RECENT page two can return to page one' ((Reg 'MyDrive' 5 3).t -eq 'PREV')
-  Press 5 3 300
-  Press 2 0 300
-  Check 'CARS pages forward and back' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT')
-  $q=PickerQuality; Check 'CARS tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Req 0 1 'c=mdpick&a=c00000001' 'choosing a car'
-  Check 'a car pick advances to TRACKS without starting' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and @(Apis | Where-Object { $_ -match 'c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-tracks'
-  $q=PickerQuality; Check 'TRACKS tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Press 0 1 300
-  Check 'the chosen track is saved before layout choices' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1)
-  Check 'a track with multiple layouts presents its layout names' ((Reg 'MyDrive' 0 1).t -eq 'FULL COURSE' -and (Reg 'MyDrive' 1 1).t -eq 'SHORT COURSE')
-  $null = Sheet 'deck-pick-layouts'
-  $q=PickerQuality; Check 'LAYOUT tiles stay on one key, uppercase, within 12/14 characters, with BACK and EXIT fixed' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Press 0 0 300
-  Check 'BACK at 0,0 returns to MAIN' ((Cur) -eq 'main')
-  Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
-  Js "MyDrive.keyTick()" 800
-  Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  Js "__sd.pressOpener('mydrive')" 1500
-  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-empty-choice'
-  Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true; m.choice.carShort='CORVETTE'; m.choice.trackShort='ROAD ATLANTA'; m.choice.layout='Full Course'" 100
-  Js "MyDrive.view='home'; MyDrive.relayout()" 250
-  Check 'RACE SETUP keeps car, track and layout on separate keys; START is one green key' ((Reg 'MyDrive' 0 1).t -eq 'CORVETTE' -and (Reg 'MyDrive' 1 1).t -eq 'ROAD ATLANTA' -and (Reg 'MyDrive' 2 1).t -eq 'LAYOUT' -and (Reg 'MyDrive' 6 3).t -eq 'START' -and (Reg 'MyDrive' 6 3).st -eq 'go')
-  $null = Sheet 'deck-pick-choice'
-  Js "MyDrive.exit({test:true})" 250
-
-  # ================= 1. ANALYSIS =================
-  try { Assert-RigFree -Where '1. ANALYSIS' } catch { "$_"; throw }
-  '1. the ANALYSIS screen (the workbench open on lap 7)'
-  $m1 = Invoke-DeckJs $page "__sd.measureOpen('analysis')"
-  Start-Sleep -Milliseconds 2000                                            # the Vault answer (KEEP, COSWORTH) comes with the first refresh
-  Check 'ANALYSIS opens: it asked for the RigAnalysis profile and all 32 keys have a picture' ((Cur) -eq 'RigAnalysis' -and (Sheet 'deck-analysis') -eq 32)
-  Check 'all 32 pictures are on the keys within 100 ms of the deck showing the screen' ($m1.allPicturesMs -ge 0 -and ($m1.allPicturesMs - $m1.firstAppearMs) -le 100)
-  $r = Reg 'Analysis' 1 0; Check 'the banner says LAP 7, the lap time and the reference' ($r.t -match 'LAP 7' -and $r.t -match '1:19\.549' -and $r.s -match 'vs PB' -and $r.s -match '1:19\.575' -and $r.s -match '0\.026')
-  $r = Reg 'Analysis' 6 1; Check 'PLAY / PAUSE: paused now, so it says PLAY (green) and PAUSED' ($r.t -eq 'PLAY' -and $r.s -eq 'PAUSED' -and $r.st -eq 'go' -and $r.a -eq 'wb-toggle-play' -and $r.w -eq 2)
-  $r = Reg 'Analysis' 6 2; Check 'TILE shows its real state (off)' ($r.t -eq 'TILE' -and $r.s -eq 'OFF' -and $r.st -eq 'off')
-  $r = Reg 'Analysis' 3 2; Check 'SPEED shows x1' ($r.t -eq 'SPEED' -and $r.s -eq ([string][char]0xD7 + '1') -and $r.st -eq '')
-  $r = Reg 'Analysis' 4 2; Check 'COMPARE shows what the lap is compared with (PB)' ($r.t -eq 'COMPARE' -and $r.s -eq 'PB')
-  $r = Reg 'Analysis' 7 2; Check 'MAP COLOUR shows GAP' ($r.t -eq 'MAP COLOUR' -and $r.s -eq 'GAP')
-  $r = Reg 'Analysis' 0 3; $r2 = Reg 'Analysis' 2 3; Check 'row 4 has the two pages, DRIVER (showing, gold) and GRIP' ($r.t -eq 'DRIVER' -and $r.st -eq 'sel' -and $r.w -eq 2 -and $r2.t -eq 'GRIP' -and $r2.st -eq '' -and $r2.a -eq 'wb-page' -and $r2.g -eq 'grip')
-  $r = Reg 'Analysis' 6 0; Check 'KEEP is there (the lap is in the Vault, not kept yet)' ($r.t -eq 'KEEP' -and $r.a -eq 'keep' -and $r.st -eq '')
-  $r = Reg 'Analysis' 7 0; Check 'COSWORTH is there because Pi Toolbox is installed' ($r.t -eq 'COSWORTH' -and $r.a -eq 'cosworth')
-  Check 'the only empty cells are the four page keys that do not exist (two pages), nothing else is left blank' ((Blank 'Analysis') -eq 4)
-  Check 'opening ANALYSIS wrote a timing line' (@((Invoke-DeckJs $page '__sd.perfLines()') | Where-Object { $_ -match 'perf analysis open' }).Count -ge 1)
-
-  'a press that arrives twice at once does not flip a toggle back'
-  ClearApis; Js '__sd.pressTile(6, 2); __sd.pressTile(6, 2); __sd.pressTile(6, 2)' 500
-  Check 'TILE pressed three times within a blink sends one request' (@(Apis | Where-Object { $_ -match 'c=wb-tile' }).Count -eq 1)
-  Start-Sleep -Milliseconds 800; ClearApis; Press 6 2 300
-  Check 'a real second press a moment later still works' (@(Apis | Where-Object { $_ -match 'c=wb-tile' }).Count -eq 1)
-  ClearApis; Js '__sd.pressTile(1, 1); __sd.pressTile(1, 1)' 500
-  Check 'a step key (LAP >) is not held back: quick taps all count' (@(Apis | Where-Object { $_ -match 'c=wb-lap-next' }).Count -eq 2)
-
-  'every key sends its request'
-  Req 0 1 'c=wb-lap-prev' '< LAP'
-  Req 1 1 'c=wb-lap-next' 'LAP >'
-  Req 2 1 'c=wb-prev-corner' '< CORNER'
-  Req 3 1 'c=wb-next-corner' 'CORNER >'
-  Req 4 1 'c=wb-prev-event' '< EVENT'
-  Req 5 1 'c=wb-next-event' 'EVENT >'
-  Req 6 1 'c=wb-toggle-play' 'PLAY / PAUSE'
-  Req 0 2 'c=wb-zoom-out' 'ZOOM -'
-  Req 1 2 'c=wb-zoom-in' 'ZOOM +'
-  Req 2 2 'c=wb-zoom-reset' 'WHOLE LAP'
-  Req 3 2 'c=wb-speed' 'SPEED'
-  Req 4 2 'c=wb-ref-cycle' 'COMPARE'
-  Req 5 2 'c=wb-offset-auto' 'ALIGN'
-  Req 6 2 'c=wb-tile' 'TILE'
-  Req 7 2 'c=wb-map-colour' 'MAP COLOUR'
-  Req 2 3 'c=wb-page&a=grip' 'the GRIP page'
-  Req 6 0 'c=wbkeep&a=1' 'KEEP (keeps it)'
-  Req 7 0 'c=wbcosworth' 'COSWORTH'
-  'a press shows at once, before the page has confirmed it'
-  Js 'Analysis.local = {}' 100
-  Press 6 2 300; Check 'TILE says ON the moment it is pressed' ((Reg 'Analysis' 6 2).s -eq 'ON')
-  Press 3 2 300; Check 'SPEED says x2 the moment it is pressed' ((Reg 'Analysis' 3 2).s -eq ([string][char]0xD7 + '2'))
-  Press 0 3 300; Check 'the DRIVER tab is the gold one the moment it is pressed' ((Reg 'Analysis' 0 3).st -eq 'sel')
-  Press 2 3 300; Check 'the GRIP tab is the gold one the moment it is pressed' ((Reg 'Analysis' 2 3).st -eq 'sel' -and (Reg 'Analysis' 0 3).st -eq '')
-
-  'the page says what is really on: the keys follow it'
-  Js 'Analysis.local = {}' 100
-  Fx '/workbench/state' "m.playing = true; m.speed = 2; m.tile = true; m.mapColour = 'speed'; m.page = 'grip'; m.zoomed = true; m.offset = 4; m.ref = 'file.ibt:5'"
-  $r = Reg 'Analysis' 6 1; Check 'playing: the key says PAUSE and PLAYING x2' ($r.t -eq 'PAUSE' -and $r.s -eq ('PLAYING ' + [char]0xD7 + '2') -and $r.st -eq '')
-  $r = Reg 'Analysis' 6 2; Check 'tile on: TILE says ON' ($r.s -eq 'ON' -and $r.st -eq 'on')
-  $r = Reg 'Analysis' 3 2; Check 'SPEED says x2 and is gold (not normal speed)' ($r.s -eq ([string][char]0xD7 + '2') -and $r.st -eq 'sel')
-  $r = Reg 'Analysis' 7 2; Check 'MAP COLOUR says SPEED' ($r.s -eq 'SPEED')
-  $r = Reg 'Analysis' 2 3; $r0 = Reg 'Analysis' 0 3; Check 'the GRIP tab is the gold one now' ($r.st -eq 'sel' -and $r0.st -eq '')
-  $r = Reg 'Analysis' 2 2; Check 'WHOLE LAP is gold while zoomed in' ($r.st -eq 'sel' -and $r.s -eq 'ZOOMED IN')
-  $r = Reg 'Analysis' 5 2; Check 'ALIGN shows the offset (+4 M, gold)' ($r.s -eq '+4 M' -and $r.st -eq 'sel')
-  $r = Reg 'Analysis' 4 2; Check 'COMPARE says LAP 5 for another lap of the session' ($r.s -eq 'LAP 5')
-  $null = Sheet 'deck-analysis-playing'
-  Req 6 1 'c=wb-toggle-play' 'PAUSE while playing'
-
-  'KEEP shows the real state; COSWORTH only when Pi Toolbox is installed'
-  Fx '/vault/item' "m.m.pinned = true" 100; Js 'Analysis.vtAt = 0' 1500
-  $r = Reg 'Analysis' 6 0; Check 'kept: KEPT in gold, TAP TO LET GO' ($r.t -eq 'KEPT' -and $r.st -eq 'sel' -and $r.s -eq 'TAP TO LET GO')
-  Req 6 0 'c=wbkeep&a=0' 'KEPT (lets it go)'
-  Fx '/vault/item' "m.cosworth.installed = false; m.m.pinned = false" 100; Fx '/vault' "m.cosworth.installed = false" 100; Js 'Analysis.vtAt = 0' 1500
-  Check 'Pi Toolbox not installed: there is no COSWORTH key (the cell is empty)' ($null -eq (Reg 'Analysis' 7 0))
-  Fx '/vault/item' "delete m.m; m.error = 'no such moment'" 100; Js 'Analysis.vtAt = 0' 1500
-  $r = Reg 'Analysis' 6 0; Check 'a lap that is not in the Vault: KEEP is dim and says so (no press)' ($r.t -eq 'KEEP' -and $r.s -eq 'NOT IN VAULT' -and $r.st -eq 'dim' -and -not $r.a)
-  NoReq 6 0 'the dim KEEP'
-  Fx '/vault/item' "m.m = { pinned: false, keeper: false }; m.cosworth = { installed: true }; delete m.error" 100; Fx '/vault' "m.cosworth.installed = true" 100; Js 'Analysis.vtAt = 0' 1500
-
-  'one page only: no tab row; many pages: narrow tabs'
-  Fx '/workbench/state' "m.pages = ['driver']; m.page = 'driver'; m.playing = false; m.zoomed = false"
-  Check 'with one page there is no choice, so no tab keys' ($null -eq (Reg 'Analysis' 0 3))
-  # the six pages the workbench really reports (C-41 / C-41b): short labels, the whole row used (8 keys: DRIVER and GRIP wide, the other four narrow)
-  Fx '/workbench/state' "m.pages = ['driver', 'grip', 'braking', 'tyres', 'suspension', 'splits']; m.page = 'driver'"
-  $six = @(); foreach ($c in 0, 2, 4, 5, 6, 7) { $six += , (Reg 'Analysis' $c 3) }
-  Check 'six pages: six page keys in the bottom row, labelled DRIVER, GRIP, BRAKES, TYRES, SUSP., SPLITS' (@($six | Where-Object { $_ }).Count -eq 6 -and (($six | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS')
-  Check 'six pages: each key opens its own page (wb-page with the page id braking / tyres / suspension / splits ...)' ((($six | ForEach-Object { $_.a + ':' + $_.g }) -join ',') -eq 'wb-page:driver,wb-page:grip,wb-page:braking,wb-page:tyres,wb-page:suspension,wb-page:splits')
-  Check 'six pages: DRIVER and GRIP are two keys wide, the other four one wide, so the row is full (no empty cell, no dead key)' ((($six | ForEach-Object { $_.w }) -join ',') -eq '2,2,1,1,1,1' -and (Blank 'Analysis') -eq 0)
-  Check 'six pages: the page on show is the gold one (DRIVER, SHOWING), the others are plain' ($six[0].st -eq 'sel' -and $six[0].s -eq 'SHOWING' -and @($six[1..5] | Where-Object { $_.st -ne '' }).Count -eq 0)
-  Check 'six pages: every label is 7 characters or fewer on the narrow keys (16 at most anywhere)' (@($six | Where-Object { $_.t.Length -gt $(if ($_.w -eq 1) { 7 } else { 16 }) }).Count -eq 0)
-  $null = Sheet 'deck-analysis-sixpages'
-  Req 5 3 'c=wb-page&a=tyres' 'the TYRES key'
-  Req 7 3 'c=wb-page&a=splits' 'the SPLITS key'
-  Js 'Analysis.local = {}' 100
-
-  # PL-1: more than 8 pages (a clip and a race log make ten): the row shows the first 7 and a PAGES key, which opens a picker with every page and a BACK
-  'seven, eight, nine and ten pages (DRIVER GRIP BRAKES TYRES SUSP. SPLITS VIDEO RACE CAREER PRO)'
-  Fx '/workbench/state' "m.pages = ['driver', 'grip', 'braking', 'tyres', 'suspension', 'splits', 'career']; m.page = 'driver'"
-  $r7 = @(); $col = 0; foreach ($w in 2, 1, 1, 1, 1, 1, 1) { $r7 += , (Reg 'Analysis' $col 3); $col += $w }
-  Check 'seven pages: DRIVER wide, then GRIP BRAKES TYRES SUSP. SPLITS CAREER narrow; the 8 keys are all used, no PAGES key' ((($r7 | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS,CAREER' -and (($r7 | ForEach-Object { $_.w }) -join ',') -eq '2,1,1,1,1,1,1' -and (Blank 'Analysis') -eq 0 -and @($r7 | Where-Object { $_.a -eq 'pages' }).Count -eq 0)
-  Fx '/workbench/state' "m.pages = ['driver', 'grip', 'braking', 'tyres', 'suspension', 'splits', 'video', 'race']; m.page = 'driver'"
-  $r8 = @(); foreach ($c in 0..7) { $r8 += , (Reg 'Analysis' $c 3) }
-  Check 'eight pages: unchanged - eight narrow page keys DRIVER..RACE, no PAGES key, nothing blank' ((($r8 | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS,VIDEO,RACE' -and @($r8 | Where-Object { $_.w -ne 1 -or $_.a -ne 'wb-page' }).Count -eq 0 -and (Blank 'Analysis') -eq 0)
-  Fx '/workbench/state' "m.pages = ['driver', 'grip', 'braking', 'tyres', 'suspension', 'splits', 'video', 'race', 'career']; m.page = 'driver'"
-  $r9 = @(); foreach ($c in 0..7) { $r9 += , (Reg 'Analysis' $c 3) }
-  Check 'nine pages: seven page keys and PAGES (the 8th and 9th pages are behind it)' ((($r9 | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS,VIDEO,PAGES' -and $r9[7].a -eq 'pages' -and $r9[7].s -eq 'ALL 9')
-  $ten = "['driver', 'grip', 'braking', 'tyres', 'suspension', 'splits', 'video', 'race', 'career', 'pro']"
-  Fx '/workbench/state' "m.pages = $ten; m.page = 'driver'"
-  $r10 = @(); foreach ($c in 0..7) { $r10 += , (Reg 'Analysis' $c 3) }
-  Check 'ten pages: the row is DRIVER GRIP BRAKES TYRES SUSP. SPLITS VIDEO and PAGES, 8 keys, all one wide, nothing blank' ((($r10 | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS,VIDEO,PAGES' -and @($r10 | Where-Object { $_.w -ne 1 }).Count -eq 0 -and (Blank 'Analysis') -eq 0)
-  Check 'ten pages: the seven page keys open their pages, PAGES opens the picker (and says ALL 10); DRIVER is the gold one' ((($r10[0..6] | ForEach-Object { $_.a + ':' + $_.g }) -join ',') -eq 'wb-page:driver,wb-page:grip,wb-page:braking,wb-page:tyres,wb-page:suspension,wb-page:splits,wb-page:video' -and $r10[7].a -eq 'pages' -and $r10[7].s -eq 'ALL 10' -and $r10[7].st -eq '' -and $r10[0].st -eq 'sel')
-  $null = Sheet 'deck-analysis-pages'
-  Fx '/workbench/state' "m.page = 'pro'"
-  $r = Reg 'Analysis' 7 3; Check 'the page on show is behind PAGES (PRO): the PAGES key is the gold one and names it' ($r.t -eq 'PAGES' -and $r.st -eq 'sel' -and $r.s -eq 'PRO' -and @(0..6 | Where-Object { (Reg 'Analysis' $_ 3).st -eq 'sel' }).Count -eq 0)
-  Fx '/workbench/state' "m.page = 'driver'"
-  ClearApis; Press 7 3 150; Press 2 3 100          # PAGES, and the same press arriving again at once: on the picker's layout that key is PRO
-  $dup = @(Apis | Where-Object { $_ -match 'c=wb' }).Count
-  $r = Reg 'Analysis' 0 0; Check 'PAGES opened the picker: BACK is the top-left key (it returns to the analysis keys, it does not leave them)' ($r.t -eq 'BACK' -and $r.a -eq 'pagesback' -and (Cur) -eq 'RigAnalysis')
-  Check 'the PAGES press arriving again at once did not pick a page by accident (nothing sent)' ($dup -eq 0)
-  $r = Reg 'Analysis' 1 0; Check 'the picker has a title line' ($r.t -eq 'PAGES' -and -not $r.a)
-  $pk = @(); foreach ($p in @(@(0, 1), @(2, 1), @(4, 1), @(6, 1), @(0, 2), @(2, 2), @(4, 2), @(6, 2), @(0, 3), @(2, 3))) { $pk += , (Reg 'Analysis' $p[0] $p[1]) }
-  Check 'the picker shows every page as a big key, in order, named DRIVER GRIP BRAKES TYRES SUSP. SPLITS VIDEO RACE CAREER PRO' (@($pk | Where-Object { $_ }).Count -eq 10 -and (($pk | ForEach-Object { $_.t }) -join ',') -eq 'DRIVER,GRIP,BRAKES,TYRES,SUSP.,SPLITS,VIDEO,RACE,CAREER,PRO')
-  Check 'picker: each key opens its own page (wb-page with the id), every key two wide, DRIVER (on show) gold' ((($pk | ForEach-Object { $_.a + ':' + $_.g }) -join ',') -eq 'wb-page:driver,wb-page:grip,wb-page:braking,wb-page:tyres,wb-page:suspension,wb-page:splits,wb-page:video,wb-page:race,wb-page:career,wb-page:pro' -and @($pk | Where-Object { $_.w -ne 2 }).Count -eq 0 -and $pk[0].st -eq 'sel' -and $pk[0].s -eq 'SHOWING' -and @($pk[1..9] | Where-Object { $_.st -ne '' }).Count -eq 0)
-  Check 'picker: opening it sent nothing to the analysis page (no wb- command)' (@(Apis | Where-Object { $_ -match 'c=wb' }).Count -eq 0)
-  $null = Sheet 'deck-analysis-picker'
-  Start-Sleep -Milliseconds 900
-  ClearApis; Press 2 3 150; Press 2 3 100          # PRO in the picker, and the same press arriving again: on the analysis keys that key is BRAKES
-  $sent = @(Apis | Where-Object { $_ -match 'c=wb' })
-  Check 'the PRO key in the picker asks the page for PRO, once (the repeat is ignored, it would have been BRAKES)' ($sent.Count -eq 1 -and $sent[0] -match 'c=wb-page&a=pro')
-  $r = Reg 'Analysis' 0 0; $r7k = Reg 'Analysis' 7 3
-  Check 'a page picked: the picker closed by itself, the analysis keys are back (BACK leaves) and PAGES shows PRO in gold at once' ($r.a -eq 'back' -and $r7k.a -eq 'pages' -and $r7k.s -eq 'PRO' -and $r7k.st -eq 'sel' -and (Cur) -eq 'RigAnalysis')
-  Js 'Analysis.local = {}' 900
-  Press 7 3 900
-  Press 0 0 100                                    # BACK in the picker, then the same press again: on the analysis keys that key leaves the screen
-  Press 0 0 100
-  $r = Reg 'Analysis' 0 0; Check 'BACK in the picker closes the picker and stays on the analysis keys (a second BACK press at once does not leave them)' ($r.a -eq 'back' -and (Cur) -eq 'RigAnalysis' -and (Reg 'Analysis' 7 3).a -eq 'pages')
-  Fx '/workbench/state' "m.pages = ['driver', 'grip']; m.page = 'driver'"
-  Check 'with only two pages again there is no PAGES key and no picker left open' ((Reg 'Analysis' 7 3) -eq $null -and (Reg 'Analysis' 0 0).a -eq 'back')
-  Js 'Analysis.local = {}' 100
-  Fx '/workbench/state' "m.pages = ['driver', 'grip']; m.laps = 1; m.corners = 0; m.events = 0; m.refTime = null; m.ref = 'pb'"
-  $r = Reg 'Analysis' 0 1; $r2 = Reg 'Analysis' 2 1; $r3 = Reg 'Analysis' 4 1
-  Check 'one lap, no corners, no events: those keys are dim and say why (no press)' ($r.st -eq 'dim' -and $r.s -eq 'ONLY ONE' -and -not $r.a -and $r2.st -eq 'dim' -and $r2.s -eq 'NONE FOUND' -and $r3.st -eq 'dim' -and -not $r3.a)
-  $r = Reg 'Analysis' 1 0; Check 'no reference lap: the banner says so' ($r.s -eq 'no reference lap')
-  NoReq 0 1 'a dim LAP key'
-  $null = Sheet 'deck-analysis-nothing-to-step'
-
-  'no lap open / in the car / program not updated'
-  Fx '/workbench/state' "m.open = false"
-  $r = Reg 'Analysis' 0 1; Check 'no lap open: it says NO LAP OPEN and only BACK is a key' ($r.t -eq 'NO LAP OPEN' -and -not $r.a -and (Reg 'Analysis' 0 0).a -eq 'back' -and $null -eq (Reg 'Analysis' 6 1).a)
-  Check 'no lap open: all 32 keys still have a picture' ((Sheet 'deck-analysis-nolap') -eq 32)
-  Fx '/workbench/state' "m.open = true; m.driving = true"
-  $r = Reg 'Analysis' 0 1; Check 'in the car: GET OUT OF THE CAR, nothing else to press' ($r.t -eq 'GET OUT OF THE CAR' -and -not (Reg 'Analysis' 3 1).a)
-  $null = Sheet 'deck-analysis-driving'
-  Js "Analysis.readState = async function () { this.a = { open: false, off: true, driving: false }; }" 1500
-  $r = Reg 'Analysis' 0 1; Check 'irdash not updated yet (no /workbench/state): NOT READY' ($r.t -eq 'NOT READY')
-  $null = Sheet 'deck-analysis-notready'
-  Press 0 0 700
-  Check 'BACK returns to your own keys' ((Cur) -eq 'main')
-  Js "delete Analysis.readState" 100
-  Fx '/workbench/state' "m.open = true; m.driving = false" 100
-
-  'the page side of the feed: the report dash\www\v2\workbench.js builds (its own code, run here with stand-in data)'
-  $wbjs = [IO.File]::ReadAllText((Join-Path $root 'dash\www\v2\workbench.js'))
-  $i0 = $wbjs.IndexOf('function deckReport() {'); $i1 = $wbjs.IndexOf('// the deck: irdash keeps the last wb-* command')
-  $reportJs = if ($i0 -gt 0 -and $i1 -gt $i0) { $wbjs.Substring($i0, $i1 - $i0) } else { '' }
-  # the page's own lap-counts helpers (C-41b: a lap counts by the session reply when it is there, else the lap store's clean flag), run with the same stand-in data
-  $j0 = $wbjs.IndexOf('function sessLap(l)'); $j1 = $wbjs.IndexOf('function header() {'); $reportJs = $(if ($j0 -gt 0 -and $j1 -gt $j0) { $wbjs.Substring($j0, $j1 - $j0) } else { '' }) + $reportJs
-  Check 'workbench.js has the deckReport / deckState functions in front of pollDeck, and pollDeck sends the report with its poll' ($reportJs -ne '' -and ($wbjs.Contains("fetch('/workbench/cmd?' + deckState()") -or ($wbjs.Contains("var q = deckState()") -and $wbjs.Contains("fetch('/workbench/cmd?' + q"))) -and $wbjs.Contains('function deckState()'))
-  $stubA = "const D = { head: { lap: { lap: 7, time: 79.549 }, ref: { time: 79.575, lap: 3 }, laps: [{ clean: true }, { clean: false }, { clean: true }], car: 'Chevrolet Corvette Z06 GT3.R', track: 'Road Atlanta' }, events: [1, 2, 3], corners: [1, 2], step: 1 }; const S = { page: 'driver', playing: false, speed: 1, tile: false, axis: 'dist', mapColour: 'gap', offsetMode: false, offset: 0 }; const PAGES = [{ id: 'driver' }, { id: 'grip' }]; const pages = () => PAGES; const zoomed = () => false; const P = { get: k => ({ id: 'l20261010-041318-7' })[k] || null };"
-  $stubB = "const D = { head: { lap: { lap: 7, time: 79.549 }, ref: { time: 79.575, lap: 3 }, laps: [{ clean: true }, { clean: false }, { clean: true }], car: 'Chevrolet Corvette Z06 GT3.R', track: 'Road Atlanta' }, events: [1, 2, 3], corners: [1, 2], step: 1 }; const S = { page: 'grip', playing: true, speed: 0.5, tile: true, axis: 'time', mapColour: 'speed', offsetMode: false, offset: -3 }; const PAGES = [{ id: 'driver' }, { id: 'grip' }]; const pages = () => PAGES; const zoomed = () => true; const P = { get: k => ({ id: 'l20261010-041318-7', ref: 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt:5' })[k] || null };"
-  $stubC = $stubA.Replace("ref: { time: 79.575, lap: 3 }", "ref: null")
-  $qA = Invoke-DeckJs $page "(() => { $stubA; $reportJs; return deckReport(); })()"
-  $qB = Invoke-DeckJs $page "(() => { $stubB; $reportJs; return deckReport(); })()"
-  $qC = Invoke-DeckJs $page "(() => { $stubC; $reportJs; return deckReport(); })()"
-  Check 'the report names the page, the lap and its time, the reference time, the number of clean laps, events and corners' ($qA -match '(^|&)pg=driver(&|$)' -and $qA -match 'pgs=driver%2Cgrip' -and $qA -match '(^|&)lap=7(&|$)' -and $qA -match 'lt=79\.549' -and $qA -match 'rt=79\.575' -and $qA -match '(^|&)nl=2(&|$)' -and $qA -match '(^|&)ne=3(&|$)' -and $qA -match '(^|&)nc=2(&|$)' -and $qA -match '(^|&)id=l20261010-041318-7(&|$)')
-  Check 'the report carries the real state: playing, speed 0.5, tile on, zoomed, offset -3, map colour' ($qB -match '(^|&)pl=1(&|$)' -and $qB -match '(^|&)sp=0\.5(&|$)' -and $qB -match '(^|&)tl=1(&|$)' -and $qB -match '(^|&)z=1(&|$)' -and $qB -match '(^|&)of=-3(&|$)' -and $qB -match '(^|&)mc=speed(&|$)' -and $qB -match '(^|&)pg=grip(&|$)')
-  Check 'with no reference lap the reference time and lap are empty' ($qC -match '(^|&)rt=(&|$)' -and $qC -match '(^|&)rl=(&|$)')
-  $wbQuery = $qB
-
-  # ================= 1b. the DEBRIEF row (D-05) =================
-  # The bottom row of the ANALYSIS screen: SAVE / SHARE / COSWORTH / DEEP DIVE act on the debrief the top screen is
-  # showing. With no debrief the four keys are dim; with one, each is live only when its action is available, and every
-  # key sends the debrief id the /debrief/state reply named (irdash refuses anything else).
-  '1b. the DEBRIEF row on the ANALYSIS screen (D-05): four live keys, dim without a debrief'
-  Fx '/workbench/state' "m.open = false; m.driving = false" 100
-  Fx '/debrief/state' "m.open = false" 100
-  $null = Invoke-DeckJs $page "__sd.measureOpen('analysis')"
-  Start-Sleep -Milliseconds 1500
-  $r = Reg 'Analysis' 0 3; $r2 = Reg 'Analysis' 2 3; $r3 = Reg 'Analysis' 4 3; $r4 = Reg 'Analysis' 6 3
-  Check 'no debrief: the four keys say SAVE SHARE COSWORTH DEEP DIVE, all dim, nothing to press' ($r.t -eq 'SAVE' -and $r2.t -eq 'SHARE' -and $r3.t -eq 'COSWORTH' -and $r4.t -eq 'DEEP DIVE' -and $r.st -eq 'dim' -and $r2.st -eq 'dim' -and $r3.st -eq 'dim' -and $r4.st -eq 'dim' -and -not $r.a -and -not $r2.a -and -not $r3.a -and -not $r4.a)
-  NoReq 0 3 'a dim SAVE key'
-  $null = Sheet 'deck-analysis-debrief-dim'
-  Fx '/debrief/state' "Object.assign(m, { open: true, id: 'l20261010-041318-7', recId: '20261010-041318-roadatlanta', saved: false, shareId: 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt:8', deepDive: { id: 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt', lap: 8, corner: 'T10a', cornerN: 10 } })" 100
-  Start-Sleep -Milliseconds 900
-  $r = Reg 'Analysis' 0 3; $r2 = Reg 'Analysis' 2 3; $r3 = Reg 'Analysis' 4 3; $r4 = Reg 'Analysis' 6 3
-  Check 'a debrief showing: all four keys are live, each two keys wide, none dim' ($r.t -eq 'SAVE' -and $r.a -eq 'db-save' -and $r2.t -eq 'SHARE' -and $r2.a -eq 'db-share' -and $r3.t -eq 'COSWORTH' -and $r3.a -eq 'db-cosworth' -and $r4.t -eq 'DEEP DIVE' -and $r4.a -eq 'db-deepdive' -and $r.w -eq 2 -and $r2.w -eq 2 -and $r3.w -eq 2 -and $r4.w -eq 2 -and $r.st -ne 'dim' -and $r2.st -ne 'dim' -and $r3.st -ne 'dim' -and $r4.st -ne 'dim')
-  $null = Sheet 'deck-analysis-debrief'
-  Req 0 3 'c=db-save&a=l20261010-041318-7' 'SAVE (the recorder session)'
-  Req 2 3 'c=db-share&a=l20261010-041318-7' 'SHARE (the lap clip)'
-  Req 4 3 'c=db-cosworth&a=l20261010-041318-7' 'COSWORTH'
-  Req 6 3 'c=db-deepdive&a=l20261010-041318-7' 'DEEP DIVE'
-  'a key is dim when its action is not available'
-  Fx '/debrief/state' "m.shareId = null; m.recId = null" 100
-  Start-Sleep -Milliseconds 900
-  Check 'no recorder session and no clip: SAVE and SHARE are dim (nothing to press)' ((Reg 'Analysis' 0 3).st -eq 'dim' -and -not (Reg 'Analysis' 0 3).a -and (Reg 'Analysis' 2 3).st -eq 'dim' -and -not (Reg 'Analysis' 2 3).a)
-  Fx '/vault' "m.cosworth.installed = false" 100
-  Fx '/debrief/state' "m.shareId = 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt:8'; m.recId = '20261010-041318-roadatlanta'" 100
-  Start-Sleep -Milliseconds 7000
-  Check 'Pi Toolbox not installed: the COSWORTH key is dim' ((Reg 'Analysis' 4 3).st -eq 'dim' -and -not (Reg 'Analysis' 4 3).a)
-  Fx '/vault' "m.cosworth.installed = true" 100
-  Fx '/debrief/state' "m.open = false" 100
-  Start-Sleep -Milliseconds 900
-  Check 'no debrief again: the four keys are dim once more' ((Reg 'Analysis' 0 3).st -eq 'dim' -and -not (Reg 'Analysis' 0 3).a)
-  Press 0 0 700
-  Check 'BACK leaves the ANALYSIS keys for your own keys' ((Cur) -eq 'main')
-
-  try { Assert-RigFree -Where '2. SOUND' } catch { "$_"; throw }
   ''; '2. the SOUND screen'
   Start-Sleep -Milliseconds 2200
   $m2 = Invoke-DeckJs $page "__sd.measureOpen('sound')"
@@ -378,50 +121,55 @@ try {
   Press 7 3 700
   Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
 
-  # ================= 3. RACE SETUP =================
-  try { Assert-RigFree -Where '3. RACE SETUP' } catch { "$_"; throw }
-  ''; '3. RACE SETUP and the list picker'
+  # ================= 3. AI RACE: its lists (W3-4 folded MY DRIVE and AI LEVEL into one screen; car / track / level / START: tests\deck-airace-test.ps1) =================
+  try { Assert-RigFree -Where '3. AI RACE lists' } catch { "$_"; throw }
+  ''; '3. the AI RACE screen and its lists (one key per item, nothing to type)'
+  Start-Sleep -Milliseconds 900   # W3-4 review: an opener press within 0.8 s of a page change is the doubled press and is ignored
   $m3 = Invoke-DeckJs $page "__sd.measureOpen('mydrive')"
   Start-Sleep -Milliseconds 1000
   Js "MyDrive.view='home'; MyDrive.m.choice.has=true; MyDrive.m.choice.carShort='CORVETTE'; MyDrive.m.choice.trackShort='ROAD ATLANTA'; MyDrive.m.choice.layout='Full Course'; MyDrive.relayout()" 250
-  Check 'RACE SETUP home renders all 32 keys' ((Sheet 'deck-pick-home') -eq 32)
-  Check 'home row has LAST DRIVE, RECENT, CARS, TRACKS and FAVOURITES on single keys' ((Reg 'MyDrive' 1 0).t -match 'CORVETTE' -and (Reg 'MyDrive' 2 0).t -eq 'RECENT' -and (Reg 'MyDrive' 3 0).t -eq 'CARS' -and (Reg 'MyDrive' 4 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 5 0).t -eq 'FAVOURITES')
-  Check 'the chosen car, track and layout each have one key; START is one green key' ((Reg 'MyDrive' 0 1).t -eq 'CORVETTE' -and (Reg 'MyDrive' 1 1).t -eq 'ROAD ATLANTA' -and (Reg 'MyDrive' 2 1).t -eq 'LAYOUT' -and (Reg 'MyDrive' 6 3).t -eq 'START' -and (Reg 'MyDrive' 6 3).st -eq 'go')
-  Check 'home keeps BACK at 0,0 and EXIT at 7,3' ((Reg 'MyDrive' 0 0).t -eq 'BACK' -and (Reg 'MyDrive' 7 3).t -eq 'EXIT')
-  Press 5 0 300
-  Check 'FAVOURITES opens its own one-key combo list' ((Reg 'MyDrive' 4 0).t -eq 'FAVOURITES' -and (Reg 'MyDrive' 0 1).a -eq 'mdpick')
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-favourites'
-  $q=PickerQuality; Check 'FAVOURITES uses one-key uppercase tiles, two text lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Press 1 0 300
+  Check 'AI RACE renders all 32 keys' ((Sheet 'deck-airace-lists-home') -eq 32)
+  Check 'the top row has RECENT, CARS, TRACKS and FAVOURITES on single keys (no second CORVETTE key: the CAR key shows it)' ((Reg 'MyDrive' 0 0).t -eq 'RECENT' -and (Reg 'MyDrive' 1 0).t -eq 'CARS' -and (Reg 'MyDrive' 2 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 3 0).t -eq 'FAVOURITES' -and (Invoke-DeckJs $page "MyDrive.regions.filter(r => /CORVETTE/.test(r.text)).length") -eq 1)
+  Check 'one EXIT, at 7,3 (no BACK that also leaves)' ((Reg 'MyDrive' 7 3).t -eq 'EXIT' -and (Reg 'MyDrive' 7 3).a -eq 'exit' -and (Invoke-DeckJs $page "MyDrive.regions.filter(r => r.act === 'exit' || r.act === 'leave').length") -eq 1)
+  Press 3 0 300
+  Check 'FAVOURITES opens its own one-key list' ((Reg 'MyDrive' 4 0).t -eq 'FAVOURITES' -and (Reg 'MyDrive' 0 1).a -eq 'mdpick')
+  $q=PickerQuality; Check 'FAVOURITES: one-key uppercase tiles, two text lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Press 0 0 300
+  Check 'BACK in a list returns to the AI RACE keys (it does not leave the screen)' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 0 0).t -eq 'RECENT' -and (Reg 'MyDrive' 4 1).t -eq 'START')
+  Press 0 0 300
+  Check 'RECENT opens its list' ((Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 1 0).st -eq 'sel' -and (Reg 'MyDrive' 0 1).t -match 'CORVETTE')
+  $null = Sheet 'deck-airace-recent'
+  $q=PickerQuality; Check 'RECENT: one-key uppercase tiles within 12/14 characters, BACK and EXIT' ($q.single -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'RECENT pages forward and back (PREV / NEXT, EXIT stays at 7,3)' ((Reg 'MyDrive' 5 3).t -eq 'PREV' -and (Reg 'MyDrive' 6 3).t -eq 'NEXT' -and (Reg 'MyDrive' 7 3).t -eq 'EXIT')
+  Press 6 3 300
+  Check 'RECENT page two can return to page one' ((Reg 'MyDrive' 5 3).t -eq 'PREV')
+  Press 5 3 300
   'CARS -> TRACKS -> LAYOUTS'
-  Press 2 0 300
+  ClearApis
+  Press 2 0 300   # the CARS tab of the list
   Check 'CARS starts with class tabs and has a one-key car list' ((Reg 'MyDrive' 4 0).t -eq 'GT3' -and (Reg 'MyDrive' 0 1).w -eq 1)
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-cars'
-  $q=PickerQuality; Check 'CARS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'SEARCH is the last key on CARS' ((Reg 'MyDrive' 4 3).t -eq 'SEARCH')
+  $null = Sheet 'deck-airace-cars'
+  $q=PickerQuality; Check 'CARS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'no SEARCH key and no keyboard: nothing to type (PLAN rule 6)' ((Invoke-DeckJs $page "MyDrive.regions.filter(r => /SEARCH/.test(r.text) || r.act === 'search' || r.act === 'letter').length") -eq 0)
   Press 0 1 300
-  Check 'choosing a car advances to TRACKS and sends mdpick' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and @(Apis | Where-Object { $_ -match 'c=mdpick&a=c00000001' }).Count -eq 1 -and @(Apis | Where-Object { $_ -match 'c=mdstart' }).Count -eq 0)
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-tracks'
-  $q=PickerQuality; Check 'TRACKS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
-  Check 'SEARCH is the last key on TRACKS' ((Reg 'MyDrive' 4 3).t -eq 'SEARCH')
+  Check 'choosing a car sends mdpick and goes on to TRACKS, nothing started' ((Reg 'MyDrive' 3 0).t -eq 'TRACKS' -and (Reg 'MyDrive' 3 0).st -eq 'sel' -and @(Apis | Where-Object { $_ -match 'c=mdpick&a=c00000001' }).Count -eq 1 -and @(Apis | Where-Object { $_ -match 'c=mdstart|c=airace|a=start' }).Count -eq 0)
+  $q=PickerQuality; Check 'TRACKS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
   Press 0 1 300
-  Check 'choosing a track saves it and opens its layout list' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1 -and (Reg 'MyDrive' 0 1).t -eq 'FULL COURSE')
-  Js 'MyDrive.relayout()' 300
-  $null = Sheet 'deck-pick-layouts'
-  $q=PickerQuality; Check 'LAYOUTS uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'choosing a track saves it and opens its layout list' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=t00000001' }).Count -eq 1 -and (Reg 'MyDrive' 0 1).t -eq 'FULL COURSE' -and (Reg 'MyDrive' 1 1).t -eq 'SHORT COURSE')
+  $null = Sheet 'deck-airace-layouts'
+  $q=PickerQuality; Check 'LAYOUTS: one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
   Press 0 1 300
-  Check 'choosing a layout saves it and returns to MAIN' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=l' }).Count -ge 1 -and (Cur) -eq 'main')
+  Check 'choosing a layout saves it and comes back to the AI RACE keys, where START is (the deck does not leave)' (@(Apis | Where-Object { $_ -match 'c=mdpick&a=l' }).Count -ge 1 -and (Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 4 1).t -eq 'START' -and @(Apis | Where-Object { $_ -match 'c=mdstart|c=airace|a=start' }).Count -eq 0)
+  Press 7 3 700
+  Check 'EXIT returns to your own keys' ((Cur) -eq 'main')
   Fx '/mydrive' "m.choice.has = false; m.aiStatus = 'NO CHOICE'" 200
   Js "MyDrive.keyTick()" 800
   Check 'NO CHOICE never switches the deck by itself (W0-1, audit 11 A1); the deck stays on your own keys' ((Cur) -eq 'main' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
   Js "__sd.pressOpener('mydrive')" 1500
-  Check 'NO CHOICE: a press on MY DRIVE opens the picker without starting AI RACE' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart' }).Count -eq 0)
-  $null = Sheet 'deck-pick-empty-choice'
-  $q=PickerQuality; Check 'RECENT uses one-key uppercase tiles, two text lines, short lines, BACK and EXIT' ($q.single -and $q.twoLines -and $q.upper -and $q.lengths -and $q.back -and $q.exit)
+  Check 'NO CHOICE: a press on AI RACE opens the RECENT list without starting anything' ((Cur) -eq 'RigMyDrive' -and (Reg 'MyDrive' 1 0).t -eq 'RECENT' -and (Reg 'MyDrive' 1 0).st -eq 'sel' -and @(Apis | Where-Object { $_ -match 'c=airace|c=mdstart|a=start' }).Count -eq 0)
+  $null = Sheet 'deck-airace-empty-choice'
   Fx '/mydrive' "m.aiStatus = ''; m.choice.has = true" 100
+  Js "MyDrive.exit({test:true})" 250
 }
 finally { Stop-DeckBrowser $b }
 
@@ -600,10 +348,10 @@ if (Test-Path "$tdir\t.exe") {
 # ================= 6. the two fixes from keys-test =================
 ''; '6. the two keys-test warnings are gone'
 $plug = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\plugin.html'))
-Check 'MY DRIVE no longer has the dim AI RACE / coming later tile' (-not ($plug -match "'AI RACE'") -and -not ($plug -match 'coming later'))
+Check 'MY DRIVE no longer has the dim AI RACE / coming later tile (W3-4: AI RACE is the folded screen itself now; its START key says AI RACE)' (-not ($plug -match "add\(\d+, \d+, \d+, \d+, 'AI RACE'") -and -not ($plug -match 'coming later'))
 Check 'the PHOTO key''s long line is short now' (-not $plug.Contains('SWITCH ON IN IRACING SETTINGS') -and $plug.Contains("'PHOTO', 'TURN ON IN IRACING'"))
 $inst = [IO.File]::ReadAllText((Join-Path $root 'deck-intro\install.ps1'))
-Check 'install.ps1 has a higher version than 1.6.1.0 and bundles the RigAnalysis and RigSound profiles with their actions' ($inst -match "\`$ver = '1\.([7-9]|\d\d)\.\d+\.\d+'" -and $inst.Contains("Build-Profile 'RigAnalysis' 'analysis'") -and $inst.Contains("Build-Profile 'RigSound' 'sound'") -and $inst.Contains('$uuid.analysis') -and $inst.Contains('$uuid.sound'))
+Check 'install.ps1 has a higher version than 1.6.1.0 and bundles the RigSound profile with its action; the ANALYSIS screen is gone (W3-4 review)' ($inst -match "\`$ver = '1\.([7-9]|\d\d)\.\d+\.\d+'" -and -not $inst.Contains("Build-Profile 'RigAnalysis'") -and -not $inst.Contains('$uuid.analysis') -and $inst.Contains("Build-Profile 'RigSound' 'sound'") -and $inst.Contains('$uuid.sound'))
 
 ''
 "$pass passed, $fail failed. Pictures in $shots"

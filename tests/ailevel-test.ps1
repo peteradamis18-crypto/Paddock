@@ -28,10 +28,11 @@ $dash = ReadText 'dash\src\irdash.cs'; $db = ReadText 'dash\build.ps1'; $plug = 
 Check 'irdash serves GET /ailevel' ($dash -match 'path == "/ailevel".{0,200}AiLevel\.Json\(\)')
 Check 'the ailevel press goes through /api/do to AiLevel.Do' ($dash -match 'AiLevel\.Handles\(dc\) \? AiLevel\.Do\(dc, da\)')
 Check 'ailevel.cs is in dash\build.ps1' ($db -match 'src\\ailevel\.cs')
-Check 'add-on: the AiLevel screen is in SCREENS and paints what /ailevel says' ($plug -match 'const AiLevel = new class extends Screen' -and $plug -match 'ailevel: AiLevel' -and $plug -match "get\('/ailevel'\)" -and $plug -match "switchTo\('RigAiLevel'\)")
-Check 'add-on: the installer has the ailevel action, the RigAiLevel profile and builds it' ($inst -match '\$uuid\.ailevel' -and $inst -match "Name = 'RigAiLevel'" -and $inst -match "Build-Profile 'RigAiLevel' 'ailevel'")
-Check 'the deck key opens that screen (AI LEVEL, plugin com.peter.rigintro.ailevel), only once the installed add-on has it' ($bd -match "plugin = 'com\.peter\.rigintro\.ailevel'" -and $bd -match '\$aiLevelOn')
-Check 'the add-on version is higher than the one installed before this screen (1.8.5)' ($inst -match "\`$ver = '1\.8\.([6-9]|\d\d)\.")
+Check 'add-on (W3-4): the level row is on the AI RACE screen (MyDrive): it reads /ailevel and sends ailevel low / medium / high, START sends ailevel start' ($plug -match "this\.get\('/ailevel'\)" -and $plug -match "this\.cmd\('ailevel', r\.arg\)" -and $plug -match "sendCmd\('/api/do\?c=ailevel&a=start'\)" -and $plug -notmatch 'const AiLevel = new class')
+Check 'add-on (W3-4): the separate AI LEVEL screen is retired (no RigAiLevel profile; the ailevel action stays one release, hidden, and opens the AI RACE screen)' ($inst -match '(?s)\$uuid\.ailevel".{0,400}VisibleInActionsList = \$false' -and $inst -notmatch "Name = 'RigAiLevel'" -and $inst -notmatch "Build-Profile 'RigAiLevel'")
+$lay = ReadText 'deck\layout.json'
+Check 'the deck (deck\layout.json): AI RACE opens that one screen; no AI LEVEL or CAR TRACK key' ($lay -match '"label": \["AI RACE"\][^}]*"screen": "mydrive"' -and $lay -notmatch 'AI LEVEL|CAR TRACK|"ailevel"')
+Check 'the add-on version is higher than the one installed before this screen (1.8.5)' ([version]([regex]::Match($inst, "\`$ver = '([\d.]+)'").Groups[1].Value) -gt [version]'1.8.5.0')
 
 Section '3. AI RACE applies it'
 $td = ReadText 'src\testdrive.cs'

@@ -3,8 +3,9 @@
 # live friends mode screen (RigFriends profile, opened by the FRIENDS key on your own profile), the live
 # overlays screen (RigOverlays profile, opened by the OVERLAYS key), the My Drive screen (RigMyDrive
 # profile, opened by the MY DRIVE action - now the RACE SETUP screen), the REPLAY screen
-# (RigReplay profile, opened by the REPLAY key on the MAIN page), the ANALYSIS screen (RigAnalysis, the ANALYSIS key on MAIN)
-# the SOUND screen (RigSound, the SOUND key on the MORE page), the AC screen (RigAC, the AC key on MORE) and the AI LEVEL screen (RigAiLevel, the AI LEVEL key on MAIN).
+# (RigReplay profile, opened by the REPLAY key on the MAIN page)
+# the SOUND screen (RigSound), the AC screen (RigAC) and the RIG door key. W3-4: AI LEVEL is part of the AI RACE screen (RigMyDrive, the AI RACE key
+# on MAIN); every key picture comes from deck\keyart.js and the deck's words from deck\layout.json, both packaged next to plugin.html.
 # Builds the plugin folder (manifest, page, icons, and the bundled one-page RigIntro profile whose 32 keys
 # are the animation tiles), copies it into Stream Deck's Plugins folder, and restarts Stream Deck so it
 # loads. Refuses while you are driving. Re-run after editing plugin.html.
@@ -25,6 +26,10 @@ Add-Type -AssemblyName System.Drawing, System.IO.Compression, System.IO.Compress
 if (Test-Path $build) { Remove-Item -LiteralPath $build -Recurse -Force }
 New-Item -ItemType Directory -Force "$build\img" | Out-Null
 Copy-Item (Join-Path $here 'plugin.html') "$build\plugin.html"
+# W3-4: the one key drawing (deck\keyart.js) and the deck layout (deck\layout.json, as layout.js) sit next to the page, which loads both
+$deckSrc = Join-Path (Split-Path -Parent $here) 'deck'
+Copy-Item (Join-Path $deckSrc 'keyart.js') "$build\keyart.js"
+[IO.File]::WriteAllText("$build\layout.js", ('window.DECK_LAYOUT = ' + [IO.File]::ReadAllText((Join-Path $deckSrc 'layout.json'), [Text.Encoding]::UTF8) + ';'), (New-Object Text.UTF8Encoding($false)))
 # W0-2: the add-on's own secret, so irdash can tell it from any web page with an opaque origin ("null"). The value in force
 # (dash\deck-secret.txt) is reused; the first time a new one goes to dash\deck-secret-new.txt and irdash takes it over when the
 # installed add-on first sends it (so today's add-on keeps working until Peter clicks Install). Never in git (*.txt is ignored).
@@ -56,7 +61,7 @@ Icon "$build\img\tile.png" 72 $null; Icon "$build\img\tile@2x.png" 144 $null
 
 $manifest = [ordered]@{
   UUID = $uuid; SDKVersion = 2; Name = 'Paddock'; Author = 'Peter'; Version = $ver
-  Description = 'Startup intro and the live deck screens: friends, overlays, race setup, replay, analysis, sound, AC.'; CodePath = 'plugin.html'
+  Description = 'Startup intro and the live deck screens: friends, overlays, race setup, replay, sound, AC, races.'; CodePath = 'plugin.html'
   Icon = 'img/plugin'; Category = 'Rig'; CategoryIcon = 'img/plugin'
   OS = @(@{ Platform = 'windows'; MinimumVersion = '10' }); Software = @{ MinimumVersion = '6.5' }
   Profiles = @(@{ Name = 'RigIntro'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
@@ -64,13 +69,11 @@ $manifest = [ordered]@{
                @{ Name = 'RigOverlays'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigMyDrive'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigReplay'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
-               @{ Name = 'RigAnalysis'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigSound'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigAC'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
-               @{ Name = 'RigAiLevel'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigRaces'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true },
                @{ Name = 'RigConfirm'; DeviceType = 2; AutoInstall = $true; DontAutoSwitchWhenInstalled = $true })
-  Actions = @(@{ UUID = "$uuid.tile"; Name = 'Tile'; Icon = 'img/tile'; Tooltip = 'Part of the intro, friends, overlays, race setup, replay, analysis, sound or AC screen'
+  Actions = @(@{ UUID = "$uuid.tile"; Name = 'Tile'; Icon = 'img/tile'; Tooltip = 'Part of the intro, friends, overlays, race setup, replay, sound or AC screen'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $false; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.friends"; Name = 'Friends mode'; Icon = 'img/plugin'; Tooltip = 'Opens the friends mode screen'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
@@ -82,15 +85,15 @@ $manifest = [ordered]@{
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.replay"; Name = 'Replay'; Icon = 'img/plugin'; Tooltip = 'Opens the Replay screen: timeline, play / pause, laps, incidents, cars, cameras, photo'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
-              @{ UUID = "$uuid.analysis"; Name = 'Analysis'; Icon = 'img/plugin'; Tooltip = 'Opens the Analysis screen: drive the lap analysis on the top screen from the deck'
-                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.sound"; Name = 'Sound'; Icon = 'img/plugin'; Tooltip = 'Opens the Sound screen: game, spotter, music, speakers and ButtKicker levels, mute, presets'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.ac"; Name = 'AC'; Icon = 'img/plugin'; Tooltip = 'Opens the AC screen: power, temperature, mode, fan, presets and auto-cool for the rig room AC'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
-              @{ UUID = "$uuid.ailevel"; Name = 'AI Level'; Icon = 'img/plugin'; Tooltip = 'Opens the AI Level screen: how hard the AI is for the next AI race (adaptive low / medium / high, or a fixed skill range)'
-                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.races"; Name = 'Races'; Icon = 'img/plugin'; Tooltip = 'Opens the Races screen: every whole-race video, watch, YouTube, keep, delete'
+                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
+              @{ UUID = "$uuid.ailevel"; Name = 'AI Level (old key)'; Icon = 'img/plugin'; Tooltip = 'The old AI LEVEL key: opens the AI RACE screen. Kept hidden for one release so a deck not rebuilt yet has no dead key'
+                 States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $false; SupportedInMultiActions = $false; Controllers = @('Keypad') },
+              @{ UUID = "$uuid.rig"; Name = 'Rig'; Icon = 'img/plugin'; Tooltip = 'Opens the RIG page on the top screen; the dot is the last rig check'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') },
               @{ UUID = "$uuid.confirm"; Name = 'Confirm'; Icon = 'img/plugin'; Tooltip = 'SHUT DOWN PC or SLEEP PC (the key settings say which): opens a screen with one YES key that must be pressed within 5 seconds'
                  States = @(@{ Image = 'img/tile'; ShowTitle = $false }); VisibleInActionsList = $true; SupportedInMultiActions = $false; Controllers = @('Keypad') })
@@ -124,10 +127,8 @@ Build-Profile 'RigFriends' 'friends'
 Build-Profile 'RigOverlays' 'overlays'
 Build-Profile 'RigMyDrive' 'mydrive'
 Build-Profile 'RigReplay' 'replay'
-Build-Profile 'RigAnalysis' 'analysis'
 Build-Profile 'RigSound' 'sound'
 Build-Profile 'RigAC' 'ac'
-Build-Profile 'RigAiLevel' 'ailevel'
 Build-Profile 'RigRaces' 'races'
 Build-Profile 'RigConfirm' 'confirm'
 
