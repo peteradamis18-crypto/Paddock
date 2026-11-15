@@ -76,8 +76,8 @@ namespace IRDash
         {
             using (LinearGradientBrush wash = new LinearGradientBrush(new Rectangle(0, 0, 900, H), Color.FromArgb(225, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), LinearGradientMode.Horizontal))
                 g.FillRectangle(wash, 0, 0, 900, H);
-            using (LinearGradientBrush low = new LinearGradientBrush(new Rectangle(0, 380, W, H - 380), Color.FromArgb(0, 0, 0, 0), Color.FromArgb(170, 0, 0, 0), LinearGradientMode.Vertical))
-                g.FillRectangle(low, 0, 380, W, H - 380);
+            using (LinearGradientBrush low = new LinearGradientBrush(new Rectangle(0, 240, W, H - 240), Color.FromArgb(0, 0, 0, 0), Color.FromArgb(200, 0, 0, 0), LinearGradientMode.Vertical))
+                g.FillRectangle(low, 0, 240, W, H - 240);
             string fam = Family();
             using (SolidBrush gold = new SolidBrush(Gold))
             using (SolidBrush white = new SolidBrush(Color.FromArgb(240, 240, 240)))
@@ -98,11 +98,13 @@ namespace IRDash
                         if (sz.Width <= 1150) break;
                     }
                     using (bf)
+                    using (GraphicsPath path = new GraphicsPath())
                     {
+                        // a dark outline round the gold: it reads on a bright sky, a yellow kerb or a white car alike
                         float y = 560 - sz.Height;
-                        using (SolidBrush shadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0)))
-                            g.DrawString(big, bf, shadow, 64 + 4, y + 5, StringFormat.GenericTypographic);
-                        g.DrawString(big, bf, gold, 60, y, StringFormat.GenericTypographic);
+                        path.AddString(big, bf.FontFamily, (int)FontStyle.Bold, size, new PointF(60, y), StringFormat.GenericTypographic);
+                        using (Pen edge = new Pen(Color.FromArgb(200, 0, 0, 0), 12)) { edge.LineJoin = LineJoin.Round; g.DrawPath(edge, path); }
+                        g.FillPath(gold, path);
                     }
                     g.FillRectangle(gold, 64, 578, 140, 6);
                 }

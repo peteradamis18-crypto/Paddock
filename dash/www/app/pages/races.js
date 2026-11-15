@@ -116,6 +116,23 @@ function facts(r) {
 }
 const thumbUrl = r => THUMBS ? THUMBS + encodeURIComponent(r.id) + '.jpg' : '/api/library/thumb?id=' + encodeURIComponent(r.id) + '&w=600';
 
+// W1-11: the race's highlights clip, a second card right after the race (library.cs hl: {sec, state}). Peter's rule (2026-11-14):
+// a label and a number, nothing more: "HIGHLIGHTS · 2:41" and its own SHARE (a state label in its place once it is on its way).
+function hlCard(r) {
+  const h = r.isRace && r.hl && r.hl.sec > 0 ? r.hl : null;
+  if (!h) return '';
+  const s = h.state || { kind: 'none' };
+  const key = s.kind === 'shared' ? '<div class="keylabel done">On YouTube</div>'
+    : s.kind === 'sharing' ? '<div class="keylabel wait">Sharing ' + (s.pct | 0) + '%</div>'
+    : /^(queued|offline|signin)$/.test(s.kind) ? '<div class="keylabel wait">Waiting</div>'
+    : '<button type="button" class="btn gold hlshare" data-act="sharehl">Share</button>';
+  return '<article class="card hl' + (r.thumb ? '' : ' nothumb') + '" data-id="' + esc(r.id) + '" data-hl="1">' +
+    (r.thumb ? '<img class="pic" alt="" loading="lazy" src="' + esc(thumbUrl(r)) + '" onerror="this.parentNode.classList.add(\'nothumb\');this.remove()">' : '') +
+    '<div class="shade"></div>' +
+    '<div class="hlname">HIGHLIGHTS · ' + mmss(h.sec) + '</div>' + key +
+    '</article>';
+}
+
 const Races = {
   data: null, failed: false, tab: 'races', ticks: new Set(), lastTick: '', openId: '', picker: false,
   deleting: new Set(), goneDry: new Set(),      // cards hidden while their DELETE is on its way (and, in ?dry=1, for good)
@@ -262,7 +279,7 @@ const Races = {
         '<div class="track">' + esc(r.track) + '</div>' +
         '<div class="facts">' + facts(r) + '</div>' +
         stateHtml(stateLine(r, false)) + '</div>' +
-        '</article>';
+        '</article>' + hlCard(r);
     }).join('');
   },
 
@@ -383,6 +400,8 @@ const Races = {
   gridClick(e) {
     const card = e.target.closest('.card'); if (!card) return;
     const id = card.dataset.id, b = e.target.closest('[data-act]'), act = b ? b.dataset.act : '';
+    if (act === 'sharehl') return this.shareHl(id);
+    if (card.dataset.hl) return this.ticks.size > 0 ? null : this.openRace(id);   // the highlights card is never ticked: it opens its race
     if (act === 'signin') return this.signIn();
     if (act === 'open') return this.openRace(id);
     if (act === 'tick' || this.ticks.size > 0) return this.tick(id, e.shiftKey);
@@ -521,6 +540,16 @@ const Races = {
     if (a.ok && !a.json.signin) { r.talk = Object.assign({}, talkOf(r), { yt: { kind: 'queued', pct: 0 } }); }
     this.draw();
     this.toast(esc(a.json.say || (a.ok ? 'Sharing it with your commentary' : 'Could not share that.')), !a.ok && !a.json.signin);
+  },
+
+  // W1-11: SHARE on the HIGHLIGHTS card: its own YouTube video (raceshare a=<id>:h); the full race is not touched
+  async shareHl(id) {
+    const r = this.find(id); if (!r || !r.hl) return;
+    const a = await this.cmd('raceshare', id + ':h');
+    if (a.json.signin) this.signinWanted = true;
+    if (a.ok && !a.json.signin) r.hl = Object.assign({}, r.hl, { state: { kind: 'queued', pct: 0 } });
+    this.draw();
+    this.toast(esc(a.json.say || (a.ok ? 'Sharing the highlights' : 'Could not share that.')), !a.ok && !a.json.signin);
   },
 
   copy(field) {
