@@ -139,7 +139,7 @@ namespace IRDash
         // Only safe ones, only with no sim session running, each tried at most 3 times (then it asks for help, once the
         // tries are used up it waits two hours before trying again). Everything is started by irdash, which runs outside
         // the Claude app, so what it starts is visible to the Stream Deck, Explorer and the other programs.
-        sealed class Fix { public string Id, Giveup; public Func<string> Do; }
+        sealed class Fix { public string Id, Giveup; public int GapMin; public Func<string> Do; }
         sealed class Tries { public int N; public DateTime Last = DateTime.MinValue, Missing = DateTime.MinValue; }
         static readonly Dictionary<string, Fix> fixes = new Dictionary<string, Fix>();
         static readonly Dictionary<string, Tries> tries = new Dictionary<string, Tries>();
@@ -151,7 +151,7 @@ namespace IRDash
             if (fixes.Count > 0) return;
             fixes["overlays_running"] = new Fix { Id = "overlays_running", Do = FixOverlays, Giveup = "Overlays would not start: ask Claude" };
             fixes["crewchief"] = new Fix { Id = "crewchief", Do = FixCrewChief, Giveup = "Spotter would not start: ask Claude" };
-            fixes["streamdeck"] = new Fix { Id = "streamdeck", Do = FixStreamDeck, Giveup = "Stream Deck would not start: ask Claude" };
+            fixes["streamdeck"] = new Fix { Id = "streamdeck", Do = FixStreamDeck, GapMin = 60, Giveup = "Stream Deck would not start: ask Claude" };
             fixes["onedrive"] = new Fix { Id = "onedrive", Do = FixOneDrive, Giveup = "" };
         }
 
@@ -186,7 +186,9 @@ namespace IRDash
                 if (it.State == "ok") { t.N = 0; t.Missing = DateTime.MinValue; continue; }
                 if (!fixes.TryGetValue(it.Id, out fx)) continue;
                 bool spent = t.N >= 3 && (DateTime.Now - t.Last).TotalMinutes < 120;
-                if (!can || spent || (t.N > 0 && (DateTime.Now - t.Last).TotalSeconds < 60))
+                // W5-5: the Stream Deck fix is tried at most once an hour (three tries in four minutes helped nothing on 2026-11-14)
+                bool hourly = fx.GapMin > 0 && t.N > 0 && (DateTime.Now - t.Last).TotalMinutes < fx.GapMin;
+                if (!can || spent || hourly || (t.N > 0 && (DateTime.Now - t.Last).TotalSeconds < 60))
                 { if (spent && fx.Giveup.Length > 0) it.Ask = fx.Giveup; continue; }
                 // Starting irdashies while Squirrel is replacing it (or the exe is locked) is what leaves the
                 // Explorer error box. Skip without using up a try, and look again on the next check.
