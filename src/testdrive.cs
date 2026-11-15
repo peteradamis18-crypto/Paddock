@@ -376,7 +376,13 @@ namespace IRDeck
             }
             if (op == "start") { if (!dry) MarkStart("airace start"); return CmdAiraceStart(dry); }   // guard.ps1 sees "about to race" before the sim appears
             if (op == "save") { Log("airace save: not available on the New Race path"); return 1; }
-            if (op != "survey") { Log("airace: use start [--dry] or survey [--out file] [--dry]"); return 1; }
+            if (op == "dismiss")
+            {
+                // the lead's hand: close iRacing's own Update window if it is up (journey run 5, 2026-11-14), nothing downloaded
+                AutomationElement w = FindUiWindow(); if (w == null) { Log("airace dismiss: iRacing UI not found"); return 2; }
+                Log(AiDismissUpdater(w) ? "airace dismiss: pressed the Update window's Close" : "airace dismiss: no Update window up"); return 0;
+            }
+            if (op != "survey") { Log("airace: use start [--dry], survey [--out file] [--dry] or dismiss"); return 1; }
             if (Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { Log("airace survey: sim=True; stopped"); return 3; }
             AutomationElement window = FindUiWindow(); if (window == null) { Log("airace survey: iRacing UI is not up"); return 2; }
             List<UEl> current = AiElements(window);
@@ -635,6 +641,7 @@ namespace IRDeck
             }
             AutomationElement window = FindUiWindow(); if (window == null) { AiFail("UI CHANGED", "airace start: iRacing UI not found"); return 3; }
             tdUi = new IntPtr(window.Current.NativeWindowHandle);
+            if (AiDismissUpdater(window)) Thread.Sleep(1500);     // iRacing's Update window may already be up over the page (journey run 5)
             try
             {
                 List<UEl> els = AiElements(window);
