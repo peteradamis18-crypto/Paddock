@@ -87,6 +87,7 @@ function StartAi($secs = 400) {
 'Deck v2 live keys'
 if ((Ir state).out -match 'telemetry=on') { 'iRacing is in a session - run this when nobody is in the car.'; exit 1 }
 if (-not (UiHome)) { $null = Ir nav Home; Start-Sleep -Seconds 3 }   # an earlier AI RACE leaves the UI on the AI Single Player page: go Home first
+if (-not (UiHome)) { $null = Ir ui Racing; Start-Sleep -Seconds 4; $null = Ir nav Home; Start-Sleep -Seconds 3 }   # 2026-11-14 22:31: after Peter's race the UI sat on a page with only the left rail (Racing, Shop, Help, Settings); the Home link lives under Racing
 if (-not (UiHome)) { 'The iRacing UI is not on Home - start from Home.'; exit 1 }
 try {
   Section '1. GET IN with nothing running starts your last drive (the Test Drive of the car and track chosen on CAR TRACK)'
