@@ -8,13 +8,14 @@
 <link rel="stylesheet" href="race.css">
 </head>
 <body>
-<!-- THE RACE SCREEN (W2-2, docs/rework/PLAN.md 4.2): the one in-car layout on the top screen. HOME (index.html) shows it
-     full-screen while he drives. Five zones on a 24 px margin: A the strip, B gaps, C fuel, D lap, E standings.
+<!-- THE RACE SCREEN (W2-2, docs/rework/PLAN.md 4.2; W2-5 after Peter's first real race on it): the one in-car layout on the top screen.
+     HOME (index.html) shows it full-screen while he drives. Five zones on a 24 px margin: A the strip, B gaps, C the map with one fuel
+     line, D the split, E standings. Numbers and single words only (tests\copy-lint-test.ps1).
      Everything is drawn by app/pages/race.js from the one stream (the race channel set) and irdash's state push. -->
 <div id="race" class="race nodata">
   <header id="zA" class="zone strip">
     <div class="a-pos"><b id="aPos">&ndash;</b><span id="aOf"></span><span id="aCls" class="a-cls"></span></div>
-    <div class="a-mid" id="aMid"><span id="aLap">&ndash;</span></div>
+    <div class="a-mid" id="aMid">&ndash;</div>
     <div class="a-inc" id="aInc"><span id="aIncN">&ndash;</span></div>
     <div class="a-clock" id="aClock">&ndash;</div>
   </header>
@@ -25,19 +26,18 @@
     <div class="b-one" id="bOne" hidden><label id="bOneL">To leader</label><b id="bOneN">&ndash;</b><div class="b-sub" id="bOneS">&nbsp;</div></div>
   </section>
 
-  <section id="zC" class="zone fuel">
-    <label id="cLbl">Fuel</label>
-    <div class="c-big" id="cBig"><b id="cNum">&ndash;</b><span id="cUnit"></span></div>
-    <div class="c-line" id="cLine">&nbsp;</div>
-    <div class="c-win" id="cWin" hidden></div>
-    <div class="c-note" id="cNote">&nbsp;</div>
+  <section id="zC" class="zone mapz">
+    <div class="c-map" id="cMap"></div>
+    <div class="c-fuel" id="cFuel">FUEL</div>
   </section>
 
-  <section id="zD" class="zone lap">
-    <div class="d-times">
-      <div class="d-last"><label>Last lap</label><b id="dLast">&ndash;</b></div>
-      <div class="d-best"><label>Best</label><b id="dBest">&ndash;</b></div>
-      <div class="d-delta" id="dDelta"><label>To best</label><b id="dNum">&ndash;</b></div>
+  <section id="zD" class="zone split">
+    <div class="d-top">
+      <div class="d-delta" id="dDelta"><label>Split</label><b id="dNum">&ndash;</b></div>
+      <div class="d-times">
+        <div class="d-t"><label>Last</label><b id="dLast">&ndash;</b></div>
+        <div class="d-t"><label>Best</label><b id="dBest">&ndash;</b></div>
+      </div>
     </div>
     <div class="d-bar" id="dBar"><i id="dFill"></i><em></em></div>
   </section>
