@@ -185,6 +185,8 @@ powershell -ExecutionPolicy Bypass -File C:\Users\peter\iRacingDeck\tests\galler
 
 Not in run-all, and not required to call the suite green: `vault-test.ps1`, `official-test.ps1`, `tv-test.ps1`, `doctor-test.ps1`. Vault and official stay switched off in `irdash.ini`.
 
+**The nightly check (W5-4).** At 03:00 local (or the first tick after 03:00 if irdash was down then, until 06:00) irdash itself starts `tests\nightly.ps1` hidden at BelowNormal, 12-minute kill. No Windows task: irdash runs all day under the logon task. It starts only when `RigState.Busy` is null and the PC has had 10 minutes without keyboard/mouse (a locked PC is fine). The check clicks nothing and never starts the sim: `irdeck-cli state`, five dry key runs (keys-test section 8), `/health`, the Rig Doctor's own run, then ONE real Stream Deck restart through irdash (`/api/nightly/deck`, the watchdog's restart) and a wait for the app and the add-on to come back. It writes one line to `tests\nightly.txt` (60 kept; the state part `nightly` and RIG show the last) and the full log to `tests\last\nightly-<day>.txt`. The recorder has no dry self-test, so the line says "not checked" for it, and for the deck's start page. `nightly=off` in `dash\irdash.ini` stops it. By hand (lead, rig free, PC left alone, `dash\test-hook.on` present): `GET /api/nightly/run` with header `X-Paddock: 1`, then read `tests\nightly.txt`. Never run `tests\nightly.ps1` from a worktree against the live irdash: it restarts Stream Deck. Test: `tests\nightly-test.ps1` (offline).
+
 ## 7. Guard, lock, mutex
 
 **Guard.** Every test starts with:

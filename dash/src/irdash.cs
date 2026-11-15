@@ -626,6 +626,25 @@ namespace IRDash
                     }
                     if (method == "GET" && path == "/overlays") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Overlays.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/doctor") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Doctor.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    if (method == "GET" && path == "/api/nightly/run")
+                    {
+                        // W5-4: the lead's hook for the night check (the check restarts the Stream Deck app, so: this PC only, test hook on, no real session)
+                        string nb = Sdk.RealBusy();
+                        if (nb != null) { Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + nb)); return; }
+                        if (!local || !Sdk.TestHook) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found (the lead creates dash\\test-hook.on first)")); return; }
+                        string nr = Nightly.RunNow();
+                        Send(s, nr == null ? 200 : 409, "text/plain", Encoding.UTF8.GetBytes(nr == null ? "ok: the rig check is running; its line lands in tests\\nightly.txt" : nr)); return;
+                    }
+                    if (method == "GET" && path == "/api/nightly/deck")
+                    {
+                        // W5-4: the night check's Stream Deck restart (the watchdog's own: kill, page back to MAIN, start). Never while the rig is busy.
+                        if (!local) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
+                        if (RigState.Busy) { Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + RigState.BusyWhy)); return; }
+                        string dw = Nightly.TakeDeckRestart();     // only inside a check irdash started, once, with the PC left alone
+                        if (dw != null) { Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + dw)); return; }
+                        Watch.NightlyDeckRestart();
+                        Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); return;
+                    }
                     if (method == "GET" && path == "/api/doctor/run") { Doctor.Run(!ParseQuery(query).ContainsKey("quiet")); Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); return; }   // ?quiet=1: check without showing the list
                     if (method == "GET" && (path == "/api/test/frame" || path == "/api/test/end" || path == "/api/test/ibt"))
                     {
@@ -804,6 +823,7 @@ namespace IRDash
             StateBuilder.Add("overlays", 2000, 6000, Overlays.Json);
             StateBuilder.Add("recorder", 3000, 2000, RecorderSlim);   // in the car too: a recording that stalls mid-race shows within 2 s
             StateBuilder.Add("health", 4000, 4000, delegate () { return Watch.Json(Sdk.Latest.Connected); });
+            StateBuilder.Add("nightly", 5000, 5000, Nightly.PartJson);   // W5-4: the last night check's one line (null until there is one)
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
             StateBuilder.Add("race", 2000, 250, StateBuilder.RacePart);     // W2-1: the race screen (null unless he drives; every 2 s then)
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
@@ -1647,6 +1667,9 @@ namespace IRDash
             catch (Exception ex) { Log.W("watchdog: deck page: " + ex.Message); }
         }
 
+        // W5-4: the night check's restart (same path as the watchdog's, so the deck opens on MAIN)
+        public static void NightlyDeckRestart() { RestartDeck("nightly"); }
+
         // kill + start the app, then wait (up to 20 s) for it to log the deck as connected again. Runs on its own thread.
         static void RestartDeck(string why)
         {
@@ -1673,7 +1696,7 @@ namespace IRDash
                     Process.Start(new ProcessStartInfo(exe, "--runinbk") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
                     DateTime t0 = DateTime.Now; bool back = false;
                     for (int i = 0; i < 40 && !back; i++) { Thread.Sleep(500); try { back = Running("StreamDeck") && DeckWatch.Connected(DeckLogTail()); } catch { } }
-                    string what = why == "wake" ? "the PC woke from sleep, which resets the deck's USB connection" : why == "never" ? "the Stream Deck app started but never found the deck" : "the Stream Deck app lost the deck's USB connection";
+                    string what = why == "nightly" ? "the nightly check restarts the Stream Deck app on purpose" : why == "wake" ? "the PC woke from sleep, which resets the deck's USB connection" : why == "never" ? "the Stream Deck app started but never found the deck" : "the Stream Deck app lost the deck's USB connection";
                     Note(what + ": restarted the Stream Deck app - " + (back ? "deck back after " + (DateTime.Now - t0).TotalSeconds.ToString("0", CultureInfo.InvariantCulture) + " s" : "deck NOT back after 20 s (unplug and replug its USB cable)"));
                     lastDeckRestart = DateTime.Now;
                 }
@@ -2671,6 +2694,7 @@ namespace IRDash
 
             Application.EnableVisualStyles();
             Log.W("irdash starting on port " + cfg.Port);
+            Nightly.Port = cfg.Port;
             Server server = new Server(cfg.Port, Path.Combine(Dir, "www"), Path.Combine(Dir, "maps"));
             // The port can still be held for a few seconds by the copy that just closed (a restart) or by a program that inherited it.
             // Wait for it instead of giving up on the first try, which left Peter with no Paddock at all after a restart.
@@ -2860,6 +2884,7 @@ namespace IRDash
             try { Nav.Tick(Driving); } catch { }
             // test mode: the doctor closes and hides real windows on his screens, so it does not run in a test copy
             if (!Program.TestMode) { try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); } }
+            if (!Program.TestMode) { try { Nightly.Tick(); } catch (Exception ex) { Log.W("nightly: " + ex.Message); } }   // W5-4: 03:00, rig free, PC left alone
         }
         static bool simFront;
 
