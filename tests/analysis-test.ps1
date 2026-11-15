@@ -1,4 +1,4 @@
-﻿# C-30 lap analysis engines (docs\DESIGN-analysis.md section 7.1-7.5) and C-34 corner deep-dive engines
+# C-30 lap analysis engines (docs\DESIGN-analysis.md section 7.1-7.5) and C-34 corner deep-dive engines
 # (dash\src\deepdive.cs, /analysis/deep). Offline only: copies of old .ibt files, never the newest, never iRacing's own
 # folder. Compiles with dash\build.ps1 -NoDeploy and runs that exe's --analysis command (--deep for C-34), so nothing is
 # deployed and no window opens. Out of the car only (tests\guard.ps1).

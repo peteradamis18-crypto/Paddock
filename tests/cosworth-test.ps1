@@ -156,8 +156,6 @@ try {
   Check 'docs\cosworth.md records Pi Toolbox.exe, the workbook and the forward method' (($docTx -match 'Pi Toolbox\.exe') -and ($docTx -match 'iRacing Lite Workbook') -and ($docTx -match 'TBX_INSTANCE_FILEOPEN_PIPE'))
   Check 'docs\cosworth.md records the video-sync fact (Lite has none; Plus and above)' (($docTx -match '(?i)video sync') -and ($docTx -match '(?i)lite') -and ($docTx -match '(?i)plus'))
   Check 'the recorded executable exists on this PC' (Test-Path -LiteralPath $piExe)
-  $st = J '/vault'
-  Check 'the Vault status reports Pi Toolbox installed' ($st.cosworth.installed -eq $true)
 
   Section 'W-18 2. the open route answers for a Vault lap and a telemetry file name'
   $null = J '/vault/test/sandbox?on=1&reset=1'
@@ -170,6 +168,9 @@ try {
   $more = $true; $guard = 0
   while ($more -and $guard -lt 6) { $scan = J '/vault/test/scan'; $more = [bool]$scan.more; $guard++ }
   $null = J '/vault/test/cosworth?on=auto'     # real detection: Pi IS installed, so action must be cosworth
+  # W4-9: checked here, after on=auto (the /vault/test routes need the sandbox on, and irdash keeps a detection for 60 s, so the check cannot sit before it)
+  $st = J '/vault'
+  Check 'the Vault status reports Pi Toolbox installed' ($st.cosworth.installed -eq $true)
   $lg = J '/vault/list'
   $lap = @($lg.moments | Where-Object { $_.kind -eq 'lap' -and $_.ibt -and $_.lapTime -gt 0 })[0]
   Check 'the scratch vault holds a lap to open' ($null -ne $lap)
@@ -214,18 +215,15 @@ Check 'Pi makes a writable project copy and never launches the template (behavio
   Cdp-Open "$api/v2/sessionreview.html?id=$curlId"
   $srCos = Wait-Page "!!document.getElementById('srCos') && !document.getElementById('srCos').hidden" 45
   Cdp-Close
+  # W4-9: the old Debrief / dbCos page is gone (debrief.js deleted 13 Nov); the debrief is Debrief4 (debrief-v4.js) and its
+  # button db4Cos is always in the bar, hidden until /vault/list says Pi is installed. A real /debrief reply of the PB file is shown.
   Cdp-Open "$api/v2/index.html"
-  $null = Wait-Page "(typeof Debrief !== 'undefined' && !!Debrief.show)" 20
-  $null = Cdp-Eval @'
-(function () {
-  var times = [{ t: 95.1, clean: true }, { t: 95.4, clean: true }, { t: 95.6, clean: true }];
-  Debrief.show({ type: 'Practice', race: false, track: 'Road Atlanta', car: 'Corvette Z06 GT3.R', laps: 3, cleanLaps: 3, best: 95.1, inc: 0, mins: 6, times: times, offline: true }, false);
-  return 'shown';
-})()
-'@
-  $dbCos = Wait-Page "!!document.getElementById('dbCos')" 20
+  $null = Wait-Page "typeof Debrief4 !== 'undefined'" 20
+  $null = Cdp-Eval ("window.__dbShown = 0; fetch('/debrief?id=' + encodeURIComponent(" + (ConvertTo-Json $fB -Compress) + "), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) { Debrief4.show(j); window.__dbShown = 1; }); 1")
+  $null = Wait-Page "window.__dbShown === 1" 60
+  $dbCos = Wait-Page "!!document.getElementById('db4Cos') && !document.getElementById('db4Cos').hidden" 20
   Cdp-Close
-  Check "with Pi installed the button (OPEN IN PI TOOLBOX on workbench.html, W4-5) is on Workbench, Session Review and Debrief ($wbCos/$srCos/$dbCos)" ($chromeOk -and $wbCos -and $srCos -and $dbCos)
+  Check "with Pi installed the button (OPEN IN PI TOOLBOX on workbench.html, W4-5) is on Workbench, Session Review and the debrief ($wbCos/$srCos/$dbCos)" ($chromeOk -and $wbCos -and $srCos -and $dbCos)
   # --- not installed: every surface must omit its control ---
   $null = J '/vault/test/cosworth?on=0'
   Cdp-Open "$api/v2/workbench.html?id=$curlId&lap=1"
@@ -236,14 +234,13 @@ Check 'Pi makes a writable project copy and never launches the template (behavio
   $srNo = Wait-Page "document.getElementById('srCos') && document.getElementById('srCos').hidden" 45
   Cdp-Close
   Cdp-Open "$api/v2/index.html"
-  $null = Wait-Page "(typeof Debrief !== 'undefined' && !!Debrief.show)" 20
-  $null = Cdp-Eval @'
-(function () { Debrief.show({ type:'Practice', race:false, track:'Road Atlanta', car:'Corvette Z06 GT3.R', laps:3, cleanLaps:3, best:95.1, inc:0, mins:6, times:[{t:95.1,clean:true},{t:95.4,clean:true},{t:95.6,clean:true}], offline:true }, false); return 'shown'; })()
-'@
+  $null = Wait-Page "typeof Debrief4 !== 'undefined'" 20
+  $null = Cdp-Eval ("window.__dbShown = 0; fetch('/debrief?id=' + encodeURIComponent(" + (ConvertTo-Json $fB -Compress) + "), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) { Debrief4.show(j); window.__dbShown = 1; }); 1")
+  $null = Wait-Page "window.__dbShown === 1" 60
   Start-Sleep -Seconds 2
-  $dbNo = -not (IsTrue (Cdp-Eval "!!document.getElementById('dbCos')"))
+  $dbNo = IsTrue (Cdp-Eval "!!document.getElementById('db4Cos') && document.getElementById('db4Cos').hidden")
   Cdp-Close
-  Check "with Pi not installed the control is hidden on all three surfaces ($wbNo/$srNo/$dbNo)" ($wbNo -and $srNo -and $dbNo)
+  Check "with Pi not installed the control is hidden on all three surfaces (the debrief button stays in its bar, hidden) ($wbNo/$srNo/$dbNo)" ($wbNo -and $srNo -and $dbNo)
   $null = J '/vault/test/cosworth?on=auto'
 
   Section 'W-18 5. the copy rules pass on the new wording'
