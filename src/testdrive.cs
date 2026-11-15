@@ -759,8 +759,8 @@ namespace IRDeck
                                 if (lastS != null && (DateTime.UtcNow - rescuedAt).TotalSeconds > 3) { rescuedAt = DateTime.UtcNow; Log("airace start: pressing Last Settings (the race just set up)"); AiPress(lastS); return false; }
                                 if (!rescued)
                                 {
-                                    UEl single = AiByName(all, "Single Race", ControlType.Hyperlink) ?? AiByName(all, "Single Race", ControlType.Button);
-                                    if (single != null) { rescued = true; rescuedAt = DateTime.UtcNow; Log("airace start: the wizard left the AI Single Player page: opening Single Race for Last Settings"); AiPress(single); return false; }
+                                    UEl singleRace = AiByName(all, "Single Race", ControlType.Hyperlink) ?? AiByName(all, "Single Race", ControlType.Button);
+                                    if (singleRace != null) { rescued = true; rescuedAt = DateTime.UtcNow; Log("airace start: the wizard left the AI Single Player page: opening Single Race for Last Settings"); AiPress(singleRace); return false; }
                                 }
                                 return false;
                             }
