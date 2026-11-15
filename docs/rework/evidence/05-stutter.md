@@ -93,5 +93,11 @@ Show: in the debrief and on the Performance page as a timeline marker ("freeze a
 
 Also fix while here: make the Performance verdict mention a freeze whenever the worst second is under 50% of the average, and put the time and lap on the card.
 
+**Built (W0-9, then W5-3 on 14 Nov):** `dash\src\blackbox.cs` v2 (`#v2` header, 29 columns; v1 files still read). NVML (`dash\src\nvml.cs`,
+read-only, ~0.04 ms a look on this PC) fills gpuLoad / gpuClock / gpuTemp / gpuThrottle (thermal, power, hw) plus vramMb, vramTotalMb,
+ramFreeMb, gpuPowerW, diskReadMs; the "field laps" read (bench.cs `FieldLaps.ScanFile`) is an event counted as Paddock's own work; Running
+follows RigState. New cause rules after "memory": the graphics card slowed itself down (N °C, thermal / power limit / hardware), the disk
+(reads took N ms), graphics memory full (N of M GB). Still not recorded: ffmpeg's own CPU and the capture's frame rate.
+
 ## Cheap check Peter or Claude can do next
 Watch video offset 1068 to 1078 s of `vault\saved\20261112-142807-road-atlanta.mp4` (also copied to `Videos\Paddock\2026-11-12 09.28 Road Atlanta - Toyota GR86 - Race.mp4`). If the overlay widgets also froze, it points to the sim's render; if only the car froze, to the GPU or a stalled frame.

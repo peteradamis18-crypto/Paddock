@@ -208,6 +208,7 @@ namespace IRDash
         // the rows of one file (reads only the header and the session text)
         public static List<FieldRow> ScanFile(string path, out int otherHumans)
         {
+            BlackBox.Event("field laps: reading a telemetry file");     // W5-3: Paddock's own disk work, for the black box's cause rules
             TrackMaps.Ibt t = TrackMaps.OpenIbt(path, false);
             if (t == null) { otherHumans = 0; return new List<FieldRow>(); }
             long ts = 0;
