@@ -96,6 +96,33 @@ namespace IRDeck
             return list;
         }
         // When the wizard changes under us (2026-11-14: Continue became Next + Update), the log must show what was there to press
+        // 2026-11-14 22:41 (deck journey run 5): iRacing's own "Update iRacing" window (optional content updates, one item pre-ticked,
+        // buttons Close and "Download 23 KB") opened over the page after the wizard closed and hid the race summary. Nothing is
+        // downloaded: its Close button (the one beside Download, not the window's own X) is pressed once and the page comes back.
+        static DateTime aiUpdaterAt = DateTime.MinValue;
+        static bool AiDismissUpdater(AutomationElement window)
+        {
+            try
+            {
+                if ((DateTime.UtcNow - aiUpdaterAt).TotalSeconds < 5) return false;
+                List<UEl> all = AiElements(window);
+                UEl dl = all.Find(u => u.Type == ControlType.Button && u.Name.StartsWith("Download ", StringComparison.OrdinalIgnoreCase));
+                if (dl == null) return false;
+                UEl close = null; double best = double.MaxValue;
+                foreach (UEl u in all)
+                {
+                    if (u.Type != ControlType.Button || !Same(u.Name, "Close")) continue;
+                    double dy = Math.Abs(u.R.Y - dl.R.Y), d = dy + Math.Abs(u.R.X - dl.R.X);
+                    if (dy < 20 && d < best) { best = d; close = u; }
+                }
+                if (close == null) return false;
+                aiUpdaterAt = DateTime.UtcNow;
+                Log("airace: iRacing's Update window is up (" + dl.Name + "): pressing its Close, nothing is downloaded");
+                return AiPress(close);
+            }
+            catch { return false; }
+        }
+
         static void AiLogCandidates(AutomationElement window, string where)
         {
             try
@@ -713,6 +740,7 @@ namespace IRDeck
                         {
                             try
                             {
+                                if (AiDismissUpdater(window)) return false;      // iRacing's Update window over the page: closed, keep waiting for the summary
                                 List<UEl> all = AiElements(window);
                                 bool shows = all.Exists(u => AiRowName(u.Name).IndexOf(combo.Car, StringComparison.OrdinalIgnoreCase) >= 0) && all.Exists(u => u.Name.IndexOf(combo.Track, StringComparison.OrdinalIgnoreCase) >= 0);
                                 List<UEl> races = all.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Race") && u.E.Current.IsEnabled);
@@ -720,7 +748,7 @@ namespace IRDeck
                                 return race != null;
                             }
                             catch { return false; }
-                        }, 10000, 250, "UI CHANGED", "Summary Race");
+                        }, 15000, 250, "UI CHANGED", "Summary Race");
                         if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;
                         Log("airace start: pressed Race on the Summary (" + combo.Car + " at " + combo.Track + ")");
