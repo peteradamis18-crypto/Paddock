@@ -2896,6 +2896,7 @@ namespace IRDash
             // test mode: the doctor closes and hides real windows on his screens, so it does not run in a test copy
             if (!Program.TestMode) { try { Doctor.Tick(); } catch (Exception ex) { Log.W("doctor: " + ex.Message); } }
             if (!Program.TestMode) { try { Nightly.Tick(); } catch (Exception ex) { Log.W("nightly: " + ex.Message); } }   // W5-4: 03:00, rig free, PC left alone
+            try { YouTube.PickUpClient(); } catch { }   // 2026-11-14: Google's client file from Downloads while there is no client yet (one look in 10 s)
         }
         static bool simFront;
 

@@ -192,7 +192,7 @@ namespace IRDash
         // 2026-11-14: Peter's setup ends with Google handing him a file called client_secret...json; renaming and moving it was four of the
         // steps. Paddock takes the newest one from his Downloads folder by itself (a look every 10 s while there is no client yet).
         static DateTime lastDownloadsLook = DateTime.MinValue;
-        static void PickUpClient()
+        internal static void PickUpClient()
         {
             try
             {
