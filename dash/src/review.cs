@@ -777,6 +777,7 @@ namespace IRDash
                 string log = RaceField.LogFor(Path.GetFileName(file), sn);
                 string sj = log != null ? Debrief.RaceStory(log) : null;
                 if (sj != null) story = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(sj) as Dictionary<string, object>;
+                PlaceRule.Apply(story, yaml, sn);     // W1-12: the same start and finish place the YouTube pack uses
             }
 
             StringBuilder sb = new StringBuilder(16000);

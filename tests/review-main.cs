@@ -140,7 +140,7 @@ namespace IRDash
                 Dictionary<string, object> r13 = Obj(j13), s13 = G(r13, "session") as Dictionary<string, object>, race = G(r13, "race") as Dictionary<string, object>;
                 Ok("3. the review is about the race session", S(G(s13, "type")) == "Race" && I(G(s13, "sessionNum")) == sn, S(G(s13, "type")) + " " + S(G(s13, "sessionNum")));
                 Ok("3. race is filled", race != null, Short(j13));
-                Ok("3. the result: P4 of 19 from P7", I(G(G(s13, "result"), "finish")) == 4 && I(G(G(s13, "result"), "field")) == 19 && I(G(G(s13, "result"), "start")) == 7, Short(new JavaScriptSerializer().Serialize(G(s13, "result"))));
+                Ok("3. the result: P4 of 19 from the .ibt grid P5 (W1-12: the grid beats the made-up log's first crossing P7)", I(G(G(s13, "result"), "finish")) == 4 && I(G(G(s13, "result"), "field")) == 19 && I(G(G(s13, "result"), "start")) == 5, Short(new JavaScriptSerializer().Serialize(G(s13, "result"))));
                 object[] ps = A(G(race, "positions"));
                 Ok("3. positions by lap: one per lap, ending P4", ps.Length == maxLap && I(ps[ps.Length - 1]) == 4, new JavaScriptSerializer().Serialize(ps));
                 Ok("3. pace against the field: his median, the field's, 19 cars", !double.IsNaN(D(G(G(race, "pace"), "mine"))) && !double.IsNaN(D(G(G(race, "pace"), "field"))) && I(G(G(race, "pace"), "cars")) == 19, new JavaScriptSerializer().Serialize(G(race, "pace")));
