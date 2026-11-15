@@ -2,6 +2,7 @@
 #   1. no colour literal (#hex, rgb(), rgba(), hsl()) outside dash\www\app\design.css, in dash\www\app and on the converted list
 #   2. no font-size under 24 px on a seat page or under 20 px on a lean-in page (px / rem / em; 1 rem = 16 px; var(--t-*) is looked up)
 #   3. no second :root block in dash\www\app or on the converted list
+# Its sibling for the WORDS on a screen: tests\copy-lint-test.ps1 (W2-5: no sentences on the race screen, read from what the page shows).
 #   powershell -ExecutionPolicy Bypass -File tests\design-lint-test.ps1
 . (Join-Path $PSScriptRoot 'guard.ps1')
 Assert-RigFree

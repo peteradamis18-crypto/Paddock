@@ -1,14 +1,16 @@
 /* map.js (W4-2): the ONE track map of REVIEW, as a module. The drawing is v2/map.js's TrackMap (fit with a 90 degree turn when that
    makes it bigger, the layered road: dark casing, thin light edge, dark surface, the start/finish tick, the pit lane dashed), built
    once into an offscreen layer; here it takes its colours from design.css and adds what REVIEW needs on top.
-     Map.mount(el, { key, id, size })  key like "t127-roadatlanta-full", id the track id; size = px (square) or { w, h }, else el's size.
+     Map.mount(el, { key, id, size })  key like "t127-roadatlanta-full", id the track id; size = px (square) or { w, h }, else el's size;
+                                       pad = the margin round the track (46 px; the race screen's short box uses less)
                                        One fetch of /trackmap (irdash answers from Peter's telemetry, else iRacing's own drawing from
                                        data/iracing-maps by track id, else the library). No outline: one retry after 5 s, then the plain
                                        words "Map not available". No polling.
      Map.colour(gain)                  gain[] spread over the lap (index = lap fraction * length): + gains green, - losses red, 0 ink
      Map.marks([{ n, p }])             the numbered gold marks 1, 2, 3 at lap fractions p
      Map.cursor(p)                     the one cursor dot (the chart's cursor, as a lap fraction)
-     Map.cars([{ p, me }])             positions for the race story (me in gold)
+     Map.cars([{ p, me, color, lead }]) positions for the race story (me in gold); the race screen (W2-5) adds a car's class colour
+                                       and an ink ring round the leader
      Map.unmount()
    The v2 copy keeps the race pages' live behaviour (retries, cars from telemetry); this one is for still pictures of a lap. */
 
@@ -26,7 +28,7 @@ function at(pct) {
 function fit(w, h) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const p of st.pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
-  const pad = 46, tw = x1 - x0 || 1, th = y1 - y0 || 1;
+  const pad = fin(st.pad) ? st.pad : 46, tw = x1 - x0 || 1, th = y1 - y0 || 1;
   const sA = Math.min((w - 2 * pad) / tw, (h - 2 * pad) / th), sB = Math.min((w - 2 * pad) / th, (h - 2 * pad) / tw);
   const rot = sB > sA * 1.08;
   return { w, h, s: rot ? sB : sA, rot, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
@@ -117,7 +119,9 @@ function draw() {
     if (!fin(c.p)) continue;
     const [x, y] = where(c.p), r = (c.me ? 13 : 9) * Math.max(1, k * 0.8);
     g.beginPath(); g.arc(x, y, r + 3, 0, Math.PI * 2); g.fillStyle = col.bg; g.fill();
-    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = c.me ? col.gold : col.muted; g.fill();
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = c.me ? col.gold : c.color || col.muted; g.fill();
+    // W2-5, the race screen: the leader gets an ink ring
+    if (c.lead) { g.beginPath(); g.arc(x, y, r + 7, 0, Math.PI * 2); g.lineWidth = 3; g.strokeStyle = col.ink; g.stroke(); }
   }
   // the numbered marks: a gold ring round a dark centre, the number in gold, big enough from the seat
   const R = Math.round(20 * Math.max(1, k * 0.85));
@@ -174,7 +178,7 @@ const TrackMapView = {
     word.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:var(--t-body);color:var(--muted)';
     if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
     el.append(cv, word);
-    st = { el, cv, word, key: o.key || '', id: o.id != null ? String(o.id) : '', size: o.size, pts: null, pit: null, source: '', view: null,
+    st = { el, cv, word, key: o.key || '', id: o.id != null ? String(o.id) : '', size: o.size, pad: o.pad, pts: null, pit: null, source: '', view: null,
       layer: document.createElement('canvas'), paint: document.createElement('canvas'), layerDirty: true, paintDirty: true,
       gain: null, markList: [], carList: [], cur: NaN, raf: 0, timer: 0, tries: 0, status: 'loading', frames: 0, token: {}, col: {} };
     for (const k of ['bg', 'panel', 'ink', 'muted', 'dim', 'gold', 'gain', 'loss']) st.col[k] = tok(k);

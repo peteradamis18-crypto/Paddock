@@ -8,7 +8,11 @@
      - irdash's state push: the "race" part (W2-1: position, laps, incidents, flags, fuel and the pit window, the lap, the units;
        null unless he is driving) and the "session" part (names, numbers, classes and session types, parsed once in irdash).
    F1's no-flicker rule: the screen is drawn 4 times a second at most, and a gap or interval is written only when its tenth changes.
-   The flag itself is HOME's (ui.js flags, the same table as the light box and the edge glow); here it is only a 2 s flash. */
+   The flag itself is HOME's (ui.js flags, the same table as the light box and the edge glow); here it is only a 2 s flash.
+   W2-5 (Peter, 14 Nov, after his first real race on it: "no map during race, i need one back; missing leaderboard and split time easily
+   viewable; fuel is way too much text; need to remove sentences"): C is the track map (lib/map.js) with every car on it from the stream's
+   CarIdxLapDistPct and ONE line of fuel numbers; D is the split (iRacing's LapDeltaToBestLap) as the big number. Numbers and single
+   words only: no text on this page has more than 3 words except a driver's name (tests\copy-lint-test.ps1). */
 (function () {
   'use strict';
   var F = window.Fmt, NONE = F.none, MINUS = '−';
@@ -25,6 +29,7 @@
     flagSeen: false, flagWas: '', flashName: '', flashUntil: 0, wasShown: false,
     flagFrom: null, shownFrom: null,     // tests: where the flag and "shown" come from when the page runs on its own
     slots: [], drawn: 0,
+    map: null, mapKey: '', mapCars: [],  // lib/map.js (an ES module, loaded once at start); the track it shows; the cars last given to it
 
     shown: function () {
       if (R.shownFrom) return !!R.shownFrom();
@@ -42,6 +47,8 @@
       }
       data.on('frame', function (v) { R.frame(v); });
       data.telemetry('race', 15);         // its own connection asks for the race set; inside HOME, HOME asks (ui.js RaceSwitch)
+      // the map: REVIEW's module (one /trackmap fetch per track, no polling); without it the zone keeps only the fuel line
+      try { import('../lib/map.js').then(function (m) { R.map = m.Map || m.default || null; }, function () { R.map = null; }); } catch (e) { R.map = null; }
       setInterval(R.tick, TICK);
       R.tick();
     },
@@ -189,9 +196,10 @@
       put(root, 'race' + (any ? '' : ' nodata') + (v && !fresh ? ' stale' : '') + (pit ? ' pit' : '') + (caution && !pit ? ' caution' : '') + (race ? '' : ' practice'), 'className');
       var rows = any ? R.field() : [], k = rows.findIndex(function (x) { return x.me; });
       R.drawA(r, v, rows, now, fresh, caution, race, any);
-      R.drawB(r, rows, k, caution, race);
-      R.drawC(r, pit, caution, race, fresh);
-      R.drawD(r);
+      R.drawB(r, rows, k, caution, race, pit);
+      R.drawC(r, pit, caution, race);
+      R.drawMap(rows);
+      R.drawD(r, v, fresh);
       R.drawE(r, rows, k, caution, race, pit);
     },
 
@@ -201,15 +209,16 @@
       var pos = r && r.pos > 0 ? r.pos : cpos > 0 ? cpos : 0, of = r && r.of > 0 ? r.of : R.entries();
       put($('aPos'), pos ? 'P' + pos : NONE);
       put($('aOf'), pos && of ? 'of ' + of : '');
-      put($('aCls'), R.multi && r && r.classPos > 0 ? 'Class P' + r.classPos + (r.classOf > 0 ? ' of ' + r.classOf : '') : '');
-      var mid = NONE;
+      put($('aCls'), R.multi && r && r.classPos > 0 ? 'Class P' + r.classPos + (r.classOf > 0 ? '/' + r.classOf : '') : '');
+      // short readouts, each its own span: "Lap 31/52" (a lap race says its count), "Lap 12 · 22:10 left" (timed), "Practice · 20:14 left"
+      var parts = [];
       if (r || fresh) {
         var ln = R.lapNo(r), laps = r && num(r.laps) && r.laps > 0 ? r.laps : 0, tl = R.timeLeft(r, fresh);
-        var lapW = num(ln) && ln > 0 ? 'Lap ' + ln + (laps ? '/' + laps : '') : '';
-        // a lap race counts laps; a timed race and practice show the clock (never the fuel module's estimate as if it were exact)
-        var left = race && laps && r && num(r.toGo) && r.toGo >= 0 ? Math.ceil(r.toGo) + ' to go' : tl !== null ? clock(tl) + ' left' : '';
-        mid = [race ? lapW : F.sessionName(R.sessType(r)), left].filter(Boolean).join(' · ') || NONE;
+        if (race) { if (num(ln) && ln > 0) parts.push('Lap ' + ln + (laps ? '/' + laps : '')); }
+        else parts.push(F.sessionName(R.sessType(r)));
+        if (!(race && laps) && tl !== null) parts.push(clock(tl) + ' left');
       }
+      var mid = parts.map(function (p) { return '<span>' + esc(p) + '</span>'; }).join(' · ');
       // a new flag: the strip takes its colour and its name for 2 s (the light box and the edge glow carry it after that)
       var f = R.flag();
       if (!R.flagSeen) { R.flagSeen = true; R.flagWas = f; }      // a flag already out when the screen comes up is not new
@@ -219,37 +228,46 @@
       put($('zA'), 'zone strip' + (flash ? ' flash f-' + R.flashName : ''), 'className');
       var midEl = $('aMid');
       if (flash) put(midEl, '<span class="word">' + esc(R.flagWords(R.flashName)) + '</span>', 'innerHTML');
-      else if (!any) put(midEl, 'Waiting for the car', 'innerHTML');
-      else if (caution) put(midEl, '<span class="word">Caution</span>' + (mid !== NONE ? '&nbsp; ' + esc(mid) : ''), 'innerHTML');
-      else put(midEl, esc(mid), 'innerHTML');
+      else if (!any) put(midEl, 'Waiting', 'innerHTML');
+      else if (caution) put(midEl, '<span class="word">Caution</span>' + (mid ? ' · ' + mid : ''), 'innerHTML');
+      else put(midEl, mid || NONE, 'innerHTML');
       var inc = r && r.inc, n = inc && num(inc.n) ? inc.n : (fresh && num(v.PlayerCarMyIncidentCount) ? v.PlayerCarMyIncidentCount : null);
       var lim = inc && inc.limit > 0 ? inc.limit : 0;
       put($('aIncN'), n === null ? NONE : n + 'x' + (lim ? ' / ' + lim : ''));
       put($('aInc'), 'a-inc' + (n !== null && lim && lim - n <= 3 ? ' near' : ''), 'className');
-      put($('aClock'), v && !fresh ? 'No data for ' + Math.round((now - R.frameAt) / 1000) + ' s' : r && num(r.clock) ? clock(r.clock) : NONE);
+      put($('aClock'), v && !fresh ? 'No data ' + Math.round((now - R.frameAt) / 1000) + 's' : r && num(r.clock) ? clock(r.clock) : NONE);
     },
-    // HOME's words for the flag (ui.js setFlag) when it is there; the same plain names otherwise
+    // the flag's name, two words at most (HOME's longer flag text stays on HOME: no sentences here)
     flagWords: function (name) {
-      try { var u = window.parent !== window && window.parent.UI; if (u && u.flagName === name && u.flagText) return u.flagText; } catch (e) { }
       return { black: 'Black flag', orange: 'Repair', warning: 'Warning', checkered: 'Finish', red: 'Red flag', yellow: 'Yellow', blue: 'Blue flag', white: 'Last lap', green: 'Green' }[name] || name;
     },
     // cars in the session (not the pace car, not spectators)
     entries: function () { var n = 0; for (var k in R.classCount) n += R.classCount[k]; return n; },
 
-    drawB: function (r, rows, k, caution, race) {
-      var one = caution || !race, box = $('zB');
+    drawB: function (r, rows, k, caution, race, pit) {
+      var one = caution || !race || pit, box = $('zB');
       put(box, 'zone gaps' + (one ? ' one' : ''), 'className');
       $('bOne').hidden = !one;
+      put($('bOneN'), '', 'className');
+      if (pit) {
+        // on pit road: the limiter (irdash reads it from EngineWarnings), green when on, red when off
+        var lim = r && r.pit ? r.pit.limiter : null;
+        put($('bOneL'), 'Pit road');
+        putN($('bOneN'), lim === true ? 'Limiter on' : lim === false ? 'Limiter off' : 'Pit', true);
+        put($('bOneN'), lim === true ? 'on' : lim === false ? 'off' : '', 'className');
+        put($('bOneS'), ' ');
+        return;
+      }
       if (!race) {
         // practice and qualifying: his best lap (no optimal until there is a source for it, wave 4)
         var lp = R.lapInfo(r);
-        put($('bOneL'), 'Your best');
+        put($('bOneL'), 'Best');
         putN($('bOneN'), lp && lp.best > 0 ? F.lap(lp.best) : NONE);
         put($('bOneS'), ' ');
         return;
       }
       if (caution) {
-        put($('bOneL'), 'To the leader');
+        put($('bOneL'), 'To leader');
         var lead = rows[0], me = rows[k];
         if (me && k === 0 && me.pos === 1) { putN($('bOneN'), 'Leading'); put($('bOneS'), ' '); }
         else { putN($('bOneN'), gapText(R.between(lead, me), '+')); put($('bOneS'), lead ? '#' + lead.d.num + ' ' + lead.d.name : ' '); }
@@ -273,66 +291,56 @@
       put(el, cls, 'className');
     },
 
-    drawC: function (r, pit, caution, race, fresh) {
-      var f = r && r.fuel, gal = !!(r && r.units === 'imperial'), box = $('zC'), big = $('cBig'), win = $('cWin'), note = $('cNote');
-      // litres as iRacing gives them; gallons when his iRacing is set to imperial: the tank with no decimals, a lap with one
-      var tank = function (l, d) { return num(l) ? (gal ? (l / GAL).toFixed(0) + ' gal' : l.toFixed(d == null ? 1 : d) + ' L') : NONE; };
-      var perLap = function (l, d) { return num(l) ? (gal ? (l / GAL).toFixed(d || 1) + ' gal' : l.toFixed(2) + ' L') : NONE; };
-      var state = f ? f.state : '', cls = 'zone fuel', showWin = false, noteCls = 'c-note';
-      put($('cLbl'), pit ? 'Pit road' : 'Fuel');
-      if (!f) {
-        put($('cNum'), NONE); put($('cUnit'), ''); put(big, 'c-big', 'className'); put($('cLine'), ' '); put(note, ' ');
-      } else if (pit) {
-        // in the pit lane: what is in the tank, and the limiter (irdash reads it from EngineWarnings)
-        put(big, 'c-big', 'className'); put($('cNum'), tank(f.level).replace(/ (L|gal)$/, '')); put($('cUnit'), (gal ? 'gal' : 'L') + ' in the tank');
-        put($('cLine'), r.pit && r.pit.limiter === true ? 'LIMITER ON' : 'On pit road');
-        put(note, num(f.burn) && f.burn > 0 ? perLap(f.burn) + ' a lap' : ' ');
-      } else if (state === 'measuring') {
-        put(big, 'c-big small', 'className'); put($('cNum'), 'Measuring'); put($('cUnit'), '');
-        put($('cLine'), (num(f.measured) ? f.measured : 0) + ' of 3 laps · ' + tank(f.level) + ' in the tank');
-        put(note, 'Caution laps and pit laps are left out');
-      } else if (!race) {
-        // practice, qualifying: nothing to finish, only what is in the tank
-        put(big, 'c-big', 'className'); put($('cNum'), num(f.lapsOfFuel) ? f.lapsOfFuel.toFixed(1) : NONE); put($('cUnit'), 'laps of fuel');
-        put($('cLine'), tank(f.level) + ' in the tank' + (num(f.burn) && f.burn > 0 ? ' · ' + perLap(f.burn) + ' a lap' : ''));
-        put(note, ' ');
-      } else if (caution) {
-        // toEnd = what still has to go in (irdash); need = that plus what is in the tank
-        var need = num(f.toEnd) && num(f.level) ? Math.max(0, f.toEnd) + f.level : null;
-        cls += ' save'; put(big, 'c-big small', 'className'); put($('cNum'), 'Pit now?'); put($('cUnit'), '');
-        put($('cLine'), 'needs ' + tank(need, 0) + ', have ' + tank(f.level, 0));
-        put(note, num(f.toEnd) ? (f.toEnd > 0 ? 'Short by ' + tank(f.toEnd) + ' to the end' : 'Enough to the end') : ' ');
-      } else {
-        // a race: laps of fuel against laps to go (irdash's spare), the one number that matters
-        var spare = num(f.spare) ? f.spare : null, timed = !(num(r.laps) && r.laps > 0);
-        cls += state === 'short' ? ' short' : state === 'save' ? ' save' : ' ok';
-        if (f.stale) cls += ' restale';                 // after a refuel, until 3 new clean laps: the old numbers, greyed
-        put(big, 'c-big', 'className');
-        put($('cNum'), spare === null ? NONE : (spare < 0 ? MINUS : '+') + Math.abs(spare).toFixed(1)); put($('cUnit'), 'laps');
-        put($('cLine'), (num(f.lapsOfFuel) ? f.lapsOfFuel.toFixed(1) + ' laps of fuel' : NONE) + ' · ' +
-          (num(r.toGo) ? (timed ? '~' : '') + Math.ceil(r.toGo) + ' to go' : NONE));
-        showWin = !f.stale && (state === 'short' || state === 'save') && f.window && f.window.length > 0;
-        if (f.stale) put(note, 'Re-measuring after the stop' + (num(f.measured) ? ' (' + f.measured + ' of 3 laps)' : ''));
-        else if (num(f.save) && f.save > 0) { noteCls += ' save'; put(note, 'SAVE ' + perLap(f.save, 2) + '/LAP to gain a lap'); }
-        else if (showWin) { noteCls += ' win'; put(note, windowWords(f.window, R.lapNo(r))); }
-        else put(note, num(f.margin) && f.margin > 0 ? '+' + f.margin.toFixed(1) + (f.margin.toFixed(1) === '1.0' ? ' lap' : ' laps') + ' kept back' : ' ');
+    // C's one fuel line (W2-5, Peter: "fuel is way too much text"): numbers only, in one of these shapes
+    //   FUEL 12.3 L · 8.1 LAPS · +1.8   a race: in the tank, laps of fuel, spare laps (green enough, amber within a lap, red short)
+    //   FUEL 52.4 L · 22.7 LAPS          practice and qualifying (nothing to finish)
+    //   FUEL 2/3 LAPS                    measuring (3 clean laps first; caution, pit and incident laps do not count)
+    //   PIT NOW · 24 L · HAVE 22 L       under caution when he is short: what still has to go in, what is in
+    //   PIT · 22.4 L                     on pit road
+    // litres as iRacing gives them; GAL when his iRacing is set to imperial
+    drawC: function (r, pit, caution, race) {
+      var f = r && r.fuel, gal = !!(r && r.units === 'imperial'), line = $('cFuel'), cls = 'c-fuel';
+      var vol = function (l, d) { return num(l) ? (gal ? l / GAL : l).toFixed(d == null ? 1 : d) + (gal ? ' GAL' : ' L') : NONE; };
+      var S = function (c, t) { return '<span' + (c ? ' class="' + c + '"' : '') + '>' + esc(t) + '</span>'; };
+      var h;
+      if (!f) h = S('k', 'FUEL');
+      else if (pit) h = S('k', 'PIT') + ' · ' + S('', vol(f.level));
+      else if (f.state === 'measuring') h = S('k', 'FUEL') + ' ' + S('', (num(f.measured) ? f.measured : 0) + '/3 LAPS');
+      else if (race && caution && num(f.toEnd) && f.toEnd > 0) h = S('k now', 'PIT NOW') + ' · ' + S('short', vol(f.toEnd, 0)) + ' · ' + S('', 'HAVE ' + vol(f.level, 0));
+      else {
+        h = S('k', 'FUEL') + ' ' + S('', vol(f.level)) + (num(f.lapsOfFuel) ? ' · ' + S('', f.lapsOfFuel.toFixed(1) + ' LAPS') : '');
+        if (race && num(f.spare)) h += ' · ' + S(f.state === 'short' ? 'short' : f.state === 'save' ? 'save' : 'ok', (f.spare < 0 ? MINUS : '+') + Math.abs(f.spare).toFixed(1));
+        if (f.stale) cls += ' restale';
       }
-      put(note, noteCls, 'className');
-      put(box, cls, 'className');
-      win.hidden = !showWin;
-      if (showWin) {
-        var cells = f.window.slice(0, 32), h = cells.map(function (c) { return '<i class="' + esc(c) + '"></i>'; }).join('');
-        if (f.window.length > 32) h += '<span class="more">+' + (f.window.length - 32) + '</span>';
-        put(win, h, 'innerHTML');
-      }
+      put(line, h, 'innerHTML');
+      put(line, cls, 'className');
     },
 
-    drawD: function (r) {
+    // C's map: every car in the world where the stream's CarIdxLapDistPct puts it (his in gold and larger, his class leader ringed), in
+    // its class colour; the track from the session part (one /trackmap fetch per track, lib/map.js). Drawn with the rest, 4 times a second.
+    drawMap: function (rows) {
+      var M = R.map, s = R.sessRef, wi = s && s.WeekendInfo;
+      if (!M || !wi) return;
+      var key = ('t' + (wi.TrackID || '0') + '-' + (wi.TrackName || 'track')).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 80);
+      if (key !== R.mapKey) { R.mapKey = key; M.mount($('cMap'), { key: key, id: String(wi.TrackID || ''), size: { w: 908, h: 290 }, pad: 20 }); }
+      var v = R.v, pct = (v && v.CarIdxLapDistPct) || [], me = R.meIdx(), lead = rows.length && rows[0].pos === 1 ? rows[0].idx : -1, list = [];
+      for (var i in R.drivers) {
+        var d = R.drivers[i], p = pct[d.idx];
+        if (d.pace || d.spec || !(num(p) && p >= 0)) continue;
+        list.push({ p: p, me: d.idx === me, lead: d.idx === lead, color: d.color.charAt(0) === '#' ? d.color : '' });
+      }
+      R.mapCars = list;
+      M.cars(list);
+    },
+
+    // the split: iRacing's LapDeltaToBestLap, from the stream (15 a second) when it is fresh, else the race part's copy
+    drawD: function (r, v, fresh) {
       var lp = R.lapInfo(r);
       put($('dLast'), lp && lp.last > 0 ? F.lap(lp.last) : NONE);
       put($('dLast'), lp && lp.lastIsBest && lp.last > 0 ? 'best' : '', 'className');
       put($('dBest'), lp && lp.best > 0 ? F.lap(lp.best) : NONE);
-      var ok = !!(lp && lp.deltaOk && num(lp.delta)), d = ok ? lp.delta : 0, bar = $('dBar');
+      var live = fresh && v && 'LapDeltaToBestLap_OK' in v && num(v.LapDeltaToBestLap);
+      var ok = live ? !!v.LapDeltaToBestLap_OK : !!(lp && lp.deltaOk && num(lp.delta)), d = ok ? (live ? v.LapDeltaToBestLap : lp.delta) : 0, bar = $('dBar');
       put(bar, 'd-bar' + (ok ? (d < 0 ? ' ahead' : '') : ' off'), 'className');
       var s = 'scaleX(' + Math.min(1, Math.abs(d) / 2).toFixed(3) + ')', fill = $('dFill');
       if (fill._s !== s) { fill._s = s; fill.style.transform = s; }
@@ -392,7 +400,7 @@
     // practice and qualifying: this session's laps, newest first, with the gap to his best
     lapItems: function (r) {
       var li = R.lapInfo(r), best = li && li.best > 0 ? li.best : null, laps = R.laps.slice(-9).reverse();
-      if (!laps.length) return [{ kind: 'thead' }, { kind: 'empty', text: 'Laps show here as you drive them' }];
+      if (!laps.length) return [{ kind: 'thead' }, { kind: 'empty', text: 'No laps yet' }];
       var out = [{ kind: 'thead' }];
       laps.forEach(function (l) {
         var isBest = best && l.t > 0 && Math.abs(l.t - best) < 0.0005;
@@ -412,7 +420,7 @@
         o.p = x.pos > 0 ? String(x.pos) : NONE; o.n = '#' + x.d.num; o.nCls = 'n' + (x.d.dark ? ' lightink' : ''); o.band = x.d.color; o.nm = x.d.name;
         if (it.iv.word) { o.iv = it.iv.word; o.ivCls = 'iv word'; } else { o.iv = it.iv.text; o.gap = true; }
         o.pit = x.pit; o.car = x.idx;
-      } else if (it.kind === 'ghost') { o.cls += ' ghost'; o.nm = 'You rejoin P' + it.pos; }
+      } else if (it.kind === 'ghost') { o.cls += ' ghost'; o.nm = 'Rejoin P' + it.pos; }
       else if (it.kind === 'head') { o.cls += ' head'; o.p = it.text; o.rowBand = it.color; }
       else if (it.kind === 'cut') { o.cls += ' cut'; o.p = '···'; }
       else if (it.kind === 'thead') { o.cls += ' lapr thead'; o.p = 'Lap'; o.n = 'Time'; o.nCls = 't'; o.nm = 'To best'; o.nmCls = 'nm d'; }
@@ -466,14 +474,5 @@
     if (m) y = (0.2126 * parseInt(m[1], 16) + 0.7152 * parseInt(m[2], 16) + 0.0722 * parseInt(m[3], 16)) / 255;
     return (darkCache[col] = y < 0.45);
   }
-  // "Pit window: laps 36 to 41" from the first and last green cell (cell 0 = this lap)
-  function windowWords(w, lap) {
-    var a = w.indexOf('green'), b = w.lastIndexOf('green');
-    if (a < 0) return w[0] === 'white' ? 'No stop gets you to the end' : 'Pit window not open yet';
-    if (a === 0) return 'Pit window open now';
-    if (!num(lap)) return 'Pit window opens in ' + a + (a === 1 ? ' lap' : ' laps');
-    return 'Pit window: laps ' + (lap + a) + ' to ' + (lap + b);
-  }
-
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', R.init); else R.init();
 })();
