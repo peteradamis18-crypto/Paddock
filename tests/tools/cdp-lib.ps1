@@ -17,10 +17,10 @@ function Cdp($method, $params) {
     if ($o.id -eq $c.id) { return $o }
   }
 }
-function Cdp-Open($url, $w = 1920, $h = 1080, $Port = 9391) {
+function Cdp-Open($url, $w = 1920, $h = 1080, $Port = 9391, [string[]]$Extra = @()) {
   if (-not $script:chromeExe) { throw 'Chrome not found' }
   $prof = Join-Path $env:TEMP ('cdp-lib-chrome-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-  $p = Start-Process -FilePath $script:chromeExe -ArgumentList @('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$prof", "--remote-debugging-port=$Port", "--window-size=$w,$h", '--hide-scrollbars', 'about:blank') -PassThru -WindowStyle Hidden
+  $p = Start-Process -FilePath $script:chromeExe -ArgumentList (@('--headless=new', '--disable-gpu', '--no-first-run', "--user-data-dir=$prof", "--remote-debugging-port=$Port", "--window-size=$w,$h", '--hide-scrollbars') + $Extra + @('about:blank')) -PassThru -WindowStyle Hidden
   try { $p.PriorityClass = 'BelowNormal' } catch { }
   $page = $null
   for ($i = 0; $i -lt 50 -and -not $page; $i++) { Start-Sleep -Milliseconds 200; try { $arr = Invoke-RestMethod "http://127.0.0.1:$Port/json"; foreach ($x in $arr) { if ($x.type -eq 'page') { $page = $x; break } } } catch { } }
