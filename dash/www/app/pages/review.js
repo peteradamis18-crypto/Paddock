@@ -9,7 +9,8 @@
    Requests: one data.json('/api/review?id=…') at mount, the map's one outline fetch, the clip only when WATCH is pressed. Nothing on a
    timer: a review still being built ("working") is asked for again when irdash says the review list changed (data.onList('review')),
    and an answer that failed is asked for again when Paddock is back (data.on('online')).
-   Every word on the card comes from the review engine (dash/src/review.cs, Review.Lint keeps it honest); this page only lays it out. */
+   Every word on the card comes from the review engine (dash/src/review.cs, Review.Lint keeps it honest); this page only lays it out,
+   and since W5-6 (PLAN 10.10) it keeps the engine's numbers and drops its sentences: labels and numbers on screen. */
 const DOT = ' · ';
 const SUB = { laps: './review-laps.js', more: './review-more.js' };
 const CLIP_SECONDS = 10;                    // WATCH plays this much of the corner, then holds the picture
@@ -50,12 +51,39 @@ export function resultLine(r) {
   }
   return 'P' + r.finish + (r.field > 0 ? ' of ' + r.field : r.start > 0 ? ' from P' + r.start : '');
 }
-// which lap the card is measured against, in his words (the card always says which: PLAN 4.4 "Reference lap")
+// which lap the card is measured against (the card always says which: PLAN 4.4 "Reference lap"), as a label and numbers (W5-6):
+// "vs lap 7 · 1:34.424", "vs best here · 6 Nov · track 31°, 42 L fuel"
 export function refLine(ref, F) {
   if (!ref) return '';
-  if (ref.kind === 'ever') return 'Compared with: your best here' + (num(ref.date) ? ', ' + day(ref.date) : '') + (ref.conditions ? DOT + ref.conditions : '');
-  return 'Compared with: lap ' + ref.lap + ' of this session' + (num(ref.time) ? ' (' + F.lap(ref.time) + ')' : '');
+  if (ref.kind === 'ever') return ['vs best here', num(ref.date) ? day(ref.date) : '', ref.conditions || ''].filter(Boolean).join(DOT);
+  return 'vs lap ' + ref.lap + (num(ref.time) ? DOT + F.lap(ref.time) : '');
 }
+// The engine's card sentences (review.cs Happened / TryThis / the plan) as labels and numbers (PLAN 10.10, W5-6): the phase says what
+// happened, the sentence only gives up its number. review.cs phases are brake/entry/apex/throttle/exit (older answers: min/pickup).
+const PHASE = { brake: 'brake', entry: 'entry', apex: 'min', min: 'min', throttle: 'throttle', pickup: 'throttle', exit: 'exit' };
+const unitOf = t => { const m = /(\d+(?:\.\d+)?)\s*(m|mph|km\/h)\b/.exec(String(t || '')); return m ? m[1] + ' ' + m[2] : ''; };
+// "You braked 36 m earlier than your best lap" -> "BRAKED 36 m EARLY"
+export function whatShort(c) {
+  const p = PHASE[c && c.phase] || '', n = unitOf(c && c.happened);
+  if (!p || !n) return 'NO SINGLE CAUSE';
+  return { brake: 'BRAKED ' + n + ' EARLY', entry: 'TURN-IN ' + n + ' SLOWER', min: 'MIN SPEED ' + n + ' SLOWER', throttle: 'THROTTLE ' + n + ' LATE', exit: 'EXIT ' + n + ' SLOWER' }[p];
+}
+// the one tip, three words at most: "Brake at the 100 m board" -> "Brake at 100 m"; '' when the engine gave no advice
+export function tipShort(c) {
+  if (!c || !c.tryThis) return '';
+  const p = PHASE[c.phase] || '', b = /(\d+)\s*m board/.exec(c.tryThis);
+  return { brake: b ? 'Brake at ' + b[1] + ' m' : 'Brake later', entry: 'More entry speed', min: 'More min speed', throttle: 'Throttle earlier', exit: 'Faster exit' }[p] || 'Watch both laps';
+}
+// the plan: "NEXT TIME · Turn 1 · min speed · 0.19 s" from the card it is about (review.cs builds it from cards[0])
+export function planShort(plan, c) {
+  if (!plan) return '';
+  if (!c) return 'NEXT TIME' + DOT + String(plan).replace(/^Next time:\s*/i, '').split(/,\s*/)[0];
+  const p = PHASE[c.phase] || '', b = /(\d+)\s*m board/.exec(c.tryThis || '');
+  const what = { brake: b ? 'brake ' + b[1] + ' m' : 'brake', entry: 'entry speed', min: 'min speed', throttle: 'throttle', exit: 'exit speed' }[p] || '';
+  return ['NEXT TIME', cornerName(c.corner), what, secs(c.lost)].filter(Boolean).join(DOT);
+}
+// a line the engine wrote that is shown as it is (notes, "say"): kept only when it is one short line, else the fallback
+const shortOr = (t, f) => { t = String(t || '').trim(); return t && t.split(/\s+/).length <= 8 && !/\byou(r)?\b/i.test(t) && !/\.\s+\S/.test(t) ? t : f; };
 // "Your average 1:34.1 · the field 1:34.8 · 19 cars"
 export function paceLine(p) {
   if (!p || !num(p.mine)) return '';
@@ -144,13 +172,14 @@ const R = {
     document.body.classList.remove('page-bar');
     box.classList.toggle('stale', R.stale && !!j);
     // nothing seen before: Paddock off (the shell's banner says so) or Paddock on but the answer failed (asked again on the list's change)
-    if (!j) { box.innerHTML = !R.stale ? '' : R.line(R.ctx.data.online === false ? 'Your review shows here when Paddock is running.' : 'This review could not be read.'); return; }
-    if (j.state === 'working') { box.innerHTML = R.line(j.say || 'Reading your laps…'); return; }
-    if (j.state !== 'ready' || !j.session) { box.innerHTML = R.line(j.say || 'This drive could not be read.'); return; }
+    if (!j) { box.innerHTML = !R.stale ? '' : R.line(R.ctx.data.online === false ? 'Paddock not running' : 'Review not read'); return; }
+    if (j.state === 'working') { box.innerHTML = R.line('Reading laps…'); return; }
+    if (j.state !== 'ready' || !j.session) { box.innerHTML = R.line(shortOr(j.say, 'Drive not read')); return; }
     const s = j.session, race = j.race || null, F = R.ctx.Fmt;
     const cards = (j.cards || []).slice().sort((a, b) => (a.rank || 0) - (b.rank || 0)).slice(0, 3);
     const noLap = !(j.laps && j.laps.length) && !cards.length && !race;
     const main = race && race.cleanAir ? race.cleanAir : cards[0] || null;
+    const top = cards[0] || (race && race.cleanAir) || null;      // the plan is about the engine's first card (a race: its clean-air card)
     const watchClip = main ? main.clip || null : race && race.corners && race.corners[0] ? race.corners[0].clip || null : null;
     const showN = main ? main.corner.n : race && race.corners && race.corners[0] ? race.corners[0].n : null;
     const res = race || /race/i.test(s.type || '') ? resultLine(s.result) : '';
@@ -161,7 +190,7 @@ const R = {
       '<div class="rv-main"><section class="rv-map" aria-label="Track map"><div class="map-host"></div></section>' +
       '<section class="rv-right">' + (noLap ? R.noLap(j) : race ? R.story(race) : R.cardsHtml(cards, j.note)) + '</section></div>' +
       (noLap ? '' :
-        '<footer class="rv-bottom"><div class="plan-box">' + (j.plan ? '<p class="plan">' + esc(j.plan) + '</p>' : '') +
+        '<footer class="rv-bottom"><div class="plan-box">' + (j.plan ? '<p class="plan">' + esc(planShort(j.plan, top)) + '</p>' : '') +
         '<p class="ref">' + esc(refLine(s.ref, F)) + '</p></div><div class="acts">' +
         '<button type="button" class="btn more">More data</button>' +
         (showN != null ? '<button type="button" class="btn gold show" data-n="' + esc(showN) + '">Show me</button>' : '') +
@@ -181,22 +210,27 @@ const R = {
     if (!clip) return '<button type="button" class="btn ' + cls + '" disabled>Watch<span class="no">no clip</span></button>';
     return '<button type="button" class="btn ' + cls + '" data-clip="' + esc(clip.id) + '" data-at="' + (+clip.at || 0) + '" data-what="' + esc(what) + '">Watch</button>';
   },
-  card(c, tag) {
+  card(c, tag, ref) {
     return '<article class="card" data-n="' + esc(c.corner.n) + '" data-rank="' + esc(c.rank || '') + '">' +
       '<div class="c-text"><div class="c-head"><span class="mk">' + esc(c.rank || '') + '</span><span class="c-name">' + esc(cornerName(c.corner)) + '</span>' +
       (tag ? '<span class="c-tag">' + esc(tag) + '</span>' : c.corner.detected ? '<span class="c-tag">detected</span>' : '') + '</div>' +
-      '<p class="c-what">' + esc(c.happened) + '</p>' +
-      (c.tryThis ? '<p class="c-try"><span class="try">Try this:</span> ' + esc(c.tryThis) + '</p>' : '') + '</div>' +
+      '<p class="c-what">' + esc(whatShort(c) + (tag && ref ? DOT + ref : '')) + '</p>' +
+      (tipShort(c) ? '<p class="c-try"><span class="try">Try</span> ' + esc(tipShort(c)) + '</p>' : '') + '</div>' +
       '<div class="c-num"><span class="lost">' + esc(secs(c.lost)) + '</span><span class="c-sample">' + esc(c.sample || '') + '</span></div></article>';
   },
   cardsHtml(cards, note) {
     return (note ? '<p class="note">' + esc(note) + '</p>' : '') +
-      (cards.length ? '<div class="cards">' + cards.map(c => R.card(c)).join('') + '</div>' : note ? '' : '<p class="note">No corner lost time against that lap.</p>');
+      (cards.length ? '<div class="cards">' + cards.map(c => R.card(c)).join('') + '</div>' : note ? '' : '<p class="note">No corner lost time</p>');
   },
   noLap(j) {
     return '<div class="nolap"><p class="big">' + esc(j.note || 'No full lap yet') + '</p>' +
-      '<p class="say">Drive one full lap and your corners show here.</p>' +
+      '<p class="say">Corners show after one full lap</p>' +
       '<button type="button" class="btn gold more">More data</button></div>';
+  },
+  // the clean-air card says which lap it is measured against: "best lap 11" / "best here"
+  bestRef() {
+    const ref = R.j && R.j.session && R.j.session.ref;
+    return !ref ? '' : ref.kind === 'ever' ? 'best here' : num(ref.lap) ? 'best lap ' + ref.lap : '';
   },
   // the race story (PLAN 4.4): position by lap, pace against the field, the three costliest corners with their clips, one clean-air card
   story(r) {
@@ -208,7 +242,7 @@ const R = {
       (corners.length ? '<div class="costly"><span class="lbl">Where the race lost time</span>' + corners.map((c, i) =>
         '<div class="cr" data-n="' + esc(c.n) + '"><span class="mk">' + (i + 1) + '</span><span class="c-name">' + esc(cornerName(c)) + '</span>' +
         '<span class="cr-lost">' + esc(secs(c.lost)) + '</span>' + R.watchBtn('cr-watch', c.clip, cornerName(c) + DOT + secs(c.lost)) + '</div>').join('') + '</div>' : '') +
-      (r.cleanAir ? '<div class="cards">' + R.card(Object.assign({}, r.cleanAir, { rank: '' }), 'clean-air lap') + '</div>' : '') +
+      (r.cleanAir ? '<div class="cards">' + R.card(Object.assign({}, r.cleanAir, { rank: '' }), 'clean-air lap', R.bestRef()) + '</div>' : '') +
       '</div>';
   },
   // plain SVG, no library: P1 at the top, one point per lap, the first and last place written beside the line
@@ -280,7 +314,7 @@ const R = {
     if (gen !== R.gen || R.el !== el) return;
     if (!mod) { host.innerHTML = R.line('Coming with the next update.'); return; }
     try { mod.mount(host, R.ctx, o); R.sub = mod; }
-    catch (e) { console.error(e); host.innerHTML = R.line('This screen could not open. Press REVIEW.'); }
+    catch (e) { console.error(e); host.innerHTML = R.line('Did not open' + DOT + 'press REVIEW'); }
   },
 
   // ---- WATCH: his own video of that corner, 10 s from the corner. clip.id is the recorder's one-lap clip (served by /vault/video),
