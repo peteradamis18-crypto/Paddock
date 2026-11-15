@@ -153,7 +153,7 @@ Four doors along the top: **HOME · RACES · REVIEW · RIG**, the same four word
 - **HOME** is the start. (It is being rebuilt: for now it says so.)
 - **RACES** is every race you recorded (above).
 - **REVIEW** shows what to change next time, for your last drive (below: REVIEW: the card). Pressing REVIEW on a race in RACES opens that race here.
-- **RIG** shows how the PC ran (Performance, below).
+- **RIG** shows how the PC ran (Performance, below). Its one line "Rig check 03:00: ..." is the night check: while you are away it looks the rig over, restarts Stream Deck once, and says in plain words what it found.
 
 To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. (Inside a page, Esc first closes what that page has open, like a lap or a video.) A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
 
