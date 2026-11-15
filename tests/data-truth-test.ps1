@@ -89,14 +89,16 @@ foreach ($r in $files) {
   $x = [RawIbt]::Open($p, @('IsOnTrack', 'LapDistPct', 'SessionTime', 'Lap'))
   $on = $x.ch['IsOnTrack']; $pc = $x.ch['LapDistPct']; $cnt = 0
   for ($i = 1; $i -lt $x.records; $i++) { if ($on[$i] -ne 0) { $secs++ ; if ($on[$i - 1] -ne 0 -and $pc[$i - 1] -gt 0.9 -and $pc[$i] -lt 0.1) { $cnt++ } } }
-  $laps += $cnt
+  # W4-9: HOME counts COMPLETED laps; the first line crossing of a file only starts lap 1, so each file with a crossing is one fewer than its crossings (every file was exactly 1 apart)
+  $laps += [math]::Max(0, $cnt - 1)
 }
 $secs = $secs / 60
 # the cache is rebuilt when a new file appears; allow one new file between the two reads
-Check "HOME week laps $($hm.week.laps) = line crossings in this week's files ($laps)" ([math]::Abs($hm.week.laps - $laps) -le 2)
+Check "HOME week laps $($hm.week.laps) = completed laps (line crossings less the first of each file) in this week's files ($laps)" ([math]::Abs($hm.week.laps - $laps) -le 2)
 Check "HOME week hours $($hm.week.hours) = on-track time in this week's files ($([math]::Round($secs / 3600, 2)))" ([math]::Abs($hm.week.hours - $secs / 3600) -le 0.1)
 Check "HOME week starts on the Monday ($($hm.week.from))" ($hm.week.from -eq $ws.ToString('ddd d MMM', [Globalization.CultureInfo]::InvariantCulture))
 ''
 "$pass passed, $fail failed."
 if ($fail -gt 0) { exit 1 }
+
 
