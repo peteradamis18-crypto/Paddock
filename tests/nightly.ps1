@@ -13,7 +13,7 @@
 # Parameters after -Base are for tests\nightly-test.ps1 only (a pretend irdash, a stand-in irdeck-cli, no waiting).
 #   powershell -ExecutionPolicy Bypass -File tests\nightly.ps1
 param([string]$Base = 'http://localhost:8199', [string]$Cli = '', [string]$OutDir = '',
-      [switch]$Fast, [string]$TestBusy = '', [double]$TestIdle = -1, [switch]$NoLock)
+      [switch]$Fast, [string]$TestBusy = '', [double]$TestIdle = -1, [switch]$NoLock, [int]$TestLocked = -1)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'guard.ps1')
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { }
@@ -30,6 +30,10 @@ $script:log = New-Object Collections.Generic.List[string]
 function Say($m) { $l = '{0} {1}' -f (Get-Date -Format 'HH:mm:ss'), $m; $script:log.Add($l); Write-Output $l }
 function Nap([double]$sec) { Start-Sleep -Milliseconds ([int]([math]::Max(10, $(if ($Fast) { $sec * 20 } else { $sec * 1000 })))) }
 function Over { $budget.Elapsed.TotalMinutes -ge $maxMinutes }
+# the Windows lock screen is in front (guard.ps1's RigLock): the add-on's page does not run then (2026-11-14 21:02: irdash restarted at 21:00
+# with the PC locked, the add-on came back only when Peter unlocked at 21:06), so a silent add-on is not a fault and the deck is not restarted
+function Locked { if ($TestLocked -ge 0) { return ($TestLocked -eq 1) }; try { return ($null -ne [RigLock]::Reason()) } catch { return $false } }
+$script:notChecked = New-Object Collections.Generic.List[string]
 $k = if ($Fast) { 0.05 } else { 1 }     # the waits below shrink in a test; the real ones are 60 s (Doctor), 90 s (app back), 120 s (add-on back)
 
 # one line for RIG, then the full log; keeps the newest 60 lines
@@ -118,6 +122,7 @@ try {
       # an add-on older than the one on disk is "ok" to the Doctor (it installs itself when Stream Deck restarts) but worth a word
       if ($it.id -eq 'streamdeck' -and $it.state -eq 'ok' -and [string]$it.detail -match 'ready to install') { $faults.Add('the Stream Deck add-on is out of date'); Say "doctor item: $($it.detail)"; continue }
       if ($it.state -eq 'ok') { continue }
+      if ($it.id -eq 'streamdeck' -and [string]$it.detail -match 'silent|asleep' -and (Locked)) { Say "doctor item: $($it.detail) - not a fault, the PC is locked"; $script:notChecked.Add('the Stream Deck add-on (the PC is locked)'); continue }
       Say "doctor item: $($it.name) [$($it.state)]: $($it.detail) - $($it.fix)"
       if ($it.state -eq 'bad' -and $mapped.ContainsKey([string]$it.id) -and $was.ContainsKey($mapped[[string]$it.id])) { continue }   # "not running" is said already, in its own words
       $faults.Add(("{0}: {1}" -f $it.name, $it.detail).TrimEnd(': '))
@@ -129,8 +134,9 @@ try {
     $faults.Add("$($a.words) was not running (" + $(if ($post[$a.id] -eq 'ok') { 'started it' } else { 'could not start it' }) + ')')
   }
 
-  # ---- 4. a real Stream Deck restart through irdash; then the app and the add-on must be back ----
-  if (-not (Over)) {
+  # ---- 4. a real Stream Deck restart through irdash; then the app and the add-on must be back (not on a locked PC: the add-on cannot report back) ----
+  if (Locked) { Say 'deck restart: not tonight (the PC is locked: the add-on cannot report back until it is unlocked)'; $script:notChecked.Add('the Stream Deck restart (the PC is locked)') }
+  elseif (-not (Over)) {
     try { $r = Get-Json '/api/nightly/deck' 8 $true }
     catch [Net.WebException] {
       # irdash answered with a refusal (409: a session started, 403, 404): read its words; no answer at all is the outer catch's
@@ -165,7 +171,8 @@ try {
 
   # ---- 6. the line ----
   if (Over) { $faults.Add('the check ran out of time') }
-  Say 'not checked tonight: recorder (no dry self-test), deck start page (nothing reports it)'
+  $script:notChecked.Insert(0, 'deck start page (nothing reports it)'); $script:notChecked.Insert(0, 'recorder (no dry self-test)')
+  Say ('not checked tonight: ' + ($script:notChecked -join ', '))
   if ($faults.Count -eq 0) { Finish $true ('all good') }
   $n = $faults.Count
   Finish $false ("$n thing" + $(if ($n -eq 1) { '' } else { 's' }) + ': ' + ($faults -join '; '))

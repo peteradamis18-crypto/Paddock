@@ -173,6 +173,15 @@ exit /b 2
   ok 'a dry key that answers wrongly is named (getout)' ($r.text -match 'deck keys did not answer as expected \(getout\)') "[$($r.text)]"
   Set-Content -Encoding ascii (Join-Path $cliDir 'mode.txt') 'ok'
 
+  # the PC is locked (2026-11-14 21:02): the add-on's page sleeps, so a "silent" Doctor item is not a thing and the deck is not restarted
+  Reset-Scenario; $S.items = @(@{ id = 'streamdeck'; name = 'Stream Deck'; state = 'warn'; detail = 'Rig Intro add-on silent for over 2 min'; fix = 'Close and open the Stream Deck app' })
+  $r = Run-Night @{ TestLocked = '1' }
+  ok 'locked PC: a silent add-on is not a thing and no restart is asked; the line is "all good"' ($r.text -eq 'Rig check 03:00: all good' -and -not ($S.hits -contains '/api/nightly/deck')) "[$($r.text)] hits=$($S.hits -join ' ')"
+  ok 'locked PC: the full log says both were not checked because of the lock' ((Get-ChildItem (Join-Path $outDir 'last') -Filter 'nightly-*.txt' | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Raw) -match '(?s)not a fault, the PC is locked.*deck restart: not tonight.*not checked tonight: .*Stream Deck add-on \(the PC is locked\).*Stream Deck restart \(the PC is locked\)')
+  Reset-Scenario; $S.items = @(@{ id = 'streamdeck'; name = 'Stream Deck'; state = 'warn'; detail = 'Rig Intro add-on silent for over 2 min'; fix = 'x' })
+  $r = Run-Night @{ TestLocked = '0' }
+  ok 'unlocked PC: the same silent add-on IS a thing and the restart is asked' ($r.text -match 'Stream Deck: Rig Intro add-on silent' -and ($S.hits -contains '/api/nightly/deck')) "[$($r.text)] hits=$($S.hits -join ' ')"
+
   # Stream Deck does not come back / add-on silent
   Reset-Scenario; $S.deckComesBack = $false
   $r = Run-Night

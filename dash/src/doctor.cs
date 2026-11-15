@@ -358,6 +358,20 @@ namespace IRDash
         }
         static string FileText(string path) { using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) using (StreamReader r = new StreamReader(fs, Encoding.GetEncoding(28591))) return r.ReadToEnd(); }
 
+        // the Windows lock screen is in front (the same look tests\guard.ps1 takes): the add-on's page does not run then, and a
+        // Stream Deck restart cannot help until Peter unlocks. No window in front at all counts as locked too (screens off).
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();     // GetWindowThreadProcessId is declared further down (the stray-dialog look)
+        static bool PcLocked()
+        {
+            try
+            {
+                IntPtr h = GetForegroundWindow(); if (h == IntPtr.Zero) return true;
+                uint pid; GetWindowThreadProcessId(h, out pid); if (pid == 0) return true;
+                return Process.GetProcessById((int)pid).ProcessName.StartsWith("LockApp", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
         static Item CheckStreamDeck()
         {
             if (!Running("StreamDeck")) return Mk("streamdeck", "Stream Deck", "bad", "Stream Deck app not running: the keys do nothing", "Starts when no session is running");
@@ -368,8 +382,16 @@ namespace IRDash
             if (File.Exists(inst)) { Match m = Regex.Match(FileText(inst), "\\$ver\\s*=\\s*'([\\d.]+)'"); if (m.Success) ready = m.Groups[1].Value; }
             if (installed == "") return Mk("streamdeck", "Stream Deck", "warn", "Rig Intro add-on not installed (friends mode, overlays)", "Run deck-intro\\install.ps1, then click Install in Stream Deck");
             if (ready != "" && installed != ready) return Mk("streamdeck", "Stream Deck", "ok", "Running \u00B7 Rig Intro add-on " + installed + " (" + ready + " ready to install)", "");
-            // the add-on asks every 2 s, but an older add-on page is slowed to about once a minute when hidden: only 2.5 minutes of silence counts
-            if (Showcase.DeckPollAge > 150) return Mk("streamdeck", "Stream Deck", "warn", "Rig Intro add-on silent for over 2 min", "Close and open the Stream Deck app");
+            // the add-on asks every 2 s, but an older add-on page is slowed to about once a minute when hidden: only 2.5 minutes of silence counts.
+            // 2026-11-14 21:02 (the first night check): irdash had been restarted at 21:00 with the PC locked; the add-on could not come back
+            // until Peter unlocked at 21:06, and the Doctor restarted Stream Deck three times for nothing. So: silence counts only after
+            // irdash has been up 10 minutes (the add-on reconnects on its own), and never while the PC is locked (asleep, not broken).
+            if (Showcase.DeckPollAge > 150)
+            {
+                if (PcLocked()) return Mk("streamdeck", "Stream Deck", "ok", "Running \u00B7 Rig Intro add-on asleep (the PC is locked)", "");
+                if (Showcase.UptimeSec < 600) return Mk("streamdeck", "Stream Deck", "ok", "Running \u00B7 waiting for the Rig Intro add-on (Paddock just started)", "");
+                return Mk("streamdeck", "Stream Deck", "warn", "Rig Intro add-on silent for over 2 min", "Close and open the Stream Deck app");
+            }
             return Mk("streamdeck", "Stream Deck", "ok", "Running \u00B7 Rig Intro add-on " + installed, "");
         }
 
@@ -457,7 +479,9 @@ namespace IRDash
         {
             bool froze; string line = Perf.Summary(out froze);
             int look = PerfCheck.AttentionCount();
-            return Mk("performance", "Frame rate", look > 0 || froze ? "warn" : "ok", line, look > 0 || froze ? "Open the Performance page" : "");
+            // 2026-11-14 (W5-4 night run): amber only for a FREEZE. The checklist's advisory ("N things to look at") stays in the words, never a thing of its own:
+            // the nightly line and RIG count amber items, and a smooth race must not read as a fault every morning.
+            return Mk("performance", "Frame rate", froze ? "warn" : "ok", line, froze ? "Open the Performance page" : "");
         }
 
         // Once a minute with the sim closed (Tick's 20 s timer runs on the UI thread, so the work goes to a background thread): the
