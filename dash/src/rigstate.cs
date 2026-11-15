@@ -274,6 +274,13 @@ namespace IRDash
         public static string HeaderRefusal(IDictionary<string, string> hdr, bool local, int port, string secret)
         {
             string x = H(hdr, "X-Paddock"), site = H(hdr, "Sec-Fetch-Site"), origin = H(hdr, "Origin"), host = H(hdr, "Host");
+            // The add-on's own random secret proves the add-on, whatever origin its browser puts on the request. 2026-11-15: Stream Deck's
+            // Qt WebEngine sent the deck's commands without the "null" origin the test's Chrome sends, and every deck press was refused.
+            if (x.Length > 1 && x != "1" && (secret != null ? x == secret : DeckSecret.Offer(x)))
+            {
+                if (!Opaque(origin)) RigState.LogEvery("addon-origin", 3600, "http: the Stream Deck add-on's requests carry " + HeaderSummary(hdr));   // once an hour: what its browser sends
+                return null;
+            }
             if (Opaque(origin))
             {
                 if (secret != null) return x == secret ? null : "an opaque origin needs the Stream Deck add-on's secret";
@@ -293,6 +300,17 @@ namespace IRDash
             if (site == "none") return null;                                // typed in the address bar by hand
             return "a state-changing request needs the X-Paddock: 1 header";
         }
+
+        // what a refused request carried, for the log: never the secret itself, only whether the header was "1", the secret, something else or absent
+        public static string HeaderSummary(IDictionary<string, string> hdr)
+        {
+            string x = H(hdr, "X-Paddock"), secret = DeckSecret.Active();
+            string xp = x.Length == 0 ? "none" : x == "1" ? "1" : secret != null && x == secret ? "secret" : "other(" + x.Length + ")";
+            string ua = H(hdr, "User-Agent"); if (ua.Length > 60) ua = ua.Substring(0, 60);
+            return "origin=" + (H(hdr, "Origin").Length == 0 ? "-" : H(hdr, "Origin")) + " site=" + (site(hdr).Length == 0 ? "-" : site(hdr)) + " mode=" + (H(hdr, "Sec-Fetch-Mode").Length == 0 ? "-" : H(hdr, "Sec-Fetch-Mode")) +
+                " referer=" + (H(hdr, "Referer").Length == 0 ? "-" : "yes") + " paddock=" + xp + " token=" + (H(hdr, "X-Paddock-Token").Length == 0 ? "-" : "yes") + " ua=\"" + ua + "\"";
+        }
+        static string site(IDictionary<string, string> hdr) { return H(hdr, "Sec-Fetch-Site"); }
 
         // CORS preflight for the X-Paddock header: only from Paddock's own pages. A public web page asking for a local address carries
         // Access-Control-Request-Private-Network (Chrome) and is refused whatever its origin says.

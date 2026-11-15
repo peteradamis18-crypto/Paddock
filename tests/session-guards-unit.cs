@@ -112,6 +112,10 @@ namespace IRDash
             Check("with the secret in force: Origin null with a wrong secret -> refused", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "X-Paddock", "ffffffffffffffffffffffffffffffff"), true, P, S) != null);
             Check("with the secret in force: the add-on (Origin null + its secret) -> ok", Gate.HeaderRefusal(D("Host", H, "Origin", "null", "X-Paddock", S), true, P, S) == null);
             Check("with the secret in force: a file: origin is treated the same (refused without it)", Gate.HeaderRefusal(D("Host", H, "Origin", "file://", "X-Paddock", "1"), true, P, S) != null);
+            // 2026-11-15: Stream Deck's own browser (Qt WebEngine) did not send the "null" origin headless Chrome sends, and every deck press was refused for a day
+            Check("with the secret in force: the add-on's secret from ANY origin the deck's browser sends (another local port, same-site) -> ok", Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:12345", "Sec-Fetch-Site", "same-site", "X-Paddock", S), true, P, S) == null);
+            Check("with the secret in force: the add-on's secret with no Origin at all but a browser's cross-site mark -> ok", Gate.HeaderRefusal(D("Host", H, "Sec-Fetch-Site", "cross-site", "X-Paddock", S), true, P, S) == null);
+            Check("with the secret in force: a wrong secret from another local port -> refused", Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:12345", "Sec-Fetch-Site", "same-site", "X-Paddock", "ffffffffffffffffffffffffffffffff"), true, P, S) != null);
             Check("with the secret in force: the top screen, irdeck and the phone are unchanged", Gate.HeaderRefusal(D("Host", H, "Sec-Fetch-Site", "same-origin"), true, P, S) == null && Gate.HeaderRefusal(D("Host", H), true, P, S) == null && Gate.HeaderRefusal(D("Host", "192.168.1.5:8199", "X-Paddock", "1"), false, P, S) == null);
             Check("a program on this PC (irdeck, tests: none of a browser's marks) -> ok", Gate.HeaderRefusal(D("Host", "127.0.0.1:8199", "User-Agent", "x"), true, P) == null);
             Check("from the LAN with no header (a phone's browser following a link) -> refused", Gate.HeaderRefusal(D("Host", "192.168.1.5:8199"), false, P) != null);
@@ -137,6 +141,14 @@ namespace IRDash
             Check("... after which Origin null without it is refused", Gate.HeaderRefusal(D("Origin", "null"), true, P) != null && Gate.HeaderRefusal(D("Origin", "null", "X-Paddock", "1"), true, P) != null);
             DeckSecret.Forget();
             Check("irdash restarted: the secret is read back from dash\\deck-secret.txt", DeckSecret.Active() == S);
+            // the same first request from the deck's real browser, which does not send Origin null (2026-11-15): the secret comes into force all the same
+            const string S2 = "fedcba9876543210fedcba9876543210";
+            File.Delete(Path.Combine(sd, "deck-secret.txt")); File.WriteAllText(Path.Combine(sd, "deck-secret-new.txt"), S2); DeckSecret.Forget(); Log.Lines.Clear();
+            Check("a new add-on's first request from a non-null origin (its secret) -> ok, in force from now on, and the log says what its browser sends (once an hour)",
+                Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:12345", "Sec-Fetch-Site", "same-site", "X-Paddock", S2), true, P) == null && DeckSecret.Active() == S2
+                && Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:12345", "Sec-Fetch-Site", "same-site", "X-Paddock", S2), true, P) == null
+                && Log.Lines.FindAll(l => l.Contains("the Stream Deck add-on's requests carry origin=http://localhost:12345 site=same-site") && l.Contains("paddock=secret")).Count == 1);
+            Check("... and a wrong value from that origin is refused", Gate.HeaderRefusal(D("Host", H, "Origin", "http://localhost:12345", "Sec-Fetch-Site", "same-site", "X-Paddock", S), true, P) != null);
             RigState.Clock = null;
             try { Directory.Delete(sd, true); } catch { }
             DeckSecret.Dir = Path.Combine(sd, "none"); DeckSecret.Forget();

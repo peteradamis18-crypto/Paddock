@@ -415,7 +415,8 @@ namespace IRDash
                     if (Gate.ChangesState(method, path))
                     {
                         string hr = Gate.HeaderRefusal(hdr, !asPhone, port);
-                        if (hr != null) { RigState.LogOnce("header " + path, "http: refused " + path + " (" + hr + ")"); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("refused: " + hr), "Access-Control-Allow-Origin: *\r\n"); return; }
+                        // the log says what the request carried (2026-11-15: the deck's own presses were refused for a day and the line did not say why)
+                        if (hr != null) { RigState.LogOnce("header " + path, "http: refused " + path + (query.Length > 0 ? "?" + (query.Length > 60 ? query.Substring(0, 60) : query) : "") + " (" + hr + "; " + Gate.HeaderSummary(hdr) + ")"); Send(s, 403, "text/plain", Encoding.ASCII.GetBytes("refused: " + hr), "Access-Control-Allow-Origin: *\r\n"); return; }
                         // W0-5: something is about to change: the state push looks again now (typing a name and the dry SEE IN iRACING probe are not changes)
                         if (path != "/share/jump" && path != "/api/guest/draft" && path != "/api/keymsg" && path != "/api/spot" && path != "/api/guest/lap")
                             StateBuilder.Poke(method == "POST" || path == "/api/do" || path.StartsWith("/vault/", StringComparison.Ordinal) || path.StartsWith("/api/rec/", StringComparison.Ordinal) || path == "/perf/scan");
