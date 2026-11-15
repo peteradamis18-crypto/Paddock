@@ -785,7 +785,7 @@ namespace IRDeck
                         // 2026-11-15 (journey run 7; Peter "Yes, small updates"): Update IS the launch and iRacing's Update window is its content check,
                         // so a small update is accepted here and the sim waited for (up to 4 min); a big one stops the key with words. Should iRacing
                         // come back to the AI Single Player page instead, Single Race > Last Settings reopens the set-up wizard and Update is pressed once more.
-                        UEl race = null; bool rescued = false, launched = false, tooBig = false, updatedAgain = false;
+                        UEl race = null; bool rescued = false, launched = false, tooBig = false, updatedAgain = false, dlFailed = false;
                         DateTime rescuedAt = DateTime.MinValue, waitFrom = DateTime.UtcNow, loggedAt = DateTime.MinValue;
                         WaitFor(delegate
                         {
@@ -797,6 +797,9 @@ namespace IRDeck
                                 if (AiUpdaterDownload(all) != null)
                                 {
                                     if (!aiUpdaterAccepted) { if (AiAcceptUpdater(window) == 2) { tooBig = true; return true; } return false; }
+                                    // journey run 8 (08:22): the window answered "Download failed. Please check that iRacing is running and try again." in red
+                                    // and kept its Download button; the key waited 4 min for nothing. iRacing's own words end the wait at once.
+                                    if (all.Exists(u => u.Type == ControlType.Text && u.Name.IndexOf("Download failed", StringComparison.OrdinalIgnoreCase) >= 0)) { dlFailed = true; return true; }
                                     if ((DateTime.UtcNow - loggedAt).TotalSeconds > 20) { loggedAt = DateTime.UtcNow; AiLogCandidates(window, "while iRacing downloads"); }   // the log tells what the window shows meanwhile
                                     return false;
                                 }
@@ -830,6 +833,7 @@ namespace IRDeck
                         }, 250000, 250, "UI CHANGED", "Summary Race");
                         if (launched) { Log("airace start: iRacing launched the race after Update" + (aiUpdaterAccepted ? " and its small update (" + aiUpdaterSeen + ")" : "")); break; }
                         if (tooBig) return AiStop("UPDATE NEEDED", "iRacing asks to download a big update first (" + aiUpdaterSeen + "); not without Peter's yes", window);
+                        if (dlFailed) return AiStop("UPDATE FAILED", "iRacing's own download failed (" + aiUpdaterSeen + "): its window says Download failed, check that iRacing is running", window);
                         if (race == null && aiUpdaterAccepted) { AiLogCandidates(window, "after iRacing's update"); return AiStop("UI CHANGED", "iRacing did not start the race after its update (" + aiUpdaterSeen + ")", window); }
                         if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;

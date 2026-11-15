@@ -566,7 +566,10 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
    stops the key with words on the top screen ("iRacing wants a big update first (Download 1.2 GB). Ask Claude."). Was: since
    2026-11-14 the AI race wizard ends with Update and has no Race control; journey runs 5-7 showed Update launches the race and
    iRacing first shows its "Update iRacing" window (optional content, one 23 kB item pre-ticked, buttons Close and
-   "Download 23 KB"); Close cancels the launch.
+   "Download 23 KB"); Close cancels the launch. Live 08:22 (journey run 8): the key pressed Download and iRacing's own
+   updater failed ("Download failed. Please check that iRacing is running and try again."), by hand too; the key now
+   stops at once with those words. Until iRacing's download works no AI race starts from the key; Peter's one click:
+   `tools\iracing-helper-restart.cmd` (iRacing's own service restart), or Download once by hand in iRacing's window.
 4. **Coach Dave Delta:** OK to run the three-race test one evening when he is away (Delta off / on / on with capture)?
 5. **`PerfPrio`** (Paddock lowering irdashies' and the browser's priority every 5 s during races): keep or stop?
    Recommendation: stop until the black box says it helps.

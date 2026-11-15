@@ -94,6 +94,7 @@ namespace IRDeck
             new[] { @"choose a car and track first", "no", "Choose a car and track first" },
             new[] { @"The Test Drive window isn't open|iRacing UI is not running|press HOME", "no", "iRacing is not open" },
             new[] { @"iRacing asks to download a big update first \((.+?)\)", "no", "iRacing wants a big update first ($1). Ask Claude." },   // 2026-11-15: the AI race's launch waits on iRacing's content check; small ones (under 50 MB) the key accepts (Peter), big ones need his yes
+            new[] { @"iRacing's own download failed \((.+?)\)", "no", "iRacing's download failed ($1). Ask Claude." },   // journey run 8: iRacing's updater said "Download failed"
             new[] { @"iRacing did not start the race after its update", "no", "iRacing updated but did not start. Press AI RACE again." },
             new[] { @"to-the-race refused: a Test Drive has no race", "no", "A Test Drive has no race. QUIT TO MENU is on LEAVE." },   // before "has no " below (deck-v2-live 2026-11-14: the car rule won and the screen said "could not find that car")
             new[] { @"is not in the list|has no ", "no", "iRacing could not find that car" },
