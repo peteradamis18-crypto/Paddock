@@ -100,6 +100,7 @@ namespace IRDeck
         // buttons Close and "Download 23 KB") opened over the page after the wizard closed and hid the race summary. Nothing is
         // downloaded: its Close button (the one beside Download, not the window's own X) is pressed once and the page comes back.
         static DateTime aiUpdaterAt = DateTime.MinValue;
+        static string aiUpdaterSeen = "";      // the Download button's words when the window was seen this press ("Download 23 KB"), else ""
         static bool AiDismissUpdater(AutomationElement window)
         {
             try
@@ -116,7 +117,7 @@ namespace IRDeck
                     if (dy < 20 && d < best) { best = d; close = u; }
                 }
                 if (close == null) return false;
-                aiUpdaterAt = DateTime.UtcNow;
+                aiUpdaterAt = DateTime.UtcNow; aiUpdaterSeen = dl.Name;
                 Log("airace: iRacing's Update window is up (" + dl.Name + "): pressing its Close, nothing is downloaded");
                 return AiPress(close);
             }
@@ -766,6 +767,10 @@ namespace IRDeck
                             }
                             catch { return false; }
                         }, 25000, 250, "UI CHANGED", "Summary Race");
+                        // 2026-11-15 00:06 (journey run 7): Update is the launch, and iRacing's Update window is its content check; pressing Close
+                        // cancels the launch. Paddock never downloads without Peter's yes (CLAUDE.md rule 5; PLAN section 10 item 12), so the key stops
+                        // here and says so, instead of a 25 s wait and "could not find".
+                        if (race == null && aiUpdaterSeen.Length > 0) { string what = aiUpdaterSeen; aiUpdaterSeen = ""; return AiStop("UPDATE NEEDED", "iRacing asks to download an update first (" + what + "); not without Peter's yes", window); }
                         if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;
                         Log("airace start: pressed Race on the Summary (" + combo.Car + " at " + combo.Track + ")");

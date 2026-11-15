@@ -561,6 +561,11 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
    clip from the recorder's cuts), no CapCut (a manual editor is the opposite of one press). Whether the words come from
    templates fed by the race facts or from a language model (needs his API key and costs cents per race) is the one question
    for him; the card (W1-11) starts with templates and leaves a hook for the model.
+12. **iRacing's small updates before an AI race (for Peter):** since 2026-11-14 the AI race wizard ends with Update and has no
+   Race control; the evidence of journey runs 5-7 says Update launches the race and iRacing first shows its "Update iRacing"
+   window (optional content, one 23 kB item pre-ticked, buttons Close and "Download 23 KB"); the key presses Close and no race
+   starts. May the AI RACE key press Download when the item is iRacing's own content under, say, 50 MB? (CLAUDE.md rule 5: no
+   downloads without Peter's yes.) Until he says yes the key stops there and says so on the top screen.
 4. **Coach Dave Delta:** OK to run the three-race test one evening when he is away (Delta off / on / on with capture)?
 5. **`PerfPrio`** (Paddock lowering irdashies' and the browser's priority every 5 s during races): keep or stop?
    Recommendation: stop until the black box says it helps.
