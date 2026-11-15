@@ -410,13 +410,15 @@ namespace IRDash
             if (!File.Exists(ini)) return Mk("graphics", "iRacing graphics", "warn", "Graphics file not found", "Start iRacing once");
             Dictionary<string, string> v = SimSettings.Graphics(ini);
             Func<string, string> g = delegate (string k) { string s; return v.TryGetValue(k, out s) ? s : "?"; };
-            string cap = g("LimitFrameRate") == "0" ? "no frame limit" : "frame limit " + g("DesiredFPSLimit");
+            // W5-1: the frame limit is the sim's own setting (SimSettings.FpsCap, W0-9's reader), whatever number Peter set it to
+            double fps = SimSettings.FpsCap(v);
+            string cap = fps > 0 ? "frame limit " + fps.ToString("0", CultureInfo.InvariantCulture) : "no frame limit";
             string reflex = g("NvReflexMode") == "0" ? "Reflex off" : "Reflex on";
             string mirrors = g("MaxCockpitMirrors") + " mirrors, " + (g("MirrorDetail") == "1" ? "high" : "low") + " detail" + (g("VirtualMirrors") == "1" ? ", virtual mirror on" : "");
             string detail = cap + " · " + reflex + " · " + mirrors;
-            // the settled setup of 2026-10-09 (about 104 fps in a 23-car race)
-            bool settled = g("LimitFrameRate") == "1" && g("DesiredFPSLimit") == "160" && g("NvReflexMode") == "0" && g("MaxCockpitMirrors") == "4" && g("MirrorDetail") == "1";
-            if (!settled) return Mk("graphics", "iRacing graphics", "warn", detail + " (expected: limit 160, Reflex off, 4 mirrors high)", "Ask Claude to check iRacing's graphics");
+            // the settled setup of 2026-10-09 (about 104 fps in a 23-car race): a frame limit on, Reflex off, 4 mirrors high
+            bool settled = fps > 0 && g("NvReflexMode") == "0" && g("MaxCockpitMirrors") == "4" && g("MirrorDetail") == "1";
+            if (!settled) return Mk("graphics", "iRacing graphics", "warn", detail + " (expected: a frame limit, Reflex off, 4 mirrors high)", "Ask Claude to check iRacing's graphics");
             return Mk("graphics", "iRacing graphics", "ok", detail, "");
         }
 
