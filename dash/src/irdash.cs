@@ -423,6 +423,8 @@ namespace IRDash
                     // W0-5: the one state answer (the pages get it pushed on /stream?state=1), the deck's one summary, the raw session YAML on demand
                     if (method == "GET" && path == "/state") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(StateBuilder.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/deck/summary") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(StateBuilder.DeckJson(Showcase.Json("deck"))), "Access-Control-Allow-Origin: *\r\n"); return; }
+                    // W5-5: the add-on's heartbeat while no opener key is showing (PC locked, deck asleep): marks it alive, plays and consumes nothing
+                    if (method == "GET" && path == "/deck/beat") { Showcase.Beat(); Send(s, 200, "application/json", Encoding.ASCII.GetBytes("{\"ok\":true}"), "Access-Control-Allow-Origin: *\r\n"); return; }
                     if (method == "GET" && path == "/session/yaml") { Frame sf = Sdk.Latest; Send(s, 200, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(sf.Connected ? sf.SessionYaml ?? "" : "")); return; }
                     if (method == "GET" && path == "/rig/state") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(RigState.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }
                     // W0-3: what the Jobs queue waits for, ran and how long; how many process scans (read-only, for RIG, the lead and the load test)
@@ -2505,6 +2507,9 @@ namespace IRDash
 
         // W0-5: the state push's copy: seq and driving only. It never plays the boot intro (only a page's or the deck's own ask does, once).
         public static string Peek() { lock (gate) return "{\"play\":false,\"seq\":" + seq + ",\"driving\":" + (Program.IsDriving ? "true" : "false") + "}"; }
+
+        // W5-5: the add-on's heartbeat: it is alive (DeckPollAge, the "connected" line) but nothing is asked or played
+        public static void Beat() { lock (gate) { deckPollAt = DateTime.Now; if (!deckSeen) { deckSeen = true; Log.W("showcase: Stream Deck add-on connected (heartbeat)"); } } }
 
         public static string Json(string who)
         {

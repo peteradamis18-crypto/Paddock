@@ -1713,6 +1713,8 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
   ws.onopen = () => { send({ event: registerEvent, uuid }); pollLoop(); };
   ws.onmessage = m => {
     const e = JSON.parse(m.data);
+    // W5-5: any event that proves the Stream Deck app is alive asks irdash at once (the poll loop looks at this flag 4 times a second)
+    if (['willAppear', 'keyDown', 'applicationDidLaunch', 'systemDidWakeUp', 'deviceDidConnect'].indexOf(e.event) >= 0) askNow = true;
     if (e.event === 'deviceDidConnect' && (!deviceId || (e.deviceInfo && e.deviceInfo.type === 2))) deviceId = e.device;
     // a screen's opener key on your profile; the hidden ailevel action (the old AI LEVEL key, one release) opens the AI RACE screen
     const keyScreen = Object.values(SCREENS).find(s => e.action === UUID + '.' + s.name) || (e.action === UUID + '.ailevel' ? MyDrive : null);
@@ -1750,9 +1752,21 @@ function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info) {
 // that is open asks its own route at its own pace, as before; nothing is asked while no opener key is showing.
 const SUMMARY_MS = 5000;
 function openerShowing() { return docKeys.size > 0 || Object.values(SCREENS).some(s => s.keys.size > 0); }
+// W5-5: with no opener key showing (PC locked and the deck asleep, or the add-on just started) the loop used to ask nothing at all, so a
+// restarted irdash never heard from the add-on until the keys came back (2026-11-14: irdash restarted 21:00 with the PC locked, add-on heard
+// only at the unlock 21:06). Now a heartbeat (/deck/beat: marks the add-on alive, plays and consumes nothing) goes out every 5 s while no key
+// shows. Every wait is the worker's timer and a failed request is just one more pass: the loop never stops, there is nothing to give up.
+const BEAT_MS = 5000;
+let askNow = false;
 async function pollLoop() {
-  let last = -1e9;
+  let last = -1e9, lastBeat = -1e9;
   for (;;) {
+    const now = performance.now();
+    if (askNow) { askNow = false; last = -1e9; lastBeat = -1e9; }
+    if (!playing && !openerShowing() && now - lastBeat >= BEAT_MS) {
+      lastBeat = now;
+      try { await (await fetchT(API + '/deck/beat')).text(); } catch (e) { }
+    }
     // looked at 4 times a second (the worker's timer, no request): the first summary comes as soon as the opener keys appear
     if (!playing && openerShowing() && performance.now() - last >= SUMMARY_MS) {
       last = performance.now();
