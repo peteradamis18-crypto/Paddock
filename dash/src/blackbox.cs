@@ -3,8 +3,10 @@
 // data\blackbox\<sim start>.tsv; when the frame rate drops 25 % against the last 5 s it writes ten rows a second for 15 s and one
 // "snapshot" line (busiest programs, GPU, disk). After the race the rows give one plain sentence: lap, place, how long, likely cause.
 // It only reads: the SDK frame irdash already has, Windows' CPU and disk counters, the programs' CPU times. Its own thread at
-// BelowNormal, nothing on the UI or render path. Files are kept 8 weeks. NVML (GPU clock, temperature, throttle) is wave 5 (W5-3):
-// the gpu* columns are there, empty, so the file layout does not change when it lands.
+// BelowNormal, nothing on the UI or render path. Files are kept 8 weeks.
+// v2 (W5-3): the header starts "#v2"; the four gpu* columns are filled from NVML (nvml.cs: the card's load, clock, temperature,
+// throttle word) and five come after them (graphics memory used / total, free RAM, card power, disk read time). Columns are only
+// ever added at the end, so a v1 file (24 columns) reads with the new ones empty.
 // Wiring (perf.cs, or a test harness): Running, ReadSdk, GroupOf, Dir, Drives; the modules call BlackBox.Event("clip cut start").
 using System;
 using System.Collections.Generic;
@@ -24,6 +26,8 @@ namespace IRDash
     sealed class BbDip
     {
         public double Gpu = -1, Cpu = -1, PageFaults = -1;                 // SDK shares of the frame (1 = 100 %), page faults a second
+        public string Throttle = ""; public double GpuTemp = -1;           // v2, inside the freeze: NVML's throttle word and the card's temperature then
+        public double DiskReadMs = -1, VramMb = -1, VramTotalMb = -1;      // v2, inside the freeze: the slowest disk read, graphics memory used / total
         public List<string> Programs = new List<string>();                 // busiest programs at the dip ...
         public List<double> Now = new List<double>(), Usual = new List<double>();   // ... their CPU (% of one core) then and over the session
         public List<string> Paddock = new List<string>();                  // our own work in the 3 s before (cut, save, scan, job)
@@ -35,7 +39,7 @@ namespace IRDash
     static class BlackBox
     {
         // ---- wiring ----
-        public static Func<bool> Running;                    // the sim program is running (RigState.SimRunning once W0-2 lands)
+        public static Func<bool> Running;                    // the sim program is running or a session is on (irdash: RigState.SimRunning || RigState.SessionOn)
         public static Func<BbSdk> ReadSdk;                   // the latest SDK frame
         public static Func<string, int, string> GroupOf;     // program name + pid -> friendly group ("Coach Dave Delta", "Paddock (dashboard program)")
         public static Func<bool> IsTest;                     // a pretend session: rows go to blackbox\test, never next to the real ones
@@ -46,7 +50,7 @@ namespace IRDash
         public const int KeepDays = 56, FastSeconds = 15, FastMs = 100;
         public const double FastDrop = 0.25;
         internal static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
-        public const string Header = "# t\tsessTime\tlap\tlapPct\tspeed\tfps\tcpuFG\tcpuBG\tgpu\tpageFaults\tcpuTotal\ttop1\ttop1Pct\ttop2\ttop2Pct\ttop3\ttop3Pct\tdiskQueue\tdiskWriteMs\tevents\tgpuLoad\tgpuClock\tgpuTemp\tgpuThrottle";
+        public const string Header = "#v2 t\tsessTime\tlap\tlapPct\tspeed\tfps\tcpuFG\tcpuBG\tgpu\tpageFaults\tcpuTotal\ttop1\ttop1Pct\ttop2\ttop2Pct\ttop3\ttop3Pct\tdiskQueue\tdiskWriteMs\tevents\tgpuLoad\tgpuClock\tgpuTemp\tgpuThrottle\tvramMb\tvramTotalMb\tramFreeMb\tgpuPowerW\tdiskReadMs";
         public const string SnapHeader = "# snapshot\tt\tfps\tavg5\tgpu\tcpuFG\tpageFaults\tdiskQueue\tdiskWriteMs\tprograms(name=now/usual)\tpaddock";
 
         // ---- state (the black box thread only, unless marked) ----
@@ -62,7 +66,9 @@ namespace IRDash
         static DateTime lastSecond = DateTime.MinValue, fastUntil = DateTime.MinValue, snapAt = DateTime.MinValue, lastScan = DateTime.MinValue, lastPrune = DateTime.MinValue;
         static double lastLap = -1, snapFps, snapAvg;
         static long sysIdle0, sysTotal0;
-        static List<PerformanceCounter> diskQ = new List<PerformanceCounter>(), diskW = new List<PerformanceCounter>();
+        static List<PerformanceCounter> diskQ = new List<PerformanceCounter>(), diskW = new List<PerformanceCounter>(), diskR = new List<PerformanceCounter>();
+        static PerformanceCounter ramFree;
+        public static bool UseNvml = true;                   // tests switch it off to measure the cost without it
         // cost (read by the status JSON and the test)
         public static long Rows, FastRows, Snapshots, Bytes; public static double CostCpuMs, RunWallMs;
         static DateTime runStart = DateTime.MinValue;
@@ -78,7 +84,7 @@ namespace IRDash
             stop = false;
             th = new Thread(Loop); th.IsBackground = true; th.Priority = ThreadPriority.BelowNormal; th.Name = "black box"; th.Start();
         }
-        public static void Stop() { stop = true; Thread t = th; if (t != null) t.Join(3000); th = null; }
+        public static void Stop() { stop = true; Thread t = th; if (t != null) t.Join(3000); th = null; Nvml.Shutdown(); }
 
         // ---- what the rest of Paddock calls ----
         // our own work, written into the next row ("clip cut start lap 9", "session file save", "vault scan"). Cheap; any thread.
@@ -185,7 +191,9 @@ namespace IRDash
             w = null;
             foreach (PerformanceCounter c in diskQ) try { c.Dispose(); } catch { }
             foreach (PerformanceCounter c in diskW) try { c.Dispose(); } catch { }
-            diskQ.Clear(); diskW.Clear();
+            foreach (PerformanceCounter c in diskR) try { c.Dispose(); } catch { }
+            diskQ.Clear(); diskW.Clear(); diskR.Clear();
+            if (ramFree != null) { try { ramFree.Dispose(); } catch { } ramFree = null; }
             Log.W("black box: stopped - " + Rows + " rows (" + FastRows + " fast), " + Snapshots + " snapshot" + (Snapshots == 1 ? "" : "s") + ", " + (Bytes / 1024) + " KB, " +
                   (RunWallMs > 0 ? (CostCpuMs / RunWallMs * 100).ToString("0.000", Inv) + " % of one core" : "no time measured"));
         }
@@ -196,11 +204,15 @@ namespace IRDash
             {
                 try { diskQ.Add(new PerformanceCounter("LogicalDisk", "Current Disk Queue Length", d, true)); } catch { }
                 try { PerformanceCounter c = new PerformanceCounter("LogicalDisk", "Avg. Disk sec/Write", d, true); c.NextValue(); diskW.Add(c); } catch { }
+                try { PerformanceCounter c = new PerformanceCounter("LogicalDisk", "Avg. Disk sec/Read", d, true); c.NextValue(); diskR.Add(c); } catch { }
             }
+            try { ramFree = new PerformanceCounter("Memory", "Available MBytes", true); } catch { ramFree = null; }
         }
 
         static double DiskQueue() { double m = -1; foreach (PerformanceCounter c in diskQ) try { m = Math.Max(m, c.NextValue()); } catch { } return m; }
         static double DiskWriteMs() { double m = -1; foreach (PerformanceCounter c in diskW) try { m = Math.Max(m, c.NextValue() * 1000); } catch { } return m; }
+        static double DiskReadMs() { double m = -1; foreach (PerformanceCounter c in diskR) try { m = Math.Max(m, c.NextValue() * 1000); } catch { } return m; }
+        static double RamFreeMb() { if (ramFree == null) return -1; try { return ramFree.NextValue(); } catch { return -1; } }
 
         static double CpuTotal()
         {
@@ -251,6 +263,7 @@ namespace IRDash
         }
 
         static string F(double v, string fmt) { return double.IsNaN(v) || double.IsInfinity(v) ? "" : v.ToString(fmt, Inv); }
+        static string P(double v, string fmt) { return v >= 0 ? F(v, fmt) : ""; }      // -1 = not known: an empty column
         static string Clean(string s) { return (s ?? "").Replace('\t', ' ').Replace(';', ',').Replace('=', '-').Replace('/', '-'); }
 
         static void Row()
@@ -306,7 +319,14 @@ namespace IRDash
             sb.Append(F(CpuTotal(), "0.0"));
             for (int i = 0; i < 3; i++) { sb.Append('\t'); if (i < top.Count) sb.Append(Clean(top[i].Key)).Append('\t').Append(F(top[i].Value, "0.0")); else sb.Append('\t'); }
             sb.Append('\t').Append(dq >= 0 ? F(dq, "0") : "").Append('\t').Append(dw >= 0 ? F(dw, "0.0") : "").Append('\t').Append(string.Join(";", evs.ToArray()));
-            sb.Append("\t\t\t\t");                     // gpuLoad, gpuClock, gpuTemp, gpuThrottle: NVML, wave 5 (W5-3)
+            // v2: the card from its driver (NVML: null = not there, the columns stay empty), free RAM, the slowest disk read
+            NvmlRow nv = null; if (UseNvml) { try { nv = Nvml.Read(); } catch { nv = null; } }
+            double rf = RamFreeMb(), dr = DiskReadMs();
+            if (nv != null)
+                sb.Append('\t').Append(P(nv.Load, "0")).Append('\t').Append(P(nv.Clock, "0")).Append('\t').Append(P(nv.Temp, "0")).Append('\t').Append(nv.ThrottleWord)
+                  .Append('\t').Append(P(nv.VramMb, "0")).Append('\t').Append(P(nv.VramTotalMb, "0"));
+            else sb.Append("\t\t\t\t\t\t");
+            sb.Append('\t').Append(P(rf, "0")).Append('\t').Append(nv != null ? P(nv.PowerW, "0.0") : "").Append('\t').Append(P(dr, "0.0"));
             Write(sb.ToString());
             Rows++; if (fast) FastRows++;
 
@@ -335,11 +355,13 @@ namespace IRDash
 
         internal static double Unix(DateTime local) { return (local.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds; }
 
-        // Paddock's own work that can cost a frame (a lap crossing alone is not: it is just where the work starts)
+        // Paddock's own work that can cost a frame (a lap crossing alone is not: it is just where the work starts); "field laps" = the
+        // other drivers' best laps read out of a telemetry file (bench.cs FieldLaps.ScanFile)
         static bool Ours(string e)
         {
             string l = e.ToLowerInvariant();
-            return l.IndexOf("cut", StringComparison.Ordinal) >= 0 || l.IndexOf("save", StringComparison.Ordinal) >= 0 || l.IndexOf("scan", StringComparison.Ordinal) >= 0 || l.IndexOf("job", StringComparison.Ordinal) >= 0;
+            return l.IndexOf("cut", StringComparison.Ordinal) >= 0 || l.IndexOf("save", StringComparison.Ordinal) >= 0 || l.IndexOf("scan", StringComparison.Ordinal) >= 0 || l.IndexOf("job", StringComparison.Ordinal) >= 0 ||
+                   l.IndexOf("field laps", StringComparison.Ordinal) >= 0;
         }
 
         // ---- the 8-week tidy (also tests\blackbox-test.ps1 on a temp folder) ----
@@ -360,7 +382,7 @@ namespace IRDash
         }
 
         // ---------------- reading a file back: the freezes and their likely cause ----------------
-        sealed class BbRow { public double T, Lap = -1, Pct = -1, Fps, Cpu = -1, Gpu = -1, Pf = -1; public string Ev = ""; public List<string> Top = new List<string>(); public List<double> TopPct = new List<double>(); }
+        sealed class BbRow { public double T, Lap = -1, Pct = -1, Fps, Cpu = -1, Gpu = -1, Pf = -1, GpuTemp = -1, Vram = -1, VramTotal = -1, DiskRead = -1; public string Ev = "", Throttle = ""; public List<string> Top = new List<string>(); public List<double> TopPct = new List<double>(); }
         sealed class BbSnap { public double T, Gpu = -1, Cpu = -1, Pf = -1; public string Programs = "", Paddock = ""; }
 
         static double D(string s) { double v; return double.TryParse(s, NumberStyles.Float, Inv, out v) ? v : double.NaN; }
@@ -392,6 +414,11 @@ namespace IRDash
                 x = D(f[6]); if (!double.IsNaN(x)) b.Cpu = x; x = D(f[8]); if (!double.IsNaN(x)) b.Gpu = x; x = D(f[9]); if (!double.IsNaN(x)) b.Pf = x;
                 for (int i = 0; i < 3; i++) { if (f[11 + 2 * i].Length > 0) { b.Top.Add(f[11 + 2 * i]); x = D(f[12 + 2 * i]); b.TopPct.Add(double.IsNaN(x) ? 0 : x); } }
                 b.Ev = f[19];
+                // v2 columns (a v1 file has 24 columns and ends at gpuThrottle, written empty)
+                if (f.Length > 22) { x = D(f[22]); if (!double.IsNaN(x)) b.GpuTemp = x; }
+                if (f.Length > 23) b.Throttle = f[23].Trim();
+                if (f.Length > 25) { x = D(f[24]); if (!double.IsNaN(x)) b.Vram = x; x = D(f[25]); if (!double.IsNaN(x)) b.VramTotal = x; }
+                if (f.Length > 28) { x = D(f[28]); if (!double.IsNaN(x)) b.DiskRead = x; }
                 rows.Add(b);
             }
             List<BbFreeze> res = new List<BbFreeze>();
@@ -422,6 +449,13 @@ namespace IRDash
                 {
                     BbRow b = rows[i]; if (b.T < from || b.T > to) continue;
                     if (b.T >= fr.At && b.Gpu > d.Gpu) { d.Gpu = b.Gpu; d.Cpu = b.Cpu; }     // the card's load only inside the freeze, not the normal driving before it
+                    if (b.T >= fr.At)
+                    {
+                        // v2: what the card's driver, the disk and graphics memory said in the freeze seconds themselves
+                        if (b.Throttle.Length > 0 && d.Throttle.Length == 0) { d.Throttle = b.Throttle; d.GpuTemp = b.GpuTemp; }
+                        if (b.DiskRead > d.DiskReadMs) d.DiskReadMs = b.DiskRead;
+                        if (b.Vram >= 0 && b.VramTotal > 0 && (d.VramTotalMb <= 0 || b.Vram / b.VramTotal > d.VramMb / d.VramTotalMb)) { d.VramMb = b.Vram; d.VramTotalMb = b.VramTotal; }
+                    }
                     if (b.Pf > d.PageFaults) d.PageFaults = b.Pf;
                     if (b.T <= fr.At + 0.5) foreach (string e in b.Ev.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) if (Ours(e) && !d.Paddock.Contains(e)) d.Paddock.Add(e);
                 }
@@ -471,7 +505,8 @@ namespace IRDash
         }
 
         // ---------------- the cause rules (pure; tests\perf-verdict-test.ps1 has one case each) ----------------
-        // In Peter's words, the part after "Likely cause: ". The order is the order of 05: graphics card, a program, Paddock, memory, the sim.
+        // In Peter's words, the part after "Likely cause: ". The order is the order of 05: graphics card, a program, Paddock, memory, then
+        // (v2) the card slowing itself down, the disk, graphics memory full, and last the sim.
         // The SDK's GpuUsage / CpuUsageFG are shares of the frame time: in a stalled frame both go over 100 % together (12 Nov: 317 % and
         // 309 %), which says the frame stalled, not that the card was the limit. So "graphics card" needs the card busy (95-105 %: over
         // that it is a stalled frame, never "card busy") and the processor not. Gpu/Cpu are read only from rows inside the freeze.
@@ -489,6 +524,13 @@ namespace IRDash
             if (prog != null) return prog + (ratio >= 99 ? " (it woke up and took " + Math.Round(d.Now[d.Programs.IndexOf(prog)]).ToString("0", Inv) + " % of a core)" : " (" + Math.Round(ratio).ToString("0", Inv) + "× its usual CPU)");
             if (d.Paddock.Count > 0) return "Paddock (" + d.Paddock[0] + ")";
             if (d.PageFaults > 1000) return "memory (Windows was loading " + Math.Round(d.PageFaults).ToString("0", Inv) + " pages a second from disk)";
+            // v2 (W5-3): the card's driver said it slowed down, the disk was slow to read, graphics memory was full
+            if (d.Throttle == "thermal" || d.Throttle == "power" || d.Throttle == "hw")
+                return "the graphics card slowed itself down (" + (d.GpuTemp > 0 ? Math.Round(d.GpuTemp).ToString("0", Inv) + " °C, " : "") +
+                       (d.Throttle == "thermal" ? "thermal" : d.Throttle == "power" ? "power limit" : "hardware") + ")";
+            if (d.DiskReadMs > 50) return "the disk (reads took " + Math.Round(d.DiskReadMs).ToString("0", Inv) + " ms)";
+            if (d.VramMb >= 0 && d.VramTotalMb > 0 && d.VramMb >= 0.95 * d.VramTotalMb)
+                return "graphics memory full (" + (d.VramMb / 1024).ToString("0.0", Inv) + " of " + Math.Round(d.VramTotalMb / 1024).ToString("0", Inv) + " GB)";
             return "inside the sim (likely a graphics hitch)";
         }
 

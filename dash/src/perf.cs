@@ -60,7 +60,7 @@ namespace IRDash
         static void WireBlackBox()
         {
             BlackBox.Dir = Path.Combine(Dir, "blackbox");
-            BlackBox.Running = delegate { return PerfSampler.SimRunning || Sdk.Latest.Connected; };   // RigState.SimRunning once W0-2 lands
+            BlackBox.Running = delegate { return RigState.SimRunning || RigState.SessionOn; };   // W5-3: the one rig state (the sim program, or a live session)
             BlackBox.IsTest = delegate { return Sdk.Pretend; };
             BlackBox.GroupOf = delegate (string name, int pid) { return PerfSampler.GroupOf(name, pid, SimPriority.ProcName); };
             BlackBox.ReadSdk = delegate
@@ -1984,7 +1984,19 @@ namespace IRDash
                 sb.Append("],\"result\":").Append(PerfCompare.ResultJson(PerfCompare.Compare(eps, i, rows))).Append('}');
                 if (i > 0) sb.Append(',');
             }
-            sb.Append("],\"own\":").Append(Own(rows)).Append(",\"summary\":").Append(Json_.S(Perf.Summary())).Append('}');
+            sb.Append("],\"own\":").Append(Own(rows)).Append(",\"summary\":").Append(Json_.S(Perf.Summary()));
+            // W5-3: Peter's races with and without Coach Dave Delta (perfdelta.cs; RIG shows "say"). A race counts only when the
+            // sampler's list of other programs is there for it (no list = not known either way).
+            List<DcRace> dr = new List<DcRace>();
+            foreach (PerfRow r in rows)
+            {
+                if (!r.Counts || !string.Equals(r.Type, "Race", StringComparison.OrdinalIgnoreCase)) continue;
+                PerfProc p = PerfSampler.ForSession(r); if (p == null) continue;
+                DcRace x = new DcRace(); x.Avg = r.Avg; x.Worst = r.Worst; x.Froze = r.FrzLen > 0;
+                foreach (PerfOther o in p.Others) if (DeltaCompare.IsDelta(o.Name)) { x.Delta = true; break; }
+                dr.Add(x);
+            }
+            sb.Append(",\"delta\":").Append(DeltaCompare.Json(dr)).Append('}');
             return sb.ToString();
         }
     }

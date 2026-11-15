@@ -51,6 +51,7 @@ irdash then starts:
 - The gallery, click-through windows on the left and right race screens. No extra process. Destroyed while the sim runs.
 - `dash\probe.exe`, only when Rig Doctor needs to see what a normal program sees (AppData is wrong for a process started inside a packaged app). Started through Explorer. It writes `dash\probe.txt`.
 - A background SDK thread, a career scan, map building, performance scan. All in the irdash process.
+- The black box (`dash\src\blackbox.cs`, v2 since W5-3): while the sim runs, one row a second to `data\blackbox\<start>.tsv` (SDK frame, CPU, disk read/write, free RAM, and the graphics card from `nvml.cs`, a read-only P/Invoke of `C:\Windows\System32\nvml.dll`); `/perf` carries the Coach Dave Delta on/off comparison (`perfdelta.cs`).
 
 The sim process is `iRacingSim64DX11`. iRacing starts it. The anti-cheat launcher process is `start_protected_game`. irdash does not start either.
 

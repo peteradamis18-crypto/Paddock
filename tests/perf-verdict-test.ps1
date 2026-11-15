@@ -16,6 +16,8 @@ Assert-RigFree -Where '1. compile'
 $build = Get-Content (Join-Path $root 'dash\build.ps1') -Raw
 $src = @([regex]::Matches($build, '\$d\\src\\([a-z0-9]+)\.cs') | ForEach-Object { Join-Path $root ('dash\src\' + $_.Groups[1].Value + '.cs') } | Select-Object -Unique)
 $src += (Join-Path $root 'src\deckstate.cs')
+# the deck files build.ps1 names with Join-Path (irdash.cs uses IRDeck.DeckGuard): without them the compile fails before any check runs
+foreach ($n in 'deckguard', 'deckprofile') { $p = Join-Path $root "src\$n.cs"; if ((Test-Path $p) -and ($build -match "src\\$n\.cs")) { $src += $p } }
 ok "the build list names blackbox.cs and simsettings.cs ($($src.Count) files)" (($src -match 'blackbox\.cs').Count -eq 1 -and ($src -match 'simsettings\.cs').Count -eq 1)
 $tmp = Join-Path $env:TEMP "perf-verdict-$PID"; New-Item -ItemType Directory -Force $tmp | Out-Null
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
