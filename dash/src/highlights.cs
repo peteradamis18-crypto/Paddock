@@ -255,8 +255,10 @@ namespace IRDash
             Dictionary<string, object> res = st != null && st.ContainsKey("result") ? st["result"] as Dictionary<string, object> : null;
             if (res != null)
             {
-                if (f.Finish <= 0) f.Finish = Int(res, "finishPosition");
-                if (f.Start <= 0) f.Start = Int(res, "startPosition");
+                // W1-12 PlaceRule: the sidecar's grid and results place (from the session info) first, the field log's numbers only as the fallback
+                int logFin = Int(res, "classPosition") > 0 ? Int(res, "classPosition") : Int(res, "finishPosition");
+                f.Finish = PlaceRule.Finish(f.Finish, logFin);
+                f.Start = PlaceRule.Start(f.Start, Int(res, "startPosition"));
                 object ir; if (res.TryGetValue("iratingChange", out ir) && ir != null) f.IrChange = Convert.ToInt32(ir, Inv);
                 object inc; if (res.TryGetValue("incidents", out inc) && inc != null && Convert.ToInt32(inc, Inv) >= 0) f.Incidents = Convert.ToInt32(inc, Inv);
             }
