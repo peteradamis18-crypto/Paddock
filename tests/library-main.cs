@@ -710,7 +710,7 @@ namespace IRDash
                 string[] q = Seen("r-race");
                 Ok("9.4 the cut is vault\\cuts\\r-race-cut.mp4 and exists", q != null && q[1] == Path.Combine(cuts, "r-race-cut.mp4") && File.Exists(q[1]), q == null ? "none" : q[1]);
                 Ok("9.4 the title is template 1 with the race's facts (no series known)", q != null && q[2].StartsWith("Toyota GR86 at Road Atlanta") && !q[2].Contains("{") && q[2].Length < 70, q == null ? "" : q[2]);
-                Ok("9.4 the description starts with the facts and has the chapters from 0:00 Start", q != null && q[3].StartsWith("Toyota GR86 at Road Atlanta") && q[3].Contains("\n0:00 Start") && q[3].Contains("Recorded with Paddock"), q == null ? "" : q[3]);
+                Ok("9.4 (W1-11) the description: what happened, then the car at the track, then the chapters from 0:00 Start; no sign-off unless youtube_signoff= says one", q != null && q[3].StartsWith("The full race.\n\nToyota GR86 at Road Atlanta") && q[3].Contains("\n0:00 Start") && !q[3].Contains("Recorded with Paddock"), q == null ? "" : q[3]);
                 Ok("9.4 privacy private (the default), no thumbnail made yet", q != null && q[4] == "private" && q[5] == "");
                 Ok("9.4 YouTube's own record says queued; the list on disk is empty again", YouTube.StateJson("r-race").Contains("\"kind\":\"queued\"") && !File.Exists(pend));
 

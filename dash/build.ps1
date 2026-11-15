@@ -16,6 +16,7 @@ $src += @("$d\src\rigstate.cs", "$d\src\log.cs")   # W0-2: the one rig state and
 $src += @("$d\src\jobs.cs", "$d\src\proc.cs", "$d\src\pending.cs", "$d\src\zorder.cs")       # W0-3: heavy work waits for the session to end; the counted process lookups
 $src += @("$d\src\statebuilder.cs")   # W0-5: the one state push (/state, /stream?state=1, /deck/summary)
 $src += @("$d\src\library.cs", "$d\src\youtube.cs", "$d\src\cuts.cs")   # W1: the RACES library, YouTube sign-in + upload, the trim/chapters/titles rules
+$src += @("$d\src\thumb.cs", "$d\src\highlights.cs", "$d\src\words.cs")   # W1-11: the YouTube pack (thumbnail, highlights, the model hook)
 $src += @("$d\src\commentary.cs", "$d\src\addon.cs")   # W1-6 TALK OVER IT; W1-8 the add-on installs itself (no Install click)
 $src += @("$d\src\sdkreader.cs", "$d\src\fuel.cs", "$d\src\pitloss.cs")   # W2: the SDK reader on its own, the fuel / pit-window maths, time lost in the pits
 $src += @("$d\src\nightlyrules.cs", "$d\src\nightly.cs")   # W5-4: the nightly self-check started by irdash's own clock

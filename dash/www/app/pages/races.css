@@ -166,3 +166,12 @@
 .rc .undo-toast { gap: 24px; }
 .rc .undo { min-height: 64px; padding: 0 28px; border-radius: 6px; border: 0; background: var(--gold); color: var(--gold-ink); font-size: var(--t-body); font-weight: 600;
   letter-spacing: var(--track); text-transform: uppercase; }
+
+/* W1-11: the HIGHLIGHTS card after a race: the race's picture, "HIGHLIGHTS · 2:41" big low left, its own SHARE (or a state label) top right */
+.rc .card.hl .hlname { position: absolute; left: 22px; right: 22px; bottom: 18px; font-size: var(--t-read); font-weight: 600; letter-spacing: var(--track);
+  color: var(--gold); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 6px var(--bg); }
+.rc .card.hl .hlshare { position: absolute; top: 14px; right: 18px; min-width: 150px; }
+.rc .card.hl .keylabel { position: absolute; top: 14px; right: 18px; min-height: 64px; display: flex; align-items: center; padding: 0 18px; font-size: var(--t-body);
+  font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; border-radius: 6px; background: color-mix(in srgb, var(--bg) 70%, transparent); text-shadow: 0 2px 6px var(--bg); }
+.rc .card.hl .keylabel.done { color: var(--gain); }
+.rc .card.hl .keylabel.wait { color: var(--gold); }
