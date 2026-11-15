@@ -1,4 +1,4 @@
-﻿# W1 Analysis Workbench core (docs\DESIGN-workbench.md 4-5): the channel endpoint on COPIES of two old .ibt files (the
+# W1 Analysis Workbench core (docs\DESIGN-workbench.md 4-5): the channel endpoint on COPIES of two old .ibt files (the
 # vault's own copies, never Documents\iRacing, never the newest file) and the page in headless Chrome at 1920x1080 against
 # a fixture made from a real lap by that same endpoint. The live part (a running irdash) only runs when the lead has
 # deployed a build newer than dash\src\workbench.cs; otherwise it says so and is skipped. Out of the car only (guard.ps1).
@@ -533,7 +533,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $optHand = 0.0; foreach ($v in $bestSec) { $optHand += $v }
   Note "HAND CHECK sectors: $cntSec sector times of the valid laps, largest difference from the raw SessionTime at iRacing's split points $([math]::Round($maxDiff, 4)) s; S1..S4 vs lap time worst $([math]::Round($maxSum, 4)) s; best sectors joined $([math]::Round($optHand, 3))"
   Note ('valid laps as served: ' + ((@($ssj.laps | Where-Object { $_.valid }) | ForEach-Object { 'L' + $_.n + '=' + $_.time }) -join ' '))
-  # W4-9: four laps count since W0-6 (L6 79.931, L7 79.549, L8 79.878 raw-confirmed by the independent LapBestLapTime reader; L10 80.078 counts by the engine's W0-6 rule - the raw reader would call it off-track and not counted: reported to the lead), so 4 x 4 = 16 sectors and the page says BEST 4.
+  # W4-9: four laps count since W0-6 (LapRules v4: for a lap not quicker than iRacing's best, only an INCIDENT in the lap leaves it out; one off-track record no longer does): L6 79.931, L7 79.549, L8 79.878 and L10 80.078, confirmed from the raw records by career-test's reader (CrRaw.Counted, W4-9 version). So 4 x 4 = 16 sectors and the page says BEST 4.
   Check 'every sector time (4 counted laps x 4) equals the one worked out from the raw records within 0.002 s, and the sectors of a lap add up to its lap time' ($cntSec -eq 16 -and $maxDiff -lt 0.002 -and $maxSum -lt 0.0015)
   $nums = Cdp-Json '[].map.call(document.querySelectorAll(".nt"),function(t){return {l:t.querySelector(".nl").textContent,v:t.querySelector(".nv").textContent,s:t.querySelector(".ns").textContent}})'
   $tb = @($nums | Where-Object { $_.l -eq 'THEORETICAL BEST' })[0]
