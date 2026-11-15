@@ -189,9 +189,38 @@ namespace IRDash
             }
         }
 
+        // 2026-11-14: Peter's setup ends with Google handing him a file called client_secret...json; renaming and moving it was four of the
+        // steps. Paddock takes the newest one from his Downloads folder by itself (a look every 10 s while there is no client yet).
+        static DateTime lastDownloadsLook = DateTime.MinValue;
+        static void PickUpClient()
+        {
+            try
+            {
+                if (File.Exists(ClientFile) || (DateTime.UtcNow - lastDownloadsLook).TotalSeconds < 10) return;
+                lastDownloadsLook = DateTime.UtcNow;
+                string dl = Environment.GetEnvironmentVariable("PADDOCK_DOWNLOADS");     // tests point this at a folder of their own
+                if (string.IsNullOrEmpty(dl)) dl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                if (!Directory.Exists(dl)) return;
+                string best = null; DateTime bestAt = DateTime.MinValue;
+                foreach (string f in Directory.GetFiles(dl, "client_secret*.json"))
+                {
+                    DateTime at = File.GetLastWriteTimeUtc(f);
+                    if (at > bestAt && (DateTime.UtcNow - at).TotalDays < 7) { best = f; bestAt = at; }
+                }
+                if (best == null) return;
+                string text = File.ReadAllText(best);
+                if (text.IndexOf("client_id", StringComparison.Ordinal) < 0 || text.IndexOf("client_secret", StringComparison.Ordinal) < 0) return;   // not Google's file
+                Directory.CreateDirectory(Dir);
+                File.Copy(best, ClientFile, true);
+                Log.W("youtube: took the Google client file from Downloads (" + Path.GetFileName(best) + "): SIGN IN is on");
+            }
+            catch (Exception ex) { Log.W("youtube: could not take the client file from Downloads: " + ex.Message); }
+        }
+
         public static string Json()
         {
             int queue = 0; bool signedIn;
+            PickUpClient();
             lock (gate)
             {
                 Load();

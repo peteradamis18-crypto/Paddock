@@ -545,8 +545,22 @@ a "racing now" room light, predicted iRating during the race, Garage 61 team-mat
 1. **Gold:** DECIDED 2026-11-13: the softer broadcast `#C9A24B` (Peter picked B from the W0-7 contact sheet). The bright `#f2c230` stays only as `data-gold="bright"` for comparison.
 2. **The deck MAIN map** in 4.6: DECIDED by the lead 2026-11-14 under Peter's "build everything" (PLAN's map as written, card W3-4). Was: (what goes: the seven sim boxes, SORRY/GOOD RACE, SEAT keys, MUTE, SHOWCASE, VAULT,
    ANALYSIS; what merges: NEXT SESSION + RACE NOW, AI LEVEL + CAR TRACK into AI RACE, SPOTTER −/+ into SOUND).
-3. **YouTube:** the 10-minute Google setup, when? And default privacy after the first checked upload: private or
-   public?
+3. **YouTube:** DECIDED 2026-11-14 21:55: Peter is ready ("im ready for youtube setup"); the lead opened the guide and
+   Google's console for him (`tools\youtube-setup.cmd`), and Paddock takes the downloaded client file from Downloads by
+   itself. Default privacy after the first checked upload: still his call (private until he says).
+9. **The race screen's map:** REVERSED by Peter 2026-11-14 21:50 after his first real race on the new screen ("no map during
+   race, i need one back"): 4.2's "never shows a track map" is void; the map with the cars comes back in the fuel box (card W2-5),
+   with the leaderboard proven on his real race file and the split as the big number.
+10. **No sentences on screens:** Peter 2026-11-14 21:50: "fuel is way too much text … remove sentences and slop from the app,
+   your thinking becomes slop on the UI". Rule from now: screens he sees while driving show numbers and one-word labels, never a
+   sentence (a copy lint enforces it, W2-5); off-track screens carry at most one short line of plain words. Where this PLAN asks
+   for a "sentence" or a "verdict", the shortest honest form wins.
+11. **The YouTube pack:** Peter 2026-11-14 22:05: "want ai tool to create descriptions that will perform and titles and thumbnails
+   from race and slice clips; maybe easier to use capcut but if we can do it for my use case by all means". Lead's answer:
+   built into Paddock, automatic per race (title, description with chapters, thumbnail from the race's own frame, a highlights
+   clip from the recorder's cuts), no CapCut (a manual editor is the opposite of one press). Whether the words come from
+   templates fed by the race facts or from a language model (needs his API key and costs cents per race) is the one question
+   for him; the card (W1-11) starts with templates and leaves a hook for the model.
 4. **Coach Dave Delta:** OK to run the three-race test one evening when he is away (Delta off / on / on with capture)?
 5. **`PerfPrio`** (Paddock lowering irdashies' and the browser's priority every 5 s during races): keep or stop?
    Recommendation: stop until the black box says it helps.
