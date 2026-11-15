@@ -1,7 +1,7 @@
 # nightly-test.ps1 - offline (W5-4): the night check and irdash's clock for it.
 #   1. dash\src\nightlyrules.cs on its own (fake clocks): 02:59 no, 03:00 yes, 03:30 after a restart yes, 06:30 no, twice the same day no,
 #      nightly=off never; the "nightly" state part from a fixture file and null without one; 60 lines kept
-#   2. tests\nightly.ps1 against a pretend irdash (an HttpListener on port 8297, never 8199) and a stand-in irdeck-cli (a .cmd):
+#   2. tests\nightly.ps1 against a pretend irdash (an HttpListener on port 8397, never 8199) and a stand-in irdeck-cli (a .cmd):
 #      all good; a Stream Deck that was down (started it); the add-on out of date; a Doctor fault; the add-on silent / the deck not back;
 #      the guard busy -> "skipped, ..." and nothing else ran; Peter at the PC; irdash silent -> "did not finish"; 60 lines kept; the time limits
 #   3. the wiring in dash\src (part registered, route is test-hook only and 409 in a session, ini switch, 12-minute kill, no test copy)
@@ -13,7 +13,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script:pass = 0; $script:fail = 0
 function ok($what, $cond, $why = '') { if ($cond) { $script:pass++; "  ok   $what" } else { $script:fail++; "  FAIL $what $why" } }
 $tmp = Join-Path $env:TEMP ('nightly-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory -Force $tmp | Out-Null
-$port = 8297
+$port = 8397
 $listener = $null; $rs = $null
 
 'W5-4 nightly self-check'
