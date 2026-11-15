@@ -109,17 +109,18 @@ window.__run = async () => {
   checkLook('practice, 8 clean laps', '.show');
   const cards = qa('.card');
   ok('1. practice: three cards, ranked 1 2 3, at the corners of the fixture', cards.length === 3 && cards.map(c => c.dataset.rank + ':' + c.dataset.n).join() === j.cards.map(c => c.rank + ':' + c.corner.n).join(), cards.map(c => c.dataset.rank + ':' + c.dataset.n).join());
+  const WHAT = ['BRAKED 14 m EARLY', 'MIN SPEED 4 mph SLOWER', 'THROTTLE 9 m LATE'], TIP = ['Brake at 100 m', 'More min speed', 'Throttle earlier'];
   j.cards.forEach((c, i) => {
     const e = cards[i];
-    ok('1. card ' + (i + 1) + ': the four lines (corner, what happened, the seconds, try this) and the sample',
-      txt(e.querySelector('.c-name')) === 'Turn ' + c.corner.n && txt(e.querySelector('.c-what')) === c.happened && txt(e.querySelector('.lost')) === c.lost.toFixed(2) + ' s' &&
-      txt(e.querySelector('.c-try')) === 'Try this: ' + c.tryThis && txt(e.querySelector('.c-sample')) === c.sample, txt(e));
+    ok('1. card ' + (i + 1) + ': the four lines as labels and numbers (corner, "' + WHAT[i] + '", the seconds, "Try ' + TIP[i] + '") and the sample',
+      txt(e.querySelector('.c-name')) === 'Turn ' + c.corner.n && txt(e.querySelector('.c-what')) === WHAT[i] && txt(e.querySelector('.lost')) === c.lost.toFixed(2) + ' s' &&
+      txt(e.querySelector('.c-try')) === 'Try ' + TIP[i] && txt(e.querySelector('.c-sample')) === c.sample, txt(e));
     ok('1. card ' + (i + 1) + ': its number (' + txt(e.querySelector('.mk')) + ') is the map mark', txt(e.querySelector('.mk')) === String(c.rank));
   });
   ok('1. card 3 (a corner found by Paddock, not Lovely\'s list) says "detected"; the others do not', txt(cards[2].querySelector('.c-tag')) === 'detected' && !cards[0].querySelector('.c-tag'));
   ok('1. the seconds are big (56 px), gold', getComputedStyle(cards[0].querySelector('.lost')).fontSize === '56px' && getComputedStyle(cards[0].querySelector('.lost')).color === GOLD);
-  ok('1. the plan line equals the fixture', txt('.plan') === j.plan, txt('.plan'));
-  ok('1. the reference line: "Compared with: lap 9 of this session (1:33.832)"', txt('.ref') === 'Compared with: lap 9 of this session (1:33.832)', txt('.ref'));
+  ok('1. the plan line as labels and numbers: "NEXT TIME · Turn 5 · brake 100 m · 0.31 s"', txt('.plan') === 'NEXT TIME · Turn 5 · brake 100 m · 0.31 s', txt('.plan'));
+  ok('1. the reference line: "vs lap 9 · 1:33.832"', txt('.ref') === 'vs lap 9 · 1:33.832', txt('.ref'));
   ok('1. the top line: track, config, car, Practice, the day', txt('.rv-top .trk') === 'Road Atlanta Full Course' && txt('.rv-top .sub') === 'Toyota GR86 · Practice · ' + M.day(j.session.date, true) && !q('.rv-top .res'), txt('.rv-top'));
   ok('1. the left half: the map mounted with its key and id, coloured by the gain (100 values), the three marks', window.__mapStub.calls[0][1].key === 't127-roadatlanta-full' && window.__mapStub.calls[0][1].id === 127 && window.__mapCalls().join() === 'mount,colour,marks' && window.__mapStub.calls[2][1] === '1@0.33 2@0.05 3@0.93', JSON.stringify(window.__mapStub.calls));
   ok('1. the plan and its buttons are a bottom bar: the shell\'s banner sits above it (body.page-bar)', document.body.classList.contains('page-bar'));
@@ -135,10 +136,10 @@ window.__run = async () => {
   // practice with 2 laps: one card, numbers, no advice, the note
   await use('card-practice-2'); j = FX['card-practice-2'];
   checkLook('practice, 2 laps', '.show');
-  ok('1. 2 laps: one card with its numbers and no "Try this"', qa('.card').length === 1 && !q('.c-try') && txt('.lost') === '0.42 s' && txt('.c-sample') === j.cards[0].sample, txt('.rv-right'));
+  ok('1. 2 laps: one card with its numbers ("BRAKED 19 m EARLY") and no "Try"', qa('.card').length === 1 && !q('.c-try') && txt('.c-what') === 'BRAKED 19 m EARLY' && txt('.lost') === '0.42 s' && txt('.c-sample') === j.cards[0].sample, txt('.rv-right'));
   ok('1. 2 laps: the note is shown ("' + j.note + '")', txt('.note') === j.note, txt('.note'));
   ok('1. 2 laps: no plan line (none in the answer)', !q('.plan'));
-  ok('1. 2 laps: "Compared with: your best here, ' + M.day(j.session.ref.date) + ' · track 31°, 42 L fuel"', txt('.ref') === 'Compared with: your best here, ' + M.day(j.session.ref.date) + ' · track 31°, 42 L fuel', txt('.ref'));
+  ok('1. 2 laps: "vs best here · ' + M.day(j.session.ref.date) + ' · track 31°, 42 L fuel"', txt('.ref') === 'vs best here · ' + M.day(j.session.ref.date) + ' · track 31°, 42 L fuel', txt('.ref'));
 
   // the race: the story instead of the cards
   await use('card-race'); j = FX['card-race'];
@@ -151,7 +152,8 @@ window.__run = async () => {
   ok('2. race story: the pace line "Your average 1:34.1 · the field 1:34.8 · 19 cars"', txt('.pace') === 'Your average 1:34.1 · the field 1:34.8 · 19 cars', txt('.pace'));
   const crs = qa('.cr');
   ok('2. race story: the three costliest corners, each with a WATCH that has its clip', crs.length === 3 && crs.map(c => c.dataset.n).join() === '1,5,12' && crs.every((c, i) => { const b = c.querySelector('.cr-watch'); return b && !b.disabled && b.dataset.clip === j.race.corners[i].clip.id && +b.dataset.at === j.race.corners[i].clip.at; }) && txt(crs[0].querySelector('.cr-lost')) === '0.62 s', crs.map(txt).join(' | '));
-  ok('2. race story: one corner card, marked "clean-air lap", no rank number', qa('.card').length === 1 && txt('.card .c-tag') === 'clean-air lap' && !vis(q('.card .mk')) && txt('.card .c-what') === j.race.cleanAir.happened, txt('.card'));
+  ok('2. race story: one corner card, marked "clean-air lap", no rank number, "MIN SPEED 3 mph SLOWER · best lap 11", "Try More min speed"', qa('.card').length === 1 && txt('.card .c-tag') === 'clean-air lap' && !vis(q('.card .mk')) && txt('.card .c-what') === 'MIN SPEED 3 mph SLOWER · best lap 11' && txt('.card .c-try') === 'Try More min speed', txt('.card'));
+  ok('2. race story: the plan "NEXT TIME · Turn 1 · min speed · 0.18 s"', txt('.plan') === 'NEXT TIME · Turn 1 · min speed · 0.18 s', txt('.plan'));
   window.__req.length = 0;
   crs[1].querySelector('.cr-watch').click(); await sleep(100);
   const vsrc = () => (M.Review.vid || {}).src || '', want = '/vault/video?id=' + encodeURIComponent(j.race.corners[1].clip.id) + '#t=' + j.race.corners[1].clip.at.toFixed(2);
@@ -192,7 +194,7 @@ window.__run = async () => {
   // working: one line, asked again when irdash says the review list changed
   await use('card-working');
   checkLook('working', '');
-  ok('1. working: one line, "Reading your laps…", nothing else', txt('.rv') === 'Reading your laps…' && qa('.rv *').filter(vis).length === 2, txt('.rv'));
+  ok('1. working: one line, "Reading laps…", nothing else', txt('.rv') === 'Reading laps…' && qa('.rv *').filter(vis).length === 2, txt('.rv'));
   ok('1. working: one request (the review), no map yet', window.__req.join(' ') === '/api/review?id=last', window.__req.join(' '));
   await sleep(1500);
   ok('1. working: nothing asked again by itself (no timer)', window.__req.length === 1 && window.__timers.length === 0, window.__req.join(' ') + ' ' + window.__timers.join());
@@ -203,7 +205,7 @@ window.__run = async () => {
 
   // offline: no answer yet -> one sentence; then the last answer greyed
   await use('card-practice-8', {}, () => { for (const k in M.Review.memo) delete M.Review.memo[k]; window.__offline(true); });
-  ok('1. offline at mount, nothing seen yet: one sentence, no request (the shell\'s banner says why)', txt('.rv') === 'Your review shows here when Paddock is running.' && window.__req.length === 0 && window.__banners.length === 0, txt('.rv') + ' / ' + window.__req.join(' '));
+  ok('1. offline at mount, nothing seen yet: one short line, no request (the shell\'s banner says why)', txt('.rv') === 'Paddock not running' && window.__req.length === 0 && window.__banners.length === 0, txt('.rv') + ' / ' + window.__req.join(' '));
   window.__offline(false); await sleep(300);
   ok('1. Paddock back: the review is asked for once and shown', qa('.card').length === 3 && window.__req.filter(u => u === '/api/review?id=last').length === 1, window.__req.join(' '));
   window.__unmount(); window.__fail = true; window.__offline(true); window.__req.length = 0; window.__mount({}); await sleep(300);
@@ -215,7 +217,7 @@ window.__run = async () => {
   await use('card-practice-8', {}, () => { window.__fail = true; });
   ok('1. the answer fails while online (irdash restarting): the last answer greyed', q('.rv').classList.contains('stale') && qa('.card').length === 3);
   await use('card-practice-8', {}, () => { for (const k in M.Review.memo) delete M.Review.memo[k]; window.__fail = true; });
-  ok('1. the answer fails while online, nothing seen before: "This review could not be read."', txt('.rv') === 'This review could not be read.', txt('.rv'));
+  ok('1. the answer fails while online, nothing seen before: "Review not read"', txt('.rv') === 'Review not read', txt('.rv'));
   window.__fail = false; window.__req.length = 0; window.__emit('list:review'); await sleep(300);
   ok('1. ... and the review list changing asks again', qa('.card').length === 3 && window.__req[0] === '/api/review?id=last', window.__req.join(' '));
 

@@ -120,17 +120,17 @@ window.__run = async () => {
   const all = txt('.rig');
   ok('2. 12 Nov: the average (114) and "Average fps"', txt('.rg-last .avg b') === '114' && /Average fps/.test(txt('.rg-last .avg')), txt('.rg-last'));
   ok('2. 12 Nov: the worst second "23.7 fps · lap 9, start/finish"', txt('.rg-last .worst b') === '23.7 fps' && txt('.rg-last .worst span') === 'Worst second · lap 9, start/finish', txt('.rg-last .worst'));
-  ok('2. 12 Nov: the verdict reads "Lap 9 … 23.7 fps"', /Lap 9[^]*23\.7 fps/.test(txt('.rg-last .verdict')), txt('.rg-last .verdict'));
-  ok('2. 12 Nov: the verdict appears exactly once on the page (no second copy from the summary)', (all.match(/the picture froze/g) || []).length === 1 && !/thing to look at/.test(all), (all.match(/the picture froze/g) || []).length);
+  ok('2. 12 Nov: the verdict in labels and numbers "FROZE 4 s · lap 9 · start/finish · 23.7 fps", no cause line (none recorded)', txt('.rg-last .verdict') === 'FROZE 4 s · lap 9 · start/finish · 23.7 fps' && !q('.rg-last .cause'), txt('.rg-last .verdict'));
+  ok('2. 12 Nov: the verdict appears exactly once on the page (no second copy from the summary, no sentence)', (all.match(/FROZE/g) || []).length === 1 && !/thing to look at|the picture froze/.test(all), (all.match(/FROZE/g) || []).length);
   ok('2. 12 Nov: the track and day beside LAST RACE', /Last race\s*Road Atlanta · 12 Nov/i.test(txt('.rg-last .lbl')), txt('.rg-last .lbl'));
   ok('2. one request at mount: /perf', window.__req.join() === '/perf', window.__req.join(' '));
   window.__req.length = 0; window.__setup.perf = 'perf-smooth'; window.__emit('list:perf'); await sleep(150);
-  ok('2. the perf list changed: /perf asked again and the smooth race shows (71.4 fps, the place unsaid without a freeze)', window.__req.join() === '/perf' && txt('.rg-last .worst b') === '71.4 fps' && txt('.rg-last .worst span') === 'Worst second' && /No freezes/.test(txt('.rg-last .verdict')), txt('.rg-last'));
+  ok('2. the perf list changed: /perf asked again and the smooth race shows (71.4 fps, the place unsaid without a freeze)', window.__req.join() === '/perf' && txt('.rg-last .worst b') === '71.4 fps' && txt('.rg-last .worst span') === 'Worst second' && txt('.rg-last .verdict') === 'SMOOTH · GPU 50 % · CPU 37 %', txt('.rg-last'));
   look('smooth race', false);
   await use('ready', 'perf-processing');
-  ok('2. "still being processed" stands in the numbers\' place (no numbers, no older verdict)', /still being processed/.test(txt('.rg-last .line')) && !q('.rg-last .nums') && !/older verdict/.test(txt('.rig')), txt('.rg-last'));
+  ok('2. "still being processed": "LAST RACE · reading…" alone (no numbers, no older verdict, no sentence)', txt('.rg-last .where') === 'reading…' && q('.rg-last').children.length === 1 && !q('.rg-last .nums') && !/older verdict|processed/.test(txt('.rig')), txt('.rg-last'));
   await use('ready', 'fail');
-  ok('2. /perf failing: one plain line', txt('.rg-last .line') === 'The last race could not be read.', txt('.rg-last'));
+  ok('2. /perf failing: one plain line', txt('.rg-last .line') === 'Could not read', txt('.rg-last'));
 
   // ---------------- 3. QUIET PC and the nightly line ----------------
   await use('ready');
@@ -138,7 +138,7 @@ window.__run = async () => {
   await use('quiet-off');
   ok('3. quiet setup:false: "Quiet PC · not set up"', txt('.rg-quiet .line') === 'Quiet PC · not set up');
   await use('quiet-on');
-  ok('3. quiet on: its "say" line and four items, each a green dot, "on" beside the label', txt('.rg-quiet .line') === window.__states['quiet-on'].quiet.say && qa('.rg-quiet .it').length === 4 &&
+  ok('3. quiet on: no sentence (the items say it), four items, each a green dot, "on" beside the label', !q('.rg-quiet .line') && qa('.rg-quiet .it').length === 4 &&
     qa('.rg-quiet .it .dot').every(d => getComputedStyle(d).backgroundColor === GREEN) && /on$/.test(txt('.rg-quiet .lbl')), txt('.rg-quiet'));
   ok('3. quiet on: the items read "Windows Update paused … Sim priority on"', qa('.rg-quiet .it').map(txt).join(' | ') === 'Windows Update paused | Search indexing paused | OneDrive paused | Sim priority on', qa('.rg-quiet .it').map(txt).join(' | '));
   ok('3. the nightly line under the rows: "Rig check 03:00: all good"', !q('.rg-night').hidden && txt('.rg-night') === 'Rig check 03:00: all good' && q('.rg-night').getBoundingClientRect().top >= q('.rg-rows').getBoundingClientRect().bottom - 1);
@@ -166,12 +166,13 @@ window.__run = async () => {
   await use('ready');
   const swOn = () => q('.rg-sw button[data-c="startupsound"][data-a="on"]'), swOff = () => q('.rg-sw button[data-c="startupsound"][data-a="off"]');
   ok('5. START-UP SOUND: ON filled (ink), OFF outlined', swOn().classList.contains('filled') && getComputedStyle(swOn()).backgroundColor === INK && !swOff().classList.contains('filled'));
-  ok('5. MIC: Windows\' default and the default mic\'s name, NEXT beside it', txt('.rg-sw .mic') === "Windows' default · Headset (Arctis 7P+)" && q('.rg-sw button[data-c="mic"]'), txt('.rg-sw .mic'));
+  const micDot = () => !!q('.rg-sw .mic .dot.ok');
+  ok('5. MIC: the default mic\'s name only, with a green dot for Windows\' default, NEXT beside it', txt('.rg-sw .mic') === 'Headset (Arctis 7P+)' && micDot() && !/default/i.test(txt('.rg-sw .mic')) && q('.rg-sw button[data-c="mic"]'), txt('.rg-sw .mic'));
   swOff().click(); await sleep(150);
   ok('5. OFF: /api/do?c=startupsound&a=off once; read back: OFF filled, "Start-up sound off"', doReq().join() === '/api/do?c=startupsound&a=off' && swOff().classList.contains('filled') && !swOn().classList.contains('filled') && txt('.rg-sw .answer') === 'Start-up sound off', doReq().join(' ') + ' / ' + txt('.rg-sw'));
-  const next = async () => { q('.rg-sw button[data-c="mic"]').click(); await sleep(150); return txt('.rg-sw .mic'); };
+  const next = async () => { q('.rg-sw button[data-c="mic"]').click(); await sleep(150); return txt('.rg-sw .mic') + (micDot() ? ' (dot)' : ''); };
   const m1 = await next(), m2 = await next(), m3 = await next();
-  ok('5. MIC NEXT: Headset, then the Realtek mic, then round to Windows\' default', m1 === 'Headset (Arctis 7P+)' && m2 === 'Microphone (Realtek USB2.0 Audio)' && m3 === "Windows' default · Headset (Arctis 7P+)", [m1, m2, m3].join(' | '));
+  ok('5. MIC NEXT: Headset, then the Realtek mic, then round to Windows\' default', m1 === 'Headset (Arctis 7P+)' && m2 === 'Microphone (Realtek USB2.0 Audio)' && m3 === 'Headset (Arctis 7P+) (dot)', [m1, m2, m3].join(' | '));
   ok('5. each NEXT is one /api/do?c=mic&a=next', doReq().filter(u => u === '/api/do?c=mic&a=next').length === 3, doReq().join(' '));
   window.__push({ settings: Object.assign({}, window.__server.settings, { mic: 'Old USB mic' }) }); await sleep(50);
   ok('5. a chosen mic that is not plugged in says so', txt('.rg-sw .mic') === 'Old USB mic · not plugged in', txt('.rg-sw .mic'));
@@ -202,6 +203,8 @@ window.__run = async () => {
   // ---------------- the helpers ----------------
   ok('8. place: 0.986 = start/finish, 0.5 = 50 % round the lap', M.place(0.986) === 'start/finish' && M.place(0.5) === '50 % round the lap');
   ok('8. nextMode / nextFan follow the deck\'s order and wrap', M.nextMode(2) === 'auto' && M.nextMode(4) === 'cool' && M.nextFan(102) === 'low' && M.nextFan(80) === 'auto');
+  ok('8. verdict: a named cause becomes its own short line "Likely: Coach Dave Delta"', (() => { const v = M.verdict({ worst: 23.7, freeze: { lap: 9, pct: 0.986, secs: 4 }, text: 'Lap 9, start/finish: the picture froze for 4 s (worst second 23.7 fps). Likely cause: Coach Dave Delta (3× its usual CPU).' }); return v.head === 'FROZE 4 s · lap 9 · start/finish · 23.7 fps' && v.cause === 'Likely: Coach Dave Delta'; })());
+  ok('8. verdict: the processor the limit = "CPU LIMIT · CPU 91 %"; nothing known = no line', M.verdict({ verdict: 'cpu', gpu: 60, cpu: 91 }).head === 'CPU LIMIT · CPU 91 %' && M.verdict({ verdict: 'close' }) === null);
   ok('8. ready: deck down wins over spotter off', M.ready({ apps: [{ id: 'deck', state: 'down' }, { id: 'cc', state: 'off' }] }).text === 'Stream Deck is not running');
   out.push('DONE');
   const o = document.getElementById('out'); o.textContent = out.join('\n'); o.hidden = false;

@@ -157,7 +157,7 @@ window.__run = async () => {
     }
     if (st === 'after-drive') {
       const a = window.__fx.library.races[0];
-      ok('1. after a drive: "Your race: ' + M.place(a, true) + '" with REVIEW', vis(q('.after')) && txt('.after .s') === 'Your race: ' + M.place(a, true) && /review/i.test(txt('.after button')), txt('.after'));
+      ok('1. after a drive: "Race · ' + M.place(a, true) + '" with REVIEW', vis(q('.after')) && txt('.after .s') === 'Race · ' + M.place(a, true) && /review/i.test(txt('.after button')), txt('.after'));
       ok('1. after a drive: LAST RACE steps aside; MY RACES does not repeat the card\'s race (two rows, the older ones)', !vis(q('.last')) && [...document.querySelectorAll('#page .mine .mr')].map(r => r.dataset.id).join() === window.__fx.library.races.slice(1, 3).map(r => r.id).join());
       q('.after button').click();
       ok('1. REVIEW opens REVIEW', window.__go.join() === 'review', window.__go.join());
@@ -167,7 +167,7 @@ window.__run = async () => {
       window.__now += 11 * 60000; await sleep(1100);
       ok('1. ten minutes later the card goes by itself', !vis(q('.after')) && vis(q('.last')));
     }
-    if (st === 'after-practice') { const a = window.__fx.library.races[0]; ok('1. after a practice: "Your practice: 14 laps, best ' + F.lap(a.best) + '"', txt('.after .s') === 'Your practice: ' + a.laps + ' laps, best ' + F.lap(a.best), txt('.after .s')); }
+    if (st === 'after-practice') { const a = window.__fx.library.races[0]; ok('1. after a practice: "Practice · 14 laps · best ' + F.lap(a.best) + '"', txt('.after .s') === 'Practice · ' + a.laps + ' laps · best ' + F.lap(a.best), txt('.after .s')); }
     if (st === 'rig-problem') {
       ok('1. a rig problem: the doctor\'s sentence, a red dot and FIX IT (outlined, not gold)', txt('.rig .line') === window.data.state.doctor.items.find(i => i.state === 'bad').detail && q('.rig .dot').className === 'dot bad' && vis(q('.rig .fix')) && getComputedStyle(q('.rig .fix')).backgroundColor !== GOLD, txt('.rig .line'));
       window.__req.length = 0; q('.rig .fix').click(); await sleep(50); q('.rig .fix').click(); await sleep(50);
@@ -225,7 +225,7 @@ window.__run = async () => {
   window.data.state.rig.driving = true; push(); window.data.state.rig.driving = false; push();
   ok('4. the drive ending is remembered (driving -> not driving at ' + M.localTime(window.__now) + ')', mem().driveEnd === window.__now, JSON.stringify(mem()));
   window.__now += 15 * 60000; window.__fx.library.races.unshift(newRace('late-1')); window.__emit('list:races'); await sleep(200);
-  ok('4. a race that reaches the library 15 minutes after the drive still gets its card ("P6 of 22": no grid known)', vis(q('.after')) && txt('.after .s') === 'Your race: P6 of 22', txt('.after'));
+  ok('4. a race that reaches the library 15 minutes after the drive still gets its card ("P6 of 22": no grid known)', vis(q('.after')) && txt('.after .s') === 'Race · P6 of 22', txt('.after'));
   window.__now += 9 * 60000; await sleep(1100);
   ok('4. its ten minutes run from when it appeared (still there 9 minutes later)', vis(q('.after')));
   window.__now += 2 * 60000; await sleep(1100);
@@ -252,7 +252,7 @@ window.__run = async () => {
   window.__req.length = 0; window.__emit('list:races'); await sleep(100);
   ok('4. the races list changed (onList): /api/library once', window.__req.join(' ') === '/api/library', window.__req.join(' '));
   window.__req.length = 0; window.data.state.health.apps[0].state = 'down'; push({ health: true }); await sleep(50);
-  ok('4. a state push redraws without asking anything (Stream Deck off: its name, "is off", FIX IT)', window.__req.length === 0 && /^Stream Deck is off/.test(txt('.rig .line')) && vis(q('.rig .fix')), txt('.rig .line'));
+  ok('4. a state push redraws without asking anything (Stream Deck off: its name, "· off", FIX IT)', window.__req.length === 0 && /^Stream Deck · off/.test(txt('.rig .line')) && vis(q('.rig .fix')), txt('.rig .line'));
   window.__unmount();
   const left = Object.keys(window.__ls).filter(k => k !== 'state').reduce((s, k) => s + window.__ls[k].length, 0);
   ok('4. unmount: no listeners left (online, onList; one state watcher stays for the drive edge), the second timer stopped, the clock unmounted', left === 0 && (window.__ls.state || []).length <= 2 && H.tick === 0 && window.__clockCalls().slice(-1)[0][0] === 'unmount', left + ' ' + (window.__ls.state || []).length + ' ' + H.tick);
