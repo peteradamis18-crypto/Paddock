@@ -87,127 +87,16 @@ $fB = 'chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt'
 try {
 Set-Content $hook 'quickwins test'
 
-Section '1. debrief: chart, empty state, no overlaps'
+Section '0. Chrome and the scratch vault'
 Check 'Chrome is on this PC' (Test-Path $chrome)
 if (Test-Path $tdir) { Remove-Item $tdir -Recurse -Force }
 $null = J '/vault/test/sandbox?on=1&reset=1'
-Cdp-Open "$api/v2/index.html"
-$up = Wait-Page "(typeof Debrief !== 'undefined' && !!Debrief.show)" 20
-Check 'the debrief script is on the real dashboard' $up
-$null = Cdp-Eval @'
-window.__qwOverlap = function () {
-  var root = document.querySelector('#debrief.on');
-  if (!root) return JSON.stringify({ n: -1, pairs: 'no debrief' });
-  function hidden(el) {
-    if (!el || el.hidden) return true;
-    var s = getComputedStyle(el);
-    if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0) return true;
-    return false;
-  }
-  var nodes = [], all = root.querySelectorAll('*');
-  for (var i = 0; i < all.length; i++) {
-    var el = all[i], p = el, hide = false;
-    while (p && p !== root) { if (hidden(p)) { hide = true; break; } p = p.parentElement; }
-    if (hide || hidden(el)) continue;
-    var has = false;
-    for (var c = el.firstChild; c; c = c.nextSibling) { if (c.nodeType === 3 && c.nodeValue.replace(/\s/g, '').length) { has = true; break; } }
-    if (!has) continue;
-    var r = el.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) continue;
-    nodes.push({ t: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 42), x: r.left, y: r.top, w: r.width, h: r.height });
-  }
-  var pairs = [];
-  for (var a = 0; a < nodes.length; a++) for (var b = a + 1; b < nodes.length; b++) {
-    var A = nodes[a], B = nodes[b];
-    var iw = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x);
-    var ih = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y);
-    if (iw <= 2 || ih <= 2) continue;
-    var Ac = A.x >= B.x - 2 && A.y >= B.y - 2 && A.x + A.w <= B.x + B.w + 2 && A.y + A.h <= B.y + B.h + 2;
-    var Bc = B.x >= A.x - 2 && B.y >= A.y - 2 && B.x + B.w <= A.x + A.w + 2 && B.y + B.h <= A.y + A.h + 2;
-    if (Ac || Bc) continue;
-    pairs.push(A.t + ' ~ ' + B.t);
-  }
-  return JSON.stringify({ n: pairs.length, pairs: pairs.slice(0, 6).join(' || ') });
-};
-'ready'
-'@
-
-function Show-Debrief($js) {
-  $shown = Cdp-Eval $js
-  Start-Sleep -Milliseconds 900
-  $on = Wait-Page "!!document.querySelector('#debrief.on')" 8
-  return ($shown -eq 'shown' -and $on)
-}
-function Overlap-Count {
-  $raw = Cdp-Eval 'window.__qwOverlap()'
-  if (-not $raw -or "$raw" -like 'js error*') { return @{ n = -1; pairs = "$raw" } }
-  return ($raw | ConvertFrom-Json)
-}
-
-$one = Show-Debrief @'
-(function () {
-  Debrief.show({ type: 'Practice', race: false, track: 'Road Atlanta', car: 'Corvette Z06 GT3.R', laps: 1, cleanLaps: 1, best: 95.125, opt: 94.9, sd: null, mean: 95.125, times: [{ t: 95.125, clean: true }], inc: 0, pos0: null, pos: null, mins: 4, loss: [{ name: 'T1', lost: 0.22, best: 3.1 }], offline: true }, false);
-  return 'shown';
-})()
-'@
-Start-Sleep -Milliseconds 200
-$oneText = Cdp-Eval "(document.querySelector('#debrief.on') || {}).innerText || ''"
-$oneChart = Cdp-Eval "!!document.querySelector('#debrief.on svg.chart')"
-$oneRev = Cdp-Eval "!!document.querySelector('#debrief.on #dbReview')"
-$ov1 = Overlap-Count
-Check 'one clean lap: no lap-times chart' (($one) -and ("$oneChart" -eq 'False'))
-Check 'one clean lap has no hint text and no notes block, and does not claim the lap was consistent' (($oneText -notmatch 'Drive 3 clean laps') -and ($oneText -notmatch 'against next best') -and ($oneText -notmatch 'Very consistent'))
-Check 'one clean lap has no saved-laps strip' ("$oneRev" -eq 'False')
-Check "one clean lap: $($ov1.n) overlapping text boxes" ($ov1.n -eq 0)
-if ($ov1.n -ne 0) { Note ("overlaps: " + $ov1.pairs) }
-Cdp-Shot (Join-Path $shots 'qw-debrief-1lap.png')
-Check 'qw-debrief-1lap.png saved' (Test-Path (Join-Path $shots 'qw-debrief-1lap.png'))
-
-$four = Show-Debrief @'
-(function () {
-  Debrief.show({ type: 'Practice', race: false, track: 'Road Atlanta', car: 'Corvette Z06 GT3.R', laps: 4, cleanLaps: 4, best: 95.4, opt: null, sd: 0.2, mean: 95.7, times: [{ t: 95.4, clean: true }, { t: 95.6, clean: true }, { t: 95.8, clean: true }, { t: 96.0, clean: true }], inc: 0, pos0: null, pos: null, mins: 12, loss: [], offline: true }, false);
-  return 'shown';
-})()
-'@
-$fourText = Cdp-Eval "(document.querySelector('#debrief.on') || {}).innerText || ''"
-$fourChart = Cdp-Eval "!!document.querySelector('#debrief.on svg.chart')"
-$ov4 = Overlap-Count
-Check 'four laps: still no chart (it starts at 5)' (($four) -and ("$fourChart" -eq 'False'))
-Check 'four clean laps with nothing to point at show no notes block and no made-up corner (Session Review, C-40)' ($fourText -notmatch 'No corner differs' -and $fourText -notmatch 'Lap \d+ against')
-Check "four laps: $($ov4.n) overlapping text boxes" ($ov4.n -eq 0)
-if ($ov4.n -ne 0) { Note ("overlaps: " + $ov4.pairs) }
-
-$five = Show-Debrief @'
-(function () {
-  Debrief.show({ type: 'Practice', race: false, track: 'Road Atlanta', car: 'Corvette Z06 GT3.R', laps: 5, cleanLaps: 5, best: 95.2, opt: null, sd: 0.18, mean: 95.5, times: [{ t: 95.2, clean: true }, { t: 95.4, clean: true }, { t: 95.5, clean: true }, { t: 95.7, clean: true }, { t: 95.9, clean: true }], inc: 1, pos0: null, pos: null, mins: 15, loss: [], offline: true }, false);
-  return 'shown';
-})()
-'@
-$fiveBars = Cdp-Eval "document.querySelectorAll('#debrief.on svg.chart circle').length"
-Check 'five laps: the lap-times chart is there (5 dots)' (($five) -and ("$fiveBars" -eq '5'))
-
-Section '2. debrief after a race, with the saved-laps strip'
-$null = J ('/vault/test/wheel?op=seed&secs=30&laps=' + (Qs '14|95.125|PB;9|95.4|top 6%;7|96.1|best 3'))
-$race = Show-Debrief @'
-(function () {
-  var times = [];
-  for (var i = 0; i < 14; i++) times.push({ t: i === 3 ? 95.125 : 95.5 + (i % 5) * 0.2, clean: i !== 1 && i !== 8 });
-  Debrief.show({ type: 'Race', race: true, track: 'Road Atlanta', car: 'Corvette Z06 GT3.R', laps: 14, cleanLaps: 12, best: 95.125, opt: 94.802, sd: 0.41, mean: 96.2, times: times, inc: 4, pos0: 8, pos: 2, mins: 28, loss: [{ name: 'T10a', lost: 0.18, best: 4.21 }, { name: 'T1', lost: 0.09, best: 3.14 }, { name: 'The long left before the bridge', lost: 0.07, best: 5.44 }], offline: true }, true);
-  return 'shown';
-})()
-'@
-$rev = Wait-Page "(function(){var d=document.querySelector('#debrief.on'),r=document.getElementById('dbReview');return !!(d&&r&&d.contains(r)&&/KEEP ALL/.test(r.textContent));})()" 12
-Start-Sleep -Milliseconds 400
-$ovR = Overlap-Count
-$raceChart = Cdp-Eval "document.querySelectorAll('#debrief.on svg.chart circle').length"
-$errs = Cdp-Eval "(window.__errs || []).length"
-Check 'the race debrief shows the lap chart and the saved-laps strip' (($race) -and ($rev) -and ("$raceChart" -eq '14'))
-Check "race debrief: $($ovR.n) overlapping text boxes, $errs script errors" (($ovR.n -eq 0) -and ("$errs" -eq '0'))
-if ($ovR.n -ne 0) { Note ("overlaps: " + $ovR.pairs) }
-Cdp-Shot (Join-Path $shots 'qw-debrief-race.png')
-Check 'qw-debrief-race.png saved' (Test-Path (Join-Path $shots 'qw-debrief-race.png'))
-$null = J '/vault/test/wheel?op=seed&clear=1'
-
+# W4-9: DELETED the old debrief checks that stood here (section 1: no lap-times chart under 5 laps, empty state, no overlaps;
+# section 2: the race debrief with the lap chart and the saved-laps strip; 13 checks). They drove Debrief.show on the old
+# dashboard, and that page is gone: debrief.js was deleted 13 Nov (05f5a8c) and the dashboard is the W3-1 shell. The debrief is
+# Debrief4 (debrief-v4.js: position by lap, pace, three corners; no lap-times chart, no saved-laps strip). Its own bands, overlap
+# test and copy rules are in tests\debrief-test.ps1 section 8; its Cosworth button is in tests\cosworth-test.ps1.
+Section '1. the old debrief page is gone (checks deleted, see the note above)'
 # W4-5: sections 3 to 5 tested the Vault page (vault.html), which is gone: RACES is the door now (tests\races-page-test.ps1).
 Section '6. Performance says which page it is and its headline number (P0-06)'
 # P0-06: Peter opens each from HOME; the top 160 px must say which one it is and its headline number, and the two
