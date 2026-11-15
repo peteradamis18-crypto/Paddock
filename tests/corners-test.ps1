@@ -223,8 +223,9 @@ Check 'there is no credit line for corners we found ourselves' ($b1.credit -eq '
 $ra2 = J '/corners?track=roadatlanta%20full&id=127&build=1'
 Check 'Lovely wins where both exist: asking for a build at Road Atlanta keeps Lovely''s list and writes no auto file' ($ra2.source -eq 'lovely' -and -not (Test-Path (Join-Path $autoDir 't127-roadatlanta-full.json')))
 
-Section '6. the real map.js with the internet blocked'
-Pages-Check
+# W4-9: section 6 DELETED (the real map.js on v2/index.html?demo=1 with GitHub blocked: corner discs on the in-car map, gold pixels, Corners.at). The in-car map
+# of v2/index.html was retired by W2-2 (drive.js, 14 Nov); the race page has its own map tests. Open-Track / Pages-Check above are now unused.
+Section '6. (deleted: the in-car map is gone, see the note above)'
 
 Section '7. nothing is read while you drive'
 Set-Content $hook 'on for the test'
