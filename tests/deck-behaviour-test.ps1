@@ -171,7 +171,7 @@ Check 'to-the-race''s refusal has its own top-screen words, listed before the "h
 # 2026-11-14 deck-v2-live: iRacing's AI wizard ends its steps with Next and closes with Update (Continue is gone); the layout menu pops up outside the modal
 $td = [IO.File]::ReadAllText((Join-Path $root 'src\testdrive.cs'))
 Check 'AI RACE presses Next while it is enabled, else Update, and logs the candidates when neither is there' ($td -match 'Same\(u\.Name, "Continue"\) \|\| Same\(u\.Name, "Next"\)' -and $td -match 'Same\(u\.Name, "Update"\)' -and $td -match 'AiLogCandidates\(window, "step "' -and $td -match 'aiAllowRace && \(Same\(name, "Race"\) \|\| Same\(name, "Update"\)\)')
-Check 'AI RACE closes iRacing''s own Update window (Close beside Download, nothing downloaded) while it waits for the summary (journey run 5, 2026-11-14 22:41)' ($td -match 'static bool AiDismissUpdater(AutomationElement window)' -and $td -match 'u.Name.StartsWith("Download "' -and $td -match 'if (AiDismissUpdater(window)) return false;' -and $td -match 'pressing its Close, nothing is downloaded')
+Check 'AI RACE closes iRacing''s own Update window (Close beside Download, nothing downloaded) while it waits for the summary (journey run 5, 2026-11-14 22:41)' ($td.Contains('static bool AiDismissUpdater(AutomationElement window)') -and $td.Contains('u.Name.StartsWith("Download "') -and $td.Contains('if (AiDismissUpdater(window)) return false;') -and $td.Contains('pressing its Close, nothing is downloaded'))
 Check 'AI RACE looks for the track layout menu in the whole window, not only the wizard modal' ($td -match 'TdMenuItems\(AiElements\(window\), row\)')
 
 Section '4. chat, OFFICIAL, Test Drive setup'
