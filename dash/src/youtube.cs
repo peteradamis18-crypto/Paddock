@@ -60,6 +60,8 @@ namespace IRDash
         sealed class Rec
         {
             public string Race = "", Kind = "queued", File = "", Title = "", Desc = "", Want = "private", Thumb = "";
+            public string Tags = "";        // W1-11: snippet.tags, one per line
+            public string ThumbSet = "";    // W1-11: "" not tried, "set", "refused" (403: the channel is not verified), "skipped" (quota), "failed"
             public string VideoId = "", Url = "", Privacy = "", UploadStatus = "", Error = "";
             public int Pct, Tries, Restarts;
             public long StartedMs, DoneMs, RetryAtMs;
@@ -132,6 +134,9 @@ namespace IRDash
 
         public static string Privacy { get { string p = IniGet("youtube_privacy", "private").ToLowerInvariant(); return p == "public" ? "public" : "private"; } }
         public static int Template { get { int n; return int.TryParse(IniGet("youtube_template", "1"), out n) && n >= 1 && n <= 5 ? n : 1; } }
+
+        // W1-11: the line Peter writes once under every description (youtube_signoff=...; empty or missing = none)
+        public static string Signoff { get { string s = IniGet("youtube_signoff", ""); return s.Length > 300 ? s.Substring(0, 300) : s; } }
 
         public static bool SetPrivacy(string p)
         {
@@ -228,7 +233,8 @@ namespace IRDash
                 signedIn = LoadToken() != null;
             }
             return "{\"signedIn\":" + B(signedIn) + ",\"privacy\":" + Json_.S(Privacy) + ",\"template\":" + Template.ToString(CultureInfo.InvariantCulture) +
-                   ",\"queue\":" + queue.ToString(CultureInfo.InvariantCulture) + ",\"setUp\":" + B(File.Exists(ClientFile)) + ",\"signingIn\":" + B(signingIn) + "}";
+                   ",\"queue\":" + queue.ToString(CultureInfo.InvariantCulture) + ",\"setUp\":" + B(File.Exists(ClientFile)) + ",\"signingIn\":" + B(signingIn) +
+                   ",\"units\":" + UnitsToday().ToString(CultureInfo.InvariantCulture) + ",\"unitsMax\":" + DailyUnits.ToString(CultureInfo.InvariantCulture) + "}";
         }
 
         // when a race that hit the daily limit tries again (tests, RIG)
@@ -253,6 +259,12 @@ namespace IRDash
 
         public static bool Enqueue(string raceId, string file, string title, string description, string privacy, string thumbJpg, out string message)
         {
+            return Enqueue(raceId, file, title, description, privacy, thumbJpg, null, out message);
+        }
+
+        // W1-11: with snippet.tags (track, car, series, "iRacing", "sim racing")
+        public static bool Enqueue(string raceId, string file, string title, string description, string privacy, string thumbJpg, IList<string> tags, out string message)
+        {
             if (string.IsNullOrEmpty(raceId) || string.IsNullOrEmpty(file)) { message = "No race video to share"; return false; }
             string want = (privacy ?? "").Trim().ToLowerInvariant();
             if (want != "private" && want != "public") want = Privacy;
@@ -268,6 +280,7 @@ namespace IRDash
                     // a failed or signed-out race goes again (a half-sent one carries on from its session file)
                     r.Kind = "queued"; r.Error = ""; r.RetryAtMs = 0; r.Tries = 0; r.Restarts = 0; r.Pct = 0; r.VideoId = ""; r.Url = "";
                     r.File = file; r.Title = CleanTitle(title, file); r.Desc = CleanDesc(description); r.Want = want; r.Thumb = thumbJpg ?? "";
+                    r.Tags = CleanTags(tags); r.ThumbSet = "";
                     Save();
                     message = "Going to YouTube when the session is over";
                     Log.W("youtube: " + raceId + " queued (" + want + ")");
@@ -300,6 +313,63 @@ namespace IRDash
             if (t.Length == 0) t = Path.GetFileNameWithoutExtension(file ?? "") ?? "iRacing race";
             return t.Length > 100 ? t.Substring(0, 100) : t;
         }
+        // YouTube: no < or >, 500 characters for all tags together (a tag with a space counts its quotes too)
+        static string CleanTags(IList<string> tags)
+        {
+            if (tags == null) return "";
+            List<string> keep = new List<string>(); int total = 0;
+            foreach (string raw in tags)
+            {
+                string t = (raw ?? "").Replace("<", "").Replace(">", "").Replace(",", " ").Replace("\r", " ").Replace("\n", " ").Trim();
+                if (t.Length == 0 || t.Length > 100) continue;
+                int cost = t.Length + (t.IndexOf(' ') >= 0 ? 2 : 0) + (keep.Count > 0 ? 1 : 0);
+                if (total + cost > 500) break;
+                keep.Add(t); total += cost;
+            }
+            return string.Join("\n", keep.ToArray());
+        }
+        static string TagsJson(string tags)
+        {
+            if (tags.Length == 0) return "";
+            StringBuilder sb = new StringBuilder(",\"tags\":[");
+            string[] all = tags.Split('\n');
+            for (int i = 0; i < all.Length; i++) { if (i > 0) sb.Append(','); sb.Append(Json_.S(all[i])); }
+            return sb.Append(']').ToString();
+        }
+
+        // ================= the daily quota (W1-11) =================
+        // Google gives a project 10,000 units a day (it resets at midnight Pacific). videos.insert costs 1600, thumbnails.set 50:
+        // one race with its thumbnail is 1650, so six videos a day. Counted here so a thumbnail never pushes an upload over the day's
+        // limit; the upload itself still learns the real answer from Google (quotaExceeded -> try again after 9).
+        public const int DailyUnits = 10000, InsertUnits = 1600, ThumbUnits = 50;
+        static string QuotaFile { get { return Path.Combine(Dir, "quota.json"); } }
+        static string PacificDay()
+        {
+            DateTime utc = Clock != null ? Clock().ToUniversalTime() : DateTime.UtcNow;
+            try { return TimeZoneInfo.ConvertTimeFromUtc(utc, TimeZoneInfo.FindSystemTimeZoneById("Pacific Standard Time")).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+            catch { return utc.AddHours(-8).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+        }
+        public static int UnitsToday()
+        {
+            try
+            {
+                if (!File.Exists(QuotaFile)) return 0;
+                Dictionary<string, object> d = Parse(File.ReadAllText(QuotaFile));
+                return Str(d, "day") == PacificDay() ? (int)Num(d, "units", 0) : 0;
+            }
+            catch { return 0; }
+        }
+        static readonly object quotaGate = new object();
+        static void Spend(int units, string what)
+        {
+            lock (quotaGate)
+            {
+                int now = UnitsToday() + units;
+                try { Directory.CreateDirectory(Dir); WriteAtomic(QuotaFile, Encoding.UTF8.GetBytes("{\"day\":" + Json_.S(PacificDay()) + ",\"units\":" + now.ToString(CultureInfo.InvariantCulture) + "}")); } catch { }
+                Log.W("youtube: " + what + " - " + now.ToString(CultureInfo.InvariantCulture) + " of " + DailyUnits.ToString(CultureInfo.InvariantCulture) + " quota units used today");
+            }
+        }
+
         static string CleanDesc(string d)
         {
             d = (d ?? "").Replace("<", "").Replace(">", "");
@@ -779,13 +849,14 @@ namespace IRDash
         // a new upload session; its address is on disk before the first byte goes
         static Sess Begin(Rec r, long size)
         {
-            string meta = "{\"snippet\":{\"title\":" + Json_.S(r.Title) + ",\"description\":" + Json_.S(r.Desc) + ",\"categoryId\":\"20\"}," +
+            string meta = "{\"snippet\":{\"title\":" + Json_.S(r.Title) + ",\"description\":" + Json_.S(r.Desc) + TagsJson(r.Tags ?? "") + ",\"categoryId\":\"20\"}," +
                           "\"status\":{\"privacyStatus\":" + Json_.S(r.Want) + ",\"selfDeclaredMadeForKids\":false}}";
             byte[] body = Encoding.UTF8.GetBytes(meta);
             Dictionary<string, string> h = new Dictionary<string, string>();
             h["X-Upload-Content-Length"] = size.ToString(CultureInfo.InvariantCulture); h["X-Upload-Content-Type"] = "video/mp4";
             Resp p = Authed("POST", UploadUrl + "/videos?uploadType=resumable&part=snippet,status", "application/json; charset=UTF-8", body, 0, body.Length, null, h);
             if (p.Status != 200 && p.Status != 201) Classify(p);
+            Spend(InsertUnits, r.Race + " upload started");      // the insert's units are taken when the session is opened
             string loc = p.Headers["Location"] ?? "";
             if (loc.Length == 0) throw new Transient("YouTube gave no upload address");
             Sess s = new Sess(); s.Race = r.Race; s.File = r.File; s.Size = size; s.Url = loc; s.Title = r.Title; s.Privacy = r.Want; s.StartedMs = NowMs;
@@ -809,16 +880,26 @@ namespace IRDash
         {
             if (r.Thumb.Length == 0 || !File.Exists(r.Thumb)) return;
             if (Jobs.ShouldYield) { Log.W("youtube: thumbnail skipped - a session started"); return; }
+            // W1-11: never let a thumbnail spend the units the next upload needs (the picture stays beside the video for Peter to drag)
+            if (UnitsToday() + ThumbUnits > DailyUnits) { ThumbDone(r, "skipped"); Log.W("youtube: thumbnail of " + r.Race + " skipped - today's quota is used up"); return; }
             try
             {
                 byte[] jpg = File.ReadAllBytes(r.Thumb);
+                if (jpg.Length > 2 * 1024 * 1024) { ThumbDone(r, "failed"); Log.W("youtube: thumbnail of " + r.Race + " not set (over YouTube's 2 MB)"); return; }
+                Spend(ThumbUnits, r.Race + " thumbnail");
                 Resp p = Authed("POST", UploadUrl + "/thumbnails/set?videoId=" + E(r.VideoId) + "&uploadType=media", "image/jpeg", jpg, 0, jpg.Length, null);
-                if (p.Status == 200) return;
-                if (p.Status == 403) { if (!thumbTold) { thumbTold = true; Log.W("youtube: thumbnail skipped - YouTube allows custom thumbnails only on a phone-verified channel"); } return; }
+                if (p.Status == 200) { ThumbDone(r, "set"); Log.W("youtube: thumbnail of " + r.Race + " set"); return; }
+                // a 403 is how Paddock finds out: the youtube.upload scope cannot ask whether the channel is verified (channels.list needs more)
+                if (p.Status == 403) { ThumbDone(r, "refused"); if (!thumbTold) { thumbTold = true; Log.W("youtube: thumbnail skipped - YouTube allows custom thumbnails only on a phone-verified channel"); } return; }
+                ThumbDone(r, "failed");
                 Log.W("youtube: thumbnail not set (YouTube answered " + p.Status + ")");
             }
-            catch (Exception ex) { Log.W("youtube: thumbnail not set (" + ex.GetType().Name + ")"); }
+            catch (Exception ex) { ThumbDone(r, "failed"); Log.W("youtube: thumbnail not set (" + ex.GetType().Name + ")"); }
         }
+        static void ThumbDone(Rec r, string how) { lock (gate) { r.ThumbSet = how; Save(); } }
+
+        // W1-11: how the thumbnail went for a race ("" not tried, set, refused, skipped, failed): tests and the lead's live check
+        public static string ThumbState(string raceId) { lock (gate) { Load(); Rec r = Find(raceId); return r == null ? "" : r.ThumbSet; } }
 
         // a non-2xx/308 answer to a plain-words stop or a retry
         static void Classify(Resp p)
@@ -926,6 +1007,7 @@ namespace IRDash
                     Rec r = new Rec(); r.Race = kv.Key;
                     r.Kind = Str(x, "kind"); if (r.Kind.Length == 0) r.Kind = "queued";
                     r.File = Str(x, "file"); r.Title = Str(x, "title"); r.Desc = Str(x, "description"); r.Want = Str(x, "want"); r.Thumb = Str(x, "thumb");
+                    r.Tags = Str(x, "tags"); r.ThumbSet = Str(x, "thumbSet");
                     r.VideoId = Str(x, "videoId"); r.Url = Str(x, "url"); r.Privacy = Str(x, "privacy"); r.UploadStatus = Str(x, "uploadStatus"); r.Error = Str(x, "error");
                     r.Pct = (int)Num(x, "pct", 0); r.Tries = (int)Num(x, "tries", 0); r.Restarts = (int)Num(x, "restarts", 0);
                     r.StartedMs = Num(x, "startedMs", 0); r.DoneMs = Num(x, "doneMs", 0); r.RetryAtMs = Num(x, "retryAtMs", 0);
@@ -950,7 +1032,8 @@ namespace IRDash
                   .Append(",\"startedMs\":").Append(r.StartedMs).Append(",\"doneMs\":").Append(r.DoneMs).Append(",\"retryAtMs\":").Append(r.RetryAtMs)
                   .Append(",\"tries\":").Append(r.Tries).Append(",\"restarts\":").Append(r.Restarts)
                   .Append(",\"file\":").Append(Json_.S(r.File)).Append(",\"title\":").Append(Json_.S(r.Title)).Append(",\"description\":").Append(Json_.S(r.Desc))
-                  .Append(",\"want\":").Append(Json_.S(r.Want)).Append(",\"thumb\":").Append(Json_.S(r.Thumb)).Append('}');
+                  .Append(",\"want\":").Append(Json_.S(r.Want)).Append(",\"thumb\":").Append(Json_.S(r.Thumb))
+                  .Append(",\"tags\":").Append(Json_.S(r.Tags)).Append(",\"thumbSet\":").Append(Json_.S(r.ThumbSet)).Append('}');
             }
             sb.Append("}");
             try { WriteAtomic(UploadsFile, Encoding.UTF8.GetBytes(sb.ToString())); return true; }

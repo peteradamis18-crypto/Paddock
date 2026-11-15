@@ -307,6 +307,7 @@ namespace IRDash
                 Log.W("library: could not write the trash note of " + s.Id + " (" + ex.Message + ") - left where it was"); return "NO NOTE";
             }
             Recorder.LibForget(s);
+            try { Pack.Forget(r); } catch { }       // W1-11: its thumbnail and highlights (made again by themselves after an UNDO)
             // the Videos\Paddock copy is the same file (a hard link): it goes too, or the space is never freed
             try { if (r.WasExported) File.Delete(r.ExportPath); } catch (Exception ex) { Log.W("library: could not remove the Videos\\Paddock copy of " + s.Id + " (" + ex.Message + ")"); }
             r.File = tMp4; r.Sidecar = tJson; r.InTrash = true; r.DeletedMs = Now;
@@ -574,7 +575,7 @@ namespace IRDash
         {
             foreach (RecSess s in Recorder.LibFinished())
                 if (s.File.Length > 0 && !HasThumb(s.Id)) { lock (thumbFailed) if (!thumbFailed.Contains(s.Id)) return true; }
-            return false;
+            return PacksMissing(SessionIndex.All());      // W1-11: the newest races' YouTube pack goes in the same job
         }
         public static bool QueueThumbs() { return Jobs.Run("race thumbnails", delegate { Thumbs(); }, true); }
 
@@ -583,18 +584,21 @@ namespace IRDash
             int made = 0;
             if (!Recorder.Mock && !File.Exists(Recorder.LibFfmpegPath)) { RigState.LogOnce("library thumbs ffmpeg", "library: no ffmpeg (vault\\bin) - race thumbnails wait"); return 0; }
             List<RaceInfo> all = SessionIndex.All();
+            bool yielded = false;
             for (int i = 0; i < all.Count; i++)
             {
                 RaceInfo r = all[i];
                 if (HasThumb(r.Id)) continue;
                 lock (thumbFailed) if (thumbFailed.Contains(r.Id)) continue;
-                if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); break; }
+                if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); yielded = true; break; }
                 if (MakeThumb(r)) made++;
-                else if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); break; }     // ffmpeg was stopped for a session: not a failure
+                else if (Jobs.ShouldYield) { Jobs.Again("race thumbnails", delegate { Thumbs(); }); yielded = true; break; }     // ffmpeg was stopped for a session: not a failure
                 else lock (thumbFailed) thumbFailed.Add(r.Id);
                 Action<string> after = AfterThumb; if (after != null) after(r.Id);
             }
             if (made > 0) { Log.W("library: " + made + " race thumbnail" + (made == 1 ? "" : "s") + " made"); Changed(); }
+            // W1-11: then the YouTube pack of the newest races (thumbnail 1280 x 720 + highlights), never while a session is on
+            if (!yielded && !Packs(all)) Jobs.Again("race thumbnails", delegate { Thumbs(); });
             return made;
         }
 
@@ -642,7 +646,7 @@ namespace IRDash
             Store st = new Store();
             long[] d = Measure(); st.Free = d[0]; st.Total = d[1];
             long raceBytes = 0; int raceCount = 0;
-            foreach (RaceInfo r in races) { st.Used += r.Bytes; if (r.IsRace && r.Bytes > 0) { raceBytes += r.Bytes; raceCount++; } }
+            foreach (RaceInfo r in races) { st.Used += r.Bytes; if (r.IsRace && r.Bytes > 0) { raceBytes += r.Bytes; raceCount++; } if (r.IsRace) { try { st.Used += Pack.Bytes(r); } catch { } } }   // W1-11: + its highlights
             st.Used += CutBytes();       // W1-4: the YouTube cuts waiting in vault\cuts take space too
             try { st.Used += Commentary.Bytes(); } catch { }      // W1-6: and the commentary videos
             st.Trash = trashBytes;
@@ -670,7 +674,19 @@ namespace IRDash
                    ",\"isRace\":" + B(r.IsRace) + ",\"startMs\":" + N(r.StartMs, "0") + ",\"sec\":" + N(Math.Round(r.Sec), "0") + ",\"laps\":" + r.Laps + ",\"counted\":" + r.Counted +
                    ",\"best\":" + (r.Best > 0 ? N(r.Best, "0.000") : "0") + ",\"bestLap\":" + r.BestLap + ",\"mb\":" + N(Math.Round(r.MB), "0") + ",\"kept\":" + B(r.Kept) +
                    ",\"start\":" + r.Start + ",\"finish\":" + r.Finish + ",\"field\":" + r.Field +
-                   ",\"thumb\":" + B(HasThumb(r.Id)) + ",\"state\":" + StateJson(r.Id) + ",\"talk\":" + Commentary.StateJson(r.Id);
+                   ",\"thumb\":" + B(HasThumb(r.Id)) + ",\"state\":" + StateJson(r.Id) + ",\"talk\":" + Commentary.StateJson(r.Id) + ",\"hl\":" + HlJson(r);
+        }
+
+        // W1-11: the HIGHLIGHTS card under a race: its length and its own YouTube state (null = no highlights yet)
+        static string HlJson(RaceInfo r)
+        {
+            if (!r.IsRace) return "null";
+            double sec = 0; try { sec = Pack.HlSec(r); } catch { }
+            if (sec <= 0) return "null";
+            string st = "{\"kind\":\"none\"}";
+            Func<string, string> h = ShareState;
+            if (h != null) { try { string j = (h(r.Id + ":h") ?? "").Trim(); if (j.StartsWith("{")) st = j; } catch { } }
+            return "{\"sec\":" + N(Math.Round(sec), "0") + ",\"state\":" + st + "}";
         }
 
         static string YouTube()
@@ -803,13 +819,24 @@ namespace IRDash
         public static ShareResult Share(IList<string> keys)
         {
             ShareResult res = new ShareResult();
-            List<string> start = new List<string>(), resend = new List<string>(), talk = new List<string>();
+            List<string> start = new List<string>(), resend = new List<string>(), talk = new List<string>(), hl = new List<string>();
             foreach (string key in keys)
             {
                 string id = key; int c = key.IndexOf(':');
                 if (c >= 0)
                 {
                     id = key.Substring(0, c);
+                    if (key.Substring(c + 1) == "h" && IdOk(id))
+                    {
+                        // W1-11: the highlights clip, a second video of its own ("<id>:h"); the full race stays the default upload
+                        string kh = Kind(id + ":h");
+                        RaceInfo rh = SessionIndex.Get(id);
+                        if (kh == "shared" || kh == "sharing") res.Already++;
+                        else if (kh == "queued") res.Waiting++;
+                        else if (rh == null || rh.InTrash || Pack.HlSec(rh) <= 0) res.Missing++;
+                        else hl.Add(id);
+                        continue;
+                    }
                     if (key.Substring(c + 1) != "c" || !IdOk(id)) continue;
                     string kc = Kind(id + ":c");
                     if (kc == "shared" || kc == "sharing") res.Already++;
@@ -828,7 +855,7 @@ namespace IRDash
                 if (k == "offline" || k == "signin") resend.Add(id); else start.Add(id);
             }
             res.SignIn = !SignedIn();
-            if (res.SignIn && start.Count + resend.Count + talk.Count > 0)
+            if (res.SignIn && start.Count + resend.Count + talk.Count + hl.Count > 0)
             {
                 // nothing is cut while YouTube is not signed in (a cut is 1 GB that would only wait): the banner's key comes first
                 res.Say = "Sign in to YouTube first";
@@ -839,8 +866,11 @@ namespace IRDash
             foreach (string id in start) { string x = id; Jobs.Run("share " + x, delegate { ShareOne(x); }, true); }
             foreach (string id in resend) ShareAgain(id);
             foreach (string id in talk) { string m; if (ShareCommentary(id, out m)) res.Started++; else if (m == MsgAlready) res.Already++; }
+            foreach (string id in hl) { string x = id; Jobs.Run("share " + x + " highlights", delegate { ShareHighlights(x); }, true); res.Started++; }
+            if (hl.Count > 0) { Log.W("library: share pressed for the highlights of " + string.Join(", ", hl.ToArray())); Changed(); }
             res.Started += start.Count + resend.Count;
             if (talk.Count > 0) Changed();
+            if (hl.Count > 0 && start.Count + resend.Count + talk.Count == 0) { res.Say = "Sharing the highlights"; return res; }
             if (start.Count + resend.Count > 0) { Log.W("library: share pressed for " + Plural(res.Started) + " (" + string.Join(", ", start.ToArray()) + (resend.Count > 0 ? (start.Count > 0 ? ", " : "") + string.Join(", ", resend.ToArray()) : "") + ")"); Changed(); }
             res.Say = res.Started > 0 && start.Count + resend.Count == 0 ? "Sharing it with your commentary"
                 : res.Started > 0 ? "Sharing " + Plural(res.Started) + (res.Already > 0 ? ". " + res.Already + " already on YouTube" : "")
@@ -864,10 +894,10 @@ namespace IRDash
                 Jobs.Run("share " + id, delegate { ShareOne(id); }, true);
                 return;
             }
-            string title, desc; Words(r, out title, out desc);
-            string thumb = File.Exists(ThumbPath(id, false)) ? ThumbPath(id, false) : "";
+            string title, desc; List<string> tags; Facts fx; Words(r, true, out title, out desc, out tags, out fx);
+            string thumb = ThumbFor(r);
             Action<string, string, string, string, string, string> seen = Enqueued; if (seen != null) seen(id, cut, title, desc, PrivacyNow(), thumb);
-            string m; IRDash.YouTube.Enqueue(id, cut, title, desc, PrivacyNow(), thumb, out m);
+            string m; IRDash.YouTube.Enqueue(id, cut, title, desc, PrivacyNow(), thumb, tags, out m);
         }
 
         // W1-6: the race with Peter's voice over it goes up as a second video "... (with commentary)" (never in place of the first: YouTube
@@ -879,13 +909,35 @@ namespace IRDash
             RaceInfo r = SessionIndex.Get(id);
             string file = Commentary.VideoPath(id);
             if (r == null || r.InTrash || !File.Exists(file)) { m = MsgCommentary; return false; }
-            string title, desc; Words(r, out title, out desc);
+            string title, desc; List<string> tags; Facts fx; Words(r, true, out title, out desc, out tags, out fx);
             title = Commentary.TitleWith(title);
-            string thumb = File.Exists(ThumbPath(id, false)) ? ThumbPath(id, false) : "";
+            string thumb = ThumbFor(r);
             Action<string, string, string, string, string, string> seen = Enqueued; if (seen != null) seen(id + ":c", file, title, desc, PrivacyNow(), thumb);
-            bool ok = IRDash.YouTube.Enqueue(id + ":c", file, title, desc, PrivacyNow(), thumb, out m);
+            bool ok = IRDash.YouTube.Enqueue(id + ":c", file, title, desc, PrivacyNow(), thumb, tags, out m);
             Log.W("library: " + id + " with commentary " + (ok ? "queued for YouTube: " + title : "not queued: " + m));
             return ok;
+        }
+
+        // W1-11: the highlights go up as their own video "Highlights: <title>" with its own chapters (the cuts); no cut needed, the file is short
+        static void ShareHighlights(string id)
+        {
+            RaceInfo r = SessionIndex.Get(id);
+            if (r == null || r.InTrash || Pack.HlSec(r) <= 0) return;
+            string title, desc; List<string> tags; Facts f;
+            Words(r, true, out title, out desc, out tags, out f);
+            string about = desc; int cut = desc.IndexOf("\n\n"); if (cut >= 0) { int two = desc.IndexOf("\n\n", cut + 2); if (two >= 0) about = desc.Substring(0, two); }
+            title = HighlightsTitle(title);
+            desc = about + "\n\n" + Cuts.Chapters(Pack.HlChapters(r), IRDash.YouTube.Signoff);
+            string thumb = ThumbFor(r), file = Pack.HlPath(r);
+            Action<string, string, string, string, string, string> seen = Enqueued; if (seen != null) seen(id + ":h", file, title, desc, PrivacyNow(), thumb);
+            string m; bool ok = IRDash.YouTube.Enqueue(id + ":h", file, title, desc, PrivacyNow(), thumb, tags, out m);
+            Log.W("library: " + id + " highlights " + (ok ? "queued for YouTube: " + title : "not queued: " + m));
+            Changed();
+        }
+        internal static string HighlightsTitle(string title)
+        {
+            string t = "Highlights: " + title;
+            return t.Length <= 100 ? t : t.Substring(0, 100).TrimEnd();
         }
 
         // W1-6: TALK OVER IT plays the race's YouTube cut; it is made here when it is not there yet (on the Jobs worker). "ok", "YIELD" or why not.
@@ -902,14 +954,80 @@ namespace IRDash
             return res;
         }
 
-        static CutPlan Words(RaceInfo r, out string title, out string desc)
+        static CutPlan Words(RaceInfo r, out string title, out string desc) { List<string> tags; Facts f; return Words(r, false, out title, out desc, out tags, out f); }
+
+        // W1-11: the story title (the race's hook; the chosen template when there is no story), the three-paragraph description
+        // (what happened, the car and track with the lap time and iRating, the chapters and Peter's sign-off) and the tags.
+        // improve = the share itself: the model hook may rewrite title and the first two paragraphs (youtube_words=claude; off by default).
+        static CutPlan Words(RaceInfo r, bool improve, out string title, out string desc, out List<string> tags, out Facts f)
         {
             string side = "{}";
             try { if (File.Exists(r.Sidecar)) side = File.ReadAllText(r.Sidecar, Encoding.UTF8); } catch { }
             CutPlan p = Cuts.Plan(side, r.Sec);
-            Facts f = FactsOf(r);
-            title = Cuts.Title(TemplateNow(), f); desc = Cuts.Description(p, f);
+            f = FactsOf(r);
+            try { Pack.Story(r, Recorder.LibFind(r.Id), p, f, new List<Moment>()); } catch (Exception ex) { Log.W("library: the story of " + r.Id + ": " + ex.Message); }
+            string story = Cuts.StoryTitle(f);
+            title = story.Length > 0 ? story : Cuts.Title(TemplateNow(), f);
+            string about = Cuts.About(f);
+            if (improve) { Draft d = IRDash.Words.Improve(f, new Draft(title, about)); title = d.Title; about = d.About; }
+            desc = about + "\n\n" + Cuts.Chapters(p.Chapters, IRDash.YouTube.Signoff);
+            tags = Cuts.Tags(f);
             return p;
+        }
+
+        // the picture YouTube gets: the 1280 x 720 race thumbnail (W1-11), else the library's 600 px frame
+        static string ThumbFor(RaceInfo r)
+        {
+            try { string t = Pack.ThumbPath(r); if (File.Exists(t)) return t; } catch { }
+            return File.Exists(ThumbPath(r.Id, false)) ? ThumbPath(r.Id, false) : "";
+        }
+
+        // ---------------- W1-11: the pack (thumbnail + highlights) of a race, between sessions ----------------
+        internal static Func<RaceInfo, string> PackTool;     // tests: stands in for Pack.Make (the mock recorder has no real ffmpeg)
+        static readonly HashSet<string> packFailed = new HashSet<string>();
+        const int PackNewest = 5;                            // only the newest races get a pack by themselves (older ones on SHARE)
+        static string MakePack(RaceInfo r)
+        {
+            Func<RaceInfo, string> t = PackTool;
+            if (t != null) return t(r);
+            if (Recorder.Mock) return "no ffmpeg in the mock";
+            if (!File.Exists(Recorder.FfmpegExe)) return "The video tool is missing.";
+            if (IRDash.Thumb.Ffmpeg == null) IRDash.Thumb.Ffmpeg = CutFfmpeg;
+            if (Highlights.Ffmpeg == null) Highlights.Ffmpeg = CutFfmpeg;
+            string side = "{}";
+            try { if (File.Exists(r.Sidecar)) side = File.ReadAllText(r.Sidecar, Encoding.UTF8); } catch { }
+            return Pack.Make(r, Recorder.LibFind(r.Id), Cuts.Plan(side, r.Sec), FactsOf(r), Recorder.FfmpegExe, Recorder.FfprobeExe);
+        }
+        static bool PacksMissing(List<RaceInfo> all)
+        {
+            int n = 0;
+            foreach (RaceInfo r in all)
+            {
+                if (!r.IsRace || r.Sec < 30) continue;
+                if (n++ >= PackNewest) break;
+                lock (packFailed) if (packFailed.Contains(r.Id)) continue;
+                if (!Pack.Done(r)) return true;
+            }
+            return false;
+        }
+        // in the thumbnail job: newest first; false = a session started (the job goes again after it)
+        static bool Packs(List<RaceInfo> all)
+        {
+            int n = 0;
+            foreach (RaceInfo r in all)
+            {
+                if (!r.IsRace || r.Sec < 30) continue;
+                if (n++ >= PackNewest) break;
+                lock (packFailed) if (packFailed.Contains(r.Id)) continue;
+                if (Pack.Done(r)) continue;
+                if (Jobs.ShouldYield) return false;
+                string res;
+                try { res = MakePack(r); } catch (Exception ex) { res = ex.Message; }
+                if (res == "YIELD") return false;
+                if (res != "ok") { lock (packFailed) packFailed.Add(r.Id); Log.W("library: no YouTube pack for " + r.Id + " (" + res + ")"); }
+                else Changed();
+            }
+            return true;
         }
 
         // DELETE took the race: whatever was waiting to share it stops (the press not yet cut, YouTube's queued record, the cut).
@@ -936,7 +1054,7 @@ namespace IRDash
                 if (Jobs.ShouldYield) { Jobs.Again("share " + id, delegate { ShareOne(id); }); return; }
                 RaceInfo r = SessionIndex.Get(id);
                 if (r == null || r.InTrash) { lock (shareGate) pendingShare.Remove(id); SavePending(); Changed(); return; }   // in the trash: nothing to share
-                string title, desc; CutPlan p = Words(r, out title, out desc);
+                string title, desc; List<string> tags; Facts fx; CutPlan p = Words(r, true, out title, out desc, out tags, out fx);
                 // a talk is playing this cut right now (W1-6): the same cut, used as it is, never made again under the player
                 string cut = CutPath(id), res = Commentary.Holds(id) && File.Exists(cut) ? "ok" : Cut(r.File, CutDir, p, out cut);
                 if (res == "YIELD") { Log.W("library: the cut of " + id + " stopped - a session started; it runs again after the session"); Jobs.Again("share " + id, delegate { ShareOne(id); }); return; }
@@ -944,10 +1062,12 @@ namespace IRDash
                 else
                 {
                     lock (shareGate) { if (!pendingShare.Contains(id)) { try { File.Delete(cut); } catch { } return; } }   // deleted while it was cut
-                    string thumb = File.Exists(ThumbPath(id, false)) ? ThumbPath(id, false) : "";
+                    // W1-11: an older race has no pack yet: it is made now (thumbnail + highlights), on this same whenFree job
+                    if (!Pack.Done(r)) { string pk; try { pk = MakePack(r); } catch (Exception ex) { pk = ex.Message; } if (pk != "ok" && pk != "YIELD") Log.W("library: no YouTube pack for " + id + " (" + pk + ")"); }
+                    string thumb = ThumbFor(r);
                     Action<string, string, string, string, string, string> seen = Enqueued; if (seen != null) seen(id, cut, title, desc, PrivacyNow(), thumb);
                     string m;
-                    if (!IRDash.YouTube.Enqueue(id, cut, title, desc, PrivacyNow(), thumb, out m)) { if (m != MsgAlready) err = m; try { File.Delete(cut); } catch { } }
+                    if (!IRDash.YouTube.Enqueue(id, cut, title, desc, PrivacyNow(), thumb, tags, out m)) { if (m != MsgAlready) err = m; try { File.Delete(cut); } catch { } }
                     else Log.W("library: " + id + " cut (" + p.Why + ") and queued for YouTube: " + title);
                 }
             }

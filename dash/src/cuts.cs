@@ -33,6 +33,18 @@ namespace IRDash
         public string Car = "", Track = "", Config = "", Series = "";
         public DateTime Date;        // default(DateTime) = unknown
         public int Finish, Start;    // 0 = unknown
+        // W1-11: the race's story (from the field log and the REVIEW engine's numbers; every one may be unknown)
+        public int Field;                        // cars in his class (0 = unknown)
+        public int Incidents = -1;               // his incident points (-1 = unknown)
+        public int IrChange = int.MinValue;      // iRating change (MinValue = unknown: not official, or no rated field)
+        public int IrBefore;                     // his iRating before the race (0 = unknown)
+        public bool FastestLap;                  // his best lap was the quickest of his class
+        public bool LastLapPass;                 // he passed a car on the last lap
+        public int Laps;                         // laps he drove (0 = unknown)
+        public string BestLap = "";              // "1:34.850" or ""
+        public int BestLapN;                     // the lap it was on
+        public int PassLap, PassFor;             // the decisive pass: on lap PassLap, for P{PassFor} (0 = none)
+        public string PassWhere = "";            // "T10" or ""
     }
 
     static class Cuts
@@ -155,13 +167,13 @@ namespace IRDash
             return p;
         }
 
-        static string LapTime(double s)
+        internal static string LapTime(double s)
         {
             int m = (int)(s / 60); double r = s - m * 60;
             return m.ToString(Inv) + ":" + r.ToString("00.000", Inv);
         }
 
-        static string Clock(double sec)
+        internal static string Clock(double sec)
         {
             int t = (int)Math.Floor(sec + 0.0001); if (t < 0) t = 0;
             int h = t / 3600, m = (t / 60) % 60, s = t % 60;
@@ -253,6 +265,113 @@ namespace IRDash
             return r;
         }
 
+        // ---------- W1-11: the story title, the three-paragraph description, the tags ----------
+        // The hook in Peter's voice, from facts only; the first rule that fits wins. "" = no story (the chosen template stands).
+        // Never a word the numbers do not carry: P15 to P15 is "P15 of 24", never a comeback.
+        public static string Hook(Facts f)
+        {
+            int s = f.Start, fin = f.Finish, gain = s > 0 && fin > 0 ? s - fin : 0;
+            string F = fin.ToString(Inv), S = s.ToString(Inv);
+            if (fin == 1 && s == 1) return "Pole and the win";
+            if (fin == 1) return s > 1 ? "P" + S + " to the win" : "The win";
+            if (f.Field >= 5 && s == f.Field && fin > 0 && fin < s) return "Last to P" + F;
+            if (f.LastLapPass && fin > 0) return "Last-lap pass for P" + F;
+            if (fin >= 2 && fin <= 3) return gain > 0 ? "P" + S + " to P" + F + " on the podium" : "P" + F + " on the podium";
+            if (f.Incidents >= 4 && gain >= 2) return "Recovery drive: P" + S + " to P" + F;
+            if (gain > 0) return "P" + S + " to P" + F;
+            if (f.FastestLap && fin > 0) return "Fastest lap and P" + F;
+            if (f.FastestLap) return "Fastest lap";
+            if (s == 1 && fin > 1) return "From pole to P" + F;
+            if (fin > 0) return f.Field > 0 ? "P" + F + " of " + f.Field.ToString(Inv) : "P" + F;
+            return "";
+        }
+
+        // "P15 to P4 at Road Atlanta · Toyota GR86 · 1:34.850": parts drop from the end until it fits YouTube's shown width (under 70);
+        // never over YouTube's 100.
+        public static string StoryTitle(Facts f)
+        {
+            string hook = Hook(f);
+            if (hook.Length == 0) return "";
+            string car = Clean(f.Car), track = Clean(f.Track);
+            if (track.Length == 0) track = "the track";
+            string head = hook + " at " + track;
+            List<string> tries = new List<string>();
+            if (car.Length > 0 && f.BestLap.Length > 0) tries.Add(head + " · " + car + " · " + f.BestLap);
+            if (car.Length > 0) tries.Add(head + " · " + car);
+            for (int n = WordCount(car) - 1; n >= 1; n--) tries.Add(head + " · " + LastWords(car, n));    // "Toyota GR86" -> "GR86"
+            tries.Add(head);
+            for (int n = WordCount(track) - 1; n >= 1; n--) tries.Add(hook + " at " + Words(track, n));
+            foreach (string t in tries) if (t.Length <= 69) return t;
+            string last = tries[tries.Count - 1];
+            return last.Length <= 100 ? last : last.Substring(0, 100).TrimEnd();
+        }
+
+        static string LastWords(string s, int n)
+        {
+            string[] w = s.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (n >= w.Length) return s;
+            return string.Join(" ", w, w.Length - n, n);
+        }
+
+        // what happened (paragraph 1) and the car, track, lap time and iRating (paragraph 2): the part the model hook may rewrite
+        public static string About(Facts f)
+        {
+            StringBuilder a = new StringBuilder();
+            int s = f.Start, fin = f.Finish, gain = s > 0 && fin > 0 ? s - fin : 0;
+            string of = f.Field > 0 ? " of " + f.Field.ToString(Inv) : "";
+            if (fin == 1 && s == 1) a.Append("Pole position and the win.");
+            else if (fin == 1 && s > 1) a.Append("Started P" + s.ToString(Inv) + " and won.");
+            else if (s > 0 && fin > 0) a.Append("Started P" + s.ToString(Inv) + ", finished P" + fin.ToString(Inv) + of + (gain > 0 ? " (+" + gain.ToString(Inv) + ")" : gain < 0 ? " (" + gain.ToString(Inv) + ")" : "") + ".");
+            else if (fin > 0) a.Append("Finished P" + fin.ToString(Inv) + of + ".");
+            else a.Append("The full race.");
+            if (f.PassLap > 0 && f.PassFor > 0)
+                a.Append(" The move that decided it: the pass for P" + f.PassFor.ToString(Inv) + " on lap " + f.PassLap.ToString(Inv) + (Clean(f.PassWhere).Length > 0 ? " at " + Clean(f.PassWhere) : "") + ".");
+            if (f.FastestLap) a.Append(" Fastest lap of the race.");
+            if (f.Incidents == 0) a.Append(" No incidents.");
+            else if (f.Incidents > 0) a.Append(" " + f.Incidents.ToString(Inv) + "x incidents.");
+            a.Append("\n\n");
+            string cfg = Clean(f.Config);
+            if (cfg.Equals("Full Course", StringComparison.OrdinalIgnoreCase) || cfg.Equals("Full", StringComparison.OrdinalIgnoreCase)) cfg = "";
+            string line = Clean(f.Car) + " at " + Clean(f.Track) + (cfg.Length > 0 ? " (" + cfg + ")" : "");
+            string d = DateText(f); if (d.Length > 0) line += ", " + d;
+            if (Clean(f.Series).Length > 0) line += " · iRacing " + Clean(f.Series);
+            if (f.Laps > 0) line += " · " + f.Laps.ToString(Inv) + (f.Laps == 1 ? " lap" : " laps");
+            if (f.BestLap.Length > 0) line += " · best " + f.BestLap + (f.BestLapN > 0 ? " (lap " + f.BestLapN.ToString(Inv) + ")" : "");
+            if (f.IrChange != int.MinValue)
+            {
+                line += " · iRating " + (f.IrChange >= 0 ? "+" : "") + f.IrChange.ToString(Inv);
+                if (f.IrBefore > 0) line += " (" + f.IrBefore.ToString(Inv) + " to " + (f.IrBefore + f.IrChange).ToString(Inv) + ")";
+            }
+            a.Append(line);
+            return a.ToString();
+        }
+
+        // the chapters (paragraph 3) and the sign-off Peter wrote once (youtube_signoff=; "" = none)
+        public static string Chapters(List<Chapter> chapters, string signoff)
+        {
+            StringBuilder sb = new StringBuilder();
+            foreach (Chapter c in chapters) sb.Append(Clock(c.Sec)).Append(' ').Append(c.Label).Append('\n');
+            string so = (signoff ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            if (so.Length > 0) sb.Append('\n').Append(so);
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        public static string StoryDescription(CutPlan p, Facts f, string signoff) { return About(f) + "\n\n" + Chapters(p.Chapters, signoff); }
+
+        // track, car, series, "iRacing", "sim racing" (YouTube: 500 characters in all)
+        public static List<string> Tags(Facts f)
+        {
+            List<string> t = new List<string>();
+            foreach (string x in new string[] { Clean(f.Track), Clean(f.Car), Clean(f.Series), "iRacing", "sim racing" })
+            {
+                string v = x.Replace(",", " ").Replace("<", "").Replace(">", "").Replace("\"", "").Trim();
+                if (v.Length == 0 || v.Length > 100) continue;
+                bool dup = false; foreach (string y in t) if (y.Equals(v, StringComparison.OrdinalIgnoreCase)) dup = true;
+                if (!dup) t.Add(v);
+            }
+            return t;
+        }
+
         public static string Description(CutPlan p, Facts f)
         {
             StringBuilder sb = new StringBuilder();
@@ -311,7 +430,7 @@ namespace IRDash
         static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
 
         // runs a tool hidden; returns the exit code and the text it printed (stderr for ffmpeg, stdout for ffprobe)
-        static int Exec(string exe, string args, int timeoutMs, bool belowNormal, out string text)
+        internal static int Exec(string exe, string args, int timeoutMs, bool belowNormal, out string text)
         {
             ProcessStartInfo psi = new ProcessStartInfo(exe, args);
             psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
