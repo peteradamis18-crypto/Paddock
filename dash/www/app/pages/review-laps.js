@@ -16,9 +16,14 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 // the server's own words first (/api/review/corners "defs"); these are the same words, for an answer without them
 const DEFS = { brakeM: 'brake over 10 %', pickupM: 'throttle over 90 % after the apex', minSpeed: 'the slowest point', time: 'turn-in to exit' };
 const NAMES = { brakeM: 'Brake point', minSpeed: 'Minimum speed', pickupM: 'Throttle-on', time: 'Time' };
-// a lap the store did not count: the word on its chip (the store's own reason; an unknown reason is shown as given)
-const WHY = { out: 'out lap', in: 'in lap', pit: 'pit', off: 'off track', incident: 'incident', invalid: 'not counted', partial: 'part lap', cut: 'part lap' };
-export const whyWord = w => { const k = String(w || '').toLowerCase().trim(); return k ? (WHY[k] || k) : 'not counted'; };
+// a lap the store did not count: ONE short word on its chip. The review API sends the store's code (whyCode: lapstore.cs LapRules) and
+// its sentence (why: LapRules.Words); ten chips only fit the row with short words (live 2026-11-14 the sentences overflowed and were
+// cut mid-word, "g did not count it"). Unknown reasons get the plain word, never the sentence.
+const WHY = { lap0: 'out lap', out: 'out lap', 'in': 'in lap', pit: 'pit', off: 'off track', incident: 'incident', 'not-best': 'not counted', invalid: 'not counted',
+  'no-time': 'no time', short: 'part lap', partial: 'part lap', cut: 'part lap', 'file-end': 'cut short',
+  'formation or out lap': 'out lap', 'went through the pits': 'pit', 'iracing gave it no time': 'no time', 'not a full lap': 'part lap',
+  'incident in the lap': 'incident', 'iracing did not count it': 'not counted', 'the recording stopped before iracing gave its time': 'cut short' };
+export const whyWord = (w, code) => { const c = String(code || '').toLowerCase().trim(), k = String(w || '').toLowerCase().trim(); return WHY[c] || WHY[k] || 'not counted'; };
 
 // ---------------------------------------------------------------- pure helpers (the test imports them)
 // "6 Nov" (local day), "6 Nov – 13 Nov" for a spread, one day once
@@ -331,7 +336,7 @@ const P = {
     const chip = (row, v, l, on, off, ever) => {
       const cls = ['chip', l.counted ? 'counted' : 'dim', l.n === bestN && l.counted ? 'best' : '', on ? 'on' : '', ever ? 'ever' : ''].filter(Boolean).join(' ');
       const top = ever ? 'Your best here' : 'Lap ' + l.n;
-      const bot = ever ? F.lap(l.time) : l.counted ? F.lap(l.time) : whyWord(l.why);
+      const bot = ever ? F.lap(l.time) : l.counted ? F.lap(l.time) : whyWord(l.why, l.whyCode);
       return '<button type="button" class="' + cls + '" data-row="' + row + '" data-lap="' + esc(v) + '"' + (off ? ' disabled' : '') + ' aria-pressed="' + (on ? 'true' : 'false') + '">' +
         '<span class="c-n">' + esc(top) + '</span><span class="c-t">' + esc(bot) + '</span></button>';
     };

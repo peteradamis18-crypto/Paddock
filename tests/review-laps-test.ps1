@@ -80,8 +80,8 @@ window.__run = async () => {
     window.__req.length === 3 && window.__req[0] === '/api/review?id=last' && window.__req.includes(tr(8, 9)) && window.__req.some(u => u.indexOf('/api/review/corners?') === 0 && /lap=8&ref=9/.test(u)), window.__req.join(' | '));
   const lapChips = qa('.rl-pick .row:nth-child(1) .chip'), refChips = qa('.rl-pick .row:nth-child(2) .chip');
   ok('1. THIS LAP: one chip per lap (10), with the lap and its time', lapChips.length === 10 && lapChips[8].textContent.indexOf('Lap 9') >= 0 && lapChips[8].textContent.indexOf(F.lap(93.832)) > 0, lapChips.map(c => c.textContent).join('|'));
-  ok('1. counted laps are bright, the others dim with their reason (out lap, off track, in lap)',
-    lapChips.filter(c => c.classList.contains('counted')).length === 7 && ['out lap', 'off track', 'in lap'].every((w, i) => lapChips[[0, 3, 9][i]].classList.contains('dim') && lapChips[[0, 3, 9][i]].textContent.indexOf(w) > 0) &&
+  ok('1. counted laps are bright, the others dim with their reason (out lap, incident, cut short: one word from the store\'s code, never its sentence)',
+    lapChips.filter(c => c.classList.contains('counted')).length === 7 && ['out lap', 'incident', 'cut short'].every((w, i) => lapChips[[0, 3, 9][i]].classList.contains('dim') && lapChips[[0, 3, 9][i]].textContent.indexOf(w) > 0) &&
     getComputedStyle(lapChips[0].querySelector('.c-t')).color !== getComputedStyle(lapChips[1].querySelector('.c-t')).color, lapChips.map(c => c.className + ':' + c.textContent).join('|'));
   ok('1. the best lap (9) is purple', getComputedStyle(lapChips[8].querySelector('.c-t')).color === PURPLE && lapChips.filter(c => c.classList.contains('best')).length === 1);
   ok('1. this lap = the newest counted lap that is not the reference (8); the reference = the session best (9); the same lap cannot be both',
@@ -136,6 +136,11 @@ window.__run = async () => {
     hits.length === 0 && Z.map.l === 48 && Z.map.t >= 88 && Z.map.l < Z.top.l && Object.values(Z).every(z => z.l >= 0 && z.r <= 1920 && z.b <= 1080), JSON.stringify(Z) + ' ' + hits.join());
   const chipsRight = Math.max(...qa('.chip').map(c => c.getBoundingClientRect().right));
   ok('1. the chips stay inside the screen (ten laps fit)', chipsRight <= 1872 && qa('.rl-pick .row:nth-child(1) .chip').every(vis), chipsRight);
+  // live 2026-11-14: the API's why is the store's sentence ("iRacing did not count it"); ten of those overflowed the row and were cut mid-word
+  ok('1. a dim chip shows one short word from the store\'s code or sentence, never the sentence itself',
+    qa('.chip.dim').every(c => !/did not count|recording|formation|through the pits|iracing/i.test(c.textContent)) && M.whyWord('iRacing did not count it') === 'not counted' &&
+    M.whyWord('incident in the lap') === 'incident' && M.whyWord('', 'file-end') === 'cut short' && M.whyWord('went through the pits', 'pit') === 'pit' && M.whyWord('something new') === 'not counted',
+    qa('.chip.dim').map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
   // a chip press
   window.__req.length = 0; const nm = C.calls.length;
   lapChips[6].click(); await sleep(300);

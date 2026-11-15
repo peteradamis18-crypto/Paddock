@@ -80,7 +80,7 @@ Pi is a GUI app: do this yourself at the PC, not from a builder. Do not copy the
 
 ## Paddock against the raw file (written by the test)
 <!-- PADDOCK-RAW:BEGIN -->
-Run: 2026-11-14 15:50 by `tests\pi-check-test.ps1` (Paddock = irdash's own engine; Raw = `tests\fixtures\rawibt.cs` on the same file). Tolerances: time 0.02 s, speed 0.3 km/h, distance 2 m.
+Run: 2026-11-14 16:06 by `tests\pi-check-test.ps1` (Paddock = irdash's own engine; Raw = `tests\fixtures\rawibt.cs` on the same file). Tolerances: time 0.02 s, speed 0.3 km/h, distance 2 m.
 
 | Corner | Time s: Paddock | Raw | Min km/h: Paddock | Raw | Min at m: Paddock | Raw | Pick-up m: Paddock | Raw | Brake point m: Paddock | Raw |
 |---|---|---|---|---|---|---|---|---|---|---|
