@@ -99,7 +99,7 @@ namespace IRDash
             Dictionary<string, object> rig = s0 != null && s0.ContainsKey("rig") ? s0["rig"] as Dictionary<string, object> : null;
             Ok("rig carries driving, sessionOn, simRunning, online", rig != null && rig.ContainsKey("driving") && rig.ContainsKey("sessionOn") && rig.ContainsKey("simRunning") && rig.ContainsKey("online"), J.Serialize(rig));
             Ok("the keymsg part has no ageMs (the page works it out from at and now)", st != null && !st.Body.Contains("\"ageMs\""), "");
-            Ok("lists carries sessions, vault, races, perf", s0 != null && s0["lists"] is Dictionary<string, object> && ((Dictionary<string, object>)s0["lists"]).Count == 4, "");
+            Ok("lists carries sessions, vault, races, perf, review (W4-1 added review)", s0 != null && s0["lists"] is Dictionary<string, object> && ((Dictionary<string, object>)s0["lists"]).Count == 5, "");
 
             Console.WriteLine("Section 2. seq moves only when a part changes");
             long q0 = Seq(s0);

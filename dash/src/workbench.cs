@@ -366,7 +366,7 @@ namespace IRDash
     }
 
     // One-press deck control (docs\DESIGN-workbench.md 4): /api/do?c=wb-next-corner (&a=<arg>) queues "next-corner";
-    // the workbench page polls /workbench/cmd and runs window.WB.cmd(cmd, arg) once per new seq. Only the listed
+    // the page reads it from the "workbench" state part (W4-5: no poll; GET /workbench/cmd only answers the last one, for tests) and runs window.WB.cmd(cmd, arg) once per seq. Only the listed
     // commands get through, and a command older than 10 s is dropped so a page opened later does not replay it.
     static class Workbench
     {
