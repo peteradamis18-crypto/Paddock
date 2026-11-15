@@ -165,10 +165,10 @@ try {
 
   # ---- 6. the line ----
   if (Over) { $faults.Add('the check ran out of time') }
-  $notChecked = ' (not checked: recorder, deck start page)'
-  if ($faults.Count -eq 0) { Finish $true ('all good' + $notChecked) }
+  Say 'not checked tonight: recorder (no dry self-test), deck start page (nothing reports it)'
+  if ($faults.Count -eq 0) { Finish $true ('all good') }
   $n = $faults.Count
-  Finish $false ("$n thing" + $(if ($n -eq 1) { '' } else { 's' }) + ': ' + ($faults -join '; ') + $notChecked)
+  Finish $false ("$n thing" + $(if ($n -eq 1) { '' } else { 's' }) + ': ' + ($faults -join '; '))
 }
 catch {
   Say ('crashed: ' + $_.Exception.Message + ' at ' + $_.InvocationInfo.ScriptLineNumber)

@@ -29,6 +29,19 @@ namespace IRDash
         static string FileName { get { return Path.Combine(Program.RootDir, @"tests\nightly.txt"); } }
 
         public static bool Running { get { lock (gate) return running; } }
+        static bool deckTaken;                   // the check's one Stream Deck restart has been used
+        public static double NeedIdle = 10;      // minutes without input (a static so a test can lower it)
+
+        // the route /api/nightly/deck: null = restart now (and it is marked taken), else the reason it is refused
+        public static string TakeDeckRestart()
+        {
+            lock (gate)
+            {
+                string why = NightlyRules.DeckGate(running, deckTaken, IdleMinutes(), NeedIdle);
+                if (why == null) deckTaken = true;
+                return why;
+            }
+        }
         public static string PartJson() { try { return NightlyRules.PartJson(FileName); } catch { return "null"; } }
 
         // dash\irdash.ini: nightly=off (or 0) stops it
@@ -91,7 +104,7 @@ namespace IRDash
         {
             string script = Path.Combine(Program.RootDir, @"tests\nightly.ps1");
             if (!File.Exists(script)) { Log.W("nightly: " + script + " is missing"); return; }
-            lock (gate) { if (running) return; running = true; }
+            lock (gate) { if (running) return; running = true; deckTaken = false; }
             startedDay = DateTime.Now.ToString("yyyyMMdd"); waitedWhy = "";
             Thread t = new Thread(delegate ()
             {

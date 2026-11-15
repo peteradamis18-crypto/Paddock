@@ -40,11 +40,12 @@ static class M {
     T("the window passing is noticed once it is 06:00", NightlyRules.WindowPassed(D("2026-11-15 06:01"), "20261114", true) && !NightlyRules.WindowPassed(D("2026-11-15 04:00"), "20261114", true) && !NightlyRules.WindowPassed(D("2026-11-15 06:01"), "20261115", true) && !NightlyRules.WindowPassed(D("2026-11-15 06:01"), "", false));
     T("no file: the part is null and there is no last day", NightlyRules.PartJson(f) == "null" && NightlyRules.LastDay(f) == "");
     File.WriteAllText(f, "2026-11-14T03:00\t0\tRig check 03:00: skipped, Peter was at the PC\r\n2026-11-15T03:00\t1\tRig check 03:00: all good\r\n");
-    T("the part is the last line, W5-1's shape", NightlyRules.PartJson(f) == "{\"at\":\"2026-11-15T03:00\",\"text\":\"Rig check 03:00: all good\",\"ok\":true}");
+    T("the part is the last line, W5-1's shape", NightlyRules.PartJson(f) == "{\"at\":\"2026-11-15T03:00\",\"text\":\"Rig check 03:00: all good\",\"ok\":true,\"notChecked\":[\"recorder\",\"deck start page\"]}");
     T("the last day comes from the last line", NightlyRules.LastDay(f) == "20261115");
     File.WriteAllText(f, "2026-11-15T03:00\t0\tRig check 03:00: 1 thing: \"quote\" and \\slash\r\n");
-    T("a not-ok line says ok:false and quotes are escaped", NightlyRules.PartJson(f) == "{\"at\":\"2026-11-15T03:00\",\"text\":\"Rig check 03:00: 1 thing: \\\"quote\\\" and \\\\slash\",\"ok\":false}");
+    T("a not-ok line says ok:false and quotes are escaped", NightlyRules.PartJson(f) == "{\"at\":\"2026-11-15T03:00\",\"text\":\"Rig check 03:00: 1 thing: \\\"quote\\\" and \\\\slash\",\"ok\":false,\"notChecked\":[\"recorder\",\"deck start page\"]}");
     File.WriteAllText(f, "garbage\r\n");
+    T("the deck restart gate: no check running, already taken, PC used 3 min ago all refuse; a running check with 11 idle minutes goes", NightlyRules.DeckGate(false, false, 99, 10) != null && NightlyRules.DeckGate(true, true, 99, 10) != null && NightlyRules.DeckGate(true, false, 3, 10) != null && NightlyRules.DeckGate(true, false, 9.9, 10) != null && NightlyRules.DeckGate(true, false, 11, 10) == null);
     T("a broken file is null, never an error", NightlyRules.PartJson(f) == "null");
     File.Delete(f);
     for (int i = 0; i < 75; i++) NightlyRules.Append(f, NightlyRules.Row(new DateTime(2026, 11, 1).AddDays(i % 28), i % 2 == 0, "Rig check 03:00: n" + i));
@@ -146,9 +147,9 @@ exit /b 2
 
   $r = Run-Night
   ok 'all good: the line says so, flag 1, exit 0' ($r.rc -eq 0 -and $r.text -match '^Rig check 03:00: all good' -and $r.flag -eq '1') "[$($r.text)] rc=$($r.rc) $($r.out)"
-  ok 'all good: the line owns up to what was not checked (recorder, deck start page)' ($r.text -match 'not checked: recorder, deck start page')
+  ok 'all good: the RIG line is clean, exactly "Rig check 03:00: all good", no not-checked suffix' ($r.text -eq 'Rig check 03:00: all good')
   ok 'all good: a restart was asked of irdash, the Doctor ran quietly, /health was read' (($S.hits -contains '/api/nightly/deck') -and ($S.hits -contains '/api/doctor/run') -and ($S.hits -contains '/health'))
-  ok 'all good: the full log is in tests\last\nightly-<day>.txt with the recorder answer' ((Get-ChildItem (Join-Path $outDir 'last') -Filter 'nightly-*.txt' | Select-Object -First 1 | Get-Content -Raw) -match 'recorder: not checked')
+  ok 'all good: the full log is in tests\last\nightly-<day>.txt with the recorder answer' ((Get-ChildItem (Join-Path $outDir 'last') -Filter 'nightly-*.txt' | Select-Object -First 1 | Get-Content -Raw) -match '(?s)recorder: not checked.*not checked tonight: recorder.*deck start page')
 
   # one fault: Stream Deck was down, the Doctor started it
   Reset-Scenario; $S.health['deck'] = 'down'
@@ -241,6 +242,7 @@ exit /b 2
   ok '/api/nightly/deck is refused while the rig is busy' ($ird -match '(?s)/api/nightly/deck.{0,600}RigState\.Busy.{0,100}409')
   ok 'the start waits for the rig to be free and the PC idle 10 minutes; BelowNormal, hidden, 12-minute kill' ($ng -match 'RigState\.Busy' -and $ng -match 'IdleMinutes\(\) < 10' -and $ng -match 'BelowNormal' -and $ng -match 'CreateNoWindow = true' -and $ng -match '12 \* 60 \* 1000')
   ok 'nightly=off in irdash.ini stops it (default on)' ($ng -match 'nightly' -and $ng -match '"off"' -and $ng -match 'return true;')
+  ok '/api/nightly/deck asks Nightly.TakeDeckRestart (running check + taken once + idle >= NeedIdle 10) before it restarts anything' ($ird -match '(?s)/api/nightly/deck.{0,900}Nightly\.TakeDeckRestart\(\).{0,200}409.{0,200}NightlyDeckRestart' -and $ng -match 'DeckGate\(running, deckTaken, IdleMinutes\(\), NeedIdle\)' -and $ng -match 'NeedIdle = 10' -and $ng -match 'running = true; deckTaken = false')
   ok 'both new files are in dash\build.ps1' ($bld -match 'nightlyrules\.cs' -and $bld -match 'src\\nightly\.cs')
   ok 'no Windows task is made (CLAUDE.md rule 5): no schtasks / Register-ScheduledTask anywhere in the new files' (($ng + $sc) -notmatch 'schtasks|Register-ScheduledTask')
 }

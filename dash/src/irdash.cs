@@ -640,6 +640,8 @@ namespace IRDash
                         // W5-4: the night check's Stream Deck restart (the watchdog's own: kill, page back to MAIN, start). Never while the rig is busy.
                         if (!local) { Send(s, 404, "text/plain", Encoding.ASCII.GetBytes("not found")); return; }
                         if (RigState.Busy) { Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + RigState.BusyWhy)); return; }
+                        string dw = Nightly.TakeDeckRestart();     // only inside a check irdash started, once, with the PC left alone
+                        if (dw != null) { Send(s, 409, "text/plain", Encoding.UTF8.GetBytes("refused: " + dw)); return; }
                         Watch.NightlyDeckRestart();
                         Send(s, 200, "text/plain", Encoding.ASCII.GetBytes("ok")); return;
                     }

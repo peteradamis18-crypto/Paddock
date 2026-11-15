@@ -53,7 +53,17 @@ namespace IRDash
         {
             string[] f = LastFields(file);
             if (f == null) return "null";
-            return "{\"at\":" + Str(f[0].Trim()) + ",\"text\":" + Str(f[2].Trim()) + ",\"ok\":" + (f[1].Trim() == "1" ? "true" : "false") + "}";
+            return "{\"at\":" + Str(f[0].Trim()) + ",\"text\":" + Str(f[2].Trim()) + ",\"ok\":" + (f[1].Trim() == "1" ? "true" : "false") + ",\"notChecked\":[\"recorder\",\"deck start page\"]}";
+        }
+
+        // may the check's Stream Deck restart go ahead? null = yes, else the reason. Only inside a check irdash started, once per check,
+        // and only with the PC left alone for needIdle minutes.
+        public static string DeckGate(bool checkRunning, bool alreadyTaken, double idleMinutes, double needIdle)
+        {
+            if (!checkRunning) return "no night check is running";
+            if (alreadyTaken) return "the restart was already done in this check";
+            if (idleMinutes < needIdle) return "the PC was used " + Math.Round(idleMinutes, 1).ToString(CultureInfo.InvariantCulture) + " minutes ago";
+            return null;
         }
 
         // one file line (the script writes the same form)
