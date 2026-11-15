@@ -154,23 +154,23 @@ exit /b 2
   # one fault: Stream Deck was down, the Doctor started it
   Reset-Scenario; $S.health['deck'] = 'down'
   $r = Run-Night
-  ok 'Stream Deck was down and the Doctor started it: "1 thing: Stream Deck was not running (started it)"' ($r.text -match '^Rig check 03:00: 1 thing: Stream Deck was not running \(started it\)' -and $r.flag -eq '0') "[$($r.text)]"
+  ok 'Stream Deck was down and the Doctor started it: the line names it, "1 thing: Stream Deck"; the sentence is in the log' ($r.text -eq 'Rig check 03:00: 1 thing: Stream Deck' -and $r.flag -eq '0' -and $r.out -match 'Stream Deck was not running \(started it\)') "[$($r.text)]"
 
   # two faults: the spotter will not start + the add-on is out of date
   Reset-Scenario; $S.health['cc'] = 'off'; $S.doctorFixesDeck = $false
   $S.items = @(@{ id = 'streamdeck'; name = 'Stream Deck'; state = 'ok'; detail = 'Running - Rig Intro add-on 1.2 (1.3 ready to install)'; fix = '' }, @{ id = 'crewchief'; name = 'CrewChief'; state = 'bad'; detail = 'not running'; fix = 'x' })
   $r = Run-Night
-  ok 'a spotter that stays off and an old add-on: "2 things" naming both, the spotter once' ($r.text -match '^Rig check 03:00: 2 things: ' -and $r.text -match 'the Stream Deck add-on is out of date' -and $r.text -match 'the spotter \(CrewChief\) was not running \(could not start it\)' -and ([regex]::Matches($r.text, 'spotter').Count -eq 1)) "[$($r.text)]"
+  ok 'a spotter that stays off and an old add-on: "2 things: add-on update, spotter", the sentences in the log' ($r.text -eq 'Rig check 03:00: 2 things: add-on update, spotter' -and $r.out -match 'the Stream Deck add-on is out of date' -and $r.out -match 'the spotter \(CrewChief\) was not running \(could not start it\)') "[$($r.text)]"
 
   # a Doctor fault that is not an app
   Reset-Scenario; $S.items = @(@{ id = 'disk'; name = 'Disk'; state = 'warn'; detail = 'only 30 GB free'; fix = 'x' })
   $r = Run-Night
-  ok 'a Doctor warning is named: "Disk: only 30 GB free"' ($r.text -match '1 thing: Disk: only 30 GB free') "[$($r.text)]"
+  ok 'a Doctor warning is named by its name only, "1 thing: Disk"; its words are in the log' ($r.text -eq 'Rig check 03:00: 1 thing: Disk' -and $r.out -match 'Disk: only 30 GB free') "[$($r.text)]"
 
   # wrong dry key answer
   Reset-Scenario; Set-Content -Encoding ascii (Join-Path $cliDir 'mode.txt') 'badkey'
   $r = Run-Night
-  ok 'a dry key that answers wrongly is named (getout)' ($r.text -match 'deck keys did not answer as expected \(getout\)') "[$($r.text)]"
+  ok 'a dry key that answers wrongly: the line says "deck keys", the log names it (getout)' ($r.text -eq 'Rig check 03:00: 1 thing: deck keys' -and $r.out -match 'deck keys did not answer as expected \(getout\)') "[$($r.text)]"
   Set-Content -Encoding ascii (Join-Path $cliDir 'mode.txt') 'ok'
 
   # the PC is locked (2026-11-14 21:02): the add-on's page sleeps, so a "silent" Doctor item is not a thing and the deck is not restarted
@@ -180,21 +180,21 @@ exit /b 2
   ok 'locked PC: the full log says both were not checked because of the lock' ((Get-ChildItem (Join-Path $outDir 'last') -Filter 'nightly-*.txt' | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Raw) -match '(?s)not a fault, the PC is locked.*deck restart: not tonight.*not checked tonight: .*Stream Deck add-on \(the PC is locked\).*Stream Deck restart \(the PC is locked\)')
   Reset-Scenario; $S.items = @(@{ id = 'streamdeck'; name = 'Stream Deck'; state = 'warn'; detail = 'Rig Intro add-on silent for over 2 min'; fix = 'x' })
   $r = Run-Night @{ TestLocked = '0' }
-  ok 'unlocked PC: the same silent add-on IS a thing and the restart is asked' ($r.text -match 'Stream Deck: Rig Intro add-on silent' -and ($S.hits -contains '/api/nightly/deck')) "[$($r.text)] hits=$($S.hits -join ' ')"
+  ok 'unlocked PC: the same silent add-on IS a thing ("Stream Deck" in the line, the words in the log) and the restart is asked' ($r.text -match '^Rig check 03:00: \d things?: .*Stream Deck' -and $r.out -match 'Rig Intro add-on silent' -and ($S.hits -contains '/api/nightly/deck')) "[$($r.text)] hits=$($S.hits -join ' ')"
 
   # Stream Deck does not come back / add-on silent
   Reset-Scenario; $S.deckComesBack = $false
   $r = Run-Night
-  ok 'Stream Deck not back after the restart: the line says so' ($r.text -match 'Stream Deck did not come back after the restart' -and $r.flag -eq '0') "[$($r.text)]"
+  ok 'Stream Deck not back after the restart: "1 thing: Stream Deck", the sentence in the log' ($r.text -eq 'Rig check 03:00: 1 thing: Stream Deck' -and $r.flag -eq '0' -and $r.out -match 'Stream Deck did not come back after the restart') "[$($r.text)]"
   Reset-Scenario; $S.addonSilent = $true
   $r = Run-Night
-  ok 'app back but the add-on silent: its own sentence' ($r.text -match 'the Stream Deck add-on did not report back after the restart') "[$($r.text)]"
+  ok 'app back but the add-on silent: "1 thing: Stream Deck add-on", its sentence in the log' ($r.text -eq 'Rig check 03:00: 1 thing: Stream Deck add-on' -and $r.out -match 'the Stream Deck add-on did not report back after the restart') "[$($r.text)]"
   Reset-Scenario; $S.refuseDeck = $true
   $r = Run-Night
-  ok 'irdash refuses the restart (a session started): said, not hidden' ($r.text -match 'the Stream Deck restart was refused') "[$($r.text)]"
+  ok 'irdash refuses the restart (a session started): "1 thing: Stream Deck restart", the reason in the log' ($r.text -eq 'Rig check 03:00: 1 thing: Stream Deck restart' -and $r.out -match 'the Stream Deck restart was refused') "[$($r.text)]"
   Reset-Scenario; $S.doctorHangs = $true
   $r = Run-Night
-  ok 'a Doctor that never finishes: "the rig check did not run", the night goes on to the deck restart' ($r.text -match 'the rig check did not run' -and ($S.hits -contains '/api/nightly/deck')) "[$($r.text)]"
+  ok 'a Doctor that never finishes: "1 thing: Rig Doctor" (the log says it did not run), the night goes on to the deck restart' ($r.text -eq 'Rig check 03:00: 1 thing: Rig Doctor' -and $r.out -match 'the rig check did not run' -and ($S.hits -contains '/api/nightly/deck')) "[$($r.text)]"
 
   # the guard busy -> skipped, and nothing else ran
   Reset-Scenario

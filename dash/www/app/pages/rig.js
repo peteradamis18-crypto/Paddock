@@ -59,9 +59,11 @@ export function place(pct) {
   return Math.round(pct * 100) + ' % round the lap';
 }
 function span(p) {
+  // Peter 2026-11-14: "20–32 % round the lap" under the worst second meant nothing to him. Without a freeze the place stays unsaid
+  // unless it is the start/finish straight (a word he knows); the number is what matters.
   if (!p || !num(p.from) || !num(p.to)) return '';
   if (p.from >= 0.97 || p.to <= 0.03) return 'start/finish';
-  return Math.round(p.from * 100) + '–' + Math.round(p.to * 100) + ' % round the lap';
+  return '';
 }
 // the worst second: { fps: '23.7 fps', where: 'lap 9, start/finish' } (the freeze's lap and place, else the slowest place)
 export function worst(l) {

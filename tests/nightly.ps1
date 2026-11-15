@@ -34,6 +34,9 @@ function Over { $budget.Elapsed.TotalMinutes -ge $maxMinutes }
 # with the PC locked, the add-on came back only when Peter unlocked at 21:06), so a silent add-on is not a fault and the deck is not restarted
 function Locked { if ($TestLocked -ge 0) { return ($TestLocked -eq 1) }; try { return ($null -ne [RigLock]::Reason()) } catch { return $false } }
 $script:notChecked = New-Object Collections.Generic.List[string]
+# Peter 2026-11-14: no sentences on his screens. The LINE names the things ("2 things: Stream Deck, spotter"); the sentences go to the log.
+$script:names = New-Object Collections.Generic.List[string]
+function Fault([string]$name, [string]$words) { $script:faults.Add($words); if (-not $script:names.Contains($name)) { $script:names.Add($name) } }
 $k = if ($Fast) { 0.05 } else { 1 }     # the waits below shrink in a test; the real ones are 60 s (Doctor), 90 s (app back), 120 s (add-on back)
 
 # one line for RIG, then the full log; keeps the newest 60 lines
@@ -79,7 +82,7 @@ try {
   if ($st -notmatch 'sim=False') { Skipped 'the sim was running' }
   if ($st -match 'onTrack=True|telemetry=on') { Skipped 'Peter was driving' }
 
-  $faults = New-Object Collections.Generic.List[string]
+  $script:faults = New-Object Collections.Generic.List[string]; $faults = $script:faults
 
   # ---- 2. the five dry key runs: the exact commands and answers of tests\keys-test.ps1 section 8 (they refuse without a session) ----
   $dry = @(
@@ -96,15 +99,15 @@ try {
     Say ("key {0}: rc {1} {2}" -f $d.label, $rc, $(if ($good) { 'ok' } else { 'WRONG: ' + ($o -replace '\s+', ' ') }))
     if (-not $good) { $badKeys += $d.label }
   }
-  if ($badKeys.Count -gt 0) { $faults.Add('deck keys did not answer as expected (' + ($badKeys -join ', ') + ')') }
+  if ($badKeys.Count -gt 0) { Fault 'deck keys' ('deck keys did not answer as expected (' + ($badKeys -join ', ') + ')') }
 
   # ---- 3. /health, then the Rig Doctor ----
   try { $pre = Get-Apps } catch { NoAnswer 'irdash did not answer' }
   Say ('health before: ' + (($pre.Keys | Sort-Object | ForEach-Object { "$_=$($pre[$_])" }) -join ' '))
   if ($pre['sim'] -eq 'live') { Skipped 'the sim was running' }
-  $apps = @(@{ id = 'deck'; words = 'Stream Deck' }, @{ id = 'cc'; words = 'the spotter (CrewChief)' }, @{ id = 'overlays'; words = 'the overlays' })
+  $apps = @(@{ id = 'deck'; words = 'Stream Deck'; short = 'Stream Deck' }, @{ id = 'cc'; words = 'the spotter (CrewChief)'; short = 'spotter' }, @{ id = 'overlays'; words = 'the overlays'; short = 'overlays' })
   $was = @{}; foreach ($a in $apps) { if ($pre.ContainsKey($a.id) -and $pre[$a.id] -ne 'ok') { $was[$a.id] = $true } }
-  if ($pre['sim'] -in @('stuck', 'loading', 'starting')) { $faults.Add("iRacing was $($pre['sim']) with no one driving") }
+  if ($pre['sim'] -in @('stuck', 'loading', 'starting')) { Fault 'iRacing' "iRacing was $($pre['sim']) with no one driving" }
 
   try { $d0 = Get-Json '/doctor'; $ranBefore = [string]$d0.ranAt } catch { NoAnswer 'irdash did not answer' }
   [void](Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 -Headers @{ 'X-Paddock' = '1' } -Uri ($Base + '/api/doctor/run?quiet=1'))
@@ -114,24 +117,24 @@ try {
     try { $d = Get-Json '/doctor' } catch { NoAnswer 'irdash did not answer' }
     if (-not $d.running -and [string]$d.ranAt -ne $ranBefore -and $d.ranAt) { $docDone = $true; break }
   }
-  if (-not $docDone) { $faults.Add('the rig check did not run') ; Say 'doctor: did not finish within 60 s' }
+  if (-not $docDone) { Fault 'Rig Doctor' 'the rig check did not run' ; Say 'doctor: did not finish within 60 s' }
   else {
     Say "doctor: $($d.headline)"
     $mapped = @{ streamdeck = 'deck'; crewchief = 'cc'; overlays_running = 'overlays' }
     foreach ($it in @($d.items)) {
       # an add-on older than the one on disk is "ok" to the Doctor (it installs itself when Stream Deck restarts) but worth a word
-      if ($it.id -eq 'streamdeck' -and $it.state -eq 'ok' -and [string]$it.detail -match 'ready to install') { $faults.Add('the Stream Deck add-on is out of date'); Say "doctor item: $($it.detail)"; continue }
+      if ($it.id -eq 'streamdeck' -and $it.state -eq 'ok' -and [string]$it.detail -match 'ready to install') { Fault 'add-on update' 'the Stream Deck add-on is out of date'; Say "doctor item: $($it.detail)"; continue }
       if ($it.state -eq 'ok') { continue }
       if ($it.id -eq 'streamdeck' -and [string]$it.detail -match 'silent|asleep' -and (Locked)) { Say "doctor item: $($it.detail) - not a fault, the PC is locked"; $script:notChecked.Add('the Stream Deck add-on (the PC is locked)'); continue }
       Say "doctor item: $($it.name) [$($it.state)]: $($it.detail) - $($it.fix)"
       if ($it.state -eq 'bad' -and $mapped.ContainsKey([string]$it.id) -and $was.ContainsKey($mapped[[string]$it.id])) { continue }   # "not running" is said already, in its own words
-      $faults.Add(("{0}: {1}" -f $it.name, $it.detail).TrimEnd(': '))
+      Fault ([string]$it.name) (("{0}: {1}" -f $it.name, $it.detail).TrimEnd(': '))
     }
   }
   $post = $null; try { $post = Get-Apps } catch { NoAnswer 'irdash did not answer' }
   foreach ($a in $apps) {
-    if (-not $was.ContainsKey($a.id)) { if ($post.ContainsKey($a.id) -and $post[$a.id] -ne 'ok') { $faults.Add("$($a.words) stopped during the check") }; continue }
-    $faults.Add("$($a.words) was not running (" + $(if ($post[$a.id] -eq 'ok') { 'started it' } else { 'could not start it' }) + ')')
+    if (-not $was.ContainsKey($a.id)) { if ($post.ContainsKey($a.id) -and $post[$a.id] -ne 'ok') { Fault $a.short "$($a.words) stopped during the check" }; continue }
+    Fault $a.short ("$($a.words) was not running (" + $(if ($post[$a.id] -eq 'ok') { 'started it' } else { 'could not start it' }) + ')')
   }
 
   # ---- 4. a real Stream Deck restart through irdash; then the app and the add-on must be back (not on a locked PC: the add-on cannot report back) ----
@@ -145,7 +148,7 @@ try {
       $sr = New-Object IO.StreamReader($resp.GetResponseStream()); $body = $sr.ReadToEnd(); $sr.Dispose(); $r = if ($body -match '^refused') { $body } else { "refused: $body" }
     }
     Say "deck restart asked: $r"
-    if ("$r" -match 'refused') { Say 'deck restart refused by irdash'; $faults.Add("the Stream Deck restart was refused ($($r -replace '^refused:\s*', ''))") }
+    if ("$r" -match 'refused') { Say 'deck restart refused by irdash'; Fault 'Stream Deck restart' "the Stream Deck restart was refused ($($r -replace '^refused:\s*', ''))" }
     else {
       $t1 = Get-Date; Nap 10; $appBack = $false; $addonBack = $false
       while (((Get-Date) - $t1).TotalSeconds -lt (120 * $k) -and -not (Over)) {
@@ -161,8 +164,8 @@ try {
         Nap 3
       }
       Say "deck after the restart: app back=$appBack, add-on back=$addonBack ($([int]((Get-Date) - $t1).TotalSeconds) s)"
-      if (-not $appBack) { $faults.Add('Stream Deck did not come back after the restart') }
-      elseif (-not $addonBack) { $faults.Add('the Stream Deck add-on did not report back after the restart') }
+      if (-not $appBack) { Fault 'Stream Deck' 'Stream Deck did not come back after the restart' }
+      elseif (-not $addonBack) { Fault 'Stream Deck add-on' 'the Stream Deck add-on did not report back after the restart' }
     }
   }
 
@@ -170,12 +173,13 @@ try {
   Say 'recorder: not checked (no dry self-test)'
 
   # ---- 6. the line ----
-  if (Over) { $faults.Add('the check ran out of time') }
+  if (Over) { Fault 'time' 'the check ran out of time' }
   $script:notChecked.Insert(0, 'deck start page (nothing reports it)'); $script:notChecked.Insert(0, 'recorder (no dry self-test)')
   Say ('not checked tonight: ' + ($script:notChecked -join ', '))
   if ($faults.Count -eq 0) { Finish $true ('all good') }
   $n = $faults.Count
-  Finish $false ("$n thing" + $(if ($n -eq 1) { '' } else { 's' }) + ': ' + ($faults -join '; '))
+  Say ('the things in full: ' + ($faults -join '; '))
+  Finish $false ("$n thing" + $(if ($n -eq 1) { '' } else { 's' }) + ': ' + ($script:names -join ', '))
 }
 catch {
   Say ('crashed: ' + $_.Exception.Message + ' at ' + $_.InvocationInfo.ScriptLineNumber)

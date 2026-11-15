@@ -125,7 +125,7 @@ window.__run = async () => {
   ok('2. 12 Nov: the track and day beside LAST RACE', /Last race\s*Road Atlanta · 12 Nov/i.test(txt('.rg-last .lbl')), txt('.rg-last .lbl'));
   ok('2. one request at mount: /perf', window.__req.join() === '/perf', window.__req.join(' '));
   window.__req.length = 0; window.__setup.perf = 'perf-smooth'; window.__emit('list:perf'); await sleep(150);
-  ok('2. the perf list changed: /perf asked again and the smooth race shows (71.4 fps · 40–45 % round the lap)', window.__req.join() === '/perf' && txt('.rg-last .worst b') === '71.4 fps' && txt('.rg-last .worst span') === 'Worst second · 40–45 % round the lap' && /No freezes/.test(txt('.rg-last .verdict')), txt('.rg-last'));
+  ok('2. the perf list changed: /perf asked again and the smooth race shows (71.4 fps, the place unsaid without a freeze)', window.__req.join() === '/perf' && txt('.rg-last .worst b') === '71.4 fps' && txt('.rg-last .worst span') === 'Worst second' && /No freezes/.test(txt('.rg-last .verdict')), txt('.rg-last'));
   look('smooth race', false);
   await use('ready', 'perf-processing');
   ok('2. "still being processed" stands in the numbers\' place (no numbers, no older verdict)', /still being processed/.test(txt('.rg-last .line')) && !q('.rg-last .nums') && !/older verdict/.test(txt('.rig')), txt('.rg-last'));
