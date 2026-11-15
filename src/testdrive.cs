@@ -742,7 +742,7 @@ namespace IRDeck
                     if (closed)
                     {
                         // the wizard ends on a page with the car, the track and one Race control (the old "Summary" page; its label is optional since 2026-11-14)
-                        UEl race = null;
+                        UEl race = null; bool rescued = false; DateTime rescuedAt = DateTime.MinValue;
                         WaitFor(delegate
                         {
                             try
@@ -752,10 +752,20 @@ namespace IRDeck
                                 bool shows = all.Exists(u => AiRowName(u.Name).IndexOf(combo.Car, StringComparison.OrdinalIgnoreCase) >= 0) && all.Exists(u => u.Name.IndexOf(combo.Track, StringComparison.OrdinalIgnoreCase) >= 0);
                                 List<UEl> races = all.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Race") && u.E.Current.IsEnabled);
                                 race = (shows && races.Count == 1) ? races[0] : null;
-                                return race != null;
+                                if (race != null) return true;
+                                // 2026-11-14 23:23 (deck journey run 6): since the wizard ends with Update, iRacing goes back to the AI Single Player page
+                                // (the Seasons list), not to the race summary. The configured race is one press away: Single Race, then Last Settings.
+                                UEl lastS = AiByName(all, "Last Settings", ControlType.Hyperlink) ?? AiByName(all, "Last Settings", ControlType.Button);
+                                if (lastS != null && (DateTime.UtcNow - rescuedAt).TotalSeconds > 3) { rescuedAt = DateTime.UtcNow; Log("airace start: pressing Last Settings (the race just set up)"); AiPress(lastS); return false; }
+                                if (!rescued)
+                                {
+                                    UEl single = AiByName(all, "Single Race", ControlType.Hyperlink) ?? AiByName(all, "Single Race", ControlType.Button);
+                                    if (single != null) { rescued = true; rescuedAt = DateTime.UtcNow; Log("airace start: the wizard left the AI Single Player page: opening Single Race for Last Settings"); AiPress(single); return false; }
+                                }
+                                return false;
                             }
                             catch { return false; }
-                        }, 15000, 250, "UI CHANGED", "Summary Race");
+                        }, 25000, 250, "UI CHANGED", "Summary Race");
                         if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;
                         Log("airace start: pressed Race on the Summary (" + combo.Car + " at " + combo.Track + ")");
