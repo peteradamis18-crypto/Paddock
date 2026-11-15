@@ -236,6 +236,9 @@ try {
   $rq = [Net.HttpWebRequest]::Create("$api/share/video?id=$(Q $id7)"); $rq.AddRange(100, 1123); $rs = $rq.GetResponse()
   Check '/share/video answers a Range request with 206 and the right bytes' ([int]$rs.StatusCode -eq 206 -and $rs.ContentLength -eq 1024 -and $rs.Headers['Content-Range'] -match "bytes 100-1123/$sz"); $rs.Close()
   Check '... the whole file with 200; the vault lap id and the file:lap names find the same video; an unknown id is a 404' ((Code "/share/video?id=$(Q $id7)") -eq 200 -and (Code "/share/video?id=$(Q $spec7)") -eq 200 -and (Code "/share/video?id=$(Q $m7.id)") -eq 200 -and (Code '/share/video?id=rec-nothing') -eq 404)
+  # W4-9: /share/open is a W0-2 guarded route (409 while a session is on, rigstate.cs Gate.IsGuardedRoute) and the pretend session of the
+  # frames above counts as one, so the dry run goes after the pretend session is ended (section 5 starts its own again).
+  try { $null = Invoke-WebRequest -UseBasicParsing "$api/api/test/end" -TimeoutSec 8 } catch { }; Start-Sleep -Milliseconds 600
   $o = JCode "/share/open?id=$(Q $id7)&dry=1"
   Check '/share/open (dry run) finds the file and would open the folder with it selected (this PC)' ($o.code -eq 200 -and $o.j.ok -eq $true -and $o.j.name -eq "share-$id7.mp4")
   Check 'from the phone side (?asphone=1) /share/open, /share/jump and the test route are not there (404), and /share/make needs the pairing token (401)' ((Code "/share/open?id=$(Q $id7)&dry=1&asphone=1") -eq 404 -and (Code "/share/jump?id=x&t=1&asphone=1") -eq 404 -and (Code "/share/test/frame?id=x&t=1&asphone=1") -eq 404 -and (Code "/share/make?id=$(Q $id7)&asphone=1") -eq 401)
@@ -317,7 +320,7 @@ try {
   Check 'a lap without a share video offers MAKE SHARE VIDEO as a big button (44 px or more)' ($btn -and $btn.text -eq 'Make share video' -and $btn.h -ge 44)
   Cdp-Shot (Join-Path $shots 'share-phone-make.png')
   $null = Cdp-Eval "document.querySelector('#shareBox [data-share-make]').click(); true"
-  $seen2 = New-Object System.Collections.Generic.List[string]; $sw2.Restart()
+  $seen2 = New-Object System.Collections.Generic.List[string]; $sw2 = [Diagnostics.Stopwatch]::StartNew()   # W4-9: $sw2 only existed inside Wait-Until, so Restart() hit null
   while ($sw2.Elapsed.TotalSeconds -lt 90) { Start-Sleep -Milliseconds 400; $tx = [string](Cdp-Eval "(document.querySelector('#shareBox b.h') || {}).textContent"); if ($seen2.Count -eq 0 -or $seen2[$seen2.Count - 1] -ne $tx) { $seen2.Add($tx) }; if ($tx -eq 'Ready to share') { break } }
   Check "pressing it shows progress and ends at Ready to share ($($seen2 -join ' > '))" ($seen2[$seen2.Count - 1] -eq 'Ready to share' -and $seen2.Count -ge 2)
   $dl = Cdp-Obj "(function(){ var a = document.querySelector('#shareBox a[download]'), s = document.querySelector('#shareBox [data-share-send]'), ra = a.getBoundingClientRect(), rs = s.getBoundingClientRect(); return { href: a.getAttribute('href'), name: a.getAttribute('download'), text: a.textContent, ha: ra.height, hs: rs.height, scroll: document.documentElement.scrollWidth - window.innerWidth }; })()"

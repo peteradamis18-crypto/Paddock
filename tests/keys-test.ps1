@@ -1,4 +1,4 @@
-﻿# keys-test (C-32): every Stream Deck key answers, no dead keys.
+# keys-test (C-32): every Stream Deck key answers, no dead keys.
 # Reads the MAIN, MORE and LEAVE pages (deck v2, 2026-10-23) by running build-deck.ps1 -Preview (it only writes C:\Temp\preview), keys\keys.map,
 # deck-intro\plugin.html (FRIENDS, OVERLAYS, MY DRIVE, REPLAY, ANALYSIS, SOUND) and the sources behind them (src\irdeck.cs, dash\src\*.cs).
 # No clicks, no sim, nothing is written to Stream Deck. The only live part (section 8) runs real irdeck commands that
@@ -180,6 +180,9 @@ foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'off
 # the workbench's deck commands are /api/do?c=wb-<name>: its Allowed list (dash\src\workbench.cs)
 $wbm = [regex]::Match((ReadText 'dash\src\workbench.cs'), '(?s)string\[\] Allowed\s*=\s*\{(.*?)\};')
 foreach ($x in [regex]::Matches($wbm.Groups[1].Value, '"([a-z\-]+)"')) { $handled['wb-' + $x.Groups[1].Value] = 'workbench' }
+# W4-9: library.cs (the RACES commands racetrash, raceundo, raceempty, racefree, raceshare, ytsignin, ytprivacy, yttemplate, racetalk, racetalkstop) has a multi-line Handles(); ytsignin is accepted here and at runtime answers a plain refusal (409, "set up YouTube first") while Peter's Google/YouTube setup is deferred ("Later"): that is the right answer, not a missing command, and it is not called from this test (it would open a browser)
+$lh = [regex]::Match((ReadText 'dash\src\library.cs'), '(?s)public static bool Handles\(string c\)\s*\{\s*return(.*?);')
+foreach ($x in [regex]::Matches($lh.Groups[1].Value, 'c == "(\w+)"')) { $handled[$x.Groups[1].Value] = 'library' }
 foreach ($f in 'irdash', 'data', 'ailevel') {   # ailevel: the AI RACE screen's level row and START (W3-4)
   foreach ($l in ((ReadText "dash\src\$f.cs") -split "`n")) { if ($l -match 'public static bool Handles\(string c\) \{ return c ==') { foreach ($x in [regex]::Matches($l, 'c == "(\w+)"')) { $handled[$x.Groups[1].Value] = $f } } }
 }
@@ -412,6 +415,8 @@ foreach ($sc in $screens) {
   $text = $plug.Substring($i, $j - $i)
   $methods = @([regex]::Matches($text, '(?m)^  (?:async )?(\w+)\([^)]*\) \{') | ForEach-Object { [pscustomobject]@{ idx = $_.Index; name = $_.Groups[1].Value } })
   $bounds = @([regex]::Matches($text, '(?m)^    (?:\} else \{|if \(.*\) \{)\s*$') | ForEach-Object { $_.Index })
+  # W4-9: a block that ends with `return R;` is a finished layout (RACES: the list, then the one-race view after it): what follows is another layout, so another branch
+  $bounds = @($bounds) + @([regex]::Matches($text, '(?m)^      return R;\s*\n    \}\s*$') | ForEach-Object { $_.Index })
   $calls = @(Get-Calls $text '(?<![\w.])add\(')
   $cmdCalls = @(Get-Calls $text 'this\.cmd\(')
   # 5a. every command the screen sends: the add() acts plus the this.cmd(...) calls
@@ -419,7 +424,7 @@ foreach ($sc in $screens) {
   $rowsHere = @()
   foreach ($c in $calls) {
     $a = $c.args; function G($n) { if ($a.Count -gt $n) { return $a[$n] } return '' }
-    $act = (G 6); $actLits = @(); if ($act -ne '' -and $act -ne 'null') { $actLits = @(Lits $act | Where-Object { $_ -ne '' }) }
+    $act = (G 6); $actLits = @(); if ($act -ne '' -and $act -ne 'null') { $actLits = @(Lits $(if ($act -match '^[^''"]*\?' -or $act -match "^[^?]*===.*\?") { $act.Substring($act.IndexOf('?')) } else { $act }) | Where-Object { $_ -ne '' }) }   # W4-9: for `cond ? 'ytsignin' : null` only the literals after the ? are actions (the condition's 'signin' is a state name)
     $m = $methods | Where-Object { $_.idx -lt $c.idx } | Select-Object -Last 1
     $mName = if ($m) { $m.name } else { '?' }; $mIdx = if ($m) { $m.idx } else { 0 }
     $branch = @($bounds | Where-Object { $_ -gt $mIdx -and $_ -lt $c.idx }).Count
@@ -437,7 +442,8 @@ foreach ($sc in $screens) {
   }
   foreach ($act in @($acts.Keys)) {
     $inIr = if ($sc.guest) { $guestSet -contains $act } else { $unionCmds -contains $act }
-    $local = $text -match "r\.act === '$([regex]::Escape($act))'"
+    # W4-9: the add-on handles an action itself as `if (r.act === 'x')` (the old screens) or `if (a === 'x' || a === 'y')` where `const a = r.act` (RACES, W1-1 to W1-6): both forms are read
+    $local = $text -match "(?:r\.act|(?<![\w.])a) === '$([regex]::Escape($act))'"
     if ($inIr) { $acts[$act] = 'irdash' } elseif ($local) { $acts[$act] = 'add-on (local)' } else { $acts[$act] = 'NOT HANDLED' }
   }
   $cmdLits = @()

@@ -75,11 +75,13 @@ public static class CrRaw {
   }
   // Did iRacing count this lap? (L-1) iRacing's own best lap of the session (LapBestLapTime) is the evidence, read at the last record of the lap and 1.5 to 2.5 s after the
   // line. A lap quicker than the best so far (or when it had none) that BECAME the best was counted, whatever the off-track record says; a quicker lap that left the best
-  // unchanged was not. A lap that is not quicker than the best so far gives no evidence: then any record of the lap with PlayerTrackSurface 0 (off track) decides.
+  // unchanged was not. A lap that is not quicker than the best so far gives no evidence: then (W4-9, as LapRules v4) an incident in the lap decides.
   public static bool Counted(string file, int lap, double time) {
     byte[] b = File.ReadAllBytes(file); var v = Vars(b);
-    int bl = BitConverter.ToInt32(b, 36), bo = BitConverter.ToInt32(b, 52), rc = (b.Length - bo) / bl, first = -1; bool off = false;
-    for (int r = 0; r < rc; r++) { int s = bo + r * bl; if (BitConverter.ToInt32(b, s + v["Lap"][1]) == lap && b[s + v["IsOnTrack"][1]] != 0 && BitConverter.ToInt32(b, s + v["PlayerTrackSurface"][1]) == 0) { off = true; break; } }
+    int bl = BitConverter.ToInt32(b, 36), bo = BitConverter.ToInt32(b, 52), rc = (b.Length - bo) / bl, first = -1;
+    // W4-9: since W0-6 (LapRules v4) the deciding evidence for a lap that is not quicker is an INCIDENT in the lap (his incident count at the last on-track record of the lap above the first), not an off-track record: one off-track record is no longer fatal
+    int i0 = -1, i1 = -1; for (int r = 0; r < rc; r++) { int s = bo + r * bl; if (BitConverter.ToInt32(b, s + v["Lap"][1]) == lap && b[s + v["IsOnTrack"][1]] != 0) { if (i0 < 0) i0 = BitConverter.ToInt32(b, s + v["PlayerCarMyIncidentCount"][1]); i1 = BitConverter.ToInt32(b, s + v["PlayerCarMyIncidentCount"][1]); } }
+    bool off = i1 > i0;   // "off" kept as the name: true = the lap had an incident
     for (int r = 0; r < rc; r++) { int s = bo + r * bl; if (BitConverter.ToInt32(b, s + v["Lap"][1]) == lap + 1 && b[s + v["IsOnTrack"][1]] != 0) { first = r; break; } }
     if (first < 1) return false;
     double before = BitConverter.ToSingle(b, bo + (first - 1) * bl + v["LapBestLapTime"][1]); if (before <= 1) before = -1;
@@ -408,9 +410,12 @@ try {
     Copy-Item -Recurse -Force (Join-Path $vaultDir 'telemetry\*') (Join-Path $slowV 'telemetry')
     $us = "/analysis/career?id=$(Q $pbName)&dir=$(Q $script:telDir)&vault=$(Q $slowV)&slow=700"
     $logN2 = @(Get-Content (Join-Path $root 'dash\irdash.log')).Count
+    # W4-9: since W0-3 the reader is a Jobs job: it waits until NO session is on (the pretend one included) plus the 20 s grace, so the pretend
+    # session is ended first and the test waits for the reader to have done a file before he gets in the car.
+    try { $null = Invoke-WebRequest -UseBasicParsing "$apiBase/api/test/end" -TimeoutSec 8 } catch { }; Start-Sleep -Milliseconds 600
     $sb1 = Get-Raw ($us + '&drop=1')
     Check 'a slow first call starts the reader and answers building with 0 of 7 done' ($sb1.code -eq 200 -and $sb1.body -like '{"building":true,"done":*,"of":7,*')
-    Start-Sleep -Milliseconds 1500
+    for ($w = 0; $w -lt 120 -and -not ((Get-Raw $us).body -match '"done":[1-9]'); $w++) { Start-Sleep -Milliseconds 500 }      # grace 20 s, then a file every 0.7 s plus its own time
     Fake 'IsOnTrack=1&OnPitRoad=0&SessionNum=2&PlayerCarIdx=0&Lap=4&LapDistPct=0.4&Speed=45&Gear=4&SessionFlags=0'
     Start-Sleep -Milliseconds 1800
     $sb2 = Get-Raw $us
@@ -420,6 +425,7 @@ try {
     $doneBefore = if ($stopLine.Count -eq 1) { [int]([regex]::Match($stopLine[0], 'read (\d+) of 7').Groups[1].Value) } else { -1 }
     Check "irdash.log says it stopped after $doneBefore of 7 files (some done, not all)" ($stopLine.Count -eq 1 -and $doneBefore -ge 1 -and $doneBefore -le 6)
     Fake 'IsOnTrack=0&Speed=0'; Start-Sleep -Milliseconds 800
+    try { $null = Invoke-WebRequest -UseBasicParsing "$apiBase/api/test/end" -TimeoutSec 8 } catch { }; Start-Sleep -Milliseconds 600      # W4-9: the pretend session ends, then the grace period, then the reader goes on
     $sb3 = Get-Raw $us; $guard = 0
     while ($sb3.code -eq 200 -and $sb3.body -like '{"building":true*' -and $guard -lt 120) { Start-Sleep -Milliseconds 500; $sb3 = Get-Raw $us; $guard++ }
     Start-Sleep -Milliseconds 1500      # the reader writes its log line after its last pause (slow=700)

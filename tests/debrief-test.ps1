@@ -460,8 +460,12 @@ try {
   # =====================================================================================================
   Section '11. copy-audit (source strings) passes for the new file'
   $caOut = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tests\copy-audit-test.ps1') -SourceOnly 2>&1 | Out-String
-  $caExit = $LASTEXITCODE
-  Check 'tests\copy-audit-test.ps1 -SourceOnly exit 0 (debrief-v4.js has no banned strings)' ($caExit -eq 0) (($caOut -split "`n" | Select-Object -Last 4) -join ' | ')
+  # W4-9: the audit covers every served page, so its exit code also carries hits in OTHER files (player.js, W1-6; deck-intro\plugin.html,
+  # W0-1: wording for the lead, listed below). This check is scoped to the file it names: no hit may be in debrief-v4.js.
+  $hitsFile = Join-Path $root 'tests\last\copy-audit-source-hits.txt'
+  $hits = if (Test-Path $hitsFile) { @(Get-Content $hitsFile) } else { @() }
+  foreach ($h in $hits) { Note ('copy-audit hit elsewhere: ' + $h) }
+  Check 'tests\copy-audit-test.ps1 -SourceOnly ran and debrief-v4.js has no banned strings' (($caOut -match 'source hits: \d+') -and (@($hits | Where-Object { $_ -like 'debrief-v4*' }).Count -eq 0)) (($hits | Where-Object { $_ -like 'debrief-v4*' }) -join ' | ')
 
   # =====================================================================================================
   Section '12. incidents (D-04): lap/corner from the recorder sidecar and a playable clip'
