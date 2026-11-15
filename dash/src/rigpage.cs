@@ -119,7 +119,7 @@ namespace IRDash
                 if (c == "startupsound")
                 {
                     string v = a.ToLowerInvariant();
-                    if (v == "on" || v == "off") { Config.SetKey(Ini, "startup_sound", v); say = v == "on" ? "Start-up sound on" : "Start-up sound off"; }
+                    if (v == "on" || v == "off") { Save("startup_sound", v); say = v == "on" ? "Start-up sound on" : "Start-up sound off"; }
                 }
                 else if (c == "mic")
                 {
@@ -133,7 +133,7 @@ namespace IRDash
                     }
                     else if (a.ToLowerInvariant() == "default") pick = "";
                     else foreach (Mic m in ms) if (string.Equals(m.Name, a, StringComparison.OrdinalIgnoreCase)) pick = m.Name;
-                    if (pick != null) { Config.SetKey(Ini, "mic", pick); say = pick.Length == 0 ? "Mic: Windows' default" : "Mic: " + pick; }
+                    if (pick != null) { Save("mic", pick); say = pick.Length == 0 ? "Mic: Windows' default" : "Mic: " + pick; }
                 }
             }
             if (say == null) { code = 400; return "{\"ok\":false,\"say\":" + Json_.S(c == "mic" ? "That mic is not plugged in" : "Not done") + "}"; }
@@ -144,13 +144,29 @@ namespace IRDash
             return "{\"ok\":true,\"say\":" + Json_.S(say) + "," + j.Substring(1);
         }
 
+        // Config.SetKey, read back: another reader of irdash.ini (YouTube, Gallery) can hold the file for a moment and SetKey only logs that
+        static void Save(string key, string val)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                Config.SetKey(Ini, key, val);
+                if (Get(key, "\u0001") == val) return;
+                System.Threading.Thread.Sleep(40);
+            }
+            Log.W("rig page: could not save " + key);
+        }
+
         static string Get(string key, string def)
         {
             try
             {
                 string f = Ini;
                 if (string.IsNullOrEmpty(f) || !File.Exists(f)) return def;
-                foreach (string raw in File.ReadAllLines(f))
+                // shared read: this runs every second (the "settings" part) and must never block Config.SetKey writing the same file
+                string text;
+                using (FileStream fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (StreamReader r = new StreamReader(fs)) text = r.ReadToEnd();
+                foreach (string raw in text.Split('\n'))
                 {
                     string t = raw.Trim();
                     if (t.StartsWith(";") || t.StartsWith("#")) continue;

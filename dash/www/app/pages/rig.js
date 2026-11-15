@@ -176,7 +176,7 @@ const R = {
     box.className = 'rg-ready ' + r.kind; box.dataset.fault = r.id || '';
     R.$('.rg-ready .say').textContent = r.text;
     b.hidden = r.kind !== 'fault';
-    const why = rig.driving ? 'Not while driving' : rig.sessionOn ? 'Not during a session' : '';
+    const why = rig.driving || rig.sessionOn ? 'Not while driving' : '';      // the Doctor refuses for the whole session (doctor.cs Run)
     b.textContent = why || 'Fix';
     b.disabled = !!why || R.stale || !!R.inFlight.fix;
   },

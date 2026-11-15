@@ -153,7 +153,7 @@ Four doors along the top: **HOME · RACES · REVIEW · RIG**, the same four word
 - **HOME** is the start. (It is being rebuilt: for now it says so.)
 - **RACES** is every race you recorded (above).
 - **REVIEW** shows what to change next time, for your last drive (below: REVIEW: the card). Pressing REVIEW on a race in RACES opens that race here.
-- **RIG** shows how the PC ran (Performance, below).
+- **RIG** says whether the rig is ready, how smooth your last race was, and holds the AC and two switches (below: RIG).
 
 To get back to HOME from any page: press **CLOSE** (top right), or **Esc** on the keyboard, or the HOME key on the deck. (Inside a page, Esc first closes what that page has open, like a lap or a video.) A key on the deck that opens a page (RACES, REVIEW, the old VAULT and PERFORMANCE keys) opens it here.
 
@@ -187,7 +187,7 @@ After every drive, **REVIEW** (the door, the deck key, or REVIEW on HOME's card)
 
 **Sessions & laps.** Every session you have driven: date, car, track, how long, best lap. Filter by car or track. Tap a session to see the laps, then one lap against another: speed, throttle, brake, and where time went. Your best at each car and track is listed, with the same comparison against the field and real IMSA times.
 
-**Performance.** The last session's frame rate, the slowest places on the track, what else was using the PC, whether a change you made helped, and a short checklist of what is already right. Nothing on this page changes the graphics.
+**Performance** (RIG's MORE). The last session's frame rate, the slowest places on the track, what else was using the PC, whether a change you made helped, and a short checklist of what is already right. Nothing on this page changes the graphics.
 
 ### REVIEW: the laps
 
@@ -201,6 +201,20 @@ One lap against another, the way the pros look at it. **SHOW ME** on a review ca
 - **The deck's REVIEW arrows** go to the next or previous corner, zoom in, and back to the whole lap.
 
 If no lap is finished yet it says **No full lap yet**. While Paddock reads a new session it says **Reading your laps…**. Nothing needs typing.
+
+### RIG
+
+One calm screen, like the warning light in a car: it only talks when something needs you.
+
+- **At the top, big:** **Rig ready** in gold. If something is wrong it says the one thing instead (**Stream Deck is not running**, **The spotter is not running** or **The overlays are not running**; only the first one, in that order) with one button: **FIX**. FIX asks the Rig Doctor to put it right; the line then says **Checking the rig…** and goes back to **Rig ready** when it is done. While you are in a session FIX is grey and says **Not while driving**.
+- **Four rows:** **iRacing** (*in a session*, *open*, or *closed* in grey: iRacing being closed is never a problem), **Stream Deck** (*running*, or *not running* in red), **Spotter** (CrewChief: *running*, or *off* in red) and **Overlays** (*running*, or *off* in red). *Not installed* in grey means that program is not on this PC. Under the rows, when it has run, one small line from last night's rig check.
+- **LAST RACE**, three things: your average frame rate (big), the worst second and where it was (**23.7 fps · lap 9, start/finish**), and one sentence that says what happened (**Lap 9, start/finish: the picture froze for 4 s**). Just after a race it says it is still being worked out; the numbers come once the sim is closed.
+- **QUIET PC:** while you race, Paddock keeps Windows Update, search indexing and OneDrive quiet and the sim at high priority; each has a green dot when it is quiet. Until it is set up it says **Quiet PC · not set up** in grey (Claude gives you a one-click file for that).
+- **AC:** the same controls as the AC screen on the deck, bigger: **AC ON/OFF**, **−** and **+** with the target and the room temperature, **AUTO-COOL**, **MODE** and **FAN** (each press goes to the next one), and **MAX COOL**, **COMFORT** and **QUIET**. The line beside AC says what it is doing (**Sending to the AC…**). **AC not connected** in grey until the AC is set up.
+- **Two switches**, the filled one is how it is now: **START-UP SOUND** on or off (the five tones when the screen starts; never at night anyway), and **MIC**: which microphone TALK OVER IT records. **NEXT** goes through the mics that are plugged in, then back to Windows' own choice.
+- **MORE** (bottom left) opens the full Performance page (every session's frame rate, what else was running, the checklist). CLOSE or Esc goes back.
+
+When Paddock is not running, RIG shows the last it knew, greyed, and nothing can be pressed.
 
 ## The race screen
 

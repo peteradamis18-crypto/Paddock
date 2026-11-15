@@ -138,6 +138,23 @@ function play(el, opts) {
   return promise;
 }
 
+// W5-1: RIG's START-UP SOUND switch (irdash /api/settings, dash/src/rigpage.cs). Asked once per play, 300 ms at most: no answer keeps
+// today's rule (the tones, quiet hours still apply), so a slow or missing irdash never holds the lights back.
+async function soundOn() {
+  let timer = 0;
+  try {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    timer = setTimeout(function () { if (ctl) ctl.abort(); }, 300);
+    const r = await Promise.race([
+      fetch('/api/settings', { cache: 'no-store', signal: ctl ? ctl.signal : undefined }),
+      new Promise(function (res) { setTimeout(function () { res(null); }, 300); }),
+    ]);
+    const j = r && r.ok ? await r.json() : null;
+    return !(j && j.startupSound === false);
+  } catch (e) { return true; }
+  finally { clearTimeout(timer); }
+}
+
 // The triggers (moved from v2/intro.js): once per boot, the SHOWCASE key's seq, ?intro=1. Never while he is driving.
 async function init(el, o) {
   o = o || {};
@@ -155,9 +172,10 @@ async function init(el, o) {
       off = data.on('state', function () { clearTimeout(t); setTimeout(function () { if (off) off(); }, 0); res(); });
     });
   }
-  const go = function () {
+  const go = async function () {
+    const sound = await soundOn();
     if (o.onStart) o.onStart();
-    const p = play(el, { sound: true, quiet: isQuietHours(), skipOn: ['keydown', 'pointerdown'] });
+    const p = play(el, { sound: sound, quiet: isQuietHours(), skipOn: ['keydown', 'pointerdown'] });
     if (o.onEnd) p.then(o.onEnd);
     return p;
   };
