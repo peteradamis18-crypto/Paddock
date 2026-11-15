@@ -182,7 +182,7 @@ const H = {
     }
     const rows = H.races(), now = H.now(), up = H.upcoming();
     lbl.textContent = H.off && H.off.next && !H.off.nextMine ? 'Next race you can join' : 'Next race';
-    if (!rows.length) { box.innerHTML = '<div class="none">' + (H.off && H.off.loaded ? 'No race of your series this week' : 'No race schedule yet') + '</div>'; return; }
+    if (!rows.length) { box.innerHTML = '<div class="none">' + (H.off && H.off.loaded ? 'No series race this week' : 'No race schedule yet') + '</div>'; return; }
     box.innerHTML = rows.map(r => {
       const t = Date.parse(r.t), big = r === up, past = t <= now;
       return '<div class="nx' + (big ? ' big' : '') + (past ? ' past' : '') + '" data-t="' + t + '">' +
@@ -211,8 +211,8 @@ const H = {
     const F = H.ctx.Fmt, races = (H.lib && H.lib.races) || [], box = z.querySelector('.rows'), card = z.querySelector('.after'), now = H.now();
     const a = H.afterDrive();
     if (a) {
-      const p = place(a, true), laps = (a.laps || 0) + ' laps' + (a.best > 0 ? ', best ' + F.lap(a.best) : '');
-      const say = a.isRace ? 'Your race: ' + (p || laps) : 'Your ' + F.sessionName(a.type).toLowerCase() + ': ' + laps;
+      const p = place(a, true), laps = (a.laps || 0) + ' laps' + (a.best > 0 ? DOT + 'best ' + F.lap(a.best) : '');
+      const say = (a.isRace ? 'Race' : F.sessionName(a.type)) + DOT + (a.isRace ? p || laps : laps);      // W5-6: a label and numbers
       card.innerHTML = '<div class="s">' + esc(say) + '</div><button type="button" class="btn">Review</button>';
       card.hidden = false;
     } else { card.hidden = true; card.innerHTML = ''; }
@@ -234,13 +234,13 @@ const H = {
     let say = null, bad = false, canFix = false;
     if (!H.online) { dot.className = 'dot off'; fix.hidden = true; line.innerHTML = '<span class="w">Not connected to Paddock</span>'; return; }
     if (doc && doc.running) { dot.className = 'dot off'; line.innerHTML = '<span class="w">Checking the rig…</span>'; fix.hidden = false; fix.disabled = true; return; }
-    if (apps.ui && apps.ui.state !== 'ok') { say = 'The rig is off. Press RIG ON.'; bad = true; }
-    else if (doc && doc.ask) { say = esc(doc.ask); bad = true; }          // only he can do this one: the sentence, no FIX IT
+    if (apps.ui && apps.ui.state !== 'ok') { say = 'Rig off' + DOT + 'press RIG ON'; bad = true; }
+    else if (doc && doc.ask) { say = '<span data-copy="doctor">' + esc(doc.ask) + '</span>'; bad = true; }          // only he can do this one: the sentence, no FIX IT
     else {
       const worst = doc && (doc.items || []).find(i => i.state && i.state !== 'ok' && i.state !== 'warn');
       const offApp = ['deck', 'cc', 'overlays'].map(k => apps[k]).find(x => x && x.state !== 'ok');
-      if (worst) { say = esc(worst.detail || worst.name); bad = true; canFix = true; }
-      else if (offApp) { say = esc(offApp.name) + ' is off.'; bad = true; canFix = true; }
+      if (worst) { say = '<span data-copy="doctor">' + esc(worst.detail || worst.name) + '</span>'; bad = true; canFix = true; }      // the Doctor's own words (the copy lint lets them be)
+      else if (offApp) { say = esc(offApp.name) + DOT + 'off'; bad = true; canFix = true; }
     }
     if (!say) {
       const words = [['ui', 'iRacing'], ['deck', 'deck'], ['cc', 'spotter'], ['overlays', 'overlays']].filter(w => apps[w[0]]).map(w => w[1]);
