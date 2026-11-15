@@ -300,7 +300,7 @@ try {
   $pg = Pages
   Check "RACE is a tab (the log was found by the lap file's time window), the page opened on it (page=race): tabs $($pg -join ' ')" (($pg -contains 'race') -and (Cdp-Obj 'WB.state.page') -eq 'race')
   Check 'the tab row shows RACE and the deck is told about the page (WB.pages())' (([string](Cdp-Eval 'document.getElementById("tabs").innerText')) -match 'RACE')
-  # (W4-5: the page no longer reports its pages to /workbench/cmd, so /workbench/state has no page list to check; W4-8 retires the route)
+  # (W4-5: the page no longer reports its pages to /workbench/cmd, so the deck has no page list to check; W4-8 retired the old feed)
   $rc = Cdp-Obj 'WB.race()'
   $heads = @(Cdp-Obj '[].map.call(document.querySelectorAll("table.rt th"), function (c) { return c.textContent; })' | ForEach-Object { $_ })
   Check "the tower's columns: $($heads -join ' | ')" (($heads -join '|') -eq 'P|CLS|NO|DRIVER|CAR|TEAM|LAPS|TOTAL / GAP|AHEAD|BEST LAP|PITS|INC')

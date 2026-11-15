@@ -54,13 +54,6 @@ function New-MyDriveResults($kind, $q, $names, $ok = $true, $msg = '') {
   [ordered]@{ kind = $kind; q = $q; at = '63926762789000' + $i; ok = $ok; msg = $msg; items = $items }
 }
 
-# /workbench/state as irdash sends it while the workbench shows lap 7 (dash\src\deckfeed.cs)
-function New-AnalysisFixture {
-  [ordered]@{ open = $true; age = 0; driving = $false; page = 'driver'; pages = @('driver', 'grip'); playing = $false; speed = 1; tile = $false; axis = 'dist'; mapColour = 'gap'
-    offsetMode = $false; offset = 0; zoomed = $false; id = 'l20261010-041318-7'; lap = 7; ref = 'pb'; laps = 8; events = 5; corners = 12; lapTime = 79.549; refTime = 79.575; refLap = 3
-    car = 'Chevrolet Corvette Z06 GT3.R'; track = 'Road Atlanta' }
-}
-
 # /sound as irdash sends it (what irdeck sound status wrote, dash\src\sound.cs adds ready / age / busy)
 function New-SoundFixture {
   [ordered]@{ ok = $true; ready = $true; age = 1; busy = $false; pretend = $true

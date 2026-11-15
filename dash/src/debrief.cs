@@ -956,7 +956,7 @@ namespace IRDash
             }
         }
 
-        // a call to this PC's own irdash (the same base the DeckFeed relay uses; tests point PADDOCK_DECKFEED_BASE elsewhere)
+        // a call to this PC's own irdash (tests point PADDOCK_DECKFEED_BASE elsewhere; the old DeckFeed relay that shared it is gone, W4-8)
         static bool LocalGet(string path)
         {
             try
