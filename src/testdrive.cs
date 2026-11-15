@@ -97,17 +97,47 @@ namespace IRDeck
         }
         // When the wizard changes under us (2026-11-14: Continue became Next + Update), the log must show what was there to press
         // 2026-11-14 22:41 (deck journey run 5): iRacing's own "Update iRacing" window (optional content updates, one item pre-ticked,
-        // buttons Close and "Download 23 KB") opened over the page after the wizard closed and hid the race summary. Nothing is
-        // downloaded: its Close button (the one beside Download, not the window's own X) is pressed once and the page comes back.
+        // buttons Close and "Download 23 KB") opens over the page after the wizard closes. Runs 5-7 showed what it is: Update launches
+        // the race, this window is iRacing's content check before the launch, and its Close cancels the launch. Peter 2026-11-15
+        // ("Yes, small updates"): the key presses Download when the update is under AiUpdateCapMb; a bigger one stops the key with
+        // words on the top screen (CLAUDE.md rule 5: no downloads without his yes). Close is still used for a stale window at the start.
+        const double AiUpdateCapMb = 50;
         static DateTime aiUpdaterAt = DateTime.MinValue;
         static string aiUpdaterSeen = "";      // the Download button's words when the window was seen this press ("Download 23 KB"), else ""
+        static bool aiUpdaterAccepted;         // Download was pressed this press
+        static UEl AiUpdaterDownload(List<UEl> all) { return all.Find(u => u.Type == ControlType.Button && u.Name.StartsWith("Download ", StringComparison.OrdinalIgnoreCase)); }
+        // "Download 23 KB" -> 0.02 (MB); -1 when no size can be read (then nothing is downloaded)
+        static double AiUpdateMb(string words)
+        {
+            Match m = Regex.Match(words ?? "", @"(\d[\d.,]*)\s*(B|KB|MB|GB)\b", RegexOptions.IgnoreCase);
+            double n; if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(",", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out n)) return -1;
+            string unit = m.Groups[2].Value.ToUpperInvariant();
+            return unit == "GB" ? n * 1024 : unit == "MB" ? n : unit == "KB" ? n / 1024 : n / 1024 / 1024;
+        }
+        // Presses Download when the update is small enough. 0 = no Update window up, 1 = pressed (downloading), 2 = too big or unreadable (not pressed)
+        static int AiAcceptUpdater(AutomationElement window)
+        {
+            try
+            {
+                UEl dl = AiUpdaterDownload(AiElements(window));
+                if (dl == null) return 0;
+                aiUpdaterSeen = dl.Name; aiUpdaterAt = DateTime.UtcNow;
+                double mb = AiUpdateMb(dl.Name);
+                if (mb < 0 || mb > AiUpdateCapMb) { Log("airace: iRacing's Update window is up (" + dl.Name + "): over the " + AiUpdateCapMb + " MB cap, not downloaded"); return 2; }
+                Log("airace: iRacing's Update window is up (" + dl.Name + "): pressing Download (Peter 2026-11-15: small updates under " + AiUpdateCapMb + " MB are fine)");
+                Say("wait", "iRacing update first (" + dl.Name.Substring(9).Trim() + ")");
+                aiAllowDownload = true; try { aiUpdaterAccepted = AiPress(dl); } finally { aiAllowDownload = false; }
+                return aiUpdaterAccepted ? 1 : 2;
+            }
+            catch { return 0; }
+        }
         static bool AiDismissUpdater(AutomationElement window)
         {
             try
             {
                 if ((DateTime.UtcNow - aiUpdaterAt).TotalSeconds < 5) return false;
                 List<UEl> all = AiElements(window);
-                UEl dl = all.Find(u => u.Type == ControlType.Button && u.Name.StartsWith("Download ", StringComparison.OrdinalIgnoreCase));
+                UEl dl = AiUpdaterDownload(all);
                 if (dl == null) return false;
                 UEl close = null; double best = double.MaxValue;
                 foreach (UEl u in all)
@@ -198,7 +228,7 @@ namespace IRDeck
             try { object p; if (u.E.TryGetCurrentPattern(InvokePattern.Pattern, out p)) { ((InvokePattern)p).Invoke(); return true; } } catch { }
             return ClickEl(u);
         }
-        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace, aiSurveyAi, aiApplyOnly;
+        static bool aiAllowNew, aiAllowContinue, aiAllowLayout, aiAllowRace, aiAllowDownload, aiSurveyAi, aiApplyOnly;
         static string aiSurveyName = "";                         // survey-ai: the one control named on the command line that may be pressed right now
         static readonly List<string> aiSurveyPresses = new List<string>();
         static string aiLayoutName = "";
@@ -211,6 +241,7 @@ namespace IRDeck
                 || Same(name, "Last Settings") || Same(name, "Close") || Same(name, "Back") || Same(name, "Select") || Same(name, "Add a Car")
                 || (aiAllowNew && Same(name, "New Race")) || (aiAllowRace && (Same(name, "Race") || Same(name, "Update")))
                 || (aiAllowContinue && (Same(name, "Continue") || Same(name, "Next")))   // 2026-11-14: the wizard's steps now end with Next, and Update closes it
+                || (aiAllowDownload && name.StartsWith("Download ", StringComparison.OrdinalIgnoreCase))   // 2026-11-15: iRacing's small content update before the launch (AiAcceptUpdater only)
                 || (aiAllowLayout && Same(name, aiLayoutName))
                 || (aiSurveyName.Length > 0 && Same(name, aiSurveyName));
         }
@@ -383,7 +414,15 @@ namespace IRDeck
                 AutomationElement w = FindUiWindow(); if (w == null) { Log("airace dismiss: iRacing UI not found"); return 2; }
                 Log(AiDismissUpdater(w) ? "airace dismiss: pressed the Update window's Close" : "airace dismiss: no Update window up"); return 0;
             }
-            if (op != "survey") { Log("airace: use start [--dry], survey [--out file] [--dry] or dismiss"); return 1; }
+            if (args.Length > 0 && args[0].Equals("cap", StringComparison.OrdinalIgnoreCase))   // args[0]: the loop above makes op the last word
+            {
+                // tests: what the key would do with iRacing's Update window saying these words ("Download 23 KB")
+                string words = args.Length > 1 ? string.Join(" ", args, 1, args.Length - 1) : "";
+                double mb = AiUpdateMb(words);
+                Log("airace cap: " + words + " = " + (mb < 0 ? "no size" : mb.ToString("0.###", CultureInfo.InvariantCulture) + " MB") + " -> " + (mb >= 0 && mb <= AiUpdateCapMb ? "download" : "stop") + " (cap " + AiUpdateCapMb + " MB)");
+                return 0;
+            }
+            if (op != "survey") { Log("airace: use start [--dry], survey [--out file] [--dry], dismiss or cap <words>"); return 1; }
             if (Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { Log("airace survey: sim=True; stopped"); return 3; }
             AutomationElement window = FindUiWindow(); if (window == null) { Log("airace survey: iRacing UI is not up"); return 2; }
             List<UEl> current = AiElements(window);
@@ -642,7 +681,7 @@ namespace IRDeck
             }
             AutomationElement window = FindUiWindow(); if (window == null) { AiFail("UI CHANGED", "airace start: iRacing UI not found"); return 3; }
             tdUi = new IntPtr(window.Current.NativeWindowHandle);
-            if (AiDismissUpdater(window)) Thread.Sleep(1500);     // iRacing's Update window may already be up over the page (journey run 5)
+            if (AiDismissUpdater(window)) { Thread.Sleep(1500); aiUpdaterSeen = ""; }     // a stale Update window from an earlier launch may sit over the page (journey run 5): closed, not downloaded
             try
             {
                 List<UEl> els = AiElements(window);
@@ -743,13 +782,35 @@ namespace IRDeck
                     if (closed)
                     {
                         // the wizard ends on a page with the car, the track and one Race control (the old "Summary" page; its label is optional since 2026-11-14)
-                        UEl race = null; bool rescued = false; DateTime rescuedAt = DateTime.MinValue;
+                        // 2026-11-15 (journey run 7; Peter "Yes, small updates"): Update IS the launch and iRacing's Update window is its content check,
+                        // so a small update is accepted here and the sim waited for (up to 4 min); a big one stops the key with words. Should iRacing
+                        // come back to the AI Single Player page instead, Single Race > Last Settings reopens the set-up wizard and Update is pressed once more.
+                        UEl race = null; bool rescued = false, launched = false, tooBig = false, updatedAgain = false;
+                        DateTime rescuedAt = DateTime.MinValue, waitFrom = DateTime.UtcNow, loggedAt = DateTime.MinValue;
                         WaitFor(delegate
                         {
                             try
                             {
-                                if (AiDismissUpdater(window)) return false;      // iRacing's Update window over the page: closed, keep waiting for the summary
+                                if (Process.GetProcessesByName("iRacingSim64DX11").Length != 0) { launched = true; return true; }
+                                if ((DateTime.UtcNow - waitFrom).TotalMilliseconds > (aiUpdaterAccepted ? 240000 : 25000)) return true;   // give up; the words follow below
                                 List<UEl> all = AiElements(window);
+                                if (AiUpdaterDownload(all) != null)
+                                {
+                                    if (!aiUpdaterAccepted) { if (AiAcceptUpdater(window) == 2) { tooBig = true; return true; } return false; }
+                                    if ((DateTime.UtcNow - loggedAt).TotalSeconds > 20) { loggedAt = DateTime.UtcNow; AiLogCandidates(window, "while iRacing downloads"); }   // the log tells what the window shows meanwhile
+                                    return false;
+                                }
+                                AutomationElement again = AiModal(window);
+                                if (again != null)
+                                {
+                                    // the set-up wizard is open again (Last Settings below reopened it): Update once more is the launch
+                                    if (!updatedAgain)
+                                    {
+                                        UEl upd = AiElements(again).Find(u => { try { return (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Update") && u.E.Current.IsEnabled; } catch { return false; } });
+                                        if (upd != null) { updatedAgain = true; aiAllowRace = true; try { AiPress(upd); } catch { } aiAllowRace = false; Log("airace start: pressed Update again (the wizard came back" + (aiUpdaterAccepted ? " after iRacing's update" : "") + ")"); }
+                                    }
+                                    return false;
+                                }
                                 bool shows = all.Exists(u => AiRowName(u.Name).IndexOf(combo.Car, StringComparison.OrdinalIgnoreCase) >= 0) && all.Exists(u => u.Name.IndexOf(combo.Track, StringComparison.OrdinalIgnoreCase) >= 0);
                                 List<UEl> races = all.FindAll(u => (u.Type == ControlType.Hyperlink || u.Type == ControlType.Button) && Same(u.Name, "Race") && u.E.Current.IsEnabled);
                                 race = (shows && races.Count == 1) ? races[0] : null;
@@ -766,11 +827,10 @@ namespace IRDeck
                                 return false;
                             }
                             catch { return false; }
-                        }, 25000, 250, "UI CHANGED", "Summary Race");
-                        // 2026-11-15 00:06 (journey run 7): Update is the launch, and iRacing's Update window is its content check; pressing Close
-                        // cancels the launch. Paddock never downloads without Peter's yes (CLAUDE.md rule 5; PLAN section 10 item 12), so the key stops
-                        // here and says so, instead of a 25 s wait and "could not find".
-                        if (race == null && aiUpdaterSeen.Length > 0) { string what = aiUpdaterSeen; aiUpdaterSeen = ""; return AiStop("UPDATE NEEDED", "iRacing asks to download an update first (" + what + "); not without Peter's yes", window); }
+                        }, 250000, 250, "UI CHANGED", "Summary Race");
+                        if (launched) { Log("airace start: iRacing launched the race after Update" + (aiUpdaterAccepted ? " and its small update (" + aiUpdaterSeen + ")" : "")); break; }
+                        if (tooBig) return AiStop("UPDATE NEEDED", "iRacing asks to download a big update first (" + aiUpdaterSeen + "); not without Peter's yes", window);
+                        if (race == null && aiUpdaterAccepted) { AiLogCandidates(window, "after iRacing's update"); return AiStop("UI CHANGED", "iRacing did not start the race after its update (" + aiUpdaterSeen + ")", window); }
                         if (race == null) { AiLogCandidates(window, "after the wizard closed"); return AiStop("UI CHANGED", "Summary did not show the chosen car and track", window); }
                         aiAllowRace = true; bool raced = false; try { raced = AiPress(race); } catch { } aiAllowRace = false;
                         Log("airace start: pressed Race on the Summary (" + combo.Car + " at " + combo.Track + ")");

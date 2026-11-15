@@ -171,7 +171,10 @@ Check 'to-the-race''s refusal has its own top-screen words, listed before the "h
 # 2026-11-14 deck-v2-live: iRacing's AI wizard ends its steps with Next and closes with Update (Continue is gone); the layout menu pops up outside the modal
 $td = [IO.File]::ReadAllText((Join-Path $root 'src\testdrive.cs'))
 Check 'AI RACE presses Next while it is enabled, else Update, and logs the candidates when neither is there' ($td -match 'Same\(u\.Name, "Continue"\) \|\| Same\(u\.Name, "Next"\)' -and $td -match 'Same\(u\.Name, "Update"\)' -and $td -match 'AiLogCandidates\(window, "step "' -and $td -match 'aiAllowRace && \(Same\(name, "Race"\) \|\| Same\(name, "Update"\)\)')
-Check 'AI RACE closes iRacing''s own Update window (Close beside Download, nothing downloaded) while it waits for the summary (journey run 5, 2026-11-14 22:41)' ($td.Contains('static bool AiDismissUpdater(AutomationElement window)') -and $td.Contains('u.Name.StartsWith("Download "') -and $td.Contains('if (AiDismissUpdater(window)) return false;') -and $td.Contains('pressing its Close, nothing is downloaded'))
+# 2026-11-15 (journey run 7, Peter "Yes, small updates"): Update is the launch; iRacing's Update window is its content check. Small = download, big = stop with words.
+Check 'AI RACE accepts iRacing''s small content update before the launch (Download under the 50 MB cap), stops with words on a big one, and waits for the sim' ($td.Contains('const double AiUpdateCapMb = 50;') -and $td.Contains('static int AiAcceptUpdater(AutomationElement window)') -and $td.Contains('if (!aiUpdaterAccepted) { if (AiAcceptUpdater(window) == 2) { tooBig = true; return true; } return false; }') -and $td.Contains('iRacing asks to download a big update first (') -and $td.Contains('aiAllowDownload && name.StartsWith("Download "') -and $td.Contains('if (launched) { Log("airace start: iRacing launched the race after Update"'))
+Check 'AI RACE still closes a stale Update window at the start (nothing downloaded) and the cli keeps airace dismiss' ($td.Contains('static bool AiDismissUpdater(AutomationElement window)') -and $td.Contains('pressing its Close, nothing is downloaded') -and $td.Contains('if (AiDismissUpdater(window)) { Thread.Sleep(1500); aiUpdaterSeen = ""; }') -and $td.Contains('if (op == "dismiss")'))
+Check 'the top screen says a big update needs Peter, and a race that did not start after the update' ($km.Contains('iRacing wants a big update first ($1). Ask Claude.') -and $km.Contains('iRacing updated but did not start. Press AI RACE again.'))
 Check 'AI RACE looks for the track layout menu in the whole window, not only the wizard modal' ($td -match 'TdMenuItems\(AiElements\(window\), row\)')
 
 Section '4. chat, OFFICIAL, Test Drive setup'
@@ -213,6 +216,12 @@ if ($LASTEXITCODE -ne 0) { throw ('irdeck no-deploy compile failed: ' + ($build 
 $cli = Join-Path $env:TEMP 'ird\irdeck-cli.exe'
 function Ir { $o = & $cli @args 2>&1 | ForEach-Object { "$_" }; [pscustomobject]@{ rc = $LASTEXITCODE; out = ($o -join "`n") } }
 $state = (Ir state).out
+# 2026-11-15: the size read from iRacing's Update window decides: download (50 MB or less, Peter's yes) or stop
+$r = Ir airace cap Download 23 KB;   Check 'airace cap: "Download 23 KB" = 0.022 MB -> download' ($r.rc -eq 0 -and $r.out -match 'airace cap: Download 23 KB = 0\.022 MB -> download \(cap 50 MB\)') $r.out
+$r = Ir airace cap Download 49.5 MB; Check 'airace cap: 49.5 MB -> download' ($r.out -match '= 49\.5 MB -> download')
+$r = Ir airace cap Download 50.1 MB; Check 'airace cap: 50.1 MB -> stop' ($r.out -match '= 50\.1 MB -> stop')
+$r = Ir airace cap Download 1.2 GB;  Check 'airace cap: 1.2 GB -> stop' ($r.out -match '= 1228\.8 MB -> stop')
+$r = Ir airace cap Download;         Check 'airace cap: no size -> stop (nothing is downloaded blind)' ($r.out -match '= no size -> stop')
 Check 'the rig is free (state shows sim=False)' ($state -match 'sim=False') $state
 if ($state -match 'sim=False') {
   Assert-RigFree -Where 'offline CLI'
