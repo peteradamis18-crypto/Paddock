@@ -1,5 +1,5 @@
 {"ready":true,"now":1794690000000,"status":{"state":"done"},
  "last":{"file":"toyotagr86_roadatlanta full 2026-11-13 16-27-00.ibt","ts":1794590820000,"secs":1500,"track":"Road Atlanta","config":"Full Course","car":"Toyota GR86","type":"Race","avg":107.2,"low1":92,"worst":71.4,
-  "freeze":null,"verdict":"smooth","text":"No freezes in your last race (avg 107 fps): Road Atlanta, 13 Nov 16:27. Smooth.",
+  "freeze":null,"verdict":"smooth","gpu":50,"cpu":37,"text":"No freezes in your last race (avg 107 fps): Road Atlanta, 13 Nov 16:27. Smooth.",
   "places":[{"from":0.40,"to":0.45,"avg":96,"min":71.4,"n":40,"gpu":52,"cpu":36},{"from":0.70,"to":0.75,"avg":99,"min":80,"n":40,"gpu":52,"cpu":36}]},
  "sessions":[],"summary":"No freezes in your last race (avg 107 fps): Road Atlanta, 13 Nov 16:27. Smooth. 1 thing to look at on the Performance page."}

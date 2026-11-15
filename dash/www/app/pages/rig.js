@@ -74,14 +74,35 @@ export function worst(l) {
   const slow = (l.places || []).filter(p => num(p.min)).sort((a, b) => a.min - b.min)[0];
   return { fps, where: slow ? span(slow) : '' };
 }
+// the verdict as labels and numbers (PLAN 10.10, W5-6: no sentence on his screens), from /perf's own fields, not its sentence:
+// a freeze -> "FROZE 4 s · lap 9 · start/finish · 23.7 fps" (+ "Likely: Coach Dave Delta" when the black box named a cause);
+// else "SMOOTH · GPU 50 % · CPU 37 %" and its kin. { head, cause } or null
+export function verdict(l) {
+  if (!l) return null;
+  const pc = (w, x) => num(x) ? w + ' ' + Math.round(x) + ' %' : '';
+  const f = l.freeze;
+  if (f && num(f.secs) && f.secs > 0) {
+    const p = place(f.pct);
+    const head = ['FROZE ' + Math.max(1, Math.round(f.secs)) + ' s', num(f.lap) ? 'lap ' + Math.round(f.lap) : '', p, num(l.worst) ? l.worst.toFixed(1) + ' fps' : ''].filter(Boolean).join(DOT);
+    // blackbox.cs Sentence ends "Likely cause: Coach Dave Delta (3× its usual CPU)." -> the name only
+    const m = /Likely cause:\s*([^(.]+)/.exec(l.text || '');
+    return { head, cause: m ? 'Likely: ' + m[1].trim().replace(/^the /, '') : '' };
+  }
+  const v = l.verdict, both = num(l.gpu) && num(l.cpu);
+  const word = v === 'held' ? 'HELD LIMIT' : v === 'gpu' ? 'GPU LIMIT' : v === 'cpu' ? 'CPU LIMIT'
+    : both ? (l.gpu < 70 && l.cpu < 70 ? 'SMOOTH' : 'NEAR LIMIT') : v === 'smooth' || /smooth/i.test(l.text || '') ? 'SMOOTH' : '';
+  if (!word) return null;
+  const head = [word, v === 'cpu' ? '' : pc('GPU', l.gpu), v === 'gpu' ? '' : pc('CPU', l.cpu), num(l.dip) && l.dip >= 10 ? pc('dips', l.dip) : ''].filter(Boolean).join(DOT);
+  return { head, cause: '' };
+}
 // LAST RACE: { kind: wait|none|processing|race, ... }
 export function lastRace(perf) {
   if (!perf) return { kind: 'wait' };
-  if (perf.summary && /still being processed/i.test(perf.summary)) return { kind: 'processing', text: perf.summary };
+  if (perf.summary && /still being processed/i.test(perf.summary)) return { kind: 'processing' };
   const l = perf.last;
-  if (!l || !num(l.avg)) return { kind: 'none', text: perf.summary || 'Your first race shows here.' };
+  if (!l || !num(l.avg)) return { kind: 'none' };
   const d = num(l.ts) ? new Date(l.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
-  return { kind: 'race', where: [l.track, d].filter(Boolean).join(DOT), avg: Math.round(l.avg), worst: worst(l), text: l.text || '' };
+  return { kind: 'race', where: [l.track, d].filter(Boolean).join(DOT), avg: Math.round(l.avg), worst: worst(l), verdict: verdict(l) };
 }
 
 // QUIET PC: null when not set up (absent or setup:false); else { on, say, items: [{ id, name, dot, word }] }
@@ -97,12 +118,12 @@ export function quiet(q) {
   };
 }
 
-// the mic as it reads on the switch
+// the mic as it reads on the switch: the device name only, { name, isDefault } (Windows' default is a dot, not words: W5-6)
 export function micText(s) {
-  if (!s) return '—';
+  if (!s) return { name: '—', isDefault: false };
   const mics = s.mics || [];
-  if (!s.mic) { const d = mics.find(m => m.default); return "Windows' default" + (d ? DOT + d.name : ''); }
-  return mics.some(m => String(m.name).toLowerCase() === String(s.mic).toLowerCase()) ? s.mic : s.mic + DOT + 'not plugged in';
+  if (!s.mic) { const d = mics.find(m => m.default); return { name: d ? d.name : 'Default', isDefault: true }; }
+  return { name: mics.some(m => String(m.name).toLowerCase() === String(s.mic).toLowerCase()) ? s.mic : s.mic + DOT + 'not plugged in', isDefault: false };
 }
 export const nextMode = m => { const i = MODES.findIndex(x => x[0] === m); return MODES[(i + 1) % MODES.length][1]; };
 export const nextFan = f => { const i = FANS.findIndex(x => x[0] === f); return FANS[(i + 1) % FANS.length][1]; };
@@ -194,12 +215,13 @@ const R = {
     const box = R.$('.rg-last'); if (!box) return;
     const v = lastRace(R.perf);
     let h = '<p class="lbl">Last race' + (v.where ? '<span class="where">' + esc(v.where) + '</span>' : '') + '</p>';
-    if (v.kind === 'wait') h += '<p class="line">' + (R.stale ? 'The last race shows here when Paddock is running.' : R.perfFailed ? 'The last race could not be read.' : 'Reading the last race…') + '</p>';
-    else if (v.kind !== 'race') h += '<p class="line">' + esc(v.text) + '</p>';
+    if (v.kind === 'wait') h += '<p class="line">' + (R.stale ? 'Paddock not running' : R.perfFailed ? 'Could not read' : 'Reading…') + '</p>';
+    else if (v.kind === 'processing') h = '<p class="lbl">Last race<span class="where">reading…</span></p>';
+    else if (v.kind === 'none') h += '<p class="line">No race yet</p>';
     else {
       h += '<div class="nums"><div class="n avg"><b>' + v.avg + '</b><span>Average fps</span></div>' +
         (v.worst ? '<div class="n worst"><b>' + esc(v.worst.fps) + '</b><span>Worst second' + (v.worst.where ? DOT + esc(v.worst.where) : '') + '</span></div>' : '') + '</div>' +
-        (v.text ? '<p class="verdict">' + esc(v.text) + '</p>' : '');
+        (v.verdict ? '<p class="verdict">' + esc(v.verdict.head) + '</p>' + (v.verdict.cause ? '<p class="verdict cause">' + esc(v.verdict.cause) + '</p>' : '') : '');
     }
     box.innerHTML = h;
   },
@@ -208,7 +230,6 @@ const R = {
     const v = quiet(R.st.quiet), box = R.$('.rg-quiet');
     if (!v) { box.innerHTML = '<p class="line off">Quiet PC' + DOT + 'not set up</p>'; return; }      // no button: the setup is a one-click file (rule 5)
     box.innerHTML = '<p class="lbl">Quiet PC<span class="where ' + (v.on ? 'on' : '') + '">' + (v.on ? 'on' : 'off') + '</span></p>' +
-      (v.say ? '<p class="line">' + esc(v.say) + '</p>' : '') +
       '<div class="items">' + v.items.map(i => '<span class="it" data-id="' + esc(i.id) + '"><i class="dot ' + i.dot + '"></i>' + esc(i.name) + ' <em>' + esc(i.word) + '</em></span>').join('') + '</div>';
   },
 
@@ -227,10 +248,10 @@ const R = {
   },
 
   drawSw() {
-    const s = R.st.settings, box = R.$('.rg-sw'), snd = s ? s.startupSound !== false : null;
+    const s = R.st.settings, box = R.$('.rg-sw'), snd = s ? s.startupSound !== false : null, mic = micText(s);
     const sw = (c, a, label, on) => '<button type="button" class="btn sw' + (on ? ' filled' : '') + '" data-c="' + c + '" data-a="' + a + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + label + '</button>';
     box.innerHTML = '<div class="sw-row"><span class="nm">Start-up sound</span>' + sw('startupsound', 'on', 'On', snd === true) + sw('startupsound', 'off', 'Off', snd === false) + '</div>' +
-      '<div class="sw-row"><span class="nm">Mic</span><span class="mic">' + esc(micText(s)) + '</span>' +
+      '<div class="sw-row"><span class="nm">Mic</span><span class="mic">' + (mic.isDefault ? '<i class="dot ok" title="Windows default" style="margin-right:16px;vertical-align:-2px"></i>' : '') + esc(mic.name) + '</span>' +
       '<button type="button" class="btn" data-c="mic" data-a="next">Next</button></div>' +
       (R.answer.sw ? '<p class="line answer">' + esc(R.answer.sw) + '</p>' : '');
     if (!s) box.querySelectorAll('button').forEach(b => { b.disabled = true; });
