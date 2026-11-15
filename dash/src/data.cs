@@ -880,16 +880,52 @@ namespace IRDash
         public static string Mode = "high";
         public static string ProcName = "iRacingSim64DX11";
         public static string Last = "";            // for Rig Doctor: what happened to the sim running now
-        static int donePid = -1;
+        static int donePid = -1, keptPid = -1, deniedPid = -1;
+        static DateTime checkAt = DateTime.MinValue;
+        public static int RecheckMs = 30000;       // W5-2: Windows (or a launcher) can lower the sim again mid-session
 
         public static void Tick(bool connected)
         {
             if (Mode != "high" || !connected) return;
             // W0-3: the sim's held handle (proc.cs): one scan when the session starts, none every 2 s after it
             Process p = Proc.HeldInSession(ProcName);
-            if (p == null || p.Id == donePid) return;
-            donePid = p.Id;
-            Last = ApplyTo(p.Id, "high", false);
+            if (p == null) return;
+            if (p.Id != donePid) { donePid = p.Id; checkAt = DateTime.UtcNow; Last = ApplyTo(p.Id, "high", false); return; }
+            // W5-2: every 30 s while the session is on, raise it back if it is below High (logged once per session when it had to)
+            bool on = false; try { on = RigState.SessionOn; } catch { }
+            if (!on || (DateTime.UtcNow - checkAt).TotalMilliseconds < RecheckMs) return;
+            checkAt = DateTime.UtcNow;
+            Keep(p.Id);
+        }
+
+        static void Keep(int pid)
+        {
+            try
+            {
+                using (Process p = Process.GetProcessById(pid))
+                {
+                    ProcessPriorityClass was = p.PriorityClass;
+                    if (was == ProcessPriorityClass.High || was == ProcessPriorityClass.RealTime) return;
+                    p.PriorityClass = ProcessPriorityClass.High;
+                    Last = "raised again from " + was + " to High";
+                    if (keptPid != pid) { keptPid = pid; Log.W("sim priority: " + p.ProcessName + " (" + pid + ") had dropped to " + was + " mid-session: raised to High again"); }
+                }
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                if (deniedPid != pid) { deniedPid = pid; Log.W("sim priority: could not raise (the sim runs elevated) - " + ex.Message); }
+            }
+            catch (Exception) { }
+        }
+
+        // W5-2: the Quiet PC item: on (High, or will be when a session starts), off (setting off or the sim lower), unknown (not readable)
+        public static string ItemState()
+        {
+            if (Mode != "high") return "off";
+            Process p = Proc.HeldInSession(ProcName);      // the held handle: no scan while a session is on (not ours to dispose)
+            if (p == null) return "on";
+            try { p.Refresh(); ProcessPriorityClass c = p.PriorityClass; return c == ProcessPriorityClass.High || c == ProcessPriorityClass.RealTime ? "on" : "off"; }
+            catch { return "unknown"; }
         }
 
         // returns what was done, in words (also logged)

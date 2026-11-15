@@ -807,6 +807,7 @@ namespace IRDash
             StateBuilder.Add("session", 250, 250, delegate () { Frame f = Sdk.Latest; return StateBuilder.SessionPart(f.Connected, f.SessionVersion, f.SessionYaml); });
             StateBuilder.Add("race", 2000, 250, StateBuilder.RacePart);     // W2-1: the race screen (null unless he drives; every 2 s then)
             StateBuilder.Add("lists", 1000, 2000, StateBuilder.ListsJson);
+            StateBuilder.Add("quiet", 1000, 1000, QuietPC.Json);     // W5-2: Quiet PC (the RIG page, W5-1)
             StateBuilder.PerfVersion = delegate () { return PerfStore.Version + PerfChanges.Version; };
             // the deck's own parts: made only when /deck/summary is asked (every 5 s while the deck is on MAIN)
             StateBuilder.AddDeck("replay", 1000, Replay.Json);
@@ -2706,7 +2707,8 @@ namespace IRDash
             }
             RigState.Start();      // the sim process and the START mark, every 2 s on its own thread (rigstate.cs)
             Jobs.Start();          // W0-3: watches the session from now on (the grace period after a session is never skipped)
-            StateBuilder.SessionEnded = Review.QueueLast;      // W4-1: the newest finished session's review builds itself when the session ends
+            StateBuilder.SessionEnded = delegate () { Review.QueueLast(); QuietPC.SessionEnded(); };      // W4-1: the newest finished session's review builds itself when the session ends; W5-2: Quiet PC hands everything back
+            StateBuilder.SessionStarted = QuietPC.SessionStarted; QuietPC.Start();      // W5-2: Quiet PC on when a session starts; at start, off if a crash left the PC quiet
             Thread sdk = new Thread(Sdk.Run);
             sdk.IsBackground = true;
             sdk.Start();

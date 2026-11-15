@@ -210,6 +210,7 @@ namespace IRDash
 
         // ---- the lists an open page shows (Sessions, Vault, My Races, Performance): a number that rises when the list may have changed ----
         static long lSessions, lVault, lRaces, lPerf, lReview, lastBackstop;
+        public static Action SessionStarted;    // W5-2: a session just started (SessionOn rose): irdash sets QuietPC.SessionStarted
         public static Action SessionEnded;      // W4-1: the session just ended (irdash sets Review.QueueLast: the newest review builds itself)
         public static volatile string LiveUnits = "";    // W4-1: the units of Peter's iRacing (the live DisplayUnits): the review's words follow them
         public static void BumpReview() { Interlocked.Increment(ref lReview); Changed("lists"); }      // W4-1: a review (or its traces) is built
@@ -228,6 +229,7 @@ namespace IRDash
         static void ListsTick(long now)
         {
             bool on = false; try { on = RigState.SessionOn; } catch { }
+            if (!wasSession && on) { try { if (SessionStarted != null) SessionStarted(); } catch { } }
             if (wasSession && !on) { lock (followUps) { followUps.Clear(); foreach (int s in new[] { 5, 30, 120, 300 }) followUps.Add(now + s * 1000L); } try { if (SessionEnded != null) SessionEnded(); } catch { } }
             wasSession = on;
             bool due = false;
