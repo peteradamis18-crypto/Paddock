@@ -1,0 +1,9 @@
+{"ready":true,"now":1794590000000,"status":{"state":"done","files":5,"reports":5,"counted":5,"pending":0},
+ "last":{"file":"toyotagr86_roadatlanta full 2026-11-12 09-28-07.ibt","ts":1794493687000,"dur":1184,"secs":1180,"track":"Road Atlanta","config":"Full Course","key":"","trackName":"roadatlanta full",
+  "car":"Toyota GR86","type":"Race","field":20,"cars":19,"online":true,"build":"","avg":113.9,"low1":91.8,"worst":23.7,"cap":131,"limit":160,
+  "freeze":{"lap":9,"pct":0.986,"ts":1794494760000,"secs":4.0},"belowPct":50,"dip":2,"cpu":37,"cpuPeak":309,"gpu":50,"gpuPeak":317,"bg":null,"bgPeak":null,"verdict":"close",
+  "text":"Road Atlanta, 12 Nov 09:28. Lap 9, start/finish: the picture froze for 4 s (worst second 23.7 fps, at 09:46:00). Average 114 fps.",
+  "usual":null,"net":null,"memory":null,
+  "places":[{"from":0.95,"to":1.0,"avg":88,"min":23.7,"n":40,"gpu":60,"cpu":40},{"from":0.40,"to":0.45,"avg":104,"min":71,"n":40,"gpu":52,"cpu":36}],"procs":null},
+ "sessions":[],"hidden":0,"changes":[],"own":{"drives":0},
+ "summary":"Road Atlanta, 12 Nov 09:28. Lap 9, start/finish: the picture froze for 4 s (worst second 23.7 fps, at 09:46:00). Average 114 fps. 1 thing to look at on the Performance page."}

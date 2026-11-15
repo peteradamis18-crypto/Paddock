@@ -26,6 +26,24 @@ const P = {
   },
   ev(name, extra) { return send('/api/talk/event?id=' + encodeURIComponent(ID) + '&ev=' + name + (extra || ''), { method: 'POST' }).catch(() => null); },
 
+  // W5-1: the mic picked on RIG (/api/settings "mic", dash/src/rigpage.cs). Device labels are only readable after getUserMedia, so the
+  // default stream is opened first; when another device's label contains the chosen name, that one is opened instead. No answer in
+  // 300 ms, no name, no match, or a refusal: Windows' default stays. The recorded "mic" (the track label) says which one was used.
+  async chosenMic(stream) {
+    try {
+      const r = await Promise.race([send('/api/settings'), new Promise(res => setTimeout(() => res(null), 300))]);
+      const j = r && r.ok ? await r.json() : null;
+      const want = j && j.mic ? String(j.mic).toLowerCase() : '';
+      if (!want) return stream;
+      const cur = stream.getAudioTracks()[0], curId = cur && cur.getSettings ? cur.getSettings().deviceId : '';
+      const dev = (await navigator.mediaDevices.enumerateDevices()).find(d => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications' && String(d.label).toLowerCase().indexOf(want) >= 0);
+      if (!dev || dev.deviceId === curId) return stream;
+      const s2 = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: dev.deviceId }, echoCancellation: false, noiseSuppression: true } });
+      stream.getTracks().forEach(t => t.stop());
+      return s2;
+    } catch (e) { return stream; }
+  },
+
   async go() {
     const v = $('v');
     if (!ID) return this.say('No race was given to play');
@@ -35,6 +53,7 @@ const P = {
       // irdash granted the microphone in the player's own profile (commentary.cs GrantMic): no prompt, Windows' default recording device
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } });
     } catch (e) { this.stream = null; }
+    if (this.stream) this.stream = await this.chosenMic(this.stream);
     const track = this.stream && this.stream.getAudioTracks()[0];
     if (!track) { this.say('No microphone found. Plug in the headset and press again.', '', 'bad'); this.ev('nomic'); return; }
     this.mic = track.label || 'Microphone';

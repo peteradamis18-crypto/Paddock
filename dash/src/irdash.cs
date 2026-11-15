@@ -533,7 +533,8 @@ namespace IRDash
                         // W1-1: the RACES library answers in JSON with the words the page shows ("say": "Deleted 3 races")
                         if (AddOn.Handles(dc)) { int ac; string aj = AddOn.Do(dc, da, out ac); Send(s, ac, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(aj), "Access-Control-Allow-Origin: *\r\n"); return; }      // W1-8: the add-on installs itself
                         if (Library.Handles(dc)) { int lc; string lj = Library.Do(dc, da, out lc); Send(s, lc, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(lj), "Access-Control-Allow-Origin: *\r\n"); return; }
-                        bool ok = Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
+                        if (RigPage.Handles(dc)) { int rc2; string rj2 = RigPage.Do(dc, da, out rc2); Send(s, rc2, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(rj2), "Access-Control-Allow-Origin: *\r\n"); return; }      // W5-1: RIG's two switches
+                        bool ok =Nav.Handles(dc ?? "") ? Nav.Do(dc, da) : Overlays.Handles(dc ?? "") ? Overlays.Do(dc, da) : MyDrive.Handles(dc) ? MyDrive.Do(dc, da)
                             : Replay.Handles(dc) ? Replay.Do(dc, da) : Gallery.Handles(dc) ? Gallery.Do(dc, da) : Perf.Handles(dc) ? Perf.Do(dc, da) : Vault.Handles(dc) ? Vault.Do(dc, da) : Official.Handles(dc) ? Official.Do(dc, da) : Workbench.Handles(dc) ? Workbench.Do(dc, da) : Sound.Handles(dc) ? Sound.Do(dc, da) : AcAuto.Handles(dc) ? AcAuto.Do(dc, da) : Debrief.Handles(dc) ? Debrief.Do(dc, da) : Phone.Handles(dc) ? Phone.Do(dc, da) : AiLevel.Handles(dc) ? AiLevel.Do(dc, da) : Guest.Do(dc ?? "", da);
                         if (!ok && Vault.Refused != null) { KeyMsg.Set(dc, Vault.Refused, "no"); Send(s, 409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(Vault.Refused), "Access-Control-Allow-Origin: *\r\n"); return; }      // KEEP in a session: say why
                         Send(s, ok ? 200 : 400, "text/plain", Encoding.ASCII.GetBytes(ok ? "ok" : "no"), "Access-Control-Allow-Origin: *\r\n");
@@ -571,6 +572,7 @@ namespace IRDash
                         Send(s, wc, wc == 200 ? "application/octet-stream" : "application/json; charset=utf-8", wb, "Access-Control-Allow-Origin: *\r\n"); return;
                     }
                     if (method == "GET" && path == "/workbench/cmd") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Workbench.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the deck's last wb-* command for the page (the page reads the same command through the state part "workbench")
+                    if (method == "GET" && path == "/api/settings") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(RigPage.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // W5-1: start-up sound and the mic (rigpage.cs)
                     if (method == "GET" && path == "/ac") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AcAuto.Json(ParseQuery(query).ContainsKey("live"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AC screen (ac.cs)
                     if (method == "GET" && path == "/ailevel") { Send(s, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(AiLevel.Json()), "Access-Control-Allow-Origin: *\r\n"); return; }   // the AI LEVEL deck screen (ailevel.cs)
                     if (method == "GET" && path == "/sound") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Sound.Json(!ParseQuery(query).ContainsKey("peek"))), "Access-Control-Allow-Origin: *\r\n"); return; }   // the SOUND deck screen (sound.cs); ?peek=1 = the opener key, no refresh
@@ -835,7 +837,9 @@ namespace IRDash
             StateBuilder.AddDeck("replay", 1000, Replay.Json);
             StateBuilder.AddDeck("races", 10000, Library.DeckJson);     // W1-1: the library's 40 newest (min, saved, freeGb kept for the old deck screen)
             StateBuilder.AddDeck("sound", 2000, delegate () { return Sound.Json(false); });
-            StateBuilder.AddDeck("ac", 2000, delegate () { return AcAuto.Json(false); });
+            // W5-1: the RIG page reads the AC from the push too (2 s, as the deck; 10 s in the car), and its two switches
+            StateBuilder.Add("ac", 2000, 10000, delegate () { return AcAuto.Json(false); });
+            StateBuilder.Add("settings", 1000, 5000, RigPage.Json);
             StateBuilder.WatchWww(www);
             StateBuilder.Start();
         }

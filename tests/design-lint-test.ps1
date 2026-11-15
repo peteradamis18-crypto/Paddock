@@ -17,6 +17,7 @@ $seat = @('dash/www/v2/race.html', 'dash/www/v2/race.css', 'dash/www/app/pages/r
   'dash/www/app/pages/home.js', 'dash/www/app/pages/review.js', 'dash/www/app/pages/rig.js')
 $seat += @('dash/www/app/pages/home.css')   # W3-3: HOME's files
 $seat += @('dash/www/app/pages/review.css')   # W4-3: REVIEW's card
+$seat += @('dash/www/app/pages/rig.css')   # W5-1: RIG
 $seat += @('dash/www/app/pages/review-laps.js', 'dash/www/app/pages/review-laps.css')   # W4-4: REVIEW screen 2
 $leanIn = @('dash/www/app/pages/review-more.js', 'dash/www/app/pages/review-more.css')   # W4-5: REVIEW > MORE DATA (the workbench inside its frame has its own css, held to 20 px by tests\review-more-test.ps1)
 # ------------------------------------------------------------------------------

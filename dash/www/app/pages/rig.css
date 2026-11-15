@@ -1,0 +1,64 @@
+/* RIG (W5-1, docs/rework/PLAN.md 4.5). Colours and sizes from design.css only; nothing under 24 px. The page area is 1920 x 992
+   under the shell's header. Top to bottom: the ready line with its one button, the four rows, last night's check; then LAST RACE
+   (left, MORE at its foot) beside QUIET PC, the AC and the two switches (right). "Rig ready" and FIX are the only gold; the
+   switches show the current one filled in ink. */
+.rig { position: absolute; inset: 0; padding: 24px 64px; display: flex; flex-direction: column; gap: 20px; }
+.rig.stale { opacity: .45; }
+.rig .lbl { margin: 0; display: flex; align-items: baseline; gap: 24px; font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track);
+  text-transform: uppercase; color: var(--muted); }
+.rig .lbl .where { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.rig .lbl .where.on { color: var(--gain); }
+.rig .line { margin: 0; font-size: var(--t-body); line-height: 1.3; }
+.rig .line.off { color: var(--dim); }
+.dot { flex: none; display: inline-block; width: 20px; height: 20px; border-radius: 50%; background: var(--dim); }
+.dot.ok { background: var(--gain); } .dot.bad { background: var(--loss); } .dot.amber { background: var(--amber); }
+
+/* 1. the ready line */
+.rg-ready { flex: none; display: flex; align-items: center; gap: 32px; min-height: 72px; }
+.rg-ready .say { flex: 1; margin: 0; font-size: var(--t-title); line-height: 1.1; }
+.rg-ready.ready .say { color: var(--gold); }
+.rg-ready.wait .say, .rg-ready.checking .say { color: var(--muted); }
+.rg-ready .fix { min-width: 220px; }
+
+/* 2. the four rows */
+.rg-rows { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+.rg-row { display: flex; flex-direction: column; gap: 4px; padding: 12px 24px; border: 2px solid var(--line); border-radius: 6px; background: var(--panel); min-width: 0; }
+.rg-row .nm { font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.rg-row .st { display: flex; align-items: center; gap: 16px; }
+.rg-row .wd { font-size: var(--t-read); line-height: 1.2; white-space: nowrap; }
+.rg-row .wd.bad { color: var(--loss); } .rg-row .wd.off { color: var(--dim); }
+.rg-night { flex: none; margin: -4px 0 0; font-size: var(--t-body); color: var(--muted); }
+.rg-night.bad { color: var(--amber); }
+
+/* 3-6. LAST RACE left, the rest right */
+.rg-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 5fr 6fr; gap: 64px; padding-top: 16px; border-top: 2px solid var(--line); }
+.rg-left, .rg-right { min-height: 0; display: flex; flex-direction: column; gap: 28px; }
+.rg-last { display: flex; flex-direction: column; gap: 16px; }
+.rg-last .nums { display: flex; gap: 64px; }
+.rg-last .n { display: flex; flex-direction: column; gap: 4px; }
+.rg-last .n b { font-size: var(--t-display); font-weight: 400; line-height: 1; }
+.rg-last .n span { font-size: var(--t-body); color: var(--muted); }
+.rg-last .verdict { margin: 0; font-size: var(--t-read); line-height: 1.25; }
+.rg-last .line { font-size: var(--t-read); color: var(--muted); }
+.rg-foot { margin-top: auto; }
+.rg-foot .more { min-width: 200px; }
+
+.rg-quiet, .rg-ac, .rg-sw { display: flex; flex-direction: column; gap: 12px; }
+.rg-quiet .items { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+.rg-quiet .it { display: inline-flex; align-items: center; gap: 12px; font-size: var(--t-body); white-space: nowrap; }
+.rg-quiet .it em { font-style: normal; color: var(--muted); }
+
+.ac-row { display: flex; align-items: center; gap: 12px; }
+.ac-row .btn { padding: 0 18px; }
+.ac-row .btn.pm { width: 72px; padding: 0; font-size: var(--t-read); }
+.ac-row .temp { min-width: 150px; display: flex; flex-direction: column; align-items: center; }
+.ac-row .temp b { font-size: var(--t-read); font-weight: 400; line-height: 1.1; }
+.ac-row .temp span { font-size: var(--t-body); color: var(--muted); }
+/* filled = the state it is in now; no fade (the page redraws these buttons from the push, a fade would replay on every redraw) */
+.rig .btn.filled { background: var(--ink); border-color: var(--ink); color: var(--bg); transition: none; }
+
+.sw-row { display: flex; align-items: center; gap: 16px; }
+.sw-row .nm { width: 260px; font-size: var(--t-body); font-weight: 600; letter-spacing: var(--track); text-transform: uppercase; color: var(--muted); }
+.sw-row .sw { min-width: 120px; }
+.sw-row .mic { flex: 1; min-width: 0; font-size: var(--t-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rg-sw .answer { color: var(--muted); }

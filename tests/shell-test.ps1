@@ -47,6 +47,8 @@ function Key($k = 'Escape', $vk = 27) {
   $null = Cdp 'Input.dispatchKeyEvent' @{ type = 'keyUp'; key = $k; code = $k; windowsVirtualKeyCode = $vk; nativeVirtualKeyCode = $vk }
 }
 function Door($d) { $null = Cdp-Eval "(() => { document.querySelector('.door[data-door=$d]').click(); return 1; })()" }
+# W5-1: RIG's MORE button (the old Performance page in the shell's frame)
+function RigMore { $null = Wait-Until "!!document.querySelector('#page .rig .more') && !document.querySelector('#page .rig .more').disabled" 10; $null = Cdp-Eval "(() => { document.querySelector('#page .rig .more').click(); return 1; })()" }
 function Rate() {
   $null = Get-J "http://localhost:$CTL/__reset"
   Start-Sleep -Seconds 20
@@ -100,9 +102,12 @@ try {
   Key
   ok "Esc on REVIEW goes HOME (moves: $(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" (Wait-Until 'Shell.cur === "home" && Shell.log.slice(-1)[0] === "home:press:esc"' 3)
   Door 'rig'
-  ok "RIG: the Performance page in its frame (v2/perf.html?embed=1)" (Wait-Until "Shell.cur === 'rig' && $one && /v2\/perf\.html\?embed=1/.test((document.querySelector('#page iframe') || {}).src || '') && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15) "(moves: $(Cdp-Eval 'Shell.log.join(" ")'))"
+  # W5-1: RIG is its own page (the ready line, four rows); its MORE hosts the old Performance page in the shell's frame
+  ok "RIG: its own page (W5-1: the ready line and four rows), one page" (Wait-Until "Shell.cur === 'rig' && $one && document.querySelectorAll('#page .rig .rg-row').length === 4 && !document.querySelector('#page iframe')" 10) "(moves: $(Cdp-Eval 'Shell.log.join(" ")'))"
   Start-Sleep -Milliseconds 800
   Cdp-Shot (Join-Path $shots 'shell-rig.png')
+  RigMore
+  ok "RIG's MORE: the Performance page in its frame (v2/perf.html?embed=1)" (Wait-Until "Shell.cur === 'rig' && $one && /v2\/perf\.html\?embed=1/.test((document.querySelector('#page iframe') || {}).src || '') && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15) "(moves: $(Cdp-Eval 'Shell.log.join(" ")'))"
   # inside a frame in the frame (Sessions' nested Analysis is one): Esc still reaches the shell
   $null = Cdp-Eval '(() => { Shell.msgs.length = 0; const d = document.querySelector("#page iframe").contentDocument; const n = d.createElement("iframe"); n.id = "nested"; n.srcdoc = "<p>nested</p>"; d.body.appendChild(n); return 1; })()'
   $null = Wait-Until '(() => { const n = document.querySelector("#page iframe").contentDocument.getElementById("nested"); return !!(n && n.contentDocument && n.contentDocument.readyState === "complete" && n.contentDocument.__paddockEsc); })()' 5
@@ -154,7 +159,8 @@ try {
   ok "the deck's HOME also closes a page opened by a door here ($(Cdp-Eval 'Shell.log.slice(-1)[0]'))" (Wait-Until "Shell.cur === 'home' && Shell.log.slice(-1)[0] === 'home:nav:nav#74'" 4)
 
   # a stale close: a frame that is not the page up now (a page that has gone, anything else) is not believed
-  Door 'rig'; $null = Wait-Until "Shell.cur === 'rig' && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15
+  Door 'rig'; $null = Wait-Until "Shell.cur === 'rig' && !!document.querySelector('#page .rig .more')" 10
+  RigMore; $null = Wait-Until "Shell.cur === 'rig' && !!document.querySelector('#page iframe') && document.querySelector('#page iframe').contentDocument.readyState === 'complete'" 15
   $null = Cdp-Eval '(() => { const s = document.createElement("iframe"); s.id = "stale"; s.srcdoc = "<script>parent.postMessage({ irdash: \"sessions-close\" }, \"*\"); parent.postMessage({ paddock: \"esc\", token: \"h-old\" }, \"*\");<\/script>"; document.body.appendChild(s); return 1; })()'
   Start-Sleep -Milliseconds 700
   ok "a stale sessions-close and an Esc with an old token are ignored: RIG stays ($(Cdp-Eval 'Shell.log.slice(-2).join(" | ")'))" ((Cdp-Eval "Shell.cur === 'rig' && Shell.log.slice(-2).join('|') === 'ignored sessions-close (not the page up now)|ignored esc (not the page up now)'") -eq $true)
