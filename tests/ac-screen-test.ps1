@@ -17,7 +17,7 @@ function Check($what, $ok, $why) { if ($ok) { $script:pass++; "  ok    $what" } 
 'AC screen test'
 
 $fx = @{ '/guest' = @{}; '/overlays' = @{}; '/replay' = @{ ready = $false }; '/doctor' = @{}; '/showcase' = @{ seq = 0; play = $false; driving = $false }
-  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/workbench/state' = @{ open = $false }; '/debrief/state' = @{ open = $false }
+  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/debrief/state' = @{ open = $false }
   '/ac' = @{ connected = $true; read = $true; on = $true; mode = 2; fan = 102; target_c = 22.5; target_f = 73; room_f = 77; auto = $true; paused = $false; on_above_f = 76; off_below_f = 72; busy = $false; age = 3 } }
 $html = Join-Path $env:TEMP 'ac-screen-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html

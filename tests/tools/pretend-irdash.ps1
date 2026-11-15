@@ -23,7 +23,7 @@ function Build-Pretend {
 
 # (big answers - /vault/list, /vault/recorder, /official - are left out on purpose: the fixtures stay small)
 # the GET routes the add-on and the pages read (state routes only; ones that need an id are skipped)
-$routes = @('/showcase', '/showcase?who=page', '/overlays', '/guest', '/mydrive', '/mydrive/lists', '/replay', '/api/rec/races', '/workbench/state',
+$routes = @('/showcase', '/showcase?who=page', '/overlays', '/guest', '/mydrive', '/mydrive/lists', '/replay', '/api/rec/races',
   '/sound?peek=1', '/sound', '/ac', '/ac?live=1', '/home', '/career', '/keymsg', '/nav', '/version', '/health', '/debrief/state', '/debrief/nav',
   '/vault', '/vault/item', '/vault/nav', '/perf/live', '/perf/checklist', '/sessions', '/doctor',
   '/tv', '/tv/data', '/systems', '/realworld', '/brief', '/ailevel', '/watch/coverage', '/race')

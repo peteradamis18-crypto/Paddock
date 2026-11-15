@@ -4,8 +4,7 @@
 #   2. SOUND    - the same for the SOUND screen
 #   3. AI RACE - the lists of the folded AI RACE screen (W3-4): RECENT, CARS, TRACKS, LAYOUTS, FAVOURITES, one EXIT, nothing to type
 #   4. irdeck sound - the new command against a PRETEND list of audio devices and apps (PADDOCK_SOUND_PRETEND); Windows' audio is never touched
-#   5. irdash side - dash\src\sound.cs and dash\src\deckfeed.cs compiled with stand-ins and run: the report of the workbench page, the
-#      checks on what comes in, the SOUND key presses reaching irdeck (pretend list), KEEP / COSWORTH asking the Vault's own routes (a pretend local server)
+#   5. irdash side - dash\src\sound.cs compiled with stand-ins and run: the SOUND key presses reaching irdeck (pretend list)
 # Pictures go to tests\shots (deck-sound*.png, deck-airace*.png). A press that would reach the real irdash is impossible:
 # every path the page asks for has a pretend answer, and anything else gets {}.
 #   powershell -ExecutionPolicy Bypass -File tests\deck-screens-test.ps1 [-NoBuild]     (-NoBuild: parts 4-5 use the irdeck already built in %TEMP%\ird)
@@ -35,7 +34,6 @@ for ($i = 2; $i -le 22; $i++) {
   $fx['/mydrive/lists'].tracks += @{ id = "t$hex"; name = "Track $i"; short = "TRACK $i"; layouts = @('Full Course'); last = '2026-10-11'; count = 1 }
   $fx['/mydrive/lists'].recent += @{ id = "r$hex"; car = "GT3 Car $i"; carShort = "GT3 $i"; track = "Track $i"; trackShort = "TRACK $i"; layout = ''; last = '2026-10-11'; count = 1 }
 }
-$fx['/workbench/state'] = New-AnalysisFixture
 $fx['/sound'] = New-SoundFixture
 $fx['/vault/item'] = @{ m = @{ id = 'l20261010-041318-7'; pinned = $false; keeper = $false }; cosworth = @{ installed = $true } }
 $fx['/vault'] = @{ cosworth = @{ installed = $true } }
@@ -245,7 +243,7 @@ finally { Remove-Item Env:PADDOCK_SOUND_PRETEND -ErrorAction SilentlyContinue; R
 
 # ================= 5. the irdash side, compiled with stand-ins =================
 try { Assert-RigFree -Where '5. irdash side' } catch { "$_"; throw }
-''; '5. irdash side: dash\src\sound.cs and dash\src\deckfeed.cs, compiled with stand-ins and run (no irdash, no deploy)'
+''; '5. irdash side: dash\src\sound.cs, compiled with stand-ins and run (no irdash, no deploy)'
 $tdir = Join-Path $env:TEMP 'deck-screens-test-irdash'; New-Item -ItemType Directory -Force $tdir | Out-Null
 $stub = @'
 using System; using System.Collections.Generic; using System.IO; using System.Net; using System.Text; using System.Threading; using System.Web.Script.Serialization;
@@ -259,51 +257,8 @@ class T {
   static int fails = 0;
   static void Check(string what, bool ok) { if (!ok) fails++; Console.WriteLine((ok ? "  ok    " : "  FAIL  ") + what); }
   static Dictionary<string, object> J(string s) { return new JavaScriptSerializer().DeserializeObject(s) as Dictionary<string, object>; }
-  static Dictionary<string, string> Q(params string[] kv) { var d = new Dictionary<string, string>(); for (int i = 0; i < kv.Length; i += 2) d[kv[i]] = kv[i + 1]; return d; }
-  static Dictionary<string, string> Report() { return Q("pg", "driver", "pgs", "driver,grip", "pl", "0", "sp", "1", "tl", "0", "ax", "dist", "mc", "gap", "om", "0", "of", "0", "z", "0", "id", "l20261010-041318-7", "lap", "7", "ref", "pb",
-      "nl", "8", "ne", "5", "nc", "12", "lt", "79.549", "rt", "79.575", "rl", "3", "car", "Chevrolet Corvette Z06 GT3.R", "trk", "Road Atlanta"); }
   static int Main(string[] a) {
-    string irdeck = a[0], pretend = a[1], pageQuery = a.Length > 2 ? a[2] : "";
-    // ---- DeckFeed: the workbench page's report ----
-    Dictionary<string, object> j = J(IRDash.DeckFeed.WorkbenchJson());
-    Check("no report yet: the workbench is not open", (bool)j["open"] == false);
-    IRDash.DeckFeed.Workbench(Q("x", "1"));
-    Check("a request that is not the page's report (no pg) is ignored", (bool)J(IRDash.DeckFeed.WorkbenchJson())["open"] == false);
-    IRDash.DeckFeed.Workbench(Report());
-    j = J(IRDash.DeckFeed.WorkbenchJson());
-    Check("a report opens it: page, pages, lap, times", (bool)j["open"] && (string)j["page"] == "driver" && ((System.Collections.IList)j["pages"]).Count == 2 && Convert.ToInt32(j["lap"]) == 7 && Convert.ToDouble(j["lapTime"]) == 79.549 && Convert.ToDouble(j["refTime"]) == 79.575);
-    Check("flags come out as booleans, the speed as a number", (bool)j["playing"] == false && (bool)j["tile"] == false && (bool)j["zoomed"] == false && Convert.ToDouble(j["speed"]) == 1.0 && (string)j["mapColour"] == "gap");
-    Check("car and track come through, the vault id too", (string)j["car"] == "Chevrolet Corvette Z06 GT3.R" && (string)j["track"] == "Road Atlanta" && (string)j["id"] == "l20261010-041318-7");
-    var r2 = Report(); r2["pl"] = "1"; r2["sp"] = "2"; r2["tl"] = "1"; r2["rt"] = ""; r2["rl"] = "";
-    IRDash.DeckFeed.Workbench(r2); j = J(IRDash.DeckFeed.WorkbenchJson());
-    Check("playing / speed 2 / tile on, no reference lap: refTime is null", (bool)j["playing"] && Convert.ToDouble(j["speed"]) == 2.0 && (bool)j["tile"] && j["refTime"] == null);
-    var evil = Report(); evil["id"] = "a\"b"; evil["car"] = "x\ny"; evil["sp"] = "fast"; evil["pg"] = "Driver;drop"; evil["lap"] = "7; rm";
-    IRDash.DeckFeed.Workbench(evil); j = J(IRDash.DeckFeed.WorkbenchJson());
-    Check("values that do not fit their pattern are dropped (id with a quote, car with a line break, speed 'fast', page with ';', lap '7; rm')", (string)j["id"] == "" && (string)j["car"] == "" && Convert.ToDouble(j["speed"]) == 1.0 && (string)j["page"] == "" && Convert.ToInt32(j["lap"]) == 0);
-    if (pageQuery.Length > 0) {
-      var nv = System.Web.HttpUtility.ParseQueryString(pageQuery); var pd = new Dictionary<string, string>(); foreach (string k in nv.AllKeys) pd[k] = nv[k];
-      IRDash.DeckFeed.Workbench(pd); j = J(IRDash.DeckFeed.WorkbenchJson());
-      Check("the report workbench.js really builds is accepted whole: grip page, playing, speed 0.5, tile, zoomed, offset -3, map colour speed", (bool)j["open"] && (string)j["page"] == "grip" && (bool)j["playing"] && Convert.ToDouble(j["speed"]) == 0.5 && (bool)j["tile"] && (bool)j["zoomed"] && Convert.ToInt32(j["offset"]) == -3 && (string)j["mapColour"] == "speed" && (string)j["axis"] == "time");
-      Check("... and its lap, reference (a file:lap name with spaces), counts and car", Convert.ToInt32(j["lap"]) == 7 && ((string)j["ref"]).EndsWith(".ibt:5") && Convert.ToInt32(j["laps"]) == 2 && Convert.ToInt32(j["events"]) == 3 && Convert.ToInt32(j["corners"]) == 2 && (string)j["car"] == "Chevrolet Corvette Z06 GT3.R" && (string)j["id"] == "l20261010-041318-7");
-    }
-    // ---- KEEP / COSWORTH: the Vault's own routes, asked of a pretend local server ----
-    var seen = new List<string>(); HttpListener l = new HttpListener(); l.Prefixes.Add("http://localhost:18199/"); l.Start();
-    Thread srv = new Thread(delegate () { while (true) { try { var c = l.GetContext(); seen.Add(c.Request.RawUrl); byte[] b = Encoding.UTF8.GetBytes("{}"); c.Response.OutputStream.Write(b, 0, b.Length); c.Response.Close(); } catch { return; } } }); srv.IsBackground = true; srv.Start();
-    Environment.SetEnvironmentVariable("PADDOCK_DECKFEED_BASE", "http://localhost:18199");
-    IRDash.DeckFeed.Workbench(Report());
-    Check("wbkeep 1 asks the Vault to keep the lap on show", IRDash.DeckFeed.Do("wbkeep", "1") && seen.Contains("/vault/edit?id=l20261010-041318-7&star=1"));
-    Check("wbkeep 0 lets it go", IRDash.DeckFeed.Do("wbkeep", "0") && seen.Contains("/vault/edit?id=l20261010-041318-7&star=0"));
-    Check("wbcosworth opens the lap in Pi Toolbox through the Vault", IRDash.DeckFeed.Do("wbcosworth", "") && seen.Contains("/vault/open?id=l20261010-041318-7&how=cosworth"));
-    int n = seen.Count;
-    Check("wbkeep with a bad argument, and an unknown command, are refused and ask nothing", !IRDash.DeckFeed.Do("wbkeep", "2") && !IRDash.DeckFeed.Do("wbkeep", "") && !IRDash.DeckFeed.Do("wbnope", "1") && seen.Count == n);
-    var file = Report(); file["id"] = "chevyvettez06rgt3_roadatlanta full 2026-10-10 00-13-18.ibt"; IRDash.DeckFeed.Workbench(file);
-    Check("a lap shown from a plain .ibt file (not a Vault moment) cannot be kept or opened: refused, nothing asked", !IRDash.DeckFeed.Do("wbkeep", "1") && !IRDash.DeckFeed.Do("wbcosworth", "") && seen.Count == n);
-    Program_Driving(true); IRDash.DeckFeed.Workbench(Report());
-    Check("never while he is driving", !IRDash.DeckFeed.Do("wbkeep", "1") && seen.Count == n);
-    Program_Driving(false);
-    l.Close();
-    Check("DeckFeed.Handles knows its two commands only", IRDash.DeckFeed.Handles("wbkeep") && IRDash.DeckFeed.Handles("wbcosworth") && !IRDash.DeckFeed.Handles("wb-play") && !IRDash.DeckFeed.Handles(null));
-
+    string irdeck = a[0], pretend = a[1];
     // ---- Sound: key presses to irdeck, the state back (the pretend list is PADDOCK_SOUND_PRETEND) ----
     IRDash.Watch.IrdeckPath = irdeck;
     Check("Sound.Handles knows its three commands only", IRDash.Sound.Handles("sndvol") && IRDash.Sound.Handles("sndmute") && IRDash.Sound.Handles("sndpreset") && !IRDash.Sound.Handles("sndnope") && !IRDash.Sound.Handles(null));
@@ -324,20 +279,19 @@ class T {
     Console.WriteLine(fails == 0 ? "IRDASH-SIDE OK" : "IRDASH-SIDE FAILS " + fails);
     return fails == 0 ? 0 : 1;
   }
-  static void Program_Driving(bool on) { IRDash.Program.IsDriving = on; }
 }
 '@
 [IO.File]::WriteAllText((Join-Path $tdir 'stub.cs'), $stub, (New-Object Text.UTF8Encoding($false)))
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$o = & $csc /nologo /target:exe /optimize+ "/out:$tdir\t.exe" /r:System.dll /r:System.Core.dll /r:System.Web.dll /r:System.Web.Extensions.dll (Join-Path $tdir 'stub.cs') (Join-Path $root 'dash\src\sound.cs') (Join-Path $root 'dash\src\deckfeed.cs') 2>&1 | ForEach-Object { "$_" }
-Check 'dash\src\sound.cs and dash\src\deckfeed.cs compile (C# 5, with stand-ins for the rest of irdash)' ($LASTEXITCODE -eq 0 -and (Test-Path "$tdir\t.exe"))
+$o = & $csc /nologo /target:exe /optimize+ "/out:$tdir\t.exe" /r:System.dll /r:System.Core.dll /r:System.Web.dll /r:System.Web.Extensions.dll (Join-Path $tdir 'stub.cs') (Join-Path $root 'dash\src\sound.cs') 2>&1 | ForEach-Object { "$_" }
+Check 'dash\src\sound.cs compiles (C# 5, with stand-ins for the rest of irdash)' ($LASTEXITCODE -eq 0 -and (Test-Path "$tdir\t.exe"))
 if ($LASTEXITCODE -ne 0) { $o | Select-Object -First 12 | ForEach-Object { "        $_" } }
 if (Test-Path "$tdir\t.exe") {
   Write-Pretend; $irdeckStateDir = Join-Path $env:TEMP 'ird\sound'; Remove-Item (Join-Path $irdeckStateDir 'state.json') -ErrorAction SilentlyContinue
   $env:PADDOCK_SOUND_PRETEND = $pretend; Remove-Item Env:PADDOCK_SOUND_STATE -ErrorAction SilentlyContinue
   try {
     # irdeck writes its state next to itself (%TEMP%\ird\sound\state.json) - where irdash looks - and the pretend list is the only thing it touches
-    $out = & "$tdir\t.exe" $deckExe $pretend $wbQuery 2>&1 | ForEach-Object { "$_" }
+    $out = & "$tdir\t.exe" $deckExe $pretend 2>&1 | ForEach-Object { "$_" }
     $out | Where-Object { $_ -match '^\s+(ok|FAIL)\s' } | ForEach-Object { if ($_ -match '^\s+ok') { $pass++ } else { $fail++ }; $_ }
     $out | Where-Object { $_ -match 'irdash log|STOPPED' } | ForEach-Object { $_ }
     Check 'the irdash-side program finished clean' (($out -join ' ') -match 'IRDASH-SIDE OK')

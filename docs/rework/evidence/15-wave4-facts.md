@@ -8,7 +8,7 @@
   on a 1 m grid), `/analysis/career` (career.cs: per-session bests, best-5, per-corner bests/medians), `/analysis/race`
   (field.cs ~1011: the live field log `vault\field\f<ts>-<n>.json`), `/debrief?id|last` (debrief.cs ~75: result,
   positions by lap, pace vs field, costliest corners with clips cut by ffmpeg on a BelowNormal thread), `/corners`
-  (corners.cs ~297), `/sessions`, `/ibt/laps`, `/ibt/lap` (data.cs ~146), `/workbench/cmd|state` (deck wb-* commands).
+  (corners.cs ~297), `/sessions`, `/ibt/laps`, `/ibt/lap` (data.cs ~146), `/workbench/cmd` (the deck's last wb-* command; the deck's old state feed went in W4-8).
 - Telemetry reading: `IbtFile.Open` (ibtfile.cs ~31; 60 records/s, read-only); `LapStore.ForFile` (lapstore.cs ~161:
   cuts and judges laps, cached in memory and in `dash\data\laps\<file>.json`; `Peek` never reads the .ibt);
   `Analysis.Load` (analysis.cs ~329) reads a whole file (~80 MB for a full session) into arrays and caches `Sess`/`LapTrace`

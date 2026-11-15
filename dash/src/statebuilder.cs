@@ -203,10 +203,10 @@ namespace IRDash
                 return sb.Append('}').ToString();
             }
         }
-        // the summary's name -> the part: the shared parts the deck reads, then its own ("deckWorkbench" is what the ANALYSIS key shows,
-        // /workbench/state; the page's "workbench" part is the deck's last command for the page)
+        // the summary's name -> the part: the shared parts the deck reads, then its own (W4-8: the old ANALYSIS feed is gone;
+        // the page's "workbench" part, the deck's last command for the page, is in /state, not here)
         static readonly string[][] DeckParts = { new[] { "overlays", "overlays" }, new[] { "guest", "guest" }, new[] { "mydrive", "mydrive" }, new[] { "doctor", "doctor" },
-            new[] { "replay", "replay" }, new[] { "races", "races" }, new[] { "workbench", "deckWorkbench" }, new[] { "sound", "sound" }, new[] { "ac", "ac" } };
+            new[] { "replay", "replay" }, new[] { "races", "races" }, new[] { "sound", "sound" }, new[] { "ac", "ac" } };
 
         // ---- the lists an open page shows (Sessions, Vault, My Races, Performance): a number that rises when the list may have changed ----
         static long lSessions, lVault, lRaces, lPerf, lReview, lastBackstop;

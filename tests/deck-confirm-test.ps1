@@ -23,7 +23,7 @@ function Check($what, $ok, $why) { if ($ok) { $script:pass++; "  ok    $what" } 
 'CONFIRM screen test'
 
 $fx = @{ '/guest' = @{}; '/overlays' = @{ onCount = 0; widgets = @(); presets = @() }; '/replay' = @{ ready = $false }; '/doctor' = @{}; '/showcase' = @{ seq = 0; play = $false; driving = $false }
-  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/workbench/state' = @{ open = $false }; '/debrief/state' = @{ open = $false }; '/ac' = @{ connected = $false }
+  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/debrief/state' = @{ open = $false }; '/ac' = @{ connected = $false }
   '/api/rec/races' = @{ freeGb = 1; races = @() } }
 $html = Join-Path $env:TEMP 'deck-confirm-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html

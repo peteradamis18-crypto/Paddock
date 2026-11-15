@@ -21,7 +21,7 @@ $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 function Race($id, $track, $type, $agoMin, $min, $laps, $best, $mb, $saved) { @{ id = $id; track = $track; car = 'Porsche 718 Cayman GT4'; type = $type; startMs = $now - $agoMin * 60000; min = $min; laps = $laps; best = $best; mb = $mb; saved = $saved; exported = $false } }
 $three = @((Race 'r-today' 'Road Atlanta' 'Race' 30 20 12 87.102 1175 $true), (Race 'r-quali' 'Road Atlanta' 'Qualify' 60 10 5 87.5 500 $false), (Race 'r-old' 'Road America' 'Race' 21000 19 8 132.4 1106 $false))
 $fx = @{ '/guest' = @{}; '/overlays' = @{}; '/replay' = @{ ready = $false }; '/doctor' = @{}; '/showcase' = @{ seq = 0; play = $false; driving = $false }
-  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/workbench/state' = @{ open = $false }; '/debrief/state' = @{ open = $false }; '/ac' = @{ connected = $false }
+  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/debrief/state' = @{ open = $false }; '/ac' = @{ connected = $false }
   '/api/rec/races' = @{ freeGb = 298; races = $three } }
 $html = Join-Path $env:TEMP 'races-screen-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html

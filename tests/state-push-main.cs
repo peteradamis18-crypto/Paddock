@@ -251,14 +251,14 @@ namespace IRDash
             Reply ds = Get("/deck/summary");
             Dictionary<string, object> dso = ds == null ? null : Obj(ds.Body);
             List<string> dmiss = new List<string>();
-            foreach (string k in new[] { "seq", "showcase", "overlays", "guest", "mydrive", "doctor", "replay", "races", "workbench", "sound", "ac" }) if (dso == null || !dso.ContainsKey(k)) dmiss.Add(k);
-            Ok("/deck/summary has showcase, overlays, guest, mydrive, doctor, replay, races, workbench, sound, ac (" + (ds == null ? 0 : ds.Body.Length) + " bytes)", dmiss.Count == 0, string.Join(",", dmiss.ToArray()));
+            foreach (string k in new[] { "seq", "showcase", "overlays", "guest", "mydrive", "doctor", "replay", "races", "sound", "ac" }) if (dso == null || !dso.ContainsKey(k)) dmiss.Add(k);
+            Ok("/deck/summary has showcase, overlays, guest, mydrive, doctor, replay, races, sound, ac (" + (ds == null ? 0 : ds.Body.Length) + " bytes)", dmiss.Count == 0, string.Join(",", dmiss.ToArray()));
             Ok("/deck/summary is readable by the add-on (Access-Control-Allow-Origin: *)", ds != null && ds.H.ContainsKey("Access-Control-Allow-Origin"), "");
-            Dictionary<string, object> dwb = dso == null ? null : dso["workbench"] as Dictionary<string, object>;
+            
             Dictionary<string, object> swb = Obj(Get("/state").Body);
             swb = swb == null ? null : swb["workbench"] as Dictionary<string, object>;
-            Ok("the summary's workbench is what the ANALYSIS key shows (/workbench/state: open), the state's is the deck's command for the page (cmd, seq)",
-               dwb != null && dwb.ContainsKey("open") && swb != null && swb.ContainsKey("cmd") && swb.ContainsKey("seq"), J.Serialize(dwb) + " / " + J.Serialize(swb));
+            Ok("W4-8: the summary has no workbench (the old ANALYSIS feed is gone); the state's is the deck's command for the page (cmd, seq)",
+               !dso.ContainsKey("workbench") && swb != null && swb.ContainsKey("cmd") && swb.ContainsKey("seq"), J.Serialize(swb));
             if (yamlFile != "" && File.Exists(yamlFile))
             {
                 string yaml = File.ReadAllText(yamlFile, Encoding.GetEncoding(28591));

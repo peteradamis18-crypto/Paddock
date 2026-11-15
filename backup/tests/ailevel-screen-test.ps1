@@ -28,7 +28,7 @@ Check 'ailevel.cs gave the three real answers' ($ans.Count -eq 3)
 if ($ans.Count -ne 3) { "$pass passed, $fail failed"; exit 1 }
 
 $fx = @{ '/guest' = @{}; '/overlays' = @{}; '/replay' = @{ ready = $false }; '/doctor' = @{}; '/showcase' = @{ seq = 0; play = $false; driving = $false }
-  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/workbench/state' = @{ open = $false }; '/debrief/state' = @{ open = $false }
+  '/mydrive' = @{}; '/sound' = @{ ready = $false }; '/deck/state' = @{}; '/debrief/state' = @{ open = $false }
   '/ac' = @{ connected = $false } ; '/ailevel' = ($ans['DEFAULT'] | ConvertFrom-Json) }
 $html = Join-Path $env:TEMP 'ailevel-screen-test-harness.html'
 $url = Build-DeckHarness (Join-Path $root 'deck-intro\plugin.html') $html

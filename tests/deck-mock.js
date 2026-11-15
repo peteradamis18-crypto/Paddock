@@ -69,7 +69,7 @@
       // W0-5: the add-on's one summary, made from the routes the test gave data for (what irdash's /deck/summary carries)
       const g = k => { const f = M.fx[k]; return f === undefined ? null : (typeof f === 'function' ? f() : f); };
       const sum = { seq: 1, showcase: g('/showcase') || { play: false, seq: 0, driving: false }, overlays: g('/overlays'), guest: g('/guest'), mydrive: g('/mydrive'), doctor: g('/doctor'),
-        replay: g('/replay'), races: g('/api/rec/races'), workbench: g('/workbench/state'), sound: g('/sound'), ac: g('/ac') };
+        replay: g('/replay'), races: g('/api/rec/races'), sound: g('/sound'), ac: g('/ac') };
       return new Promise(res => later(M.cfg.getMs, () => res(new Response(JSON.stringify(sum), { headers: { 'Content-Type': 'application/json' } }))));
     }
     if (M.cfg.fakeFetch) {

@@ -173,7 +173,7 @@ Check 'src\irdeck.cs: the command switch, pit toggles, media, chat, power and ke
 
 # what irdash accepts from the deck (/api/do): the command sets of each module, Guest.Do's switch, Tv view and Nav
 $handled = @{}
-foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'official', 'sound', 'deckfeed', 'ac') {
+foreach ($f in 'replay', 'overlays', 'mydrive', 'gallery', 'perf', 'vault', 'official', 'sound', 'ac') {
   $m = [regex]::Match((ReadText "dash\src\$f.cs"), '(?s)HashSet<string>\s+Commands\s*=\s*new HashSet<string>\s*\{(.*?)\};')
   foreach ($x in [regex]::Matches($m.Groups[1].Value, '"([A-Za-z0-9_-]+)"')) { $handled[$x.Groups[1].Value] = $f }
 }

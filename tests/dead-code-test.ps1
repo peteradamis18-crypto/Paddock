@@ -85,5 +85,21 @@ Check 'tests\run-all.ps1 lists no test that is missing' ($missT.Count -eq 0) ($m
 $unlisted = @(); foreach ($m in [regex]::Matches($ra, "f = '([^']+\.ps1)'")) { }
 Check 'run-all.ps1 does not list the deleted tests' ($ra -notmatch "f = '(actions|bench|tv|tv-live-race)-test.ps1'")
 
+'5. the old deck analysis feed is gone (W4-8)'
+Check 'dash\src\deckfeed.cs is deleted and dash\build.ps1 does not list it' (-not (Test-Path (Join-Path $root 'dash\src\deckfeed.cs')) -and $bp -notmatch 'deckfeed')
+# words that would bring the feed back: its file, its route, its part, its commands, its class. Searched in code, www, tests and the living docs
+# (older audit and card files under docs\ are records of what was; this test and the W4-8 card / STATUS are the only places that may say the words)
+$feedRx = 'deckfeed\.cs|workbench/state|deckWorkbench|wbkeep|wbcosworth|DeckFeed\.'
+$feedFiles = @()
+foreach ($d in 'dash\src', 'dash\www', 'tests') { $feedFiles += Get-ChildItem (Join-Path $root $d) -Recurse -File -Include *.cs, *.js, *.ps1, *.html, *.css, *.json -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\(shots|fixtures|bin)\\' -and $_.Name -ne 'dead-code-test.ps1' } }
+foreach ($f in 'docs\ARCHITECTURE.md', 'docs\OPERATIONS.md', 'docs\USER-GUIDE.md', 'docs\rework\evidence\15-wave4-facts.md', 'deck-intro\plugin.html', 'build-deck.ps1') { $feedFiles += Get-Item (Join-Path $root $f) }
+$feedHits = @(); foreach ($f in $feedFiles) { if ([IO.File]::ReadAllText($f.FullName) -match $feedRx) { $feedHits += $f.Name } }
+Check "no code, www, test or living doc names the old feed ($($feedFiles.Count) files read)" ($feedHits.Count -eq 0) ($feedHits -join ', ')
+$irSrc2 = Get-Content -LiteralPath (Join-Path $root 'dash\src\irdash.cs') -Raw
+$sbSrc = Get-Content -LiteralPath (Join-Path $root 'dash\src\statebuilder.cs') -Raw
+Check 'irdash still serves the deck command for the page: the state part "workbench", GET /workbench/cmd, and /api/do wb-* through Workbench' ($irSrc2.Contains('StateBuilder.Add("workbench"') -and $irSrc2.Contains('path == "/workbench/cmd"') -and $irSrc2.Contains('Workbench.Handles(dc) ? Workbench.Do(dc, da)'))
+Check '/workbench/cmd no longer takes a report from the page (it only answers with the last command)' (-not ($irSrc2 -match 'path == "/workbench/cmd"\) \{[^\r\n]*ParseQuery'))
+Check 'the deck summary has no workbench name (the add-on has none to read)' ($sbSrc -notmatch 'new\[\] \{ "workbench"')
+
 "$pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }
