@@ -271,6 +271,7 @@ The phone has the same keys as the deck, nothing more: **HOME** (what the rig is
 
 - The PC starts the rig when you log on. Stream Deck comes up first, then the dashboard, the wheel, the haptics, the overlays, the spotter, and the iRacing app.
 - iRacing is given the PC first when a session starts.
+- **Quiet PC:** while you drive, Paddock pauses Windows Update, search indexing and OneDrive so nothing slows the sim, and keeps iRacing at high priority. When the session ends it switches back on exactly what was running. To turn it on, double-click `tools\quiet-pc-setup.cmd` once and say Yes when Windows asks; after that it happens by itself. To take it away again: `tools\quiet-pc-setup-UNDO.cmd`.
 - Rig Doctor checks the rig at startup and now and then while you are out of the car. It fixes what it can by itself: overlays, the spotter, Stream Deck, and keeping iRacing's files on this PC. The idle screen says "All good" when there is nothing for you to do. It also shows a line for the last session's frame rate. It only asks you about things only you can do, such as a cable.
 - Nothing restarts, pops up, or reloads the dashboard while you are driving. A new version of the top screen waits until you are out of the car.
 
