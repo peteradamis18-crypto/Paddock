@@ -532,7 +532,9 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   }
   $optHand = 0.0; foreach ($v in $bestSec) { $optHand += $v }
   Note "HAND CHECK sectors: $cntSec sector times of the valid laps, largest difference from the raw SessionTime at iRacing's split points $([math]::Round($maxDiff, 4)) s; S1..S4 vs lap time worst $([math]::Round($maxSum, 4)) s; best sectors joined $([math]::Round($optHand, 3))"
-  Check 'every sector time (3 counted laps x 4) equals the one worked out from the raw records within 0.002 s, and the sectors of a lap add up to its lap time' ($cntSec -eq 12 -and $maxDiff -lt 0.002 -and $maxSum -lt 0.0015)
+  Note ('valid laps as served: ' + ((@($ssj.laps | Where-Object { $_.valid }) | ForEach-Object { 'L' + $_.n + '=' + $_.time }) -join ' '))
+  # W4-9: four laps count since W0-6 (L6 79.931, L7 79.549, L8 79.878 raw-confirmed by the independent LapBestLapTime reader; L10 80.078 counts by the engine's W0-6 rule - the raw reader would call it off-track and not counted: reported to the lead), so 4 x 4 = 16 sectors and the page says BEST 4.
+  Check 'every sector time (4 counted laps x 4) equals the one worked out from the raw records within 0.002 s, and the sectors of a lap add up to its lap time' ($cntSec -eq 16 -and $maxDiff -lt 0.002 -and $maxSum -lt 0.0015)
   $nums = Cdp-Json '[].map.call(document.querySelectorAll(".nt"),function(t){return {l:t.querySelector(".nl").textContent,v:t.querySelector(".nv").textContent,s:t.querySelector(".ns").textContent}})'
   $tb = @($nums | Where-Object { $_.l -eq 'THEORETICAL BEST' })[0]
   Check 'the theoretical best is the best sectors of the counted laps joined: 1:19.161, 0.388 s under the best lap 1:19.549' ($tb.v -eq '1:19.161' -and (Near $optHand 79.161 0.0015) -and $tb.s -like '*0.388*')
@@ -546,7 +548,7 @@ Check 'Sessions keeps its session rows and no longer declares the old trace view
   $times = @($ssj.laps | Where-Object { $_.valid } | ForEach-Object { [double]$_.time } | Sort-Object); $top = @($times | Select-Object -First 5); $avg5 = ($top | Measure-Object -Average).Average
   $sd5 = [math]::Sqrt((($top | ForEach-Object { ($_ - $avg5) * ($_ - $avg5) }) | Measure-Object -Sum).Sum / $top.Count)
   $cn = @($nums | Where-Object { $_.l -like 'BEST * AVERAGE' })[0]
-  Check "best-3 average $([math]::Round($avg5, 3)) and spread $([math]::Round($sd5, 3)) are shown (page: $($cn.l) $($cn.v), $($cn.s)) as the engine reply says and as computed from the counted lap times" ($cn.l -eq 'BEST 3 AVERAGE' -and $top.Count -eq 3 -and $cn.v -eq '1:19.786' -and (Near $avg5 $ssj.consistency.avg 0.0006) -and (Near $sd5 $ssj.consistency.sd 0.002) -and $cn.s -like ('*' + $ssj.consistency.sd.ToString('0.000') + '*'))
+  Check "best-4 average $([math]::Round($avg5, 3)) and spread $([math]::Round($sd5, 3)) are shown (page: $($cn.l) $($cn.v), $($cn.s)) as the engine reply says and as computed from the counted lap times" ($cn.l -eq 'BEST 4 AVERAGE' -and $top.Count -eq 4 -and $cn.v -eq '1:19.859' -and (Near $avg5 $ssj.consistency.avg 0.0006) -and (Near $sd5 $ssj.consistency.sd 0.002) -and $cn.s -like ('*' + $ssj.consistency.sd.ToString('0.000') + '*'))
   # lap x corner heat map: T10a on lap 7 from the raw records, and the cell and the spread row on screen
   $ti = -1; for ($k = 0; $k -lt @($ssj.turns).Count; $k++) { if ($ssj.turns[$k].label -eq 'T10a') { $ti = $k } }
   $cn10 = @($wf.head.corners | Where-Object { $_.label -eq 'T10a' })[0]
@@ -883,3 +885,5 @@ finally {
 
 Write-Host "`nworkbench-test: $pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }
+
+
