@@ -227,7 +227,10 @@ If the guard stops a test at the door, the output is `NOT SAFE TO TEST: ...` and
 | `dash\probe.txt` | what `probe.exe` could see | Doctor thought an app was missing and it was only a private AppData |
 | `tests\run-all.last.txt` | one line per test | The result of the last run-all |
 | `tests\last\<name>.txt` | the full transcript | The FAIL lines and anything before them |
+| `tools\quiet-pc.log` | `yyyy-MM-dd HH:mm:ss  on (admin): UsoSvc: stopped; ...` one line per run of `tools\quiet-pc.ps1` (admin = the task, user = irdash's OneDrive half) | Quiet PC (W5-2): what was paused at session start and handed back at the end; "running again while Quiet PC is on" = Windows restarted Windows Update |
 | `%APPDATA%\Elgato\StreamDeck\logs\StreamDeck.log` | Elgato's log | Watchdog reads the tail for USB disconnects |
+
+**Quiet PC (W5-2)** is two files Peter clicks once: `tools\quiet-pc-setup.cmd` (registers the tasks "Paddock Quiet PC on/off", highest privileges, no trigger, writes `data\quiet-pc\setup.json`) and `tools\quiet-pc-setup-UNDO.cmd` (hands everything back, deletes the tasks and the json). Never run either yourself. Read the state any time, no administrator: `powershell -ExecutionPolicy Bypass -File tools\quiet-pc.ps1 -Status`; `-Preview` shows what an "on" would do. irdash runs the tasks (`schtasks /Run`) at session start/end and at its own start if the PC was left quiet; `dash\irdash.log` has one `quiet pc on|off:` line each.
 
 `irdeck-cli.exe` also prints its log line to the console. `irdeck.exe` only writes the file.
 

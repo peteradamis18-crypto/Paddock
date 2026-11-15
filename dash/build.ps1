@@ -20,6 +20,7 @@ $src += @("$d\src\commentary.cs", "$d\src\addon.cs")   # W1-6 TALK OVER IT; W1-8
 $src += @("$d\src\sdkreader.cs", "$d\src\fuel.cs", "$d\src\pitloss.cs")   # W2: the SDK reader on its own, the fuel / pit-window maths, time lost in the pits
 $src += @("$d\src\nightlyrules.cs", "$d\src\nightly.cs")   # W5-4: the nightly self-check started by irdash's own clock
 $src += @("$d\src\review.cs")   # W4-1: the Review engine behind one API (/api/review, traces, corners, progress)
+$src += @("$d\src\quietpc.cs")   # W5-2: Quiet PC (Windows Update, search and OneDrive paused while a session is on)
 & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/out:$tmp\irdash.exe" `
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.Security.dll `
   @src
