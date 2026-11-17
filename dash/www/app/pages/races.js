@@ -306,7 +306,7 @@ const Races = {
     if (this.data && !yt.signedIn && wantShare) {
       b.className = 'banner signin';
       b.innerHTML = '<span>YouTube is not signed in yet. Sign in once, then press SHARE and the race goes up by itself.</span>' +
-        '<button type="button" class="btn gold" data-act="signin">' + (yt.signingIn ? 'Sign-in is open in the browser' : 'Sign in to YouTube') + '</button>';
+        '<button type="button" class="btn gold" data-act="signin">' + (yt.signingIn ? 'Show the Google sign-in' : 'Sign in to YouTube') + '</button>';
       b.hidden = false;
       // the open card sits over the page: the banner goes on top of it
       b.classList.toggle('over', !!this.openId);

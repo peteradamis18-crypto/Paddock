@@ -48,9 +48,20 @@ try {
   ok '4. the token is kept with DPAPI for this Windows user' ($yt.Contains('ProtectedData.Protect(') -and $yt.Contains('DataProtectionScope.CurrentUser'))
   ok '4. Paddock takes Google''s client_secret*.json from Downloads by itself (PickUpClient: only while there is no client, files under 7 days old, must name client_id and client_secret, tests point PADDOCK_DOWNLOADS at their own folder)' ($yt.Contains('static void PickUpClient()') -and $yt.Contains('"client_secret*.json"') -and $yt.Contains('PADDOCK_DOWNLOADS') -and $yt.Contains('TotalDays < 7') -and $yt.Contains('if (File.Exists(ClientFile)') -and $yt.Contains('PickUpClient();'))
   ok '4. the client secret goes only in a POST body (Form), never in a query string' ($yt -match '"&client_secret=" \+ E\(secret\)' -and -not ($yt -match '\?[^"]*client_secret'))
-  ok '4. the sign-in uses a plain TcpListener on loopback, not HttpListener (no URL reservation needed)' ($yt.Contains('new TcpListener(IPAddress.Loopback, 0)') -and -not $yt.Contains('new HttpListener'))
+  ok '4. the sign-in uses a plain TcpListener on loopback, not HttpListener (no URL reservation needed)' ($yt.Contains('new TcpListener(IPAddress.Loopback, resume != null ? resume.Port : 0)') -and -not $yt.Contains('new HttpListener'))
   ok '4. no videos.list call (the youtube.upload scope does not allow it)' (-not ($yt -match '/videos\?part='))
   ok '4. only SignIn opens a browser (one OpenBrowser call site besides the re-open)' (([regex]::Matches($yt, 'OpenBrowser\(')).Count -eq 2)
+  # 2026-11-15 live: explorer.exe cuts an address at 260 characters (MAX_PATH); Google's ~450-character sign-in address lost its state and
+  # code_challenge, Google answered without a state and Peter saw "Not found" twice. ShellExecute of the address itself keeps it whole.
+  ok '4. the browser gets the sign-in address by ShellExecute of the address itself, never through explorer.exe (260-character cut)' ($yt -match 'new System\.Diagnostics\.ProcessStartInfo\(url\) \{ UseShellExecute = true \}' -and -not ($yt -match 'Process\.Start\("explorer\.exe"'))
+  ok '4. the sign-in address is longer than explorer.exe allows (the cut was real, not a theory)' (('https://accounts.google.com/o/oauth2/v2/auth?client_id=' + ('x' * 72) + '&redirect_uri=http%3A%2F%2F127.0.0.1%3A55707%2F&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube.upload&code_challenge=' + ('c' * 43) + '&code_challenge_method=S256&state=' + ('s' * 22) + '&access_type=offline&prompt=consent').Length -gt 260)
+  # 2026-11-15/16: the 5-minute window closed twice before Peter got to Chrome, and a deploy in between killed the listener. The page now
+  # waits as long as irdash runs, and a restart listens on the same port again (dash\yt\pending.bin with DPAPI, a day at most).
+  ok '4. the sign-in page waits as long as irdash runs (SignInTimeoutMs 0 = no limit; tests set a short one)' ($yt -match 'public static int SignInTimeoutMs = 0;' -and $yt.Contains('SignInTimeoutMs > 0 ?'))
+  ok '4. a waiting sign-in is noted in dash\yt\pending.bin with DPAPI and listened for again on the same port at start (Start -> ResumeSignIn)' ($yt.Contains('ResumeSignIn();') -and $yt -match 'new TcpListener\(IPAddress\.Loopback, resume != null \? resume\.Port : 0\)' -and $yt -match 'WriteAtomic\(PendingFile, ProtectedData\.Protect\(' -and $yt.Contains('TotalHours > 24'))
+  ok '4. a tab from an earlier press gets the out-of-date page (what to press), not a bare "Not found."' ($yt.Contains('Answer(ns, 404, OldPage)') -and $yt.Contains('press Sign in to YouTube again."'))
+  $main = Get-Content (Join-Path $PSScriptRoot 'youtube-main.cs') -Raw
+  ok '4. the harness keeps Peter''s real Downloads out of the test (PADDOCK_DOWNLOADS points at its own folder; 2026-11-16 his real client file broke case 0)' ($main.Contains('Environment.SetEnvironmentVariable("PADDOCK_DOWNLOADS", downloads)'))
   ok '4. C# 5 only: no $"...", ?., nameof, out var' (-not ($yt -match '\$"|\?\.|\bnameof\(|out var '))
   $gi = Get-Content (Join-Path $root '.gitignore') -Raw
   ok '4. dash/yt/ is gitignored' ($gi -match '(?m)^dash/yt/\s*$')

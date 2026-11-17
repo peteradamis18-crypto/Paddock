@@ -39,7 +39,7 @@ namespace IRDash
         public static int ChunkSize = 8 * 1024 * 1024;       // a multiple of 256 KiB (Google's rule for every chunk but the last)
         public static int BackoffBaseMs = 2000, BackoffMaxMs = 300000;   // 2, 4, 8 ... 300 s after a dropped link or a 5xx
         public static int OfflineRetryMs = 60000;            // no internet: look again every minute, for ever
-        public static int SignInTimeoutMs = 300000;          // the sign-in page waits 5 minutes for Google's answer
+        public static int SignInTimeoutMs = 0;               // 0 = the sign-in page waits as long as irdash runs (2026-11-15: a 5-minute window closed twice before Peter got to Chrome); tests set a short one
         public static int SliceMs = 120000;                  // a long upload hands the job thread back every 2 minutes
         public static Func<DateTime> Clock;                  // local time, for the "after 9 in the morning" retry (tests)
 
@@ -54,6 +54,7 @@ namespace IRDash
         public const string MsgChannel = "Make a YouTube channel first: open youtube.com with your Google account";
         public const string SignedInPage = "Paddock is signed in to YouTube. You can close this tab.";
         public const string NotSignedInPage = "Paddock was not signed in to YouTube. You can close this tab.";
+        public const string OldPage = "This sign-in page is out of date. On the top screen, open RACES and press Sign in to YouTube again.";
         public const string EntropyText = "Paddock YouTube token";   // extra DPAPI salt: another program of Peter's cannot just call Unprotect
         const string JobName = "youtube upload";
 
@@ -88,12 +89,14 @@ namespace IRDash
         static Timer timer;
         static volatile bool signingIn, paused, busy;
         static volatile string openAuthUrl;  // the sign-in page while it waits: a second press opens it again
+        static TcpListener listening;        // the sign-in's socket while it waits (Reset closes it as a stopped irdash would)
         static bool thumbTold;
 
         static long NowMs { get { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; } }
         static DateTime LocalNow { get { return Clock != null ? Clock() : DateTime.Now; } }
         static string ClientFile { get { return Path.Combine(Dir, "client.json"); } }
         static string TokenFile { get { return Path.Combine(Dir, "token.bin"); } }
+        static string PendingFile { get { return Path.Combine(Dir, "pending.bin"); } }   // a sign-in page that waits: port, state, verifier (DPAPI)
         static string UploadsFile { get { return Path.Combine(Dir, "uploads.json"); } }
         static string SessionFile(string race) { return Path.Combine(Dir, "session-" + Regex.Replace(race ?? "", "[^A-Za-z0-9_-]", "_") + ".json"); }
 
@@ -113,11 +116,13 @@ namespace IRDash
                     if (Pending(r)) { long w = Math.Max(0, r.RetryAtMs - now); if (wait < 0 || w < wait) wait = w; }
             }
             if (wait >= 0) Kick(wait);
+            ResumeSignIn();
         }
 
         // tests: forget everything held in memory and read it again from dash\yt, as a new irdash process would
         public static void Reset()
         {
+            AbortSignIn();
             paused = true;
             for (int i = 0; i < 100 && busy; i++) Thread.Sleep(50);
             lock (gate)
@@ -379,7 +384,8 @@ namespace IRDash
 
         // ================= sign-in (loopback + PKCE) =================
 
-        // the ytsignin press: answers at once; the sign-in waits on its own thread for up to 5 minutes. The only browser Paddock opens.
+        // the ytsignin press: answers at once; the sign-in waits on its own thread for Google's answer, as long as irdash runs
+        // (SignInTimeoutMs 0; tests set a short one). The only browser Paddock opens.
         public static string SignIn()
         {
             string id, secret;
@@ -394,43 +400,92 @@ namespace IRDash
                 }
                 signingIn = true;
             }
-            Thread t = new Thread(Crash.Guard("youtube sign-in", delegate ()
-            {
-                try { SignInRun(id, secret); }
-                finally { openAuthUrl = null; signingIn = false; Bump(); }
-            }));
-            t.IsBackground = true; t.Name = "YouTube sign-in"; t.Start();
+            SignInThread(id, secret, null);
             Bump();
             return "Google sign-in opened in the browser";
         }
 
+        // irdash start: a sign-in page left waiting when irdash last stopped (a deploy restarts it) is listened for again on the same
+        // port with the same state and verifier (dash\yt\pending.bin), so Allow in the tab that is still open lands. A day old is
+        // forgotten. 2026-11-15: Peter's tab could only get "refused to connect" once the listener had gone with the old irdash.
+        static void ResumeSignIn()
+        {
+            Waiting p = LoadPending();
+            if (p == null) return;
+            string id, secret;
+            if (!ReadClient(out id, out secret) || (DateTime.UtcNow - p.Started).TotalHours > 24) { DeletePending(); return; }
+            lock (gate) { if (signingIn) return; signingIn = true; }
+            SignInThread(id, secret, p);
+        }
+
+        static void SignInThread(string id, string secret, Waiting resume)
+        {
+            Thread t = new Thread(Crash.Guard("youtube sign-in", delegate ()
+            {
+                try { SignInRun(id, secret, resume); }
+                finally { openAuthUrl = null; signingIn = false; Bump(); }
+            }));
+            t.IsBackground = true; t.Name = "YouTube sign-in"; t.Start();
+        }
+
+        // tests and Reset: close the sign-in's socket as a stopped irdash would. pending.bin stays, so the next Start() picks the page up.
+        internal static void AbortSignIn()
+        {
+            TcpListener l;
+            lock (gate) { l = listening; listening = null; }
+            if (l == null) return;
+            try { l.Stop(); } catch { }
+            for (int i = 0; i < 150 && signingIn; i++) Thread.Sleep(20);
+        }
+
         // A plain socket on 127.0.0.1 (no HttpListener: that needs a URL reservation without admin rights and filters on the Host
         // header). Reads one request line, answers one small page, closes.
-        static void SignInRun(string id, string secret)
+        static void SignInRun(string id, string secret, Waiting resume)
         {
-            TcpListener l = new TcpListener(IPAddress.Loopback, 0);
+            TcpListener l = new TcpListener(IPAddress.Loopback, resume != null ? resume.Port : 0);
             try { l.Start(); }
-            catch (Exception ex) { Log.W("youtube: sign-in could not open a local port for Google's answer (" + ex.GetType().Name + ")"); return; }
+            catch (Exception ex)
+            {
+                if (resume != null) { Log.W("youtube: the sign-in page from before the restart cannot be listened for again (port " + resume.Port + ": " + ex.GetType().Name + ") - press Sign in to YouTube again"); DeletePending(); }
+                else Log.W("youtube: sign-in could not open a local port for Google's answer (" + ex.GetType().Name + ")");
+                return;
+            }
+            lock (gate) listening = l;
             try
             {
                 int port = ((IPEndPoint)l.LocalEndpoint).Port;
                 string redirect = "http://127.0.0.1:" + port + "/";
-                string verifier = B64Url(RandomBytes(32));
-                string challenge;
-                using (SHA256 sha = SHA256.Create()) challenge = B64Url(sha.ComputeHash(Encoding.ASCII.GetBytes(verifier)));
-                string state = B64Url(RandomBytes(16));
-                string url = AuthUrl + "?client_id=" + E(id) + "&redirect_uri=" + E(redirect) + "&response_type=code&scope=" + E(Scope) +
-                             "&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state + "&access_type=offline&prompt=consent";
+                string verifier, state, url;
+                if (resume != null)
+                {
+                    verifier = resume.Verifier; state = resume.State; url = resume.Url;
+                    Log.W("youtube: the sign-in page opened at " + resume.Started.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) + " still waits for Google's answer (port " + port + ")");
+                }
+                else
+                {
+                    verifier = B64Url(RandomBytes(32));
+                    string challenge;
+                    using (SHA256 sha = SHA256.Create()) challenge = B64Url(sha.ComputeHash(Encoding.ASCII.GetBytes(verifier)));
+                    state = B64Url(RandomBytes(16));
+                    url = AuthUrl + "?client_id=" + E(id) + "&redirect_uri=" + E(redirect) + "&response_type=code&scope=" + E(Scope) +
+                          "&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state + "&access_type=offline&prompt=consent";
+                    Waiting p = new Waiting(); p.Port = port; p.State = state; p.Verifier = verifier; p.Url = url; p.Started = DateTime.UtcNow;
+                    SavePending(p);
+                }
                 openAuthUrl = url;
-                try { OpenBrowser(url); } catch (Exception ex) { Log.W("youtube: could not open the browser for the sign-in: " + ex.Message); return; }
-                DateTime until = DateTime.UtcNow.AddMilliseconds(SignInTimeoutMs);
+                if (resume == null)
+                {
+                    try { OpenBrowser(url); } catch (Exception ex) { Log.W("youtube: could not open the browser for the sign-in: " + ex.Message); DeletePending(); return; }
+                }
+                DateTime until = SignInTimeoutMs > 0 ? DateTime.UtcNow.AddMilliseconds(SignInTimeoutMs) : DateTime.MaxValue;
                 while (true)
                 {
-                    int left = (int)(until - DateTime.UtcNow).TotalMilliseconds;
-                    IAsyncResult ar = left > 0 ? l.BeginAcceptTcpClient(null, null) : null;
+                    int left = until == DateTime.MaxValue ? -1 : (int)Math.Max(0, Math.Min(int.MaxValue - 1, (until - DateTime.UtcNow).TotalMilliseconds));   // -1 = no limit
+                    IAsyncResult ar = left != 0 ? l.BeginAcceptTcpClient(null, null) : null;
                     if (ar == null || !ar.AsyncWaitHandle.WaitOne(left))
                     {
                         Log.W("youtube: sign-in stopped - no answer from Google in " + Math.Max(1, SignInTimeoutMs / 60000) + " minutes");
+                        DeletePending();
                         return;
                     }
                     using (TcpClient c = l.EndAcceptTcpClient(ar))
@@ -443,11 +498,13 @@ namespace IRDash
                         string path = qi < 0 ? target : target.Substring(0, qi);
                         Dictionary<string, string> q = Query(qi < 0 ? "" : target.Substring(qi + 1));
                         string v;
-                        if (path != "/" || !q.TryGetValue("state", out v) || v != state) { Answer(ns, 404, "Not found."); continue; }   // a favicon, an old tab
+                        if (path != "/") { Answer(ns, 404, "Not found."); continue; }                                 // a favicon
+                        if (!q.TryGetValue("state", out v) || v != state) { Answer(ns, 404, OldPage); continue; }   // a tab from an earlier press
                         if (q.TryGetValue("error", out v) && v.Length > 0)
                         {
                             Answer(ns, 200, NotSignedInPage);
                             Log.W("youtube: sign-in cancelled on Google's page (" + Safe(v) + ")");
+                            DeletePending();
                             return;
                         }
                         string code; q.TryGetValue("code", out code);
@@ -456,20 +513,60 @@ namespace IRDash
                         {
                             Answer(ns, 200, SignedInPage);
                             Log.W("youtube: signed in");
+                            DeletePending();
                             SignedIn();
                         }
                         else
                         {
                             Answer(ns, 200, "Paddock could not sign in to YouTube. Close this tab and press the sign-in key again.");
                             Log.W("youtube: sign-in failed: " + err);
+                            DeletePending();
                         }
                         return;
                     }
                 }
             }
-            catch (Exception ex) { Log.W("youtube: sign-in failed (" + ex.GetType().Name + ")"); }
-            finally { try { l.Stop(); } catch { } }
+            catch (Exception ex)
+            {
+                bool stopped; lock (gate) stopped = listening != l;    // Reset or a stop closed the socket: no failure, the page is kept for the next start
+                if (!stopped) { Log.W("youtube: sign-in failed (" + ex.GetType().Name + ")"); DeletePending(); }
+            }
+            finally { lock (gate) { if (listening == l) listening = null; } try { l.Stop(); } catch { } }
         }
+
+        // ---- a sign-in page that waits across a restart: dash\yt\pending.bin, DPAPI like the token ----
+        sealed class Waiting { public int Port; public string State = "", Verifier = "", Url = ""; public DateTime Started; }
+
+        static void SavePending(Waiting p)
+        {
+            try
+            {
+                long ms = (long)(p.Started - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+                string json = "{\"port\":" + p.Port.ToString(CultureInfo.InvariantCulture) + ",\"state\":" + Json_.S(p.State) + ",\"verifier\":" + Json_.S(p.Verifier) +
+                              ",\"url\":" + Json_.S(p.Url) + ",\"startedMs\":" + ms.ToString(CultureInfo.InvariantCulture) + "}";
+                Directory.CreateDirectory(Dir);
+                WriteAtomic(PendingFile, ProtectedData.Protect(Encoding.UTF8.GetBytes(json), Encoding.UTF8.GetBytes(EntropyText), DataProtectionScope.CurrentUser));
+            }
+            catch (Exception ex) { Log.W("youtube: the waiting sign-in could not be noted for a restart (" + ex.GetType().Name + ")"); }
+        }
+
+        static Waiting LoadPending()
+        {
+            try
+            {
+                if (!File.Exists(PendingFile)) return null;
+                byte[] plain = ProtectedData.Unprotect(File.ReadAllBytes(PendingFile), Encoding.UTF8.GetBytes(EntropyText), DataProtectionScope.CurrentUser);
+                Dictionary<string, object> d = Parse(Encoding.UTF8.GetString(plain));
+                Waiting p = new Waiting();
+                p.Port = (int)Num(d, "port", 0); p.State = Str(d, "state"); p.Verifier = Str(d, "verifier"); p.Url = Str(d, "url");
+                p.Started = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(Num(d, "startedMs", 0));
+                if (p.Port <= 0 || p.State.Length == 0 || p.Verifier.Length == 0 || p.Url.Length == 0) { DeletePending(); return null; }
+                return p;
+            }
+            catch (Exception ex) { Log.W("youtube: the noted sign-in could not be read (" + ex.GetType().Name + ") - press Sign in to YouTube again"); DeletePending(); return null; }
+        }
+
+        static void DeletePending() { try { File.Delete(PendingFile); } catch { } }
 
         // the request line's target ("/?code=...&state=..."); reads the head only (a GET has no body)
         static string RequestTarget(NetworkStream ns)
@@ -552,7 +649,14 @@ namespace IRDash
             if (any) Kick(0);
         }
 
-        static void DefaultOpen(string url) { System.Diagnostics.Process.Start("explorer.exe", "\"" + url + "\""); }
+        // The default browser by ShellExecute, never explorer.exe: explorer treats the address as a path and cuts it at 260 characters
+        // (2026-11-15: Google's sign-in address is ~450 characters; it lost code_challenge, state, access_type and prompt, Google
+        // answered without a state and the listener said "Not found" to Peter twice).
+        static void DefaultOpen(string url)
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch { System.Diagnostics.Process.Start("rundll32.exe", "url.dll,FileProtocolHandler " + url); }   // no https handler registered: Windows' own opener
+        }
 
         // ================= tokens =================
 

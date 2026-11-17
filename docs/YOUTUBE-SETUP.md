@@ -48,7 +48,8 @@ About 10 minutes, once. After it, SHARE on a race uploads it by itself.
 ## 5. Sign in once, on the top screen
 
 1. Open **RACES** on the top screen. The gold button **Sign in to YouTube** is there (also on a race's card after SHARE).
-2. Press it. A browser tab opens on Google's sign-in page. Pick your account (the one that owns the channel).
+2. Press it. A browser tab opens on Google's sign-in page. Take your time: it waits until you are done. Pick your
+   account (the one that owns the channel).
 3. If Google warns that the app is not verified (normal: it is your own private app): press **Advanced** at the
    bottom left, then **Go to Paddock (unsafe)**.
 4. Press **Allow** (or **Continue**). The tab says it is done. Close it.

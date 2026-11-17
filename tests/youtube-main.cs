@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,10 +19,11 @@ namespace IRDash
     {
         static int fails;
         static volatile bool sessionOn;
-        static string tmp, yt;
+        static string tmp, yt, downloads;
         static PretendGoogle g;
         static readonly List<string> pages = new List<string>();
         static string browserUrl = "";
+        const BindingFlags Any = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
         static int opens;
         static volatile string mode = "google";       // google = follow Google's redirect; wrongstate = a bad tab, then "Cancel"; none = never answer
 
@@ -79,6 +81,8 @@ namespace IRDash
             tmp = a.Length > 0 ? a[0] : Path.Combine(Path.GetTempPath(), "yt-test-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tmp);
             yt = Path.Combine(tmp, "yt");
+            downloads = Path.Combine(tmp, "downloads"); Directory.CreateDirectory(downloads);
+            Environment.SetEnvironmentVariable("PADDOCK_DOWNLOADS", downloads);   // never Peter's own Downloads: it held Google's real client file on 2026-11-16 and case 0 broke
             Log.FilePath = Path.Combine(tmp, "youtube.log");
             Jobs.SessionOn = delegate () { return sessionOn; };
             Jobs.GraceMs = 0;
@@ -134,7 +138,10 @@ namespace IRDash
             g.CutOnce = true; g.ThumbForbiddenOnce = true;
             Ok("0. a race can be queued before YouTube is set up", YouTube.Enqueue("r0", file, "race r0", "0:00 Start\nLap 1", null, thumb));
             Ok("0. ... and shows kind signin with the set-up message", WaitFor(delegate () { return YouTube.StateJson("r0") == "{\"kind\":\"signin\",\"error\":" + Json_.S(YouTube.MsgSetup) + "}"; }, 5000), YouTube.StateJson("r0"));
-            File.WriteAllText(Path.Combine(yt, "client.json"), "{\"installed\":{\"client_id\":\"" + PretendGoogle.ClientId + "\",\"project_id\":\"paddock-test\",\"auth_uri\":\"x\",\"token_uri\":\"x\",\"client_secret\":\"" + PretendGoogle.Secret + "\",\"redirect_uris\":[\"http://localhost\"]}}");
+            // Google's file lands in Downloads as client_secret_<id>.json; Paddock takes it from there by itself (PickUpClient looks every 10 s)
+            File.WriteAllText(Path.Combine(downloads, "client_secret_test.apps.googleusercontent.com.json"), "{\"installed\":{\"client_id\":\"" + PretendGoogle.ClientId + "\",\"project_id\":\"paddock-test\",\"auth_uri\":\"x\",\"token_uri\":\"x\",\"client_secret\":\"" + PretendGoogle.Secret + "\",\"redirect_uris\":[\"http://localhost\"]}}");
+            typeof(YouTube).GetField("lastDownloadsLook", Any).SetValue(null, DateTime.MinValue);
+            Ok("0. Paddock takes Google's client_secret*.json from Downloads by itself (client.json made, one log line)", WaitFor(delegate () { YouTube.Json(); return File.Exists(Path.Combine(yt, "client.json")); }, 3000) && Count(LogText(), "took the Google client file from Downloads (client_secret_test.apps.googleusercontent.com.json)") == 1);
             YouTube.Enqueue("r0", file, "race r0", "0:00 Start\nLap 1", null, thumb);
             Ok("0. set up but never signed in: kind signin \"Sign in to YouTube\"", WaitFor(delegate () { return YouTube.StateJson("r0") == "{\"kind\":\"signin\",\"error\":\"Sign in to YouTube\"}"; }, 5000), YouTube.StateJson("r0"));
             Thread.Sleep(300);
@@ -144,7 +151,7 @@ namespace IRDash
             mode = "wrongstate";
             YouTube.SignIn();
             Ok("1a. the sign-in ends after Cancel", WaitFor(delegate () { lock (pages) return pages.Count >= 2; }, 8000) && WaitFor(delegate () { return YouTube.Json().Contains("\"signingIn\":false"); }, 3000), pages.Count + " pages");
-            Ok("1a. a request with the wrong state gets \"Not found.\"", pages.Count >= 1 && pages[0].Contains("Not found."), pages.Count > 0 ? pages[0].Substring(0, Math.Min(40, pages[0].Length)) : "none");
+            Ok("1a. a request with the wrong state gets the out-of-date page (what to press), never a token", pages.Count >= 1 && pages[0].Contains(YouTube.OldPage), pages.Count > 0 ? pages[0].Substring(0, Math.Min(40, pages[0].Length)) : "none");
             Ok("1a. error=access_denied gets the not-signed-in page", pages.Count >= 2 && pages[1].Contains(YouTube.NotSignedInPage));
             Ok("1a. still signed out, no token.bin", YouTube.Json().Contains("\"signedIn\":false") && !File.Exists(Path.Combine(yt, "token.bin")));
             Ok("1a. the sign-in port is closed", WaitFor(delegate () { return PortClosed(Param(browserUrl, "redirect_uri")); }, 2000));
@@ -335,6 +342,31 @@ namespace IRDash
             lock (pages) pages.Clear();
             YouTube.SignIn();
             Ok("2d. signing in again sends the waiting race by itself", WaitFor(delegate () { return Kind("r14") == "shared"; }, 15000), YouTube.StateJson("r14"));
+
+            // ---- 2e. the sign-in page waits as long as irdash runs, and a restart listens on the same port again (pending.bin) ----
+            // 2026-11-15: a 5-minute window closed twice before Peter got to Chrome, and a deploy in between killed the listener.
+            typeof(YouTube).GetMethod("DeleteToken", Any).Invoke(null, null);   // signed out again; every race is done, nothing waits
+            Ok("2e. signed out for the restart case", YouTube.Json().Contains("\"signedIn\":false"));
+            YouTube.SignInTimeoutMs = 0; mode = "none"; opens = 0; lock (pages) pages.Clear();
+            YouTube.SignIn();
+            WaitFor(delegate () { return opens >= 1; }, 2000);
+            string waiting = browserUrl, waitPort = Param(waiting, "redirect_uri");
+            Thread.Sleep(2500);
+            Ok("2e. with no limit the page still waits after 2.5 s (signingIn, port open)", YouTube.Json().Contains("\"signingIn\":true") && !PortClosed(waitPort));
+            Ok("2e. the waiting sign-in is noted in pending.bin", File.Exists(Path.Combine(yt, "pending.bin")));
+            YouTube.Reset();                                   // irdash stops (a deploy): the socket closes, pending.bin stays
+            Ok("2e. a stopped irdash: port closed, pending.bin kept, no 'sign-in failed' line", WaitFor(delegate () { return PortClosed(waitPort); }, 2000) && File.Exists(Path.Combine(yt, "pending.bin")) && YouTube.Json().Contains("\"signingIn\":false") && !LogText().Contains("sign-in failed"));
+            opens = 0;
+            YouTube.Start();                                   // the new irdash
+            Ok("2e. the new irdash listens on the same port again and opens no browser", WaitFor(delegate () { return YouTube.Json().Contains("\"signingIn\":true") && !PortClosed(waitPort); }, 3000) && opens == 0, YouTube.Json());
+            Ok("2e. ... one log line says the page still waits", Count(LogText(), "still waits for Google's answer") == 1);
+            YouTube.SignIn();
+            Ok("2e. a press now shows the same page again (same address, same port)", opens == 1 && browserUrl == waiting, browserUrl == waiting ? opens + " opens" : "another address");
+            int exchangesBefore = g.AuthCodeExchanges;
+            string landed = Get(waiting);                      // Allow in the old tab: Google sends its answer to the same port
+            Ok("2e. Allow in the old tab signs Paddock in (the kept verifier matches the challenge)", landed.Contains(YouTube.SignedInPage) && g.PkceOk && g.AuthCodeExchanges == exchangesBefore + 1 && WaitFor(delegate () { return YouTube.Json().Contains("\"signedIn\":true"); }, 3000), landed.Length > 60 ? landed.Substring(0, 60) : landed);
+            Ok("2e. pending.bin is gone after the sign-in and the port is closed", !File.Exists(Path.Combine(yt, "pending.bin")) && WaitFor(delegate () { return PortClosed(waitPort); }, 2000));
+            YouTube.SignInTimeoutMs = 15000; mode = "google";
 
             // ---- 2b. invalid_grant: signed out ----
             g.Revoked = true; g.InvalidGrant = true;
