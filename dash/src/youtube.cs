@@ -393,18 +393,32 @@ namespace IRDash
         // the ytsignin press: answers at once; the sign-in waits on its own thread for Google's answer, as long as irdash runs
         // (SignInTimeoutMs 0; tests set a short one). The only browser Paddock opens.
         // irdash's guard loop, every 2 s, never while the sim runs or a session is on: a waiting sign-in window stays on the middle screen,
-        // filling it. 2026-11-26 09:14: the screens woke from sleep and Windows shuffled the windows; Google's page sat maximized on the
-        // dashboard monitor, over the dashboard, until the next press. At most one move every 30 s.
-        static DateTime lastKept = DateTime.MinValue;
+        // filling it, but only in the 90 s after Windows itself re-arranged the screens. 2026-11-26 09:14: the screens woke from sleep and
+        // Windows shuffled the windows; Google's page sat maximized on the dashboard monitor, over the dashboard, until the next press.
+        // 17:37 and 18:50: a keeper that acted on any misplaced window pulled it back twice while Peter was at the PC and the screens had not
+        // changed, undoing what he did with it himself. A window he minimized or moved is his. At most one move every 30 s.
+        static DateTime lastKept = DateTime.MinValue, screensChanged = DateTime.MinValue;
+        static string screens;
         public static void KeepWindow()
         {
+            string now = ScreenSet();
+            if (now != screens) { if (screens != null) screensChanged = DateTime.UtcNow; screens = now; }
             IntPtr h = signInWindow;
-            if (h == IntPtr.Zero || Win.FillsPrimary(h)) return;
+            if (h == IntPtr.Zero || (DateTime.UtcNow - screensChanged).TotalSeconds > 90) return;
+            if (Win.Minimized(h) || Win.FillsPrimary(h)) return;
             System.Drawing.Rectangle p = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
             if (p.Width != 2560 || p.Height != 1440) return;          // the screens are still waking up (the gallery saw 1 race screen at 09:14:30)
             if ((DateTime.UtcNow - lastKept).TotalSeconds < 30) return;
             lastKept = DateTime.UtcNow;
-            if (Win.Show(h)) Log.W("youtube: the sign-in window was put back on the middle screen");
+            if (Win.Show(h)) Log.W("youtube: the sign-in window was put back on the middle screen (the screens changed)");
+        }
+
+        // the screens as Windows has them now (position, size, which is primary): a change means Windows re-arranged them
+        static string ScreenSet()
+        {
+            StringBuilder s = new StringBuilder();
+            try { foreach (System.Windows.Forms.Screen sc in System.Windows.Forms.Screen.AllScreens) s.Append(sc.Bounds).Append(sc.Primary ? "*;" : ";"); } catch { }
+            return s.ToString();
         }
 
         public static string SignIn()
@@ -814,6 +828,8 @@ namespace IRDash
                 try { foreach (IntPtr w in Windows(procName)) if (Title(w) == title) return w; } catch { }
                 return IntPtr.Zero;
             }
+
+            public static bool Minimized(IntPtr h) { try { return IsIconic(h); } catch { return false; } }
 
             // true while the window fills the middle (primary) screen: maximized, with its middle on that screen
             public static bool FillsPrimary(IntPtr h)
