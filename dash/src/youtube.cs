@@ -58,6 +58,7 @@ namespace IRDash
         public const string FailedPage = "Paddock could not sign in to YouTube. Press Sign in to YouTube again.";
         public const string DoneTitle = "Paddock: signed in to YouTube", NotDoneTitle = "Paddock: not signed in to YouTube";   // the final page's title: Paddock closes the sign-in window it opened while it shows that
         public const string ClosesLine = "This window closes by itself. If it stays, close it.";
+        public const string GoogleTitle = "Sign in - Google Accounts";   // the title of Google's sign-in pages, as the app-mode window shows it
         public const string OldPage = "This sign-in page is out of date. On the top screen, open RACES and press Sign in to YouTube again.";
         public const string EntropyText = "Paddock YouTube token";   // extra DPAPI salt: another program of Peter's cannot just call Unprotect
         const string JobName = "youtube upload";
@@ -391,6 +392,21 @@ namespace IRDash
 
         // the ytsignin press: answers at once; the sign-in waits on its own thread for Google's answer, as long as irdash runs
         // (SignInTimeoutMs 0; tests set a short one). The only browser Paddock opens.
+        // irdash's guard loop, every 2 s, never while the sim runs or a session is on: a waiting sign-in window stays on the middle screen,
+        // filling it. 2026-11-26 09:14: the screens woke from sleep and Windows shuffled the windows; Google's page sat maximized on the
+        // dashboard monitor, over the dashboard, until the next press. At most one move every 30 s.
+        static DateTime lastKept = DateTime.MinValue;
+        public static void KeepWindow()
+        {
+            IntPtr h = signInWindow;
+            if (h == IntPtr.Zero || Win.FillsPrimary(h)) return;
+            System.Drawing.Rectangle p = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+            if (p.Width != 2560 || p.Height != 1440) return;          // the screens are still waking up (the gallery saw 1 race screen at 09:14:30)
+            if ((DateTime.UtcNow - lastKept).TotalSeconds < 30) return;
+            lastKept = DateTime.UtcNow;
+            if (Win.Show(h)) Log.W("youtube: the sign-in window was put back on the middle screen");
+        }
+
         public static string SignIn()
         {
             string id, secret;
@@ -422,6 +438,15 @@ namespace IRDash
             if (!ReadClient(out id, out secret) || (DateTime.UtcNow - p.Started).TotalDays > 7) { DeletePending(); return; }
             lock (gate) { if (signingIn) return; signingIn = true; }
             SignInThread(id, secret, p);
+            // the window of an earlier irdash (a deploy restarts it): an app-mode window on Google's sign-in has that exact title, a tab
+            // in a normal window ends in " - Google Chrome". Found again, a press shows it and the keeper keeps it, instead of a second one.
+            // Not for the tests: they replace OpenBrowser, and their irdash copy once adopted Peter's real window (2026-11-26, case 2e).
+            string exe = BrowserExe();
+            if (exe.Length > 0 && OpenBrowser == new Action<string>(DefaultOpen))
+            {
+                IntPtr h = Win.Find(Path.GetFileNameWithoutExtension(exe), GoogleTitle);
+                if (h != IntPtr.Zero) { signInWindow = h; Log.W("youtube: the waiting sign-in window was found again"); }
+            }
         }
 
         static void SignInThread(string id, string secret, Waiting resume)
@@ -730,6 +755,9 @@ namespace IRDash
             [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
             [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
             [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+            [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr h);
+            [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+            [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
             [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
             [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
             [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
@@ -766,17 +794,37 @@ namespace IRDash
                 return true;
             }
 
-            // onto the middle (primary) screen, whose corner is 0,0, filling it, in front
+            // onto the middle (primary) screen, whose corner is 0,0, filling it, in front. A window maximized on another screen is restored
+            // first: moved while maximized it kept that screen's size (2026-11-26 09:16, after the screens woke from sleep).
             static void Place(IntPtr h)
             {
                 try
                 {
-                    if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+                    if (IsIconic(h) || IsZoomed(h)) ShowWindow(h, SW_RESTORE);
                     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
                     ShowWindow(h, SW_MAXIMIZE);
                     SetForegroundWindow(h);
                 }
                 catch { }
+            }
+
+            // the browser's visible window with exactly this title, else zero
+            public static IntPtr Find(string procName, string title)
+            {
+                try { foreach (IntPtr w in Windows(procName)) if (Title(w) == title) return w; } catch { }
+                return IntPtr.Zero;
+            }
+
+            // true while the window fills the middle (primary) screen: maximized, with its middle on that screen
+            public static bool FillsPrimary(IntPtr h)
+            {
+                try
+                {
+                    if (!IsWindow(h) || !IsWindowVisible(h) || !IsZoomed(h)) return false;
+                    RECT r; if (!GetWindowRect(h, out r)) return false;
+                    return System.Windows.Forms.Screen.PrimaryScreen.Bounds.Contains((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+                }
+                catch { return false; }
             }
 
             // the window is still there: show it again (a press while the page waits)

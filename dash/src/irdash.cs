@@ -2887,6 +2887,7 @@ namespace IRDash
             catch (Exception ex) { Log.W("overlays raise: " + ex.Message); }
             try { if (cfg.PlaceSim) { IntPtr h = simH; if (h != IntPtr.Zero) Post(ui, delegate { PlaceSim(h); }); else simHwnd = IntPtr.Zero; } } catch (Exception ex) { Log.W("place sim: " + ex.Message); }
             try { if (cfg.KeepDash && !noBrowser) KeepDash(ui); } catch (Exception ex) { Log.W("keep dash: " + ex.Message); }
+            try { if (!Driving && !Sdk.Latest.Connected && !RigState.SimRunning) YouTube.KeepWindow(); } catch (Exception ex) { Log.W("keep sign-in: " + ex.Message); }
             try { if (cfg.LogAllCars) EnsureLogAllCars(); } catch (Exception ex) { Log.W("log all cars: " + ex.Message); }
             try { if (cfg.SyncSimIni) EnsureSimIni(); } catch (Exception ex) { Log.W("sim ini: " + ex.Message); }
             try { if (cfg.Watchdog) Watch.Tick(Sdk.Latest.Connected); } catch (Exception ex) { Log.W("watchdog: " + ex.Message); }
