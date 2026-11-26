@@ -67,6 +67,16 @@ namespace IRDash
                 using (StreamReader sr = new StreamReader(r.GetResponseStream())) return "HTTP" + (int)r.StatusCode + " " + sr.ReadToEnd();
             }
         }
+        // one request without following a redirect: "302 <Location>", "204 ", "200 " ...
+        static string Head(string url)
+        {
+            try
+            {
+                HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(url); rq.AllowAutoRedirect = false; rq.Timeout = 10000;
+                using (HttpWebResponse r = (HttpWebResponse)rq.GetResponse()) return (int)r.StatusCode + " " + (r.Headers["Location"] ?? "");
+            }
+            catch (WebException ex) { HttpWebResponse r = ex.Response as HttpWebResponse; return r == null ? "ERR " + ex.Status : (int)r.StatusCode + " " + (r.Headers["Location"] ?? ""); }
+        }
         // nothing listens on the sign-in port any more (refused)
         static bool PortClosed(string redirect)
         {
@@ -146,6 +156,8 @@ namespace IRDash
             Ok("0. set up but never signed in: kind signin \"Sign in to YouTube\"", WaitFor(delegate () { return YouTube.StateJson("r0") == "{\"kind\":\"signin\",\"error\":\"Sign in to YouTube\"}"; }, 5000), YouTube.StateJson("r0"));
             Thread.Sleep(300);
             Ok("0. the upload job opened no browser (only the sign-in key does)", opens == 0, opens + " opens");
+            string bexe = (string)typeof(YouTube).GetMethod("BrowserExe", Any).Invoke(null, null);
+            Ok("0. the browser for the sign-in window is known (Chrome/Edge app mode) or ShellExecute stands in: " + (bexe.Length == 0 ? "none, ShellExecute" : Path.GetFileName(bexe)), bexe.Length == 0 || File.Exists(bexe));
 
             // ---- 1a. sign-in: a wrong state is ignored, then Cancel on Google's page ----
             mode = "wrongstate";
@@ -253,7 +265,7 @@ namespace IRDash
                 Ok("5. byte-exact", PretendGoogle.Hash(u2.Data.ToArray()) == hash);
                 Ok("5. one upload session for r2 (resumed, not restarted)", UpsFor("race r2").Count == 1);
             }
-            Ok("5. the thumbnail was set for r2", g.ThumbsSet >= 1);
+            Ok("5. the thumbnail was set for r2", WaitFor(delegate () { return g.ThumbsSet >= 1; }, 3000), g.ThumbsSet + " set");   // the thumbnail call follows the "shared" mark by a moment (2026-11-25: one false FAIL under load)
 
             // ---- 6. a session starts mid-upload; another race is queued meanwhile ----
             g.AfterChunk = delegate (PretendGoogle.Up u) { if (u.Title == "race r4" && u.Chunks == 1) sessionOn = true; };
@@ -353,6 +365,8 @@ namespace IRDash
             string waiting = browserUrl, waitPort = Param(waiting, "redirect_uri");
             Thread.Sleep(2500);
             Ok("2e. with no limit the page still waits after 2.5 s (signingIn, port open)", YouTube.Json().Contains("\"signingIn\":true") && !PortClosed(waitPort));
+            Ok("2e. another address on the sign-in port goes to Google's sign-in page (302), a favicon gets 204, a plain visit goes to the sign-in page too (never \"Not found\")", Head(waitPort + "anything") == "302 " + waiting && Head(waitPort + "favicon.ico") == "204 " && Head(waitPort) == "302 " + waiting, Head(waitPort + "anything") + " / " + Head(waitPort + "favicon.ico"));
+            Ok("2e. ... and the page still waits after those", YouTube.Json().Contains("\"signingIn\":true") && !PortClosed(waitPort));
             Ok("2e. the waiting sign-in is noted in pending.bin", File.Exists(Path.Combine(yt, "pending.bin")));
             YouTube.Reset();                                   // irdash stops (a deploy): the socket closes, pending.bin stays
             Ok("2e. a stopped irdash: port closed, pending.bin kept, no 'sign-in failed' line", WaitFor(delegate () { return PortClosed(waitPort); }, 2000) && File.Exists(Path.Combine(yt, "pending.bin")) && YouTube.Json().Contains("\"signingIn\":false") && !LogText().Contains("sign-in failed"));

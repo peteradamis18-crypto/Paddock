@@ -18,6 +18,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -52,8 +53,11 @@ namespace IRDash
         public const string MsgAlready = "Already on YouTube";
         public const string MsgDailyWait = "YouTube's daily limit is reached. Trying again after 9 in the morning";
         public const string MsgChannel = "Make a YouTube channel first: open youtube.com with your Google account";
-        public const string SignedInPage = "Paddock is signed in to YouTube. You can close this tab.";
-        public const string NotSignedInPage = "Paddock was not signed in to YouTube. You can close this tab.";
+        public const string SignedInPage = "Paddock is signed in to YouTube.";
+        public const string NotSignedInPage = "Paddock was not signed in to YouTube.";
+        public const string FailedPage = "Paddock could not sign in to YouTube. Press Sign in to YouTube again.";
+        public const string DoneTitle = "Paddock: signed in to YouTube", NotDoneTitle = "Paddock: not signed in to YouTube";   // the final page's title: Paddock closes the sign-in window it opened while it shows that
+        public const string ClosesLine = "This window closes by itself. If it stays, close it.";
         public const string OldPage = "This sign-in page is out of date. On the top screen, open RACES and press Sign in to YouTube again.";
         public const string EntropyText = "Paddock YouTube token";   // extra DPAPI salt: another program of Peter's cannot just call Unprotect
         const string JobName = "youtube upload";
@@ -90,6 +94,7 @@ namespace IRDash
         static volatile bool signingIn, paused, busy;
         static volatile string openAuthUrl;  // the sign-in page while it waits: a second press opens it again
         static TcpListener listening;        // the sign-in's socket while it waits (Reset closes it as a stopped irdash would)
+        static IntPtr signInWindow;          // the sign-in's own browser window (Chrome/Edge app mode); zero when none or not known
         static bool thumbTold;
 
         static long NowMs { get { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; } }
@@ -394,7 +399,8 @@ namespace IRDash
             {
                 if (signingIn)
                 {
-                    string again = openAuthUrl;           // the tab was closed or lost: show the same page again
+                    if (Win.Show(signInWindow)) return "Google's sign-in page is on the middle screen";   // its window is there: in front again, filling the screen
+                    string again = openAuthUrl;           // the window was closed or lost: show the same page again
                     if (again != null) { try { OpenBrowser(again); } catch { } }
                     return "Google sign-in is open in the browser";
                 }
@@ -406,14 +412,14 @@ namespace IRDash
         }
 
         // irdash start: a sign-in page left waiting when irdash last stopped (a deploy restarts it) is listened for again on the same
-        // port with the same state and verifier (dash\yt\pending.bin), so Allow in the tab that is still open lands. A day old is
-        // forgotten. 2026-11-15: Peter's tab could only get "refused to connect" once the listener had gone with the old irdash.
+        // port with the same state and verifier (dash\yt\pending.bin), so Allow in the tab that is still open lands. A week old is
+        // forgotten (2026-11-25: Peter took nine days to get to the page). 2026-11-15: Peter's tab could only get "refused to connect" once the listener had gone with the old irdash.
         static void ResumeSignIn()
         {
             Waiting p = LoadPending();
             if (p == null) return;
             string id, secret;
-            if (!ReadClient(out id, out secret) || (DateTime.UtcNow - p.Started).TotalHours > 24) { DeletePending(); return; }
+            if (!ReadClient(out id, out secret) || (DateTime.UtcNow - p.Started).TotalDays > 7) { DeletePending(); return; }
             lock (gate) { if (signingIn) return; signingIn = true; }
             SignInThread(id, secret, p);
         }
@@ -498,29 +504,38 @@ namespace IRDash
                         string path = qi < 0 ? target : target.Substring(0, qi);
                         Dictionary<string, string> q = Query(qi < 0 ? "" : target.Substring(qi + 1));
                         string v;
-                        if (path != "/") { Answer(ns, 404, "Not found."); continue; }                                 // a favicon
-                        if (!q.TryGetValue("state", out v) || v != state) { Answer(ns, 404, OldPage); continue; }   // a tab from an earlier press
+                        if (path == "/favicon.ico") { Answer(ns, 204, ""); continue; }
+                        if (path != "/") { Redirect(ns, url); continue; }                                        // any other address on this port: Google's sign-in page itself
+                        if (!q.TryGetValue("state", out v) || v != state)
+                        {
+                            if (!q.ContainsKey("code") && !q.ContainsKey("error")) { Redirect(ns, url); continue; }   // a plain visit of the address: the sign-in page
+                            Answer(ns, 404, OldPage); continue;                                                  // Google's answer to an earlier press: never exchanged
+                        }
+                        IntPtr shown = signInWindow; signInWindow = IntPtr.Zero;                                  // the window this sign-in opened, closed after the final page
                         if (q.TryGetValue("error", out v) && v.Length > 0)
                         {
-                            Answer(ns, 200, NotSignedInPage);
+                            Answer(ns, 200, NotSignedInPage, NotDoneTitle, ClosesLine);
                             Log.W("youtube: sign-in cancelled on Google's page (" + Safe(v) + ")");
                             DeletePending();
+                            Win.CloseLater(shown, NotDoneTitle);
                             return;
                         }
                         string code; q.TryGetValue("code", out code);
                         string err = Exchange(id, secret, code ?? "", verifier, redirect);
                         if (err == null)
                         {
-                            Answer(ns, 200, SignedInPage);
+                            Answer(ns, 200, SignedInPage, DoneTitle, ClosesLine);
                             Log.W("youtube: signed in");
                             DeletePending();
                             SignedIn();
+                            Win.CloseLater(shown, DoneTitle);
                         }
                         else
                         {
-                            Answer(ns, 200, "Paddock could not sign in to YouTube. Close this tab and press the sign-in key again.");
+                            Answer(ns, 200, FailedPage, NotDoneTitle, ClosesLine);
                             Log.W("youtube: sign-in failed: " + err);
                             DeletePending();
+                            Win.CloseLater(shown, NotDoneTitle);
                         }
                         return;
                     }
@@ -603,16 +618,32 @@ namespace IRDash
             return d;
         }
 
-        static void Answer(NetworkStream ns, int status, string text)
+        static void Answer(NetworkStream ns, int status, string text) { Answer(ns, status, text, "Paddock", null); }
+
+        // a final page (signed in or not) carries a title of its own: Paddock closes the sign-in window it opened while it shows that title
+        static void Answer(NetworkStream ns, int status, string text, string title, string small)
         {
             try
             {
-                byte[] body = Encoding.UTF8.GetBytes("<!doctype html><meta charset=\"utf-8\"><title>Paddock</title><body style=\"background:#000;color:#e8c66a;font:28px sans-serif;padding:60px\">" +
-                                                     WebUtility.HtmlEncode(text) + "</body>");
-                string head = "HTTP/1.1 " + status + (status == 200 ? " OK" : " Not Found") + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.Length +
+                byte[] body = status == 204 ? new byte[0] : Encoding.UTF8.GetBytes(
+                    "<!doctype html><meta charset=\"utf-8\"><title>" + WebUtility.HtmlEncode(title) + "</title><body style=\"background:#000;color:#e8c66a;font:28px sans-serif;padding:60px\">" +
+                    WebUtility.HtmlEncode(text) + (small == null ? "" : "<p style=\"color:#9a8a5a;font-size:20px\">" + WebUtility.HtmlEncode(small) + "</p>") + "</body>");
+                string reason = status == 200 ? "OK" : status == 204 ? "No Content" : "Not Found";
+                string head = "HTTP/1.1 " + status + " " + reason + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body.Length +
                               "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
                 byte[] h = Encoding.ASCII.GetBytes(head);
                 ns.Write(h, 0, h.Length); ns.Write(body, 0, body.Length); ns.Flush();
+            }
+            catch { }
+        }
+
+        // any other address on the sign-in port shows Google's sign-in page itself (never a "Not found")
+        static void Redirect(NetworkStream ns, string to)
+        {
+            try
+            {
+                byte[] h = Encoding.ASCII.GetBytes("HTTP/1.1 302 Found\r\nLocation: " + to + "\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+                ns.Write(h, 0, h.Length); ns.Flush();
             }
             catch { }
         }
@@ -649,13 +680,127 @@ namespace IRDash
             if (any) Kick(0);
         }
 
-        // The default browser by ShellExecute, never explorer.exe: explorer treats the address as a path and cuts it at 260 characters
-        // (2026-11-15: Google's sign-in address is ~450 characters; it lost code_challenge, state, access_type and prompt, Google
-        // answered without a state and the listener said "Not found" to Peter twice).
+        // The sign-in gets a window of its own: Chrome's or Edge's app mode (no tabs, no address bar), placed to fill the middle
+        // (primary) screen, and Paddock closes it when the sign-in ends. 2026-11-25: ShellExecute had put Google's page in a tab of
+        // whatever window was on top, among the dead tabs of earlier tries, and Peter clicked through one of those (Chrome's
+        // history: consent reached on a port that had gone). ShellExecute stays the fallback for any other browser. Never
+        // explorer.exe: it treats the address as a path and cuts it at 260 characters (2026-11-15: Google's ~450-character
+        // address lost code_challenge, state, access_type and prompt, Google answered without a state and the listener said
+        // "Not found" to Peter twice).
         static void DefaultOpen(string url)
         {
+            string exe = BrowserExe();
+            if (exe.Length > 0)
+            {
+                IntPtr h;
+                if (Win.OpenApp(exe, url, out h)) { signInWindow = h; return; }
+            }
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
             catch { System.Diagnostics.Process.Start("rundll32.exe", "url.dll,FileProtocolHandler " + url); }   // no https handler registered: Windows' own opener
+        }
+
+        // the browser for the sign-in window: Chrome when it is installed (Peter's Google account lives there, and the earlier sign-in
+        // pages opened there), else Edge; "" = neither, and ShellExecute opens whatever Windows has. 2026-11-25: Windows' own https
+        // default on the rig had become Edge, where no Google account is signed in.
+        internal static string BrowserExe()
+        {
+            try
+            {
+                string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                string pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string[] candidates = {
+                    Path.Combine(pf, @"Google\Chrome\Application\chrome.exe"),
+                    Path.Combine(pf86, @"Google\Chrome\Application\chrome.exe"),
+                    Path.Combine(local, @"Google\Chrome\Application\chrome.exe"),
+                    Path.Combine(pf86, @"Microsoft\Edge\Application\msedge.exe"),
+                    Path.Combine(pf, @"Microsoft\Edge\Application\msedge.exe")
+                };
+                foreach (string c in candidates) if (File.Exists(c)) return c;
+            }
+            catch { }
+            return "";
+        }
+
+        // ---- the sign-in window: opened in app mode, put on the middle screen, closed by Paddock when the sign-in ends ----
+        static class Win
+        {
+            delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+            [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+            [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+            [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+            [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+            const uint SWP_NOSIZE = 0x1, SWP_NOZORDER = 0x4, WM_CLOSE = 0x10;
+            const int SW_MAXIMIZE = 3, SW_RESTORE = 9;
+
+            // the browser's visible top-level windows (every process of that name: Chrome's windows all belong to one)
+            static HashSet<IntPtr> Windows(string procName)
+            {
+                HashSet<uint> pids = new HashSet<uint>();
+                foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcessesByName(procName)) { pids.Add((uint)p.Id); p.Dispose(); }
+                HashSet<IntPtr> set = new HashSet<IntPtr>();
+                EnumWindows(delegate (IntPtr h, IntPtr l) { uint pid; GetWindowThreadProcessId(h, out pid); if (pids.Contains(pid) && IsWindowVisible(h)) set.Add(h); return true; }, IntPtr.Zero);
+                return set;
+            }
+
+            // starts the browser in app mode on the address; true when it started (h = the new window once it shows, else zero)
+            public static bool OpenApp(string exe, string url, out IntPtr h)
+            {
+                h = IntPtr.Zero;
+                string name = Path.GetFileNameWithoutExtension(exe);
+                HashSet<IntPtr> before = Windows(name);
+                try { using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--app=\"" + url + "\"") { UseShellExecute = false })) { } }
+                catch { return false; }
+                for (int i = 0; i < 60 && h == IntPtr.Zero; i++)          // the window takes a moment (up to 6 s)
+                {
+                    Thread.Sleep(100);
+                    foreach (IntPtr w in Windows(name)) if (!before.Contains(w) && Title(w).Length > 0) { h = w; break; }
+                }
+                if (h != IntPtr.Zero) Place(h);
+                return true;
+            }
+
+            // onto the middle (primary) screen, whose corner is 0,0, filling it, in front
+            static void Place(IntPtr h)
+            {
+                try
+                {
+                    if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+                    SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                    ShowWindow(h, SW_MAXIMIZE);
+                    SetForegroundWindow(h);
+                }
+                catch { }
+            }
+
+            // the window is still there: show it again (a press while the page waits)
+            public static bool Show(IntPtr h)
+            {
+                if (h == IntPtr.Zero) return false;
+                try { if (!IsWindow(h) || !IsWindowVisible(h)) return false; } catch { return false; }
+                Place(h);
+                return true;
+            }
+
+            static string Title(IntPtr h) { StringBuilder s = new StringBuilder(512); GetWindowText(h, s, s.Capacity); return s.ToString(); }
+
+            // a little after the final page: close the window Paddock opened, and only while it still shows that page (its title)
+            public static void CloseLater(IntPtr h, string title)
+            {
+                if (h == IntPtr.Zero) return;
+                Thread t = new Thread(delegate ()
+                {
+                    Thread.Sleep(2500);
+                    try { if (IsWindow(h) && Title(h).StartsWith(title)) PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); } catch { }
+                });
+                t.IsBackground = true; t.Start();
+            }
         }
 
         // ================= tokens =================
